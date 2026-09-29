@@ -98,7 +98,7 @@ abstract contract CoreVaultIncome is CoreVaultBase {
         return _s.income.tokenIncome[token].ownerless;
     }
 
-    /// @notice Accumulator state of an income token (index, remainder, ownerless, distributed and taken totals).
+    /// @inheritdoc ICoreVault
     function incomeState(address token) external view returns (IncomeAccumulator.TokenIncome memory) {
         return _s.income.tokenIncome[token];
     }

@@ -131,13 +131,13 @@ library CoreVaultLogic {
         }
     }
 
-    /// @notice Spoke Cap usage (DEC-037, DEC-066, DEC-095). `inFlightSent` includes both legs whose outcome is unknown:
-    ///         hub-to-spoke sends still Sent, at the amount sent (C1), and the pending return leg the spoke reports in
-    ///         `inFlightToHub` that the hub has not yet credited (B1).
+    /// @notice Spoke Cap usage (DEC-037, DEC-066, DEC-095): both legs whose outcome is unknown count, hub-to-spoke
+    ///         sends still Sent at the amount sent (`inFlightSent`, C1) and the pending return leg the spoke reports in
+    ///         `inFlightToHub` that the hub has not yet credited, Principal and Income alike (`inFlightToHub`, B1).
     function spokeCapUsage(CoreVaultState storage s, CoreVaultWiring memory w, uint256 spokeIndex)
         public
         view
-        returns (uint256 spokeValue, uint256 inFlightSent, uint256 spokeCap)
+        returns (uint256 spokeValue, uint256 inFlightSent, uint256 inFlightToHub, uint256 spokeCap)
     {
         if (spokeIndex >= s.mandate.spokes.length) revert ICoreVault.UnknownSpoke(spokeIndex);
         SpokeConfig storage spoke = s.mandate.spokes[spokeIndex];
@@ -146,7 +146,7 @@ library CoreVaultLogic {
         if (receiver.hasReport(spokeIndex)) {
             (ReportCodec.Report memory r,,) = receiver.latestReport(spokeIndex);
             spokeValue = _spokePrincipal(s, w, _newPrices(VIEW), spokeIndex, r);
-            inFlightSent += _returnLeg(s, spoke.chainId, r, false);
+            inFlightToHub = _returnLeg(s, spoke.chainId, r, false);
         }
         spokeCap = spoke.spokeCap;
     }
@@ -625,10 +625,9 @@ library CoreVaultLogic {
         if (fee > maxFee) revert ICoreVault.BridgeFeeAboveMax(fee, maxFee);
 
         // DEC-037, DEC-095, DEC-066 B1/C1: spoke value + in flight (both legs) + amount <= Spoke Cap.
-        (uint256 spokeValue, uint256 inFlight, uint256 cap) = spokeCapUsage(s, w, spokeIndex);
-        if (spokeValue + inFlight + usdcAmount > cap) {
-            revert ICoreVault.SpokeCapExceeded(spokeIndex, spokeValue + inFlight, usdcAmount, cap);
-        }
+        (uint256 spokeValue, uint256 inFlightSent, uint256 inFlightToHub, uint256 cap) = spokeCapUsage(s, w, spokeIndex);
+        uint256 used = spokeValue + inFlightSent + inFlightToHub;
+        if (used + usdcAmount > cap) revert ICoreVault.SpokeCapExceeded(spokeIndex, used, usdcAmount, cap);
     }
 
     function _sendRequest(

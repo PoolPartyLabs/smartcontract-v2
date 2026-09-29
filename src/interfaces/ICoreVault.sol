@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {IAcrossMessageHandler} from "./external/IAcrossMessageHandler.sol";
 import {Mandate} from "../mandate/Mandate.sol";
 import {Transit, TransferKind, ExpensePayer, BridgeQuote} from "./FundTypes.sol";
+import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 
 /// @title ICoreVault
 /// @notice Hub Chain contract of a fund: custody of Idle USDC, the Share ledger, Payout Requests and Payouts, the
@@ -384,14 +385,21 @@ interface ICoreVault is IAcrossMessageHandler {
     function operatingCashFloor() external view returns (uint256);
     function operatingCashTopUp() external view returns (uint256);
 
-    /// @notice Spoke Cap usage of a spoke (DEC-037, DEC-066, DEC-095).
+    /// @notice Spoke Cap usage of a spoke (DEC-037, DEC-066, DEC-095): a send must keep
+    ///         `spokeValue + inFlightSent + inFlightToHub + amount <= spokeCap`.
     /// @return spokeValue Principal value of the spoke from its last accepted report.
-    /// @return inFlightSent Amount sent to the spoke whose outcome is unknown (DEC-066 C1).
+    /// @return inFlightSent Amount sent to the spoke whose outcome is unknown, at the amount sent (DEC-066 C1).
+    /// @return inFlightToHub The spoke's pending return leg: transfers home (Principal and Income) its last report lists
+    ///         as in flight and the hub has not yet credited (DEC-066 B1).
     /// @return spokeCap The Mandate's Spoke Cap.
     function spokeCapUsage(uint256 spokeIndex)
         external
         view
-        returns (uint256 spokeValue, uint256 inFlightSent, uint256 spokeCap);
+        returns (uint256 spokeValue, uint256 inFlightSent, uint256 inFlightToHub, uint256 spokeCap);
+
+    /// @notice Spoke-to-hub arrivals held apart: arrived before any report listed them, or above the listed amount;
+    ///         outside every base and never swept (DEC-080, DEC-104, OQ-01).
+    function unmatchedArrivals() external view returns (uint256);
 
     /// @notice A hub-to-spoke transit.
     function transit(bytes32 transitId) external view returns (Transit memory);
@@ -414,6 +422,10 @@ interface ICoreVault is IAcrossMessageHandler {
 
     /// @notice Income recognized with no shares outstanding (LC-32 OPEN: retained).
     function ownerlessIncome(address token) external view returns (uint256);
+
+    /// @notice Accumulator state of an income token: index (Q128), remainder, ownerless, distributed and taken totals
+    ///         (Q60 fitness functions).
+    function incomeState(address token) external view returns (IncomeAccumulator.TokenIncome memory);
 
     // ---------------------------------------------------------------------------------------------------------------
     // Fees (DEC-102, DEC-106..110)

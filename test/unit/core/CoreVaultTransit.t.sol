@@ -64,7 +64,7 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         // DEC-085: In-flight Value counts at the amount that will arrive.
         assertEq(vault.inFlightValue(), ARRIVES);
         assertEq(vault.shareAssets(), assetsBefore - SENT + ARRIVES);
-        (uint256 spokeValue, uint256 inFlightSent, uint256 cap) = vault.spokeCapUsage(0);
+        (uint256 spokeValue, uint256 inFlightSent,, uint256 cap) = vault.spokeCapUsage(0);
         assertEq(spokeValue, 0);
         assertEq(inFlightSent, SENT, "DEC-066 C1: the Spoke Cap counts the amount sent");
         assertEq(cap, SPOKE_CAP);
@@ -83,9 +83,10 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         _deposit(bob, 200_000e6);
         ReportCodec.Report memory r = _spokeReport(40_000e6, 0);
         _deliver(_inFlightToHub(r, keccak256("home-1"), 30_000e6));
-        (uint256 spokeValue, uint256 inFlight,) = vault.spokeCapUsage(0);
+        (uint256 spokeValue, uint256 inFlightSent, uint256 inFlightToHub,) = vault.spokeCapUsage(0);
         assertEq(spokeValue, 40_000e6);
-        assertEq(inFlight, 30_000e6);
+        assertEq(inFlightSent, 0);
+        assertEq(inFlightToHub, 30_000e6, "the pending return leg, on its own line");
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(ICoreVault.SpokeCapExceeded.selector, 0, 70_000e6, 30_001e6, SPOKE_CAP));
         vault.sendToSpoke(0, 30_001e6, 0, _quote(30_000e6));
@@ -163,7 +164,7 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         _deliver(_arrived(_spokeReport(ARRIVES, ARRIVES), id, ARRIVES));
         assertEq(uint8(vault.transit(id).state), uint8(TransitState.ArrivalConfirmed));
         assertEq(vault.inFlightValue(), 0);
-        (uint256 spokeValue, uint256 inFlightSent,) = vault.spokeCapUsage(0);
+        (uint256 spokeValue, uint256 inFlightSent,,) = vault.spokeCapUsage(0);
         assertEq(spokeValue, ARRIVES);
         assertEq(inFlightSent, 0);
         assertEq(vault.shareAssets(), assetsInFlight, "DEC-104: the value moved base, not amount");
@@ -176,7 +177,7 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         bytes32 id = _sendDefault();
         // The spoke also credited 500 USDG a stranger bridged with a fabricated id.
         _deliver(_arrived(_spokeReport(ARRIVES + 500e6, ARRIVES + 500e6), id, ARRIVES));
-        (uint256 spokeValue,,) = vault.spokeCapUsage(0);
+        (uint256 spokeValue,,,) = vault.spokeCapUsage(0);
         assertEq(spokeValue, ARRIVES);
     }
 
@@ -205,7 +206,7 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         vm.prank(bob);
         vault.attestExpiry(id);
         assertEq(uint8(vault.transit(id).state), uint8(TransitState.ExpiryAttested));
-        (, uint256 inFlightSent,) = vault.spokeCapUsage(0);
+        (, uint256 inFlightSent,,) = vault.spokeCapUsage(0);
         assertEq(inFlightSent, 0, "Spoke Cap released");
         assertEq(vault.inFlightValue(), ARRIVES, "QB11 stance: still in Share Assets");
         assertEq(vault.shareAssets(), assets);
@@ -250,7 +251,7 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         assertEq(vault.idle(), idleBefore + SENT);
         assertEq(vault.inFlightValue(), 0);
         assertEq(uint8(vault.transit(id).state), uint8(TransitState.RefundRecognized));
-        (, uint256 inFlightSent,) = vault.spokeCapUsage(0);
+        (, uint256 inFlightSent,,) = vault.spokeCapUsage(0);
         assertEq(inFlightSent, 0);
         assertEq(usdc.balanceOf(address(vault)), _ledgerUsdc());
         // RefundRecognized is terminal for refunds.
@@ -307,7 +308,7 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         vault.recognizeRefund(id);
         _deliver(_arrived(_spokeReport(ARRIVES, ARRIVES), id, ARRIVES));
         assertEq(uint8(vault.transit(id).state), uint8(TransitState.ArrivalConfirmed));
-        (uint256 spokeValue,,) = vault.spokeCapUsage(0);
+        (uint256 spokeValue,,,) = vault.spokeCapUsage(0);
         assertEq(spokeValue, ARRIVES, "the arrival is not treated as unknown");
         assertEq(vault.shareAssets(), 9975e6 + ARRIVES, "the donor's amount stays with the fund");
     }
@@ -382,6 +383,14 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         assertEq(vault.idle(), 9975e6);
         assertEq(usdc.balanceOf(protocol) - protocol0, 10e6);
         assertEq(usdc.balanceOf(vault.managerFeeVault()), 10e6);
+    }
+
+    function test_OQ01_heldApartAndIncomeStateReadableThroughICoreVault() public {
+        pool.fill(address(vault), address(usdc), 7e6, _homeMessage(keccak256("stray"), TransferKind.Principal));
+        ICoreVault core = ICoreVault(address(vault));
+        assertEq(core.unmatchedArrivals(), 7e6);
+        hubVault.forwardIncome(address(usdc), 100e6);
+        assertEq(core.incomeState(address(usdc)).distributed, 80e6);
     }
 
     function test_OQ01_fabricatedIdNeverReachesABase() public {

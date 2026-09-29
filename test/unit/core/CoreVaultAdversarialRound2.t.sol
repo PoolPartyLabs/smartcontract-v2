@@ -35,7 +35,7 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
         vm.warp(uint256(vault.transit(id).fillDeadline) + MAX_REPORT_AGE + 1);
         prices.setPrice(address(usdg), 1e18);
         vault.attestExpiry(id);
-        (, uint256 inFlightSent,) = vault.spokeCapUsage(0);
+        (, uint256 inFlightSent,,) = vault.spokeCapUsage(0);
         assertEq(inFlightSent, 0, "the Spoke Cap is released at the attested expiry");
         assertEq(vault.inFlightValue(), ARRIVES, "Share Assets still count the transit (QB11 stance)");
 
@@ -43,7 +43,7 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
         _deliver(_arrived(_spokeReport(ARRIVES, ARRIVES), id, ARRIVES));
         assertEq(uint8(vault.transit(id).state), uint8(TransitState.ArrivalConfirmed));
         assertEq(vault.inFlightValue(), 0, "released exactly once");
-        (uint256 spokeValue, uint256 sentAfter,) = vault.spokeCapUsage(0);
+        (uint256 spokeValue, uint256 sentAfter,,) = vault.spokeCapUsage(0);
         assertEq(spokeValue, ARRIVES, "the report carries it now, nothing deducted as unknown");
         assertEq(sentAfter, 0, "the Spoke Cap book was not decremented twice");
         assertEq(vault.shareAssets(), 9975e6 - SENT + ARRIVES);

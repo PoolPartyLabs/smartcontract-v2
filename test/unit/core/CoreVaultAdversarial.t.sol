@@ -97,7 +97,7 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         // The spoke sent 400 home: its Unallocated Balance fell by 400 and the transfer is reported in flight.
         _deliver(_inFlightToHub(_spokeReport(ARRIVES - 400e6, ARRIVES), id, 400e6));
         assertEq(vault.sharePrice(), priceBefore, "principal in flight stays in Share Assets (DEC-085)");
-        (, uint256 inFlight,) = vault.spokeCapUsage(0);
+        (,, uint256 inFlight,) = vault.spokeCapUsage(0);
         assertEq(inFlight, 400e6, "the pending return leg counts toward the Spoke Cap (DEC-066 B1)");
 
         pool.fill(address(vault), address(usdc), 400e6, _homeMessage(id, TransferKind.Principal));
@@ -114,7 +114,7 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         assertEq(vault.shareAssets(), 9975e6, "income in flight is outside Share Assets (DEC-092)");
         assertEq(vault.inFlightValue(), 0);
         assertEq(vault.sharePrice(), priceBefore);
-        (, uint256 capInFlight,) = vault.spokeCapUsage(0);
+        (,, uint256 capInFlight,) = vault.spokeCapUsage(0);
         assertEq(capInFlight, 400e6, "but it counts toward the Spoke Cap (DEC-066 B1)");
         pool.fill(address(vault), address(usdc), 400e6, _homeMessage(id, TransferKind.Income));
         // Split at collection (ruling 2026-09-29): 80 of fees leave, 320 net stays for holders; never Idle.

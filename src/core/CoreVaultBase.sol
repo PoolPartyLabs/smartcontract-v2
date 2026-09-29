@@ -217,8 +217,7 @@ abstract contract CoreVaultBase is ICoreVault, ICoreVaultExtensions, ReentrancyG
         return _s.operatingCashTopUp;
     }
 
-    /// @notice Spoke-to-hub arrivals held apart (pending plus strays); outside every base and never swept (DEC-080,
-    ///         OQ-01).
+    /// @inheritdoc ICoreVault
     function unmatchedArrivals() external view returns (uint256) {
         return _s.unmatchedArrivals;
     }
@@ -254,11 +253,10 @@ abstract contract CoreVaultBase is ICoreVault, ICoreVaultExtensions, ReentrancyG
     }
 
     /// @inheritdoc ICoreVault
-    /// @dev DEC-066 B1: `inFlightSent` also counts the spoke's pending return leg (see CoreVaultLogic.spokeCapUsage).
     function spokeCapUsage(uint256 spokeIndex)
         public
         view
-        returns (uint256 spokeValue, uint256 inFlightSent, uint256 spokeCap)
+        returns (uint256 spokeValue, uint256 inFlightSent, uint256 inFlightToHub, uint256 spokeCap)
     {
         return CoreVaultLogic.spokeCapUsage(_s, _wiring(), spokeIndex);
     }

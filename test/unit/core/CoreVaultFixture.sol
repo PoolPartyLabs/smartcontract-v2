@@ -258,7 +258,7 @@ abstract contract CoreVaultFixture is Test {
         else if (principal != 0) sum += principal * _price(token) / 1e18;
         sum += vault.inFlightValue();
         if (receiver.hasReport(0)) {
-            (uint256 spokeValue,,) = vault.spokeCapUsage(0);
+            (uint256 spokeValue,,,) = vault.spokeCapUsage(0);
             sum += spokeValue;
         }
     }
