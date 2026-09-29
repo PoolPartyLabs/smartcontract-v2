@@ -9,6 +9,7 @@ parameter or an interface so the founder's answer slots in). The digest that fol
 
 | Id | Question | MVP code behaviour |
 |---|---|---|
+| DEC-079 open | Uniswap V4 pools with hooks that charge on withdrawal (a third value outside principal/income) | MVP Mandate validation accepts only hookless pools (`hooks == address(0)`) |
 | Q57 (b) | How spoke positions are priced into USDC on the hub (report value vs quantities priced with Chainlink) | Report carries a superset (quantities, ticks, liquidity, cumulative income counters); the hub prices through `IPriceSource` with a Chainlink implementation for WETH and 1:1 for USDG; stale feed reverts mints |
 | Q57 (c) | Who pays VAA delivery gas and how it is reimbursed | Not implemented; delivery is permissionless and unpaid; Operating Cash bucket exists |
 | Q57 (d) | Variation band on accepted report values (2% proposed) | Not enforced; parameter slot reserved on the receiver, default disabled |

@@ -18,15 +18,15 @@ design and the current scope.
 
 | In scope now | Next | Not planned for now |
 |---|---|---|
-| Arbitrum One as Hub Chain, Robinhood Chain as Spoke Chain | Uniswap V4 and Aave V3 (supply only) adapters | Borrowing, leverage, perps |
-| Uniswap V3 position adapter on both chains | More spokes (Base, Ethereum) with CCTP as primary bridge | Share transfers between owners |
+| Arbitrum One as Hub Chain, Robinhood Chain as Spoke Chain | More spokes (Base, Ethereum) with CCTP as primary bridge | Borrowing, leverage, perps |
+| Uniswap V4 position adapter on both chains; Aave V3 supply-only adapter on Arbitrum | Collectors for reward campaigns (Merkl) | Share transfers between owners |
 | Across bridge adapter (USDC on Arbitrum, USDG on Robinhood) | Collectors for reward campaigns (Merkl) | Auto-compounding inside the contract |
-| Wormhole value reports, finalized consistency, permissionless relay | Multi-spoke report scheduling | ZK proofs of value |
+| Wormhole value reports, finalized consistency, permissionless relay | Multi-spoke report scheduling | ZK proofs of value, Uniswap V3 |
 | Deposit, allocate, report, Instant and Standard Payouts, Income Withdrawal | Autonomous-manager guardrails, emergency runbook | CCTP on Robinhood Chain, Solana |
 
-The specification's MVP names Uniswap V4 for the MVP and Uniswap V3 for the proof of concept (DEC-018). The
-buildathon ships the V3 adapter first, behind the same adapter interface, so V4 slots in without touching the
-core.
+The specification's MVP names Uniswap V4 plus Aave V3 without borrowing (DEC-018, DEC-028); the founder confirmed
+that scope on 2026-09-29, so the Uniswap V3 proof-of-concept adapter is not built. Every protocol sits behind the
+same adapter interface.
 
 ## Layout
 
@@ -35,7 +35,7 @@ src/
   core/        Core Vault (hub books: shares, idle, payouts), Share token, Fund Factory
   spoke/       Spoke Vault (the fund's account on every chain, hub included), internal ledger
   report/      Value report encoding, Wormhole publisher (spoke) and receiver (hub)
-  adapters/    IAdapter, IBridgeAdapter, Uniswap V3 adapter, Across bridge adapter
+  adapters/    IAdapter, IBridgeAdapter, Uniswap V4 adapter, Aave V3 adapter, Across bridge adapter
   mandate/     Mandate struct, validation and immutability rules
   libraries/   Shared math (whole-share rounding, USDC truncation, income accumulator)
   interfaces/  External protocol interfaces not shipped by a dependency (Across)
@@ -51,10 +51,12 @@ docs/          DECISIONS.md, OPEN-QUESTIONS.md, ARCHITECTURE.md, INTEGRATIONS.md
 
 - Foundry (forge 1.7+), Solidity 0.8.28, EVM `cancun`.
 - OpenZeppelin Contracts 5.7 for ERC-20, access control, reentrancy guards, SafeERC20, math.
-- Uniswap `v3-core` and `v3-periphery` (`0.8` branches, interfaces only).
+- Uniswap `v4-core` and `v4-periphery` (interfaces, types and libraries; the pinned-pragma contracts are never
+  compiled, the deployed ones are used on forks). `v3-core`/`v3-periphery` stay only for the toolchain smoke test.
 - `wormhole-solidity-sdk` v1.0.0 for Core Bridge interfaces, VAA parsing, replay protection and the
   `WormholeOverride` fork-test helper that signs VAAs with a guardian set the test controls.
-- Across: minimal interfaces vendored in `src/interfaces/` (the upstream repo is a Hardhat monorepo).
+- Across and Aave V3: minimal interfaces vendored in `src/interfaces/external/` (both upstream repos are Hardhat
+  monorepos).
 
 ## Getting started
 

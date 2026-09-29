@@ -5,18 +5,19 @@ Target design for the first contracts. Every rule cites the decision that govern
 the code then takes the conservative path and exposes a parameter or an interface so the founder's answer slots
 in without a redesign.
 
-Scope: Arbitrum One (Hub Chain) and Robinhood Chain (Spoke Chain), Uniswap V3 positions on both chains, Across
-as the Transport Route, Wormhole (finalized consistency) for value reports. Addresses in `docs/INTEGRATIONS.md`.
+Scope: Arbitrum One (Hub Chain) and Robinhood Chain (Spoke Chain), Uniswap V4 positions on both chains, Aave V3
+supply-only on Arbitrum (DEC-018, DEC-028, confirmed by the founder on 2026-09-29), Across as the Transport Route,
+Wormhole (finalized consistency) for value reports. Addresses in `docs/INTEGRATIONS.md`.
 
 ## 1. Components
 
 ```
                          ARBITRUM ONE (Hub Chain)                     ROBINHOOD CHAIN (Spoke Chain)
   Shareholder ─deposit/requestPayout/claim/withdrawIncome─▶ CoreVault
-  Manager ─────sendToSpoke / allocate on hub──────────────▶ CoreVault ──▶ SpokeVault(hub) ──▶ UniswapV3Adapter
+  Manager ─────sendToSpoke / allocate on hub──────────────▶ CoreVault ──▶ SpokeVault(hub) ──▶ UniswapV4Adapter, AaveV3Adapter
   Anyone ──────deliver VAA───────────────────────────────▶ ValueReportReceiver ◀── Wormhole VAA ◀── SpokeVault(robinhood).report()
                                                            AcrossBridgeAdapter ══ Across ══▶ SpokeVault(robinhood).handleV3AcrossMessage
-                                                                                              SpokeVault(robinhood) ──▶ UniswapV3Adapter
+                                                                                              SpokeVault(robinhood) ──▶ UniswapV4Adapter
   FundFactory (CREATE2, same salt on both chains) deploys everything from the Mandate.
 ```
 
@@ -26,7 +27,8 @@ as the Transport Route, Wormhole (finalized consistency) for value reports. Addr
 | `CoreVault` | hub | Custody of Idle USDC; share ledger via `ShareToken`; Payout Requests and Payouts; Attributed Income bucket and Income Withdrawal; sends capital to spokes through a bridge adapter; the transit state machine; reads the hub `SpokeVault` directly and the spoke values from `ValueReportReceiver`. Never calls a DeFi protocol. | DEC-009, DEC-020, DEC-054, DEC-065, DEC-067, DEC-072, DEC-077, DEC-081, DEC-085, DEC-090, DEC-095, DEC-105 |
 | `SpokeVault` | every chain, hub included | The fund's account on a chain: internal ledger per token (never `balanceOf`), position registry per adapter, Unallocated Balance, Operating Cash bucket; drives adapters within the Mandate's closed lists; receives Across fills; builds and publishes value reports (spoke chains) or exposes the same data to the Core Vault (hub) | DEC-054, DEC-069, DEC-070, DEC-079, DEC-080, DEC-093, DEC-096 |
 | `ValueReportReceiver` | hub | Accepts a spoke's report only if the guardian quorum signed it, the emitter is the fund's Spoke Vault on that chain, the sequence is strictly greater than the last accepted, and the report is within the max age; stores the latest accepted report per spoke | DEC-086, DEC-093, DEC-094, DEC-099 |
-| `UniswapV3Adapter` | both | Opens, increases, decreases, closes and collects V3 positions in pools from the Mandate's closed list; reports principal and income of each position **separately** by reading the pool's own accounting; immutable, one instance per fund per chain | DEC-053, DEC-058, DEC-079 |
+| `UniswapV4Adapter` | both | Opens, increases, decreases, closes and collects V4 positions (PositionManager, pools identified by `PoolId`, closed list in the Mandate, hookless pools only in the MVP; pools whose hooks charge on withdrawal are OPEN, DEC-079); reports principal (liquidity at current price) and income (`feesAccrued`, tracked as a monotonic cumulative counter per token) **separately** from the PoolManager's own accounting; price-dependent (`isExactValue() == false`); immutable, one instance per fund per chain | DEC-018, DEC-053, DEC-058, DEC-079 |
+| `AaveV3Adapter` | hub only | Supplies USDC to the Aave V3 Pool and withdraws it; never borrows; Exact-Value Position (DEC-059): ledger keeps scaled units and the `liquidityIndex` at the last measurement, interest since then is income (DEC-068); read, not unwound, while the reserve has liquidity; `isExactValue() == true` | DEC-018, DEC-028, DEC-059, DEC-068 |
 | `AcrossBridgeAdapter` | both | Builds the Across `depositV3` call for the vault; the **vault**, not the adapter, fixes the recipient (the fund's own vault on the destination chain) and the token pair; 6-hour fill deadline as an adapter constant | DEC-031, DEC-066, DEC-087, DEC-088, DEC-090 |
 | `TransitEscrow` | both | Minimal per-send depositor (EIP-1167 clone, no EIP-1271 so nobody can sign a `fillRelayWithUpdatedDeposit` that delivers less, DEC-066) so an Across refund lands in a dedicated address and is recognized as a refund rather than mistaken for a donation | DEC-066 (keyless depositor); the escrow itself implements research proposal QA6, **OPEN** |
 | `ManagerRegistry` | hub | One record per manager: protocol slice of the manager's fee (default 50%), adjustable per manager by the protocol; outside the Mandate | DEC-106, DEC-110 |
@@ -106,8 +108,10 @@ Protocol-level constants live in the core, not the Mandate: flow fee 25 bps defa
 
 ### 4.3 Positions (Spoke Vault on any chain)
 Every adapter exposes a monotonic `cumulativeIncome(token)` counter (all income ever realized plus currently
-uncollected, never a balance) so the income index can advance from deltas; the Uniswap V3 adapter pokes the position
-with zero liquidity before `burn` so fees are separated from principal. Every adapter exposes `isExactValue()` (DEC-059: Idle, Unallocated Balance and Aave aUSDC are read, never unwound;
+uncollected, never a balance) so the income index can advance from deltas; on Uniswap V4 any liquidity change
+realizes all fees of the position (`feesAccrued` in the `BalanceDelta` returned by `modifyLiquidity`), so the
+adapter accumulates realized fees plus current uncollected fees computed from `feeGrowthInside`; on Aave the counter
+is `scaledBalance * (liquidityIndex_now - liquidityIndex_last)` summed over time. Every adapter exposes `isExactValue()` (DEC-059: Idle, Unallocated Balance and Aave aUSDC are read, never unwound;
 Uniswap positions are price-dependent and are unwound). Manager-only `openPosition`, `increasePosition`,
 `decreasePosition`, `closePosition`, `collectIncome`, each
 restricted to `(adapter, poolKey)` in the Mandate. The vault transfers tokens to the adapter, the adapter acts
@@ -119,8 +123,8 @@ open/increase only, never decrease/close/collect (DEC-021, DEC-058; who may paus
 ### 4.4 Value report (DEC-070, DEC-086, DEC-093)
 `SpokeVault.report()` is permissionless: builds a versioned `ReportPayload` that is a superset serving every pricing
 option still open (Q57): `fundId, sequence, spokeChainId, blockNumber, timestamp, unallocated[] {token, amount},
-positions[] {adapter, poolKey, pool, tickLower, tickUpper, liquidity, token0, token1, principal0, principal1,
-income0, income1}, cumulativeIncome[] {token, amount} (monotonic since inception), cumulativeReceived,
+positions[] {adapter, poolKey, poolId (bytes32), tickLower, tickUpper, liquidity, token0, token1, principal0,
+principal1, income0, income1}, cumulativeIncome[] {token, amount} (monotonic since inception), cumulativeReceived,
 cumulativeSentHome, arrivedTransitRefs[], inFlightToHub` from the ledger and adapters, and calls
 `CoreBridge.publishMessage(nonce, payload, 1 /* finalized */)`. Anyone delivers the VAA to
 `ValueReportReceiver.deliver(bytes vaa)`, which verifies with the Core Bridge, checks emitter chain and address
@@ -198,8 +202,8 @@ the burn (DEC-081, DEC-105), and the buildathon draft leans to "quantities in th
 - Invariants: `totalSupply` is a multiple of 1e18; Share Assets equals the sum of buckets; Payout Reserve never
   exceeds Idle; a transfer into a vault that is not from an adapter or the bridge never changes Share Price;
   sequence per spoke is strictly increasing.
-- Fork tests on Arbitrum One and Robinhood Chain (never testnets): real Uniswap V3 pools, real Across
+- Fork tests on Arbitrum One and Robinhood Chain (never testnets): real Uniswap V4 pools and the real Aave V3 Pool, real Across
   SpokePools (fills simulated by dealing the output token and calling `handleV3AcrossMessage` from the SpokePool
   address), real Wormhole Core with `WormholeOverride` signing VAAs.
-- End-to-end fork scenario: deposit on Arbitrum, send to Robinhood, fill, open WETH/USDG position, report,
+- End-to-end fork scenario: deposit on Arbitrum, send to Robinhood, fill, open a WETH/USDG V4 position, report,
   deliver VAA, deposit again at the new price, request and claim a payout.
