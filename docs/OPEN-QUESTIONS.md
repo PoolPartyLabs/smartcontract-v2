@@ -5,6 +5,19 @@ stake, the research recommendation, and **what the MVP code does meanwhile** (th
 parameter or an interface so the founder's answer slots in). The digest that follows was produced from
 `docs/definicao-v2/26..31` and `17` of the specification repository at commit `96d44cc` (2026-09-25).
 
+## Rulings of 2026-09-29 (founder, in chat; not yet DEC entries)
+
+| Topic | Ruling | Code consequence |
+|---|---|---|
+| Adapters | Uniswap V4 on both chains plus Aave V3 supply-only on Arbitrum, per DEC-018/028 | No V3 adapter |
+| Spoke pricing (Q57 b) | `IPriceSource`: Chainlink for WETH, 1:1 for USDG; other tokens need a reliable on-chain method derived from how Uniswap V4 prices them (to research) | `ChainlinkPriceSource` with fixed 1:1 tokens; adding a token is a new price source, never a Mandate change |
+| Report lifetime (Q57 a / Q66 b) | Keep the research value (Robinhood 1,587 s plus one block); adjust later if complications appear | Mandate `maxReportAge` for Robinhood = 1587 + spoke block time |
+| Fee split point (DEC-107, OQ-02/03) | At collection: the investor portion enters the accumulator, the manager portion goes into the manager's own fee vault, the protocol portion is transferred to the fee wallet immediately | Income index advances when collected income reaches the Core Vault (hub adapter operations forwarded, or spoke income bridged home as `Income`); `ManagerFeeVault` per fund holds the manager's tokens; protocol fees (slice and flow fee) transfer to the Protocol Recipient at each charge |
+| Management fee (DEC-108, LC-144) | Paid at fund closure; 0 in the MVP | Mandate accepts only 0 |
+| Hub-to-spoke instructions (feedback q2) | Same approach as reports (Wormhole in the other direction) later; MVP stays limited | Automatic unwinds on hub positions only |
+| Across refund recognition (QA6) | Approved | Keyless per-send `TransitEscrow` |
+| Pause / deprecate holder (Q17-2b) | Immutable guardian address is fine for now | `AdapterGuard` |
+
 ## MVP code stance, one line per open item
 
 | Id | Question | MVP code behaviour |
@@ -32,7 +45,7 @@ parameter or an interface so the founder's answer slots in). The digest that fol
 | DEC-105 reading | Whether every spoke or only the unwound spoke needs a post-unwind report | Only the unwound spoke |
 | Q57 reading | Whether a stale report may block an idle-paid payout | Idle-paid payouts use the last accepted report even if past its lifetime; mints revert |
 | OQ-01 (DEC-080) | Across passes no depositor to `handleV3AcrossMessage`, so a stranger can bridge dust with a valid-looking message | Arrivals are credited only when the id matches a transfer the fund itself sent (hub: an in-flight transit; spoke: an id the hub's send list carries); unmatched amounts are held apart and swept |
-| OQ-02 / OQ-03 (Q60, DEC-107) | When spoke income is recognized, and fee-at-collection vs index-at-recognition | Hub income: the index advances at recognition (adapter operations and `recognizeHubIncome`), and the performance fee plus protocol slice are booked on the recognized delta and paid in kind when the tokens are collected. Spoke income: the index advances when the report is accepted, with the same fee booking; bridging it home is a plain transfer |
+| OQ-02 / OQ-03 (Q60, DEC-107) | When income is recognized, and fee-at-collection vs index-at-recognition | Ruled 2026-09-29: both at collection. The index advances only when collected income reaches the Core Vault; uncollected income stays in its own bucket (DEC-092) and only informs Gross Assets. Reports carry cumulative income for information; `recognizeHubIncome` becomes a no-op alias of forwarding collected income |
 | OQ-04 (swap verb) | Whether a swap is an entry or exit verb, and who bears its Market Costs | `swapExactInput` exists on adapters and vaults, manager only; blocked when deprecated, not when paused; Market Costs stay LC-45/LC-141 |
 | OQ-05 / OQ-06 (LC-143) | Flow fee base on deposit (offered amount vs amount spent) and rounding of bps fees | Fee on the offered amount, rounded down; the remainder left by whole-share rounding stays in the wallet |
 | OQ-07 (DEC-060) | Standard Payout claim before the term ends when the reserve already covers it | Claim allowed only after the term ends |

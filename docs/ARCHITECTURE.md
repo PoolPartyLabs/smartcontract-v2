@@ -31,6 +31,7 @@ Wormhole (finalized consistency) for value reports. Addresses in `docs/INTEGRATI
 | `AaveV3Adapter` | hub only | Supplies USDC to the Aave V3 Pool and withdraws it; never borrows; Exact-Value Position (DEC-059): ledger keeps scaled units and the `liquidityIndex` at the last measurement, interest since then is income (DEC-068); read, not unwound, while the reserve has liquidity; `isExactValue() == true` | DEC-018, DEC-028, DEC-059, DEC-068 |
 | `AcrossBridgeAdapter` | both | Builds the Across `depositV3` call for the vault; the **vault**, not the adapter, fixes the recipient (the fund's own vault on the destination chain) and the token pair; 6-hour fill deadline as an adapter constant | DEC-031, DEC-066, DEC-087, DEC-088, DEC-090 |
 | `TransitEscrow` | both | Minimal per-send depositor (EIP-1167 clone, no EIP-1271 so nobody can sign a `fillRelayWithUpdatedDeposit` that delivers less, DEC-066) so an Across refund lands in a dedicated address and is recognized as a refund rather than mistaken for a donation | DEC-066 (keyless depositor); the escrow itself implements research proposal QA6, **OPEN** |
+| `ManagerFeeVault` | hub | One per fund: receives the manager's portion of every fee at collection (ruling 2026-09-29), multi-token, withdrawable by the manager only | DEC-107, DEC-109 |
 | `ManagerRegistry` | hub | One record per manager: protocol slice of the manager's fee (default 50%), adjustable per manager by the protocol; outside the Mandate | DEC-106, DEC-110 |
 | `FundFactory` | both | Deploys a fund's contracts from its Mandate with CREATE2 and a fund-id salt so hub and spoke addresses are known to each other at creation | DEC-053, DEC-054 |
 | `IPriceSource` + `ChainlinkPriceSource` | hub | Prices non-USDC tokens carried in reports and hub positions into USDC for Share Assets; pluggable because the pricing rule is **OPEN** | see §5 |
@@ -133,12 +134,15 @@ the report. Pricing of the quantities into USDC happens on the hub through `IPri
 
 ### 4.5 Attributed Income (DEC-014, DEC-025, DEC-064, DEC-073, DEC-092)
 Per-token global index in Q128 (2^128 scale, 512-bit mulDiv, remainder carried) with a per-holder checkpoint,
-advanced only when income is recognized; sources report monotonic cumulative income and a regressed counter is
-logged, never reverted; income recognized with zero supply goes to an ownerless bucket. Advanced (adapter collect on the hub; spoke report income for spoke positions, pending Q60 details). Holders
+advanced only when collected income reaches the Core Vault (ruling 2026-09-29: fee split and attribution happen
+at collection; the hub Spoke Vault forwards income it collects, a spoke bridges it home as `Income`); sources'
+monotonic cumulative income counters travel in reports for information; income recognized with zero supply goes to
+an ownerless bucket. Advanced (adapter collect on the hub; spoke report income for spoke positions, pending Q60 details). Holders
 call `withdrawIncome()` to take the USDC out at any time without burning shares; burning all shares pays the
-income too. No compounding in the contract (DEC-064). Performance fee is taken on income at collection, in
-kind, no high-water mark (DEC-107, DEC-109); the protocol slice is read from `ManagerRegistry` at that moment
-(DEC-106). Exact accumulator mechanics for spoke income are **OPEN** (Q60); the MVP recognizes spoke income
+income too. No compounding in the contract (DEC-064). Performance fee is taken on income at collection, in kind, no high-water mark (DEC-107, DEC-109); the protocol
+slice is read from `ManagerRegistry` at that moment (DEC-106); the manager portion is transferred to the fund's
+`ManagerFeeVault` and the protocol portion to the Protocol Recipient in the same transaction; the net enters the
+accumulator (ruling 2026-09-29). Exact accumulator mechanics for spoke income are **OPEN** (Q60); the MVP recognizes spoke income
 only when it is actually bridged back to the hub, which is conservative.
 
 ### 4.6 Payout (DEC-020, DEC-024, DEC-060, DEC-065, DEC-067, DEC-074, DEC-075, DEC-077, DEC-081, DEC-095, DEC-102, DEC-105)
