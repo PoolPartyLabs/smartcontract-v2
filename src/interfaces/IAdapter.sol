@@ -170,6 +170,25 @@ interface IAdapter is IAdapterGuard {
     ///         key that is not open.
     function positionValue(bytes32 positionKey) external view returns (PositionValue memory);
 
+    /// @notice Exit parameters that remove at least `numerator / denominator` of an open position's principal at the
+    ///         protocol's current state (rounded up), with no minimum amounts and the current block as deadline.
+    /// @dev Final verification (DEC-069, DEC-081, DEC-097, QA3 OPEN): the Spoke Vault sizes every automatic unwind step
+    ///      itself from `positionValue` and never takes exit sizes from a claimant. `close` is true when that share is
+    ///      the whole position (call `closePosition` with `params`), else `decreasePosition` takes `params`.
+    ///      `numerator <= denominator`, `denominator > 0`.
+    function unwindExitParams(bytes32 positionKey, uint256 numerator, uint256 denominator)
+        external
+        view
+        returns (bool close, bytes memory params);
+
+    /// @notice `amountIn` of `tokenIn` converted into the pool's other token at the pool's current price, without fee
+    ///         or price impact (Uniswap V4: `slot0`).
+    /// @dev Final verification (QA3 OPEN): the Spoke Vault values an unwind step and floors the minimum output of an
+    ///      unwind swap from this quote. A spot price can be moved within a block; the floor bounds execution against
+    ///      the price at the time of the swap, it is not an oracle. Protocols without a price (Aave V3) revert with
+    ///      `UnsupportedOperation`.
+    function spotQuote(bytes32 poolKey, address tokenIn, uint256 amountIn) external view returns (uint256 amountOut);
+
     /// @notice Income in `token` since inception: all income ever realized plus the currently uncollected income of
     ///         open positions. Never a balance.
     /// @dev Q60 and DEC-092: monotonic non-decreasing, including across closed positions, so the income index can

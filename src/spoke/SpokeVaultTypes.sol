@@ -47,12 +47,18 @@ library SpokeVaultTypes {
         Collect
     }
 
-    /// @notice One swap of non-USDC principal an unwind exit returned, into hub USDC.
-    /// @param adapter Mandate position adapter on the Hub Chain that runs the swap.
-    /// @param poolKey Mandate pool of that adapter; it must hold `tokenIn` and USDC.
+    /// @notice The claimant's optional tightening of the swap of one non-USDC token an unwind exit returned, into hub
+    ///         USDC. Final verification (DEC-069, DEC-081, DEC-097, QA3 OPEN): a hint can never widen what the vault
+    ///         would do on its own.
+    /// @param adapter Mandate position adapter on the Hub Chain that runs the swap. When the position's own pool pairs
+    ///        `tokenIn` with USDC the vault swaps there and a hint must name that same route; otherwise the hint names
+    ///        the route (a Mandate pool of a Mandate adapter holding `tokenIn` and USDC) and is required.
+    /// @param poolKey Mandate pool of that adapter.
     /// @param tokenIn Token the exit returned as principal; the whole amount the exit returned is swapped.
-    /// @param minAmountOut Per-step minimum USDC output (the caller's slippage bound).
-    /// @param params Adapter-specific swap parameters (price limit, deadline).
+    /// @param minAmountOut Minimum USDC output; used only when above the vault's floor (the route's spot quote less
+    ///        `SpokeVault.MAX_UNWIND_SLIPPAGE_BPS`).
+    /// @param params Adapter-specific swap parameters (Uniswap V4: price limit and deadline, which can only make the
+    ///        swap revert); empty for the adapter's defaults.
     struct UnwindSwap {
         address adapter;
         bytes32 poolKey;
@@ -61,13 +67,11 @@ library SpokeVaultTypes {
         bytes params;
     }
 
-    /// @notice The caller's parameters for one position the automatic unwind visits (DEC-069 order).
-    /// @param close `closePosition` when true, else `decreasePosition`.
-    /// @param exitParams Adapter-specific exit parameters (amounts to remove, per-token minimums, deadline).
-    /// @param swaps Swaps of the non-USDC principal this exit returns.
+    /// @notice The claimant's optional hint for one position the automatic unwind visits (DEC-069 order): only swap
+    ///         tightenings. The vault sizes every exit itself (`IAdapter.unwindExitParams`) and never takes exit
+    ///         parameters from the claimant (final verification).
+    /// @param swaps Tightenings of the swaps of the non-USDC principal this exit returns, matched by `tokenIn`.
     struct UnwindHint {
-        bool close;
-        bytes exitParams;
         UnwindSwap[] swaps;
     }
 
@@ -140,7 +144,9 @@ library SpokeVaultTypes {
     error PositionAlreadyRegistered(address adapter, bytes32 positionKey);
     error SwapOutputBelowMinimum(uint256 amountOut, uint256 minAmountOut);
     error UnexpectedOriginChain(uint256 originChainId);
-    error MissingUnwindHint(address adapter, bytes32 positionKey);
+    /// @notice An unwind exit returns `token`, the position's own pool does not pair it with USDC and no hint names a
+    ///         route for it (final verification: the unwind is never sized or swapped without a price).
+    error MissingUnwindSwap(address token);
     error InvalidUnwindSwap(address adapter, bytes32 poolKey, address tokenIn);
     /// @notice The vault did not receive exactly what a refund escrow held when it was released (DEC-066, DEC-080).
     error RefundReleaseMismatch(uint256 held, uint256 received);

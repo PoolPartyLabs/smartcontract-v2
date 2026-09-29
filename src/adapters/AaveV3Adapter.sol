@@ -334,6 +334,27 @@ contract AaveV3Adapter is IAdapter, AdapterGuard, ReentrancyGuard {
         }
     }
 
+    /// @inheritdoc IAdapter
+    /// @dev `abi.encode(ceil(principal * numerator / denominator))` for `decreasePosition`; the whole principal is a
+    ///      close (which still keeps the key while income the reserve cannot pay stays pending).
+    function unwindExitParams(bytes32 positionKey, uint256 numerator, uint256 denominator)
+        external
+        view
+        returns (bool close, bytes memory params)
+    {
+        address asset = _openAsset(positionKey);
+        (uint256 principalNow,) = _split(_ledgers[asset], pool.getReserveNormalizedIncome(asset));
+        uint256 part = Math.mulDiv(principalNow, numerator, denominator, Math.Rounding.Ceil);
+        if (part >= principalNow) return (true, "");
+        return (false, abi.encode(part));
+    }
+
+    /// @inheritdoc IAdapter
+    /// @dev DEC-018, DEC-028: an Aave V3 supply has no price; always reverts.
+    function spotQuote(bytes32, address, uint256) external pure returns (uint256) {
+        revert UnsupportedOperation();
+    }
+
     /// @notice The ledger of `asset` (DEC-068).
     function ledger(address asset) external view returns (Ledger memory) {
         return _ledgers[asset];

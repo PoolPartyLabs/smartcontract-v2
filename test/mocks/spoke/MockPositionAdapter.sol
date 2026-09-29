@@ -46,6 +46,8 @@ contract MockPositionAdapter is AdapterGuard, IAdapter {
     uint256 public principalOverReport;
     uint256 public swapNumerator = 1;
     uint256 public swapDenominator = 1;
+    /// @dev Share of the spot output a swap loses (price impact and fee); `spotQuote` ignores it.
+    uint256 public swapHaircutBps;
     bool public revertOnExit;
     /// @dev When set, `closePosition` pays the principal but keeps the key open with its income pending, as the Aave
     ///      adapter does when the reserve cannot pay the income (final verification, DEC-056, DEC-068).
@@ -86,6 +88,10 @@ contract MockPositionAdapter is AdapterGuard, IAdapter {
     function setSwapRate(uint256 numerator, uint256 denominator) external {
         swapNumerator = numerator;
         swapDenominator = denominator;
+    }
+
+    function setSwapHaircutBps(uint256 bps) external {
+        swapHaircutBps = bps;
     }
 
     function setRevertOnExit(bool value) external {
@@ -214,7 +220,7 @@ contract MockPositionAdapter is AdapterGuard, IAdapter {
         if (!pool.exists) revert UnknownPool(poolKey);
         address tokenOut = tokenIn == pool.token0 ? pool.token1 : pool.token0;
         reserved[tokenIn] += amountIn;
-        amountOut = amountIn * swapNumerator / swapDenominator;
+        amountOut = amountIn * swapNumerator / swapDenominator * (10_000 - swapHaircutBps) / 10_000;
         if (amountOut < minAmountOut) revert InsufficientOutput(amountOut, minAmountOut);
         _pay(tokenOut, amountOut);
         emit Swapped(poolKey, tokenIn, tokenOut, amountIn, amountOut);
@@ -249,6 +255,24 @@ contract MockPositionAdapter is AdapterGuard, IAdapter {
 
     function positionKeys() external view returns (bytes32[] memory) {
         return _keys;
+    }
+
+    /// @dev `decreasePosition` takes bps of principal: `ceil(numerator * 10_000 / denominator)`; 10_000 is a close.
+    function unwindExitParams(bytes32 positionKey, uint256 numerator, uint256 denominator)
+        external
+        view
+        returns (bool close, bytes memory params)
+    {
+        _open(positionKey);
+        uint256 bps = (numerator * 10_000 + denominator - 1) / denominator;
+        if (bps >= 10_000) return (true, "");
+        return (false, abi.encode(bps));
+    }
+
+    /// @dev The swap rate is the pool's spot price in the mock.
+    function spotQuote(bytes32 poolKey, address, uint256 amountIn) external view returns (uint256) {
+        if (!pools[poolKey].exists) revert UnknownPool(poolKey);
+        return amountIn * swapNumerator / swapDenominator;
     }
 
     // ---- internals ----

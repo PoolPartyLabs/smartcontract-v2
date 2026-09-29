@@ -46,7 +46,7 @@ contract EndToEndAdversarialForkTest is EndToEndScenario {
         vm.prank(bruno);
         core.requestPayout(plan.request, ICoreVault.PayoutMode.Instant);
 
-        bytes memory hints = _unwindHints();
+        bytes memory hints = _unwindHints(plan.target);
         vm.recordLogs();
         vm.prank(bruno);
         ICoreVault.PayoutReceipt memory receipt = core.claimPayout(hints);

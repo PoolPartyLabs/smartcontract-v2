@@ -230,8 +230,8 @@ contract SpokeVaultAdversarialAdapterTest is SpokeVaultTestBase {
     }
 }
 
-/// @notice Hub role: the unwind hint list is consumed in registry order, and the registry is swap-and-pop, so a manual
-///         close reorders later positions. The caller must read `positions()` in the same block it builds hints.
+/// @notice Hub role: the unwind visits positions in registry order, and the registry is swap-and-pop, so a manual close
+///         reorders later positions. A caller that sends swap hints must read `positions()` in the same block.
 contract SpokeVaultAdversarialHubTest is SpokeVaultTestBase {
     function setUp() public {
         _setUpMocks();
@@ -239,7 +239,7 @@ contract SpokeVaultAdversarialHubTest is SpokeVaultTestBase {
         usdc.mint(address(core), 10_000e6);
     }
 
-    function test_DEC069_unwindHintsFollowTheRegistryOrderAfterASwapAndPopClose() public {
+    function test_DEC069_unwindFollowsTheRegistryOrderAfterASwapAndPopClose() public {
         core.allocate(vault, 900e6);
         vm.startPrank(manager);
         (bytes32 a,,) = vault.openPosition(address(hubUni), HUB_POOL, 0, 300e6, "");
@@ -253,19 +253,17 @@ contract SpokeVaultAdversarialHubTest is SpokeVaultTestBase {
         assertEq(p[0].positionKey, a);
         assertEq(p[1].positionKey, c, "c moved into b's slot");
 
-        // Unallocated 300 (from b) + a closed (300) = 600 < 650: the second hint is applied to c, a 50% decrease.
-        SpokeVaultTypes.UnwindHint[] memory hints = new SpokeVaultTypes.UnwindHint[](2);
-        hints[0].close = true;
-        hints[1].exitParams = abi.encode(uint256(5000));
-        assertEq(core.unwind(vault, 650e6, SpokeVaultTypes.encodeHints(hints)), 650e6);
+        // Final verification (DEC-069): the vault sizes each step. Unallocated 300 (from b); a's whole value (300) is
+        // needed, so a closes; the 50 still missing is taken from c, the next in registry order (ceil 16.67% of 300).
+        assertEq(core.unwind(vault, 650e6, ""), 650e6);
 
         (,, uint256 principalA,,, bool openA) = hubUni.position(a);
         (,, uint256 principalC,,, bool openC) = hubUni.position(c);
         assertFalse(openA);
         assertEq(principalA, 0);
         assertTrue(openC);
-        assertEq(principalC, 150e6, "the decrease hint landed on c, not on the closed b");
-        assertEq(vault.unallocatedBalance(address(usdc)), 100e6);
+        assertEq(principalC, 300e6 - 50.01e6, "only the shortfall left c, rounded up to its bps");
+        assertEq(vault.unallocatedBalance(address(usdc)), 0.01e6);
         assertEq(core.idleReturned(), 650e6);
     }
 }

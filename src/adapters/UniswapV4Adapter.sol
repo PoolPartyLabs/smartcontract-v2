@@ -104,7 +104,9 @@ contract UniswapV4Adapter is IAdapter, AdapterGuard, ReentrancyGuard, IUnlockCal
         uint256 deadline;
     }
 
-    /// @notice Parameters of `swapExactInput`, ABI-encoded as this struct.
+    /// @notice Parameters of `swapExactInput`, ABI-encoded as this struct; empty `params` mean no price limit and the
+    ///         current block as deadline (the Spoke Vault's automatic unwind without a claimant hint; its minimum
+    ///         output is the vault's floor, final verification, QA3).
     /// @param sqrtPriceLimitX96 Price limit of the swap; 0 means no limit. A swap that stops at the limit before
     ///        using the whole input reverts with `PartialSwap`.
     /// @param deadline Timestamp after which the swap reverts.
@@ -307,6 +309,36 @@ contract UniswapV4Adapter is IAdapter, AdapterGuard, ReentrancyGuard, IUnlockCal
         return _openPositions.values();
     }
 
+    /// @inheritdoc IAdapter
+    /// @dev DEC-079: principal is linear in liquidity at a given price, so removing `ceil(liquidity * numerator /
+    ///      denominator)` removes at least that share of it; the whole liquidity is a close. Minimums are 0: the price
+    ///      guard of an unwind is the vault's swap floor (QA3 OPEN).
+    function unwindExitParams(bytes32 positionKey, uint256 numerator, uint256 denominator)
+        external
+        view
+        returns (bool close, bytes memory params)
+    {
+        Position memory position = _openPosition(positionKey);
+        (uint128 liquidity,,) = stateView.getPositionInfo(
+            PoolId.wrap(position.poolId), address(positionManager), position.tickLower, position.tickUpper, positionKey
+        );
+        uint256 part = Math.mulDiv(liquidity, numerator, denominator, Math.Rounding.Ceil);
+        if (part >= liquidity) return (true, abi.encode(CloseParams(0, 0, block.timestamp)));
+        return (false, abi.encode(DecreaseParams(uint128(part), 0, 0, block.timestamp)));
+    }
+
+    /// @inheritdoc IAdapter
+    /// @dev `slot0` price of token1 per token0 as `sqrtPriceX96^2 / 2^192`, kept in Q128 with 512-bit `mulDiv`
+    ///      (`sqrtPriceX96 >= MIN_SQRT_PRICE`, so the Q128 price is never 0). DEC-079 OPEN: hooked pools revert.
+    function spotQuote(bytes32 poolKey, address tokenIn, uint256 amountIn) external view returns (uint256) {
+        PoolKey memory key = _operablePool(poolKey);
+        (uint160 sqrtPriceX96,,,) = stateView.getSlot0(PoolId.wrap(poolKey));
+        uint256 priceX128 = Math.mulDiv(sqrtPriceX96, sqrtPriceX96, 1 << 64);
+        if (Currency.unwrap(key.currency0) == tokenIn) return Math.mulDiv(amountIn, priceX128, Q128);
+        if (Currency.unwrap(key.currency1) != tokenIn) revert TokenNotInPool(tokenIn);
+        return Math.mulDiv(amountIn, Q128, priceX128);
+    }
+
     // ------------------------------------------------------------------------------------------------------------
     // Entry verbs (DEC-056, DEC-058: blocked when paused or deprecated)
     // ------------------------------------------------------------------------------------------------------------
@@ -493,7 +525,8 @@ contract UniswapV4Adapter is IAdapter, AdapterGuard, ReentrancyGuard, IUnlockCal
         bool zeroForOne = Currency.unwrap(key.currency0) == tokenIn;
         if (!zeroForOne && Currency.unwrap(key.currency1) != tokenIn) revert TokenNotInPool(tokenIn);
         if (amountIn == 0) revert ZeroAmount();
-        SwapExactInputParams memory p = abi.decode(params, (SwapExactInputParams));
+        SwapExactInputParams memory p =
+            params.length == 0 ? SwapExactInputParams(0, block.timestamp) : abi.decode(params, (SwapExactInputParams));
         // forge-lint: disable-next-line(block-timestamp)
         if (block.timestamp > p.deadline) revert DeadlineExpired(p.deadline);
         uint160 limit = p.sqrtPriceLimitX96;

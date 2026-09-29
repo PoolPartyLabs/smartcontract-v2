@@ -47,6 +47,13 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
     /// @notice Kind tag of the Operating Expense booked by an Operating Cash top-up (DEC-041, DEC-096).
     bytes32 public constant OPERATING_CASH_TOP_UP = keccak256("OPERATING_CASH_TOP_UP");
 
+    /// @notice Largest shortfall below the pool's current price, in bps, that an automatic unwind swap accepts: the
+    ///         swap's minimum output is at least the route's `IAdapter.spotQuote` less this share.
+    /// @dev OPEN parameter (QA3: the price guard of hub positions is undecided; final verification). A spot price can be
+    ///      moved within a block, so this bounds execution against the price at the time of the swap, not against an
+    ///      oracle; a claimant hint may only raise the minimum.
+    uint256 public constant MAX_UNWIND_SLIPPAGE_BPS = 500;
+
     // ---------------------------------------------------------------------------------------------------------------
     // Identity and wiring (immutable, DEC-053, DEC-058)
     // ---------------------------------------------------------------------------------------------------------------
@@ -497,17 +504,23 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
 
     /// @inheritdoc ISpokeVault
     /// @dev DEC-069: walks the Mandate unwind order restricted to this chain; within a step, every open position of
-    ///      that (adapter, pool) in registry order; each visited position consumes the next hint, and a missing hint
-    ///      reverts (a position is never skipped). An illiquid step reverts (no try/catch). Stops as soon as the USDC
-    ///      Unallocated Balance reaches `usdcTarget`.
+    ///      that (adapter, pool) in registry order. An illiquid step reverts (no try/catch, a position is never
+    ///      skipped). The stop condition (USDC Unallocated Balance at `usdcTarget`) is re-evaluated before every
+    ///      position.
+    /// @dev Final verification (DEC-069, DEC-081, DEC-097, QA3 OPEN): the vault, not the claimant, sizes every step.
+    ///      For each position it values the principal in USDC (`IAdapter.positionValue`, non-USDC legs at the route's
+    ///      `spotQuote`), takes the shortfall still needed (`usdcTarget` minus the USDC Unallocated Balance so far)
+    ///      and asks the adapter for the exit that removes only that share (`IAdapter.unwindExitParams`); the whole
+    ///      position is closed only when its whole value is needed. A position with no principal value is skipped.
     /// @dev DEC-059, DEC-067: Unallocated USDC (exact value) is used first; every position, Exact-Value ones included
     ///      (`isExactValue`), is only exited while the target is not reached, so an Exact-Value position is read, not
     ///      exited, when what comes before it covers the target.
-    /// @dev Non-USDC principal an exit returns is swapped to USDC through `swapExactInput` in a Mandate pool with the
-    ///      hint's per-step minimum output (DEC-081: `usdcTarget` already holds the 2% margin; DEC-097: its Market
-    ///      Costs are the fund's). Income from the exits goes to the collected income bucket, never to the proceeds
-    ///      (DEC-092).
-    /// @param unwindHints `abi.encode(SpokeVaultTypes.UnwindHint[])`, one hint per position visited.
+    /// @dev Non-USDC principal an exit returns is swapped to USDC through `swapExactInput` with a minimum output of
+    ///      at least the route's spot quote less `MAX_UNWIND_SLIPPAGE_BPS` (DEC-081: `usdcTarget` already holds the 2%
+    ///      margin; DEC-097: its Market Costs are the fund's). The claimant's hints can only raise that minimum or
+    ///      restrict the swap; they never size an exit. Income from the exits goes to the collected income bucket,
+    ///      never to the proceeds (DEC-092).
+    /// @param unwindHints `abi.encode(SpokeVaultTypes.UnwindHint[])`, optional, one per position visited in order.
     function unwindForPayout(uint256 usdcTarget, bytes calldata unwindHints)
         external
         onlyOnHubChain
@@ -520,20 +533,14 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
             ? new SpokeVaultTypes.UnwindHint[](0)
             : abi.decode(unwindHints, (SpokeVaultTypes.UnwindHint[]));
 
-        address usdc = baseToken;
-        uint256 used;
-        for (uint256 s; s < _s.unwindOrder.length && _s.unallocated[usdc] < usdcTarget; ++s) {
-            UnwindStep memory step = _s.unwindOrder[s];
-            bytes32[] memory keys = _positionKeysOf(step.adapter, step.poolKey);
-            for (uint256 k; k < keys.length && _s.unallocated[usdc] < usdcTarget; ++k) {
-                if (used == hints.length) revert SpokeVaultTypes.MissingUnwindHint(step.adapter, keys[k]);
-                _unwindPosition(step.adapter, keys[k], hints[used++]);
-            }
+        uint256 visited;
+        for (uint256 s; s < _s.unwindOrder.length && _s.unallocated[baseToken] < usdcTarget; ++s) {
+            visited = _unwindStep(_s.unwindOrder[s], hints, visited, usdcTarget);
         }
 
-        usdcProceeds = Math.min(_s.unallocated[usdc], usdcTarget);
+        usdcProceeds = Math.min(_s.unallocated[baseToken], usdcTarget);
         if (usdcProceeds != 0) {
-            _s.unallocated[usdc] -= usdcProceeds;
+            _s.unallocated[baseToken] -= usdcProceeds;
             _payCoreVaultIdle(usdcProceeds);
         }
         emit UnwoundForPayout(usdcTarget, usdcProceeds);
@@ -809,36 +816,108 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         if (out == address(0)) revert UnexpectedToken(tokenIn);
     }
 
-    /// @dev One unwind step on one position: exit per the hint, then swap the non-USDC principal the exit returned.
-    function _unwindPosition(address adapter, bytes32 positionKey, SpokeVaultTypes.UnwindHint memory hint) internal {
-        (IAdapter.Amounts memory amounts, SpokeVaultTypes.PoolTokens memory p) = _exit(
-            adapter,
-            positionKey,
-            hint.close ? SpokeVaultTypes.ExitKind.Close : SpokeVaultTypes.ExitKind.Decrease,
-            hint.exitParams
-        );
-        address usdc = baseToken;
-        uint256 left0 = p.token0 == usdc ? 0 : amounts.principal0;
-        uint256 left1 = p.token1 == usdc ? 0 : amounts.principal1;
-        for (uint256 i; i < hint.swaps.length; ++i) {
-            SpokeVaultTypes.UnwindSwap memory sw = hint.swaps[i];
-            uint256 amountIn;
-            if (sw.tokenIn == p.token0 && p.token0 != usdc) {
-                (amountIn, left0) = (left0, 0);
-            } else if (sw.tokenIn == p.token1 && p.token1 != usdc) {
-                (amountIn, left1) = (left1, 0);
-            } else {
-                revert SpokeVaultTypes.InvalidUnwindSwap(sw.adapter, sw.poolKey, sw.tokenIn);
-            }
-            // Nothing of that token came out of this exit (or an earlier swap took it): nothing to swap.
-            if (amountIn == 0) continue;
-            IAdapter swapAdapter = _positionAdapter(sw.adapter);
-            SpokeVaultTypes.PoolTokens memory sp = _pool(sw.adapter, sw.poolKey);
-            if (_otherToken(sp, sw.tokenIn) != usdc) {
-                revert SpokeVaultTypes.InvalidUnwindSwap(sw.adapter, sw.poolKey, sw.tokenIn);
-            }
-            _swap(swapAdapter, sp, sw.poolKey, sw.tokenIn, amountIn, sw.minAmountOut, sw.params, false);
+    /// @dev Every open position of one Mandate unwind step, in registry order, while the target is not reached; the
+    ///      `visited`-th position takes the `visited`-th hint, if any. Returns the positions visited so far.
+    function _unwindStep(
+        UnwindStep memory step,
+        SpokeVaultTypes.UnwindHint[] memory hints,
+        uint256 visited,
+        uint256 usdcTarget
+    ) internal returns (uint256) {
+        bytes32[] memory keys = _positionKeysOf(step.adapter, step.poolKey);
+        for (uint256 k; k < keys.length; ++k) {
+            uint256 held = _s.unallocated[baseToken];
+            if (held >= usdcTarget) break;
+            SpokeVaultTypes.UnwindSwap[] memory swaps;
+            if (visited < hints.length) swaps = hints[visited].swaps;
+            ++visited;
+            _unwindPosition(step.adapter, step.poolKey, keys[k], usdcTarget - held, swaps);
         }
+        return visited;
+    }
+
+    /// @dev One unwind step on one position (final verification): value the principal in USDC, exit only the share
+    ///      of it the `shortfall` needs (the whole position when its whole value is needed), then swap the non-USDC
+    ///      principal the exit returned into USDC above the vault's floor.
+    function _unwindPosition(
+        address adapter,
+        bytes32 poolKey,
+        bytes32 positionKey,
+        uint256 shortfall,
+        SpokeVaultTypes.UnwindSwap[] memory swaps
+    ) internal {
+        IAdapter a = _positionAdapter(adapter);
+        SpokeVaultTypes.PoolTokens memory p = _pool(adapter, poolKey);
+        SpokeVaultTypes.UnwindSwap memory r0 = _unwindRoute(adapter, poolKey, p, p.token0, swaps);
+        SpokeVaultTypes.UnwindSwap memory r1 = _unwindRoute(adapter, poolKey, p, p.token1, swaps);
+        uint256 value;
+        {
+            IAdapter.PositionValue memory v = a.positionValue(positionKey);
+            value = _unwindValue(r0, v.principal0) + _unwindValue(r1, v.principal1);
+        }
+        if (value == 0) return;
+        (bool close, bytes memory params) = a.unwindExitParams(positionKey, Math.min(shortfall, value), value);
+        (IAdapter.Amounts memory amounts,) = _exit(
+            adapter, positionKey, close ? SpokeVaultTypes.ExitKind.Close : SpokeVaultTypes.ExitKind.Decrease, params
+        );
+        _unwindSwap(r0, amounts.principal0);
+        _unwindSwap(r1, amounts.principal1);
+    }
+
+    /// @dev The swap route of `token` into USDC for an unwind exit: none for USDC (or a missing token1); the
+    ///      position's own pool when it pairs `token` with USDC (a hint for `token` must then name that same route);
+    ///      otherwise the hint's route, which must be a Mandate pool of a Mandate adapter pairing `token` with USDC.
+    ///      The hint entry's `minAmountOut` and `params` travel with the route.
+    function _unwindRoute(
+        address adapter,
+        bytes32 poolKey,
+        SpokeVaultTypes.PoolTokens memory p,
+        address token,
+        SpokeVaultTypes.UnwindSwap[] memory swaps
+    ) internal view returns (SpokeVaultTypes.UnwindSwap memory r) {
+        address usdc = baseToken;
+        if (token == usdc || token == address(0)) return r;
+        for (uint256 i; i < swaps.length; ++i) {
+            if (swaps[i].tokenIn == token) r = swaps[i];
+        }
+        if (_otherToken(p, token) == usdc) {
+            if (r.adapter != address(0) && (r.adapter != adapter || r.poolKey != poolKey)) {
+                revert SpokeVaultTypes.InvalidUnwindSwap(r.adapter, r.poolKey, token);
+            }
+            (r.adapter, r.poolKey, r.tokenIn) = (adapter, poolKey, token);
+        } else {
+            if (r.adapter == address(0)) revert SpokeVaultTypes.MissingUnwindSwap(token);
+            _positionAdapter(r.adapter);
+            if (_otherToken(_pool(r.adapter, r.poolKey), token) != usdc) {
+                revert SpokeVaultTypes.InvalidUnwindSwap(r.adapter, r.poolKey, token);
+            }
+        }
+    }
+
+    /// @dev USDC value of `amount` of a route's token at the route's spot price; USDC itself (no route) at par.
+    function _unwindValue(SpokeVaultTypes.UnwindSwap memory r, uint256 amount) internal view returns (uint256) {
+        if (amount == 0 || r.adapter == address(0)) return amount;
+        return IAdapter(r.adapter).spotQuote(r.poolKey, r.tokenIn, amount);
+    }
+
+    /// @dev Swaps `amountIn` along route `r` into USDC with a minimum output of at least the route's spot quote less
+    ///      `MAX_UNWIND_SLIPPAGE_BPS`; the hint's minimum only when it is higher (final verification, QA3 OPEN).
+    function _unwindSwap(SpokeVaultTypes.UnwindSwap memory r, uint256 amountIn) internal {
+        if (amountIn == 0 || r.adapter == address(0)) return;
+        IAdapter a = IAdapter(r.adapter);
+        uint256 floor = Math.mulDiv(
+            a.spotQuote(r.poolKey, r.tokenIn, amountIn), MandateLib.BPS - MAX_UNWIND_SLIPPAGE_BPS, MandateLib.BPS
+        );
+        _swap(
+            a,
+            _pool(r.adapter, r.poolKey),
+            r.poolKey,
+            r.tokenIn,
+            amountIn,
+            Math.max(floor, r.minAmountOut),
+            r.params,
+            false
+        );
     }
 
     // ---------------------------------------------------------------------------------------------------------------

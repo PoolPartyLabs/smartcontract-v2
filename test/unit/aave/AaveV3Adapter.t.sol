@@ -425,6 +425,20 @@ contract AaveV3AdapterTest is AaveV3AdapterFixture {
         assertEq(adapter.positionKeys().length, 0);
     }
 
+    /// Final verification (DEC-069, DEC-059): the vault sizes an unwind step through the adapter: a share of the
+    /// principal, rounded up, is a decrease; the whole principal is a close. An Aave supply has no spot price.
+    function test_DEC069_unwindExitParamsAndNoSpotQuote() public {
+        _open(1000e6);
+        _grow(RAY * 11 / 10);
+        (bool close, bytes memory params) = adapter.unwindExitParams(key, 1, 3);
+        assertFalse(close);
+        assertEq(abi.decode(params, (uint256)), 333_333_334, "a third of the principal, rounded up");
+        (close,) = adapter.unwindExitParams(key, 3, 3);
+        assertTrue(close);
+        vm.expectRevert(IAdapter.UnsupportedOperation.selector);
+        adapter.spotQuote(key, address(asset), 1);
+    }
+
     /// DEC-068, Q60: close withdraws everything, removes the key and keeps the realized income counter; a new
     /// position can be opened afterwards and the counter keeps growing from where it was.
     function test_DEC068_closeWithdrawsEverythingAndKeepsCounter() public {

@@ -607,6 +607,9 @@ abstract contract EndToEndScenario is EndToEndBase {
         uint256 operatingCash;
         uint256 aavePrincipal;
         uint256 brunoUsdc;
+        uint256 hubUnallocated;
+        uint256 v4Value;
+        uint128 v4Liquidity;
     }
 
     /// @dev DEC-068: Partial Payout when the unwind falls short. DEC-069: Mandate order, hub V4 first. DEC-059: the Aave
@@ -620,7 +623,7 @@ abstract contract EndToEndScenario is EndToEndBase {
         core.requestPayout(plan.request, ICoreVault.PayoutMode.Instant);
         assertEq(core.payoutRequest(bruno).reserved, 0, "DEC-095: no reserve for an Instant Payout");
 
-        bytes memory hints = _unwindHints();
+        bytes memory hints = _unwindHints(plan.target);
         vm.recordLogs();
         vm.prank(bruno);
         ICoreVault.PayoutReceipt memory receipt = core.claimPayout(hints);
@@ -630,13 +633,7 @@ abstract contract EndToEndScenario is EndToEndBase {
         assertEq(target, plan.target, "DEC-081: the shortfall plus 2%");
         assertEq(proceeds, receipt.unwindProceeds, "DEC-080: proceeds reached Idle through returnToIdle");
         assertGt(proceeds, 0);
-        assertEq(hubSpoke.positions().length, 1, "DEC-069: the hub V4 position was unwound first");
-        assertEq(hubSpoke.positions()[0].adapter, hubAave);
-        assertEq(
-            IAdapter(hubAave).positionValue(hubAavePosition).principal0,
-            plan.aavePrincipal,
-            "DEC-059: Aave read, not exited"
-        );
+        _assertHubV4UnwoundFirst(plan, target);
 
         assertEq(receipt.totalShares, plan.supply);
         assertEq(receipt.sharePrice, ShareMath.sharePrice(receipt.shareAssets, receipt.totalShares), "DEC-105");
@@ -671,25 +668,66 @@ abstract contract EndToEndScenario is EndToEndBase {
         plan.operatingCash = core.operatingCash();
         plan.aavePrincipal = IAdapter(hubAave).positionValue(hubAavePosition).principal0;
         plan.brunoUsdc = IERC20(ARB_USDC).balanceOf(bruno);
+        plan.hubUnallocated = hubSpoke.unallocatedBalance(ARB_USDC);
+        IAdapter.PositionValue memory v4 = IAdapter(hubUniswap).positionValue(hubUniswapPosition);
+        plan.v4Value = _spotValue(v4);
+        plan.v4Liquidity = v4.liquidity;
     }
 
-    /// @dev One hint per position the unwind may visit, in Mandate order (DEC-069): close the V4 position and swap its
-    ///      WETH to USDC in the Mandate pool with a Chainlink-based minimum; then Aave, used only if V4 falls short.
-    function _unwindHints() internal view returns (bytes memory) {
+    /// @dev WETH/USDC principal of a hub V4 position at the pool's spot price, as the Spoke Vault values an unwind step
+    ///      (final verification): USDC at par, WETH through `IAdapter.spotQuote`.
+    function _spotValue(IAdapter.PositionValue memory v4) internal view returns (uint256) {
+        return v4.principal1 + IAdapter(hubUniswap).spotQuote(ARB_WETH_USDC_POOL_ID, ARB_WETH, v4.principal0);
+    }
+
+    /// @dev DEC-069: the hub V4 position is first in Mandate order. Final verification: the vault closes it only when
+    ///      its whole value is needed, otherwise it decreases only the share the shortfall needs; the Aave Exact-Value
+    ///      Position is read (DEC-059) and covers at most what the V4 swap fell short of the spot value (Market Costs,
+    ///      DEC-097), since the stop condition is re-evaluated after every step.
+    function _assertHubV4UnwoundFirst(InstantPlan memory plan, uint256 target) internal view {
+        ISpokeVault.PositionRef[] memory p = hubSpoke.positions();
+        uint256 shortfall = target - plan.hubUnallocated;
+        if (plan.v4Value <= shortfall) {
+            assertEq(p.length, 1, "DEC-069: the whole V4 value was needed, so it closed first");
+            assertEq(p[0].adapter, hubAave);
+        } else {
+            assertEq(p.length, 2, "final verification: the V4 position was only decreased");
+            assertLt(
+                IAdapter(hubUniswap).positionValue(hubUniswapPosition).liquidity,
+                plan.v4Liquidity,
+                "DEC-069: the hub V4 position was unwound first, by the shortfall only"
+            );
+        }
+        uint256 aaveAfter = IAdapter(hubAave).positionValue(hubAavePosition).principal0;
+        assertLe(aaveAfter, plan.aavePrincipal);
+        assertLe(
+            plan.aavePrincipal - aaveAfter,
+            shortfall * SWAP_TOLERANCE_BPS / 10_000,
+            "DEC-059: Aave covers at most what the V4 swap fell short"
+        );
+    }
+
+    /// @dev One hint per position the unwind may visit, in Mandate order (DEC-069). Final verification: the vault
+    ///      sizes the exits itself, so a hint only tightens a swap: here the V4 step's WETH swap gets a Chainlink-based
+    ///      minimum for the WETH the vault will take out (the whole position, or the share the shortfall needs),
+    ///      stricter than the vault's own floor (spot less MAX_UNWIND_SLIPPAGE_BPS); Aave needs no hint.
+    function _unwindHints(uint256 target) internal view returns (bytes memory) {
         IAdapter.PositionValue memory v4 = IAdapter(hubUniswap).positionValue(hubUniswapPosition);
+        uint256 held = hubSpoke.unallocatedBalance(ARB_USDC);
+        uint256 shortfall = target > held ? target - held : 0;
+        uint256 value = _spotValue(v4);
+        uint256 wethOut = value <= shortfall ? v4.principal0 : Math.mulDiv(v4.principal0, shortfall, value);
         SpokeVaultTypes.UnwindSwap[] memory swaps = new SpokeVaultTypes.UnwindSwap[](1);
         swaps[0] = SpokeVaultTypes.UnwindSwap({
             adapter: hubUniswap,
             poolKey: ARB_WETH_USDC_POOL_ID,
             tokenIn: ARB_WETH,
-            minAmountOut: _usdcValue(ARB_WETH, v4.principal0) * (10_000 - SWAP_TOLERANCE_BPS) / 10_000,
+            minAmountOut: _usdcValue(ARB_WETH, wethOut) * (10_000 - SWAP_TOLERANCE_BPS) / 10_000,
             params: _swapParams()
         });
         SpokeVaultTypes.UnwindHint[] memory hints = new SpokeVaultTypes.UnwindHint[](2);
-        hints[0] = SpokeVaultTypes.UnwindHint({close: true, exitParams: _closeParams(), swaps: swaps});
-        hints[1] = SpokeVaultTypes.UnwindHint({
-            close: false, exitParams: abi.encode(type(uint256).max), swaps: new SpokeVaultTypes.UnwindSwap[](0)
-        });
+        hints[0] = SpokeVaultTypes.UnwindHint({swaps: swaps});
+        hints[1] = SpokeVaultTypes.UnwindHint({swaps: new SpokeVaultTypes.UnwindSwap[](0)});
         return abi.encode(hints);
     }
 
