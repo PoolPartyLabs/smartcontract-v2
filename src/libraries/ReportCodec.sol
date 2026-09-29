@@ -78,9 +78,10 @@ library ReportCodec {
     ///        Assets, DEC-098).
     /// @param cumulativeReceived Total principal ever credited from hub transfers, in the spoke's base token units.
     /// @param cumulativeSentHome Total ever sent to the hub, in the spoke's base token units (Q66, DEC-105).
-    /// @param arrivedTransits Hub-to-spoke transits the spoke credited, with the amount credited (DEC-090): the last
-    ///        `ARRIVAL_WINDOW` ids whose credited total reached the Spoke Vault's listing minimum, oldest first. The hub
-    ///        confirms only ids it sent, and a repeated id is a no-op on the hub.
+    /// @param arrivedTransits Hub-to-spoke Principal transits the spoke credited, with the total credited per id
+    ///        (DEC-090): the last `ARRIVAL_WINDOW` ids whose credited total reached the Spoke Vault's listing minimum,
+    ///        oldest first. The hub confirms only ids it sent, only once the listed total reaches the amount it expects
+    ///        to arrive (OQ-01, OQ-09), and a repeated id is a no-op on the hub.
     /// @param inFlightToHub Spoke-to-hub transits the spoke sent whose outcome it does not yet know, with the amount
     ///        that will arrive (DEC-085) and the kind (Principal or Income, DEC-092). A list rather than a scalar so the
     ///        hub can reconcile by transfer id and never count an arrival twice (DEC-104).
