@@ -33,7 +33,7 @@ contract CreateFund is Script, FactoryDeployment, FundMandate {
 
         if (block.chainid == ARBITRUM) {
             uint256 n = factory.nextCreationNumber();
-            Mandate memory m = _buildMandate(factory, factory.fundIdOf(ARBITRUM, n), plan);
+            Mandate memory m = _buildMandate(factory, factory.fundIdOf(ARBITRUM, n, manager), plan);
             IFundFactory.HubParams memory p =
                 _hubParams(n, plan, _coreVaultCreationCode(factory.wiring().coreVaultLogic));
             vm.startBroadcast(manager);
@@ -55,7 +55,7 @@ contract CreateFund is Script, FactoryDeployment, FundMandate {
             );
         } else if (block.chainid == ROBINHOOD) {
             uint256 n = vm.envUint("CREATION_NUMBER");
-            Mandate memory m = _buildMandate(factory, factory.fundIdOf(ARBITRUM, n), plan);
+            Mandate memory m = _buildMandate(factory, factory.fundIdOf(ARBITRUM, n, manager), plan);
             IFundFactory.SpokeParams memory p = _spokeParams(vm.envBytes32("MANDATE_HASH"), plan);
             vm.startBroadcast(manager);
             IFundFactory.ChainAddresses memory c = factory.createSpoke(n, m, p);

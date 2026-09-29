@@ -15,7 +15,9 @@ import {Mandate} from "../mandate/Mandate.sol";
 ///      the hub's predictions valid on the spokes (see Create3Deployer).
 /// @dev Q59 (OPEN, research reading D): the fund number is `NUMBER_OFFSET + creation count` (first fund
 ///      `NUMBER_OFFSET + 1`), the Share is named `Pool Party Fund {n}` with symbol `PP-{n}`, no manager text;
-///      `fundId = keccak256(abi.encode(hubChainId, factory, n))`.
+///      `fundId = keccak256(abi.encode(hubChainId, factory, n, manager))`. The Manager is bound into the fund id
+///      (DEC-001, FF-OQ-1), so every fund address, on every chain, can only be created by the Manager's key: nobody
+///      else can squat a real fund's Spoke Vault on a spoke.
 interface IFundFactory {
     /// @notice Protocol-level wiring of one chain, fixed at the factory's construction.
     /// @param numberOffset `NUMBER_OFFSET` (Q59): fund numbers of this factory start after it, so future Hub Chains
@@ -209,9 +211,10 @@ interface IFundFactory {
     ///      `createFund` is therefore unreachable through `createSpoke`, so nobody can consume the hub salts of a
     ///      future fund (DEC-001, DEC-054). Reverts unless `msg.sender == m.manager`, the Mandate hashes to
     ///      `p.mandateHash`, this chain is a Mandate spoke whose token is this chain's base token, and every Mandate
-    ///      address is the fund's predicted one (the spoke entry for this chain included). The spoke cannot see the
-    ///      hub, so `p.mandateHash` binds the Mandate to the hub's `FundCreated` event only as far as the caller copies
-    ///      it faithfully (see docs/DEPLOYMENT.md).
+    ///      address is the fund's predicted one (the spoke entry for this chain included). The fund id binds
+    ///      `m.manager`, which must be the caller, so only the fund's Manager reaches its predicted addresses (DEC-001,
+    ///      FF-OQ-1). The spoke cannot see the hub, so `p.mandateHash` binds the Mandate to the hub's `FundCreated`
+    ///      event only as far as the Manager copies it faithfully (see docs/DEPLOYMENT.md).
     function createSpoke(uint256 creationNumber, Mandate memory m, SpokeParams memory p)
         external
         returns (ChainAddresses memory addresses);
@@ -228,8 +231,9 @@ interface IFundFactory {
     /// @notice The Core Vault of fund number `creationNumber`, or address(0).
     function fundByNumber(uint256 creationNumber) external view returns (address);
 
-    /// @notice `keccak256(abi.encode(hubChainId, address(this), creationNumber))`.
-    function fundIdOf(uint256 hubChainId, uint256 creationNumber) external view returns (bytes32);
+    /// @notice `keccak256(abi.encode(hubChainId, address(this), creationNumber, manager))` (Q59 stance; the Manager
+    ///         bound in, DEC-001, FF-OQ-1).
+    function fundIdOf(uint256 hubChainId, uint256 creationNumber, address manager) external view returns (bytes32);
 
     /// @notice `keccak256(abi.encode(fundId, role, chainId))`.
     function saltOf(bytes32 fundId, bytes32 role, uint256 chainId) external pure returns (bytes32);
@@ -238,9 +242,9 @@ interface IFundFactory {
     ///         lives.
     function addressOf(bytes32 fundId, bytes32 role, uint256 chainId) external view returns (address);
 
-    /// @notice Every address of fund number `creationNumber` created on this chain as its Hub Chain, with the per-chain
-    ///         sets of `chainIds`. Build the Mandate from it, then call `createFund`.
-    function predictAddresses(uint256 creationNumber, uint256[] calldata chainIds)
+    /// @notice Every address of fund number `creationNumber` created on this chain as its Hub Chain by `manager`, with
+    ///         the per-chain sets of `chainIds`. Build the Mandate from it, then call `createFund` from `manager`.
+    function predictAddresses(uint256 creationNumber, address manager, uint256[] calldata chainIds)
         external
         view
         returns (FundAddresses memory addresses);

@@ -30,7 +30,8 @@ import {FundMandate} from "../../../script/FundMandate.sol";
 ///         the same address, one per simulated chain, as in FundFactory.t.sol.
 /// @dev `test_DEC054_verify_createSpokeCannotConsumeTheHubSaltsOfAFutureFund` is the inverted form of a verifier
 ///      finding (fixed): `createSpoke` derives the fund id from the Mandate's Hub Chain, never this chain.
-///      `test_DEC001_verify_spokeVaultOfARealFundSquattedByAnotherManager` still demonstrates FF-OQ-1 as recorded.
+///      `test_DEC001_verify_anotherManagerCannotSquatTheSpokeVaultOfARealFund` is the inverted form of FF-OQ-1 (fixed):
+///      the fund id binds the Manager.
 contract FundFactoryVerifyTest is Test, FactoryDeployment, FundMandate {
     uint256 internal constant HUB = 42_161;
     uint256 internal constant SPOKE = 4663;
@@ -158,7 +159,7 @@ contract FundFactoryVerifyTest is Test, FactoryDeployment, FundMandate {
     ///      DEC-054).
     function test_DEC054_verify_createSpokeCannotConsumeTheHubSaltsOfAFutureFund() public {
         uint256 n = factory.nextCreationNumber();
-        bytes32 fundId = factory.fundIdOf(HUB, n);
+        bytes32 fundId = factory.fundIdOf(HUB, n, manager);
         Mandate memory squat = _foreignHubMandate(fundId);
         IFundFactory.SpokeParams memory sp;
         sp.uniswapV4Pools = new PoolKey[](1);
@@ -179,7 +180,7 @@ contract FundFactoryVerifyTest is Test, FactoryDeployment, FundMandate {
         factory.createSpoke(n, squat, sp);
 
         // 3. A consistent fund hubbed elsewhere lands on its own salts, disjoint from the hub fund's.
-        bytes32 foreignFund = factory.fundIdOf(SPOKE, n);
+        bytes32 foreignFund = factory.fundIdOf(SPOKE, n, attacker);
         Mandate memory foreign = _foreignHubMandate(foreignFund);
         sp.mandateHash = MandateLib.hash(foreign);
         vm.prank(attacker);
@@ -198,44 +199,59 @@ contract FundFactoryVerifyTest is Test, FactoryDeployment, FundMandate {
         assertTrue(factory.isFund(a.coreVault));
     }
 
-    /// @dev FF-OQ-1 made concrete (DEC-001, DEC-054): the predictions depend on `fundId` only, never on the manager,
-    ///      so on the spoke a stranger who names themselves Manager creates the real fund's Spoke Vault first, at the
-    ///      exact address the hub's Mandate names as bridge recipient and report emitter, and the real manager is
-    ///      locked out with `SpokeAlreadyCreated`. The Mandate is immutable, so the fund has no spoke on that chain.
-    function test_DEC001_verify_spokeVaultOfARealFundSquattedByAnotherManager() public {
-        Mandate memory m = _buildMandate(factory, factory.fundIdOf(HUB, 1), _plan(manager));
+    /// @dev Verifier finding (major), fixed: FF-OQ-1 closed on chain. Before the fix the predictions ignored the
+    ///      manager, so a stranger naming themselves Manager created the real fund's Spoke Vault first, at the address
+    ///      the hub's Mandate names as bridge recipient (DEC-087) and report emitter (DEC-086). Now the fund id binds
+    ///      the Manager (DEC-001, Q59 stance): the stranger's Mandate derives another fund id and other addresses, the
+    ///      real Mandate needs the real Manager's key, and the real manager creates the spoke at the named address.
+    function test_DEC001_verify_anotherManagerCannotSquatTheSpokeVaultOfARealFund() public {
+        Mandate memory m = _buildMandate(factory, factory.fundIdOf(HUB, 1, manager), _plan(manager));
         vm.prank(manager);
         IFundFactory.FundAddresses memory a =
             factory.createFund(m, _hubParams(1, _plan(manager), _coreVaultCreationCode(hubDeployment.coreVaultLogic)));
         bytes32 hubMandateHash = MandateLib.hash(m);
+        address named = address(uint160(uint256(m.spokes[0].spokeVault)));
 
         address hubFactory = address(factory);
         FundFactory spokeFactory = _spokeFactory();
         assertEq(address(spokeFactory), hubFactory, "same factory address on every chain");
 
-        // Same fund id, same predicted addresses, another manager.
+        // The real fund's addresses under another manager: refused, the derived fund id is the attacker's.
         Mandate memory forged = _buildMandate(spokeFactory, a.fundId, _plan(attacker));
-        assertEq(forged.spokes[0].spokeVault, m.spokes[0].spokeVault, "the prediction ignores the manager");
+        vm.prank(attacker);
+        vm.expectRevert(
+            abi.encodeWithSelector(IFundFactory.UnexpectedAdapter.selector, HUB, a.chains[0].uniswapV4Adapter)
+        );
+        spokeFactory.createSpoke(a.creationNumber, forged, _spokeParams(MandateLib.hash(forged), _plan(attacker)));
+
+        // The real Mandate from another key: refused.
+        vm.prank(attacker);
+        vm.expectRevert(abi.encodeWithSelector(IFundFactory.NotManager.selector, attacker, manager));
+        spokeFactory.createSpoke(a.creationNumber, m, _spokeParams(hubMandateHash, _plan(manager)));
+
+        // The attacker's own fund id for the same number: its own addresses, never the named one.
+        bytes32 attackerFund = spokeFactory.fundIdOf(HUB, a.creationNumber, attacker);
+        Mandate memory own = _buildMandate(spokeFactory, attackerFund, _plan(attacker));
         vm.prank(attacker);
         IFundFactory.ChainAddresses memory c =
-            spokeFactory.createSpoke(a.creationNumber, forged, _spokeParams(MandateLib.hash(forged), _plan(attacker)));
+            spokeFactory.createSpoke(a.creationNumber, own, _spokeParams(MandateLib.hash(own), _plan(attacker)));
+        assertTrue(c.spokeVault != named);
+        assertEq(named.code.length, 0);
 
-        address named = address(uint160(uint256(m.spokes[0].spokeVault)));
-        assertEq(c.spokeVault, named, "the hub's bridge recipient and report emitter");
-        assertEq(SpokeVault(named).manager(), attacker);
-        assertEq(SpokeVault(named).coreVault(), a.coreVault, "it points at the real Core Vault");
-        assertTrue(SpokeVault(named).mandateHash() != hubMandateHash);
-
+        // The real manager creates the spoke at the address the hub's Mandate names.
         vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(IFundFactory.SpokeAlreadyCreated.selector, a.fundId, named));
-        spokeFactory.createSpoke(a.creationNumber, m, _spokeParams(hubMandateHash, _plan(manager)));
+        c = spokeFactory.createSpoke(a.creationNumber, m, _spokeParams(hubMandateHash, _plan(manager)));
+        assertEq(c.spokeVault, named);
+        assertEq(SpokeVault(named).manager(), manager);
+        assertEq(SpokeVault(named).coreVault(), a.coreVault);
+        assertEq(SpokeVault(named).mandateHash(), hubMandateHash);
     }
 
     /// @dev Checks-effects-interactions across an invalid Mandate: the factory checks predictions before validation,
     ///      and `MandateLib.validate` only runs inside the Spoke Vault constructor after the adapters were deployed.
     ///      The whole creation must still unwind: no adapter code left behind, no number consumed (DEC-053, DEC-058).
     function test_DEC058_verify_invalidMandateLeavesNoPartialDeployment() public {
-        bytes32 fundId = factory.fundIdOf(HUB, 1);
+        bytes32 fundId = factory.fundIdOf(HUB, 1, manager);
         Mandate memory m = _buildMandate(factory, fundId, _plan(manager));
         // An adapter on a chain that is neither the hub nor a spoke, at its predicted address.
         AdapterConfig[] memory adapters = new AdapterConfig[](m.adapters.length + 1);

@@ -83,7 +83,7 @@ contract FundFactoryForkTest is Test, FactoryDeployment, FundMandate {
         assertEq(PoolId.unwrap(plan.spokePool.toId()), RH_WETH_USDG_POOL_ID, "INTEGRATIONS pool id");
 
         uint256 n = d.factory.nextCreationNumber();
-        IFundFactory.FundAddresses memory predicted = d.factory.predictAddresses(n, _chainIds());
+        IFundFactory.FundAddresses memory predicted = d.factory.predictAddresses(n, manager, _chainIds());
         Mandate memory m = _buildMandate(d.factory, predicted.fundId, plan);
         IFundFactory.HubParams memory p = _hubParams(n, plan, _coreVaultCreationCode(d.coreVaultLogic));
         uint256 gasBefore = gasleft();
@@ -230,7 +230,7 @@ contract FundFactoryForkTest is Test, FactoryDeployment, FundMandate {
         Deployment memory d = _hubDeployment();
         FundPlan memory plan = _plan();
         uint256 n = d.factory.nextCreationNumber();
-        bytes32 fundId = d.factory.fundIdOf(ARBITRUM, n);
+        bytes32 fundId = d.factory.fundIdOf(ARBITRUM, n, manager);
         Mandate memory m = _buildMandate(d.factory, fundId, plan);
         bytes32 predicted = m.spokes[0].spokeVault;
         bytes32 foreign = bytes32(uint256(uint160(makeAddr("foreignSpokeVault"))));
@@ -245,7 +245,7 @@ contract FundFactoryForkTest is Test, FactoryDeployment, FundMandate {
         Deployment memory d = _hubDeployment();
         FundPlan memory plan = _plan();
         uint256 n = d.factory.nextCreationNumber();
-        Mandate memory m = _buildMandate(d.factory, d.factory.fundIdOf(ARBITRUM, n), plan);
+        Mandate memory m = _buildMandate(d.factory, d.factory.fundIdOf(ARBITRUM, n, manager), plan);
         // The Core Vault linked to another library: same contract, foreign code.
         bytes memory foreignCode = _coreVaultCreationCode(d.spokeCrossChainLib);
         IFundFactory.HubParams memory p = _hubParams(n, plan, foreignCode);

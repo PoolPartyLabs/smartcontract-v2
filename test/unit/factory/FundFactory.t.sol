@@ -127,7 +127,7 @@ contract FundFactoryTest is Test, FactoryDeployment, FundMandate {
     }
 
     function _mandate(uint256 creationNumber) internal view returns (Mandate memory) {
-        return _buildMandate(factory, factory.fundIdOf(HUB, creationNumber), _plan());
+        return _buildMandate(factory, factory.fundIdOf(HUB, creationNumber, manager), _plan());
     }
 
     function _params(uint256 creationNumber) internal view returns (IFundFactory.HubParams memory) {
@@ -151,8 +151,8 @@ contract FundFactoryTest is Test, FactoryDeployment, FundMandate {
     // ---------------------------------------------------------------------------------------------------------------
 
     function test_Q59_fundIdAndSaltDerivation() public view {
-        bytes32 fundId = factory.fundIdOf(HUB, 7);
-        assertEq(fundId, keccak256(abi.encode(HUB, address(factory), uint256(7))));
+        bytes32 fundId = factory.fundIdOf(HUB, 7, manager);
+        assertEq(fundId, keccak256(abi.encode(HUB, address(factory), uint256(7), manager)));
         bytes32 role = factory.ROLE_SPOKE_VAULT();
         assertEq(role, bytes32("SpokeVault"));
         assertEq(factory.saltOf(fundId, role, SPOKE), keccak256(abi.encode(fundId, role, SPOKE)));
@@ -165,9 +165,11 @@ contract FundFactoryTest is Test, FactoryDeployment, FundMandate {
 
     function testFuzz_Q59_saltsAreDistinctPerRoleChainAndFund(uint256 n, uint256 chainA, uint256 chainB) public view {
         vm.assume(chainA != chainB);
-        bytes32 fundId = factory.fundIdOf(HUB, n);
-        assertTrue(fundId != factory.fundIdOf(HUB, n ^ 1));
-        assertTrue(fundId != factory.fundIdOf(SPOKE, n));
+        bytes32 fundId = factory.fundIdOf(HUB, n, manager);
+        assertTrue(fundId != factory.fundIdOf(HUB, n ^ 1, manager));
+        assertTrue(fundId != factory.fundIdOf(SPOKE, n, manager));
+        // DEC-001, FF-OQ-1: another manager, another fund id, other addresses.
+        assertTrue(fundId != factory.fundIdOf(HUB, n, address(0xB0B)));
         bytes32 role = factory.ROLE_UNISWAP_V4_ADAPTER();
         assertTrue(factory.addressOf(fundId, role, chainA) != factory.addressOf(fundId, role, chainB));
         assertTrue(
@@ -184,8 +186,8 @@ contract FundFactoryTest is Test, FactoryDeployment, FundMandate {
     }
 
     function test_DEC054_predictAddressesMatchesAddressOf() public view {
-        IFundFactory.FundAddresses memory a = factory.predictAddresses(3, _chainIds());
-        bytes32 fundId = factory.fundIdOf(HUB, 3);
+        IFundFactory.FundAddresses memory a = factory.predictAddresses(3, manager, _chainIds());
+        bytes32 fundId = factory.fundIdOf(HUB, 3, manager);
         assertEq(a.creationNumber, 3);
         assertEq(a.fundId, fundId);
         assertEq(a.coreVault, factory.addressOf(fundId, factory.ROLE_CORE_VAULT(), HUB));
@@ -226,7 +228,7 @@ contract FundFactoryTest is Test, FactoryDeployment, FundMandate {
     // ---------------------------------------------------------------------------------------------------------------
 
     function test_DEC054_createFundDeploysEveryPredictedContractWired() public {
-        IFundFactory.FundAddresses memory predicted = factory.predictAddresses(1, _chainIds());
+        IFundFactory.FundAddresses memory predicted = factory.predictAddresses(1, manager, _chainIds());
         (IFundFactory.FundAddresses memory a, Mandate memory m) = _createFund();
         IFundFactory.ChainAddresses memory hub = a.chains[0];
 
@@ -290,7 +292,11 @@ contract FundFactoryTest is Test, FactoryDeployment, FundMandate {
         IFundFactory.HubParams memory p = _params(1);
         vm.expectEmit(true, true, true, false, address(factory));
         emit IFundFactory.FundCreated(
-            1, factory.fundIdOf(HUB, 1), manager, MandateLib.hash(m), factory.predictAddresses(1, _chainIds())
+            1,
+            factory.fundIdOf(HUB, 1, manager),
+            manager,
+            MandateLib.hash(m),
+            factory.predictAddresses(1, manager, _chainIds())
         );
         vm.prank(manager);
         factory.createFund(m, p);
@@ -429,7 +435,7 @@ contract FundFactoryTest is Test, FactoryDeployment, FundMandate {
         FundPlan memory plan = _plan();
         plan.spokeChainId = 0;
         plan.hubAaveAsset = address(0);
-        Mandate memory m = _buildMandate(factory, factory.fundIdOf(HUB, 1), plan);
+        Mandate memory m = _buildMandate(factory, factory.fundIdOf(HUB, 1, manager), plan);
         IFundFactory.HubParams memory p = _hubParams(1, plan, _coreVaultCreationCode(hubDeployment.coreVaultLogic));
         vm.prank(manager);
         IFundFactory.FundAddresses memory a = factory.createFund(m, p);
@@ -567,7 +573,7 @@ contract FundFactoryTest is Test, FactoryDeployment, FundMandate {
     function test_DEC028_aaveAdapterOnAChainWithoutAaveReverts() public {
         FundFactory spokeFactory = _spokeFactory();
         factory = spokeFactory;
-        bytes32 fundId = spokeFactory.fundIdOf(HUB, 1);
+        bytes32 fundId = spokeFactory.fundIdOf(HUB, 1, manager);
         Mandate memory m = _buildMandate(spokeFactory, fundId, _plan());
         // Add an Aave adapter and pool on the spoke.
         address spokeAave = spokeFactory.addressOf(fundId, spokeFactory.ROLE_AAVE_V3_ADAPTER(), SPOKE);

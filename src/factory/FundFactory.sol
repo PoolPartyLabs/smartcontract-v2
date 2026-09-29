@@ -155,7 +155,7 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
         if (codeHash != _coreVaultCreationCodeHash) {
             revert ForeignCreationCode(ROLE_CORE_VAULT, codeHash, _coreVaultCreationCodeHash);
         }
-        bytes32 fundId = _fundIdOf(chainId, creationNumber);
+        bytes32 fundId = _fundIdOf(chainId, creationNumber, m.manager);
         _requirePredictedAddresses(m, fundId);
 
         addresses = _hubAddresses(creationNumber, fundId, chainId);
@@ -192,9 +192,10 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
         if (mandateHash != p.mandateHash) revert MandateHashMismatch(mandateHash, p.mandateHash);
         uint256 chainId = block.chainid;
         // DEC-011, DEC-054: the fund id is derived, never given, and never one this factory derives for its own
-        // `createFund`, so a spoke can never consume the hub salts of a future fund here.
+        // `createFund`, so a spoke can never consume the hub salts of a future fund here. DEC-001, FF-OQ-1: it binds
+        // the Manager, so only the fund's own Manager reaches the addresses the hub's Mandate names.
         if (m.hubChainId == chainId) revert SpokeOnHubChain(chainId);
-        bytes32 fundId = _fundIdOf(m.hubChainId, creationNumber);
+        bytes32 fundId = _fundIdOf(m.hubChainId, creationNumber, m.manager);
         // Reverts UnknownSpokeChain when this chain is not a Mandate spoke (the Hub Chain included).
         (, SpokeConfig memory spoke) = m.spokeByChainId(chainId);
         if (spoke.spokeToken != _baseToken) revert BaseTokenMismatch(spoke.spokeToken, _baseToken);
@@ -218,8 +219,8 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
     }
 
     /// @inheritdoc IFundFactory
-    function fundIdOf(uint256 hubChainId, uint256 creationNumber) external view returns (bytes32) {
-        return _fundIdOf(hubChainId, creationNumber);
+    function fundIdOf(uint256 hubChainId, uint256 creationNumber, address manager) external view returns (bytes32) {
+        return _fundIdOf(hubChainId, creationNumber, manager);
     }
 
     /// @inheritdoc IFundFactory
@@ -233,12 +234,12 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
     }
 
     /// @inheritdoc IFundFactory
-    function predictAddresses(uint256 creationNumber, uint256[] calldata chainIds)
+    function predictAddresses(uint256 creationNumber, address manager, uint256[] calldata chainIds)
         external
         view
         returns (FundAddresses memory addresses)
     {
-        addresses = _hubAddresses(creationNumber, _fundIdOf(block.chainid, creationNumber), block.chainid);
+        addresses = _hubAddresses(creationNumber, _fundIdOf(block.chainid, creationNumber, manager), block.chainid);
         addresses.chains = new ChainAddresses[](chainIds.length);
         for (uint256 i; i < chainIds.length; ++i) {
             addresses.chains[i] = _chainAddresses(addresses.fundId, chainIds[i]);
@@ -275,8 +276,10 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
         return NUMBER_OFFSET + _fundCount + 1;
     }
 
-    function _fundIdOf(uint256 hubChainId, uint256 creationNumber) private view returns (bytes32) {
-        return keccak256(abi.encode(hubChainId, address(this), creationNumber));
+    /// @dev Q59 stance with the Manager bound in (DEC-001, FF-OQ-1): every fund address is a function of the fund id,
+    ///      so binding the Manager means only the Manager's key can create a contract at any of them, on any chain.
+    function _fundIdOf(uint256 hubChainId, uint256 creationNumber, address manager) private view returns (bytes32) {
+        return keccak256(abi.encode(hubChainId, address(this), creationNumber, manager));
     }
 
     function _addressOf(bytes32 fundId, bytes32 role, uint256 chainId) private view returns (address) {
