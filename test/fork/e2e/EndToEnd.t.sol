@@ -58,6 +58,7 @@ contract EndToEndForkTest is EndToEndBase {
         _phase2AnaDeposits();
         _phase3HubAllocationAndIncome();
         _phase4SendToRobinhood();
+        _phase5FillPositionAndReport();
     }
 
     // -----------------------------------------------------------------------------------------------------------------
@@ -320,5 +321,82 @@ contract EndToEndForkTest is EndToEndBase {
         assertEq(messageTransit, transitId);
         assertEq(uint8(kind), uint8(TransferKind.Principal));
         acrossMessage = d.message;
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // Phase 5: the fill on Robinhood, a WETH/USDG position, fees, the report on the real Wormhole Core
+    // -----------------------------------------------------------------------------------------------------------------
+
+    /// @dev DEC-090, OQ-01, OQ-09: the arrival is credited and recorded per transit id. DEC-096: it tops up Operating
+    ///      Cash. DEC-070, DEC-086, DEC-093: the report is built from the ledger and published finalized.
+    function _phase5FillPositionAndReport() internal {
+        _onRobinhood();
+        address vault = address(spokeVault);
+        // Across fill as the fork suites simulate it: the output token reaches the recipient and the SpokePool calls
+        // the handler with the deposit's message (docs/INTEGRATIONS.md).
+        deal(RH_USDG, vault, IERC20(RH_USDG).balanceOf(vault) + amountToArrive);
+        vm.prank(RH_ACROSS_SPOKE_POOL);
+        spokeVault.handleV3AcrossMessage(RH_USDG, amountToArrive, relayer, acrossMessage);
+        assertEq(SpokeVault(vault).arrivals(transitId), amountToArrive, "OQ-09: credited total per transit id");
+        assertEq(spokeVault.cumulativeReceived(), amountToArrive);
+        assertEq(spokeVault.operatingCash(), SPOKE_OPERATING_CASH_TOP_UP, "DEC-096: the arrival tops up Operating Cash");
+        assertEq(spokeVault.unallocatedBalance(RH_USDG), amountToArrive - SPOKE_OPERATING_CASH_TOP_UP);
+
+        _openSpokeUniswapPosition();
+        robinhoodRouter = _deployRouter(RH_V4_POOL_MANAGER, RH_WETH, RH_USDG, 10_000e18, 50_000_000e6);
+        _generateFees(
+            robinhoodRouter, _spokePoolKey(), RH_V4_STATE_VIEW, _center(RH_V4_STATE_VIEW, RH_WETH_USDG_POOL_ID)
+        );
+        IAdapter.PositionValue memory v4 = IAdapter(spokeUniswap).positionValue(spokeUniswapPosition);
+        assertGt(v4.income0, 0, "DEC-079: WETH fees on the spoke");
+        assertGt(v4.income1, 0, "DEC-079: USDG fees on the spoke");
+
+        _publishReport();
+    }
+
+    function _openSpokeUniswapPosition() internal {
+        uint256 half = SPOKE_V4_USDG / 2;
+        vm.prank(manager);
+        uint256 weth = spokeVault.swapExactInput(
+            spokeUniswap, RH_WETH_USDG_POOL_ID, RH_USDG, half, spokeSwapMinWeth, _swapParams()
+        );
+        int24 center = _center(RH_V4_STATE_VIEW, RH_WETH_USDG_POOL_ID);
+        vm.prank(manager);
+        (bytes32 key, uint256 used0, uint256 used1) =
+            spokeVault.openPosition(spokeUniswap, RH_WETH_USDG_POOL_ID, weth, half, _openParams(center, weth, half));
+        spokeUniswapPosition = key;
+        assertGt(used0, 0);
+        assertGt(used1, 0);
+        assertEq(spokeVault.positions().length, 1);
+    }
+
+    /// @dev `report()` publishes to the real Robinhood Core; the message is read back from the logs.
+    function _publishReport() internal {
+        vm.recordLogs();
+        (uint64 sequence, uint64 wormholeSequence) = spokeVault.report();
+        VaaBody[] memory published = ICoreBridge(RH_WORMHOLE_CORE).fetchPublishedMessages(vm.getRecordedLogs());
+        assertEq(published.length, 1);
+        VaaEnvelope memory e = published[0].envelope;
+        assertEq(e.emitterChainId, WORMHOLE_ROBINHOOD, "DEC-086: Wormhole chain 72");
+        assertEq(e.emitterAddress, toUniversalAddress(address(spokeVault)), "DEC-086: the Spoke Vault is the emitter");
+        assertEq(e.sequence, wormholeSequence);
+        assertEq(e.consistencyLevel, 1, "DEC-093: finalized");
+
+        ReportCodec.Report memory r = ReportCodec.decode(published[0].payload);
+        assertEq(sequence, 1);
+        assertEq(r.sequence, 1, "DEC-093: first report");
+        assertEq(r.fundId, fundId);
+        assertEq(r.spokeChainId, ROBINHOOD);
+        assertEq(r.timestamp, block.timestamp);
+        assertEq(r.arrivedTransits.length, 1);
+        assertEq(r.arrivedTransits[0].transitId, transitId, "DEC-090: the arrival is listed by transit id");
+        assertEq(r.arrivedTransits[0].amount, amountToArrive, "OQ-09: at its credited total");
+        assertEq(r.cumulativeReceived, amountToArrive);
+        assertEq(r.operatingCash, SPOKE_OPERATING_CASH_TOP_UP, "DEC-096: Operating Cash on its own line");
+        assertEq(r.positions.length, 1);
+        assertGt(r.positions[0].income0 + r.positions[0].income1, 0, "DEC-079: income apart from principal");
+        assertEq(r.inFlightToHub.length, 0);
+        publishedEnvelope = e;
+        publishedPayload = published[0].payload;
     }
 }
