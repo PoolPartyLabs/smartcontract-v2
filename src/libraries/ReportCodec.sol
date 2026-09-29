@@ -11,7 +11,8 @@ import {TransferKind} from "../interfaces/FundTypes.sol";
 ///      hub can price with a report value or with its own price source without a payload change.
 /// @dev Layout: `abi.encode(uint256 version, Report report)`. A reader checks the first word before decoding.
 /// @dev Versions: 1, the module build; 2, the consolidation of 2026-09-29: `inFlightToHub` entries carry their
-///      `TransferKind` (CV-OQ-1, DEC-085, DEC-092). Nothing was ever deployed with version 1.
+///      `TransferKind` (CV-OQ-1, DEC-085, DEC-092), and the spoke's collected income bucket and Operating Cash travel
+///      for Gross Assets (DEC-098). Nothing was ever deployed with version 1.
 library ReportCodec {
     /// @notice Current payload version.
     uint256 internal constant VERSION = 2;
@@ -69,7 +70,12 @@ library ReportCodec {
     /// @param timestamp Spoke block timestamp at which the report was built (DEC-094, DEC-099 age rule).
     /// @param unallocated Unallocated Balance per token, principal only (DEC-055, DEC-080: ledger, never balanceOf).
     /// @param positions Every open position with principal and income separated (DEC-079).
-    /// @param cumulativeIncome Monotonic income-since-inception counter per income token (Q60, DEC-092).
+    /// @param cumulativeIncome Monotonic income-since-inception counter per income token (Q60, DEC-092); informational
+    ///        (ruling 2026-09-29: spoke income is attributed only when it reaches the hub as Income).
+    /// @param collectedIncome The spoke's collected income bucket per ledger token, not yet sent home (DEC-092: outside
+    ///        Share Assets, inside Gross Assets, DEC-098).
+    /// @param operatingCash The spoke's Operating Cash, in base token units (DEC-096: outside Share Assets, inside Gross
+    ///        Assets, DEC-098).
     /// @param cumulativeReceived Total principal ever credited from hub transfers, in the spoke's base token units.
     /// @param cumulativeSentHome Total ever sent to the hub, in the spoke's base token units (Q66, DEC-105).
     /// @param arrivedTransits Hub-to-spoke transits the spoke credited, with the amount credited (DEC-090): the last
@@ -87,6 +93,8 @@ library ReportCodec {
         TokenAmount[] unallocated;
         PositionReport[] positions;
         TokenAmount[] cumulativeIncome;
+        TokenAmount[] collectedIncome;
+        uint256 operatingCash;
         uint256 cumulativeReceived;
         uint256 cumulativeSentHome;
         TransitAmount[] arrivedTransits;

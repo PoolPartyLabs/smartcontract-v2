@@ -127,15 +127,19 @@ library SpokeCrossChainLib {
         r.blockNumber = uint64(block.number);
         r.timestamp = uint64(block.timestamp);
 
-        // DEC-055, DEC-080: Unallocated Balance from the ledger, never balanceOf; every ledger token is listed.
+        // DEC-055, DEC-080: Unallocated Balance from the ledger, never balanceOf; every ledger token is listed. The
+        // collected income bucket and Operating Cash travel for the hub's Gross Assets (DEC-092, DEC-096, DEC-098).
         uint256 n = s.tokens.length;
         r.unallocated = new ReportCodec.TokenAmount[](n);
         r.cumulativeIncome = new ReportCodec.TokenAmount[](n);
+        r.collectedIncome = new ReportCodec.TokenAmount[](n);
         for (uint256 i; i < n; ++i) {
             address token = s.tokens[i];
             r.unallocated[i] = ReportCodec.TokenAmount(token, s.unallocated[token]);
             r.cumulativeIncome[i] = ReportCodec.TokenAmount(token, cumulativeIncome(s, token));
+            r.collectedIncome[i] = ReportCodec.TokenAmount(token, s.collectedIncome[token]);
         }
+        r.operatingCash = s.operatingCash;
 
         // DEC-079: principal and income separated, as each adapter reads its protocol.
         n = s.positions.length;

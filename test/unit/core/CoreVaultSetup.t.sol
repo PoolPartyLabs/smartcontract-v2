@@ -7,6 +7,7 @@ import {ExpensePayer} from "../../../src/interfaces/FundTypes.sol";
 import {CoreVault} from "../../../src/core/CoreVault.sol";
 import {CoreVaultConfig} from "../../../src/core/CoreVaultTypes.sol";
 import {ShareToken} from "../../../src/core/ShareToken.sol";
+import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {ShareMath} from "../../../src/libraries/ShareMath.sol";
 import {Mandate, MandateLib, OperatingCashConfig} from "../../../src/mandate/Mandate.sol";
 import {MockBridgeAdapter} from "../../mocks/core/MockBridgeAdapter.sol";
@@ -241,6 +242,19 @@ contract CoreVaultSetupTest is CoreVaultFixture {
         vault.returnToIdle(1e6);
         vm.expectRevert(abi.encodeWithSelector(ICoreVault.NotHubSpokeVault.selector, address(this)));
         vault.returnToIdle(1e6);
+    }
+
+    function test_DEC098_grossAssetsAddsSpokeCollectedIncomeAndOperatingCash() public {
+        _deposit(alice, 1000e6);
+        uint256 before = vault.grossAssets();
+        ReportCodec.Report memory r = _spokeReport(0, 0);
+        r.collectedIncome = new ReportCodec.TokenAmount[](2);
+        r.collectedIncome[0] = ReportCodec.TokenAmount(address(usdg), 30e6);
+        r.collectedIncome[1] = ReportCodec.TokenAmount(address(spokeWeth), 0.01e18); // 25 USDC
+        r.operatingCash = 5e6;
+        _deliver(r);
+        assertEq(vault.shareAssets(), 997e6, "outside Share Assets");
+        assertEq(vault.grossAssets(), before + 30e6 + 25e6 + 5e6, "inside Gross Assets");
     }
 
     function test_DEC098_grossAssetsAddsCashAndIncome() public {

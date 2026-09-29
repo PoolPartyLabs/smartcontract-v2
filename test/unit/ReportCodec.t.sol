@@ -52,6 +52,9 @@ contract ReportCodecTest is Test {
         });
         r.cumulativeIncome = new ReportCodec.TokenAmount[](1);
         r.cumulativeIncome[0] = ReportCodec.TokenAmount(address(0x5fc5), 42e6);
+        r.collectedIncome = new ReportCodec.TokenAmount[](1);
+        r.collectedIncome[0] = ReportCodec.TokenAmount(address(0x5fc5), 7e6);
+        r.operatingCash = 10e6;
         r.cumulativeReceived = 10_000e6;
         r.cumulativeSentHome = 1000e6;
         r.arrivedTransits = new ReportCodec.TransitAmount[](1);
@@ -124,6 +127,8 @@ contract ReportCodecTest is Test {
         r.cumulativeSentHome = uint256(keccak256(abi.encode(seed, "sent")));
         r.unallocated = _tokenAmounts(seed, nUnallocated % 8, "unallocated");
         r.cumulativeIncome = _tokenAmounts(seed, nIncome % 8, "income");
+        r.collectedIncome = _tokenAmounts(seed, nIncome % 5, "collected");
+        r.operatingCash = seed >> 32;
         r.arrivedTransits = _transitAmounts(seed, nArrived % 8, "arrived");
         r.inFlightToHub = _hubBoundAmounts(seed, nInFlight % 8, "inflight");
         r.positions = new ReportCodec.PositionReport[](nPositions % 6);

@@ -702,6 +702,16 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         assertEq(uint8(vault.buildReport().inFlightToHub[0].kind), uint8(TransferKind.Income));
     }
 
+    function test_DEC098_reportCarriesCollectedIncomeAndOperatingCash() public {
+        _arrive(100e6, ARRIVAL, TransferKind.Principal); // tops Operating Cash up by 10 (DEC-096)
+        _arrive(7e6, keccak256("income"), TransferKind.Income);
+        ReportCodec.Report memory r = vault.buildReport();
+        assertEq(r.operatingCash, SPOKE_TOP_UP);
+        assertEq(r.collectedIncome[0].token, address(usdg));
+        assertEq(r.collectedIncome[0].amount, 7e6);
+        assertEq(r.unallocated[0].amount, 90e6, "neither is in Unallocated Balance");
+    }
+
     function test_CVOQ2_wethIncomeSwappedIntoBaseTokenThenSentHomeAsIncome() public {
         _disableOperatingCash();
         bytes32 key = _openSpokePosition(0.2e18, 200e6, 10_000);

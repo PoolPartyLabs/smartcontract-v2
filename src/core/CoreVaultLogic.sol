@@ -111,8 +111,9 @@ library CoreVaultLogic {
     }
 
     /// @notice DEC-098, DEC-103: Gross Assets, informational. Share Assets + Operating Cash + Attributed Income:
-    ///         collected here, plus the hub Spoke Vault's collected bucket and uncollected position income, plus spoke
-    ///         position income from the last reports. External rewards are 0 (no Collector in the MVP).
+    ///         collected here, plus the hub Spoke Vault's collected bucket and uncollected position income, plus each
+    ///         spoke's uncollected position income, collected income bucket and Operating Cash from its last report.
+    ///         External rewards are 0 (no Collector in the MVP).
     function grossAssets(CoreVaultState storage s, CoreVaultWiring memory w) public view returns (uint256 total) {
         Prices memory p = _newPrices(VIEW);
         (total,,,) = _valuation(s, w, p);
@@ -126,7 +127,10 @@ library CoreVaultLogic {
         for (uint256 i; i < s.mandate.spokes.length; ++i) {
             if (!receiver.hasReport(i)) continue;
             (ReportCodec.Report memory r,,) = receiver.latestReport(i);
-            total += _positionsIncome(s, w, p, r);
+            total += _positionsIncome(s, w, p, r) + _usdcValue(s, w, p, s.mandate.spokes[i].spokeToken, r.operatingCash);
+            for (uint256 j; j < r.collectedIncome.length; ++j) {
+                total += _usdcValue(s, w, p, r.collectedIncome[j].token, r.collectedIncome[j].amount);
+            }
         }
     }
 
