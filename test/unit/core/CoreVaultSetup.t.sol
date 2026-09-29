@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {Vm} from "forge-std/Vm.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {ExpensePayer} from "../../../src/interfaces/FundTypes.sol";
 import {CoreVault} from "../../../src/core/CoreVault.sol";
@@ -146,8 +147,6 @@ contract CoreVaultSetupTest is CoreVaultFixture {
         vm.startPrank(bob);
         usdc.approve(address(vault), 100e6);
         vm.expectEmit(address(vault));
-        emit ICoreVault.OperatingCashInsufficient(0, 1e6, 3e6);
-        vm.expectEmit(address(vault));
         emit ICoreVault.OperatingCashToppedUp(3e6, 3e6);
         vm.expectEmit(address(vault));
         emit ICoreVault.OperatingExpensePaid(
@@ -163,6 +162,34 @@ contract CoreVaultSetupTest is CoreVaultFixture {
         // Operating Cash is back at the floor: the next operation does not top up again.
         _deposit(bob, 100e6);
         assertEq(vault.operatingCash(), 3e6);
+    }
+
+    function test_DEC041_routineTopUpIsNotInsufficientCash() public {
+        _deposit(alice, 1000e6);
+        vm.prank(manager);
+        vault.setOperatingCashParameters(1e6, 3e6);
+        vm.recordLogs();
+        _deposit(bob, 100e6);
+        assertEq(vault.operatingCash(), 3e6);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 i; i < logs.length; ++i) {
+            assertTrue(logs[i].topics[0] != ICoreVault.OperatingCashInsufficient.selector, "routine top-up");
+        }
+    }
+
+    function test_DEC041_shortTopUpIsInsufficientCash() public {
+        _deposit(alice, 1000e6);
+        vm.prank(manager);
+        vault.allocateToHubSpokeVault(996e6); // Free Idle 1
+        vm.prank(manager);
+        vault.setOperatingCashParameters(5e6, 10e6);
+        _request(alice, 1e6, ICoreVault.PayoutMode.Standard); // reserves the last unit
+        vm.warp(block.timestamp + 72 hours);
+        // Operating Cash 0, floor 5, top-up 10, Free Idle 0: cash cannot be restored.
+        vm.expectEmit(address(vault));
+        emit ICoreVault.OperatingCashInsufficient(0, 5e6, 0);
+        _claim(alice);
+        assertEq(vault.operatingCash(), 0);
     }
 
     function test_DEC072_topUpNeverTakesThePayoutReserve() public {

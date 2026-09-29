@@ -275,14 +275,19 @@ abstract contract CoreVaultBase is ICoreVault, ReentrancyGuardTransient {
     /// @notice DEC-096, DEC-100, DEC-041: when hub Operating Cash is below its floor, the value-moving operation that
     ///         calls this tops it up by `operatingCashTopUp` from Free Idle (never the Payout Reserve, DEC-072). The
     ///         top-up is an Operating Expense paid by Share Assets (accepted effect on Share Price, DEC-100).
+    /// @dev DEC-041 "insufficient cash" state (Core Vault verifier finding): `OperatingCashInsufficient` is emitted only
+    ///      when Free Idle cannot fund the whole top-up, i.e. Operating Cash stays unable to pay and the next expense
+    ///      falls through to Share Assets; a routine top-up emits only `OperatingCashToppedUp` and
+    ///      `OperatingExpensePaid`. The top-up is the only hub Operating Expense in the MVP (spending Operating Cash is
+    ///      OPEN, doc 30), so a short top-up is the only way cash can fail to pay.
     function _topUpOperatingCash() internal {
         uint256 cash = _s.operatingCash;
         uint256 floor = _s.operatingCashFloor;
         if (cash >= floor) return;
-        uint256 amount = _s.operatingCashTopUp;
+        uint256 topUp = _s.operatingCashTopUp;
         uint256 free = freeIdle();
-        if (amount > free) amount = free;
-        emit OperatingCashInsufficient(cash, floor, amount);
+        uint256 amount = topUp > free ? free : topUp;
+        if (amount < topUp) emit OperatingCashInsufficient(cash, floor, amount);
         if (amount == 0) return;
         _s.idle -= amount;
         _s.operatingCash = cash + amount;

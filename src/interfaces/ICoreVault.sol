@@ -188,9 +188,10 @@ interface ICoreVault is IAcrossMessageHandler {
     /// @notice Balance above the ledger was swept (DEC-080, DEC-096, DEC-101).
     event ExcessSwept(address indexed token, address indexed recipient, uint256 amount);
 
-    /// @notice DEC-041: Operating Cash was below its floor, so the expense that restores it falls through to Share
-    ///         Assets (the explicit "insufficient cash" state). `toppedUp` is below the configured top-up when Free Idle
-    ///         is short.
+    /// @notice DEC-041, the explicit "insufficient cash" state: Operating Cash was below its floor and Free Idle could
+    ///         not fund the whole top-up, so cash stays unable to pay and the next expense falls through to Share Assets.
+    ///         `toppedUp` is what the top-up could take, below the configured top-up. Never emitted on a routine
+    ///         top-up.
     event OperatingCashInsufficient(uint256 balance, uint256 floor, uint256 toppedUp);
 
     /// @notice An automatic unwind reverted; the claim continues with the Idle available (DEC-056: exits stay open;
