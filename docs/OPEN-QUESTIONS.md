@@ -31,6 +31,24 @@ parameter or an interface so the founder's answer slots in). The digest that fol
 | Erratum 22 | Protocol floor under the first-deposit minimum | No floor; Mandate value only |
 | DEC-105 reading | Whether every spoke or only the unwound spoke needs a post-unwind report | Only the unwound spoke |
 | Q57 reading | Whether a stale report may block an idle-paid payout | Idle-paid payouts use the last accepted report even if past its lifetime; mints revert |
+| OQ-01 (DEC-080) | Across passes no depositor to `handleV3AcrossMessage`, so a stranger can bridge dust with a valid-looking message | Arrivals are credited only when the id matches a transfer the fund itself sent (hub: an in-flight transit; spoke: an id the hub's send list carries); unmatched amounts are held apart and swept |
+| OQ-02 / OQ-03 (Q60, DEC-107) | When spoke income is recognized, and fee-at-collection vs index-at-recognition | Hub income: the index advances at recognition (adapter operations and `recognizeHubIncome`), and the performance fee plus protocol slice are booked on the recognized delta and paid in kind when the tokens are collected. Spoke income: the index advances when the report is accepted, with the same fee booking; bridging it home is a plain transfer |
+| OQ-04 (swap verb) | Whether a swap is an entry or exit verb, and who bears its Market Costs | `swapExactInput` exists on adapters and vaults, manager only; blocked when deprecated, not when paused; Market Costs stay LC-45/LC-141 |
+| OQ-05 / OQ-06 (LC-143) | Flow fee base on deposit (offered amount vs amount spent) and rounding of bps fees | Fee on the offered amount, rounded down; the remainder left by whole-share rounding stays in the wallet |
+| OQ-07 (DEC-060) | Standard Payout claim before the term ends when the reserve already covers it | Claim allowed only after the term ends |
+| OQ-08 | Whether a fund must have a Spoke Chain | Hub-only funds accepted |
+| OQ-09 (QB11) | Retention of arrivals on the spoke; hub-bound transit past its deadline with no refund seen | Spoke keeps ids in the report until the hub confirms them; hub-bound transits stay in flight until `recognizeRefund` |
+| OQ-10 (Q57) | Payout behaviour on a stale price feed | Mints revert; payouts use the last price and never revert on age |
+| OQ-11 (LC-142) | Protocol slice cap and writer | Cap 5,000 bps, only at or below the default; writer is the registry owner (`Ownable2Step`) |
+| OQ-12 (DEC-079) | Hooked V4 pools | Adapter `poolTokens` reverts for hooked pools; the Spoke Vault checks every Mandate pool at creation |
+| OQ-13 (Q17-4) | Whether the adapter codehash belongs in `mandateHash` | Pinned in the vault at creation, not in the Mandate hash |
+| DEC-066 B1 | Spoke Cap must count the pending return leg | `spokeCapUsage` counts hub-bound transits reported in flight as well as hub-to-spoke sends |
+| DEC-061 residual | Share Price when every share was burned but Share Assets remain (dust, late refund) | Next mint prices at 1.00 and captures the residual; flagged for a ruling |
+| DEC-095 | Minimum Standard Payout term (a zero term makes it a fee-free Instant Payout) | No minimum enforced; flagged |
+| DEC-069 | Whether the unwind order must cover every pool | Not enforced; a pool outside the order can only be unwound manually |
+| DEC-027 / DEC-044 | Manager full-unwind trigger above 50% (base open) | No hook in the MVP; flagged |
+| DEC-041 | Explicit "insufficient cash" state | Payer field on every expense event; a dedicated event when an expense falls through to Share Assets |
+| Bridge custody | Whether a buggy immutable bridge adapter can misdirect funds | The vault holds the tokens, pins the bridge target at creation, approves exactly the input amount for one call built by the adapter, and requires the exact balance debit |
 
 ---
 
