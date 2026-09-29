@@ -64,7 +64,7 @@ contract AaveV3AdapterLifecycleTest is AaveV3AdapterFixture {
             uint256 amount = bound(r, 1, 1e13);
             _fund(amount);
             vm.prank(vault);
-            (uint256 used0,, uint256 income0,) = adapter.increasePosition(key, "");
+            (uint256 used0,, uint256 income0,) = adapter.increasePosition(key, abi.encode(amount));
             assertEq(used0, amount);
             assertEq(before + income0 - _vaultBalance(), amount, "increase net flow");
             suppliedTotal += used0;

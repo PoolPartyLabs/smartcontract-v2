@@ -76,25 +76,27 @@ contract AaveV3AdapterAdversarialForkTest is Test {
         assertEq(v.income0, 0);
     }
 
-    /// DEC-068 (finding, round 1): on the real pool, once available liquidity is below the pending income no exit verb
-    /// can serve a single unit of principal, and `collectIncome` reverts as well; the vault has no verb to take the
-    /// liquidity the reserve still has.
-    function test_DEC068_fork_pendingIncomeAboveReserveLiquidityLocksExits() public {
+    /// DEC-068, DEC-056, DEC-059 (finding, round 1, fixed in the final verification): on the real pool, with available
+    /// liquidity below the pending income, the principal asked is still served and the income follows only up to the
+    /// liquidity left (a reverting withdrawal is caught); the rest stays pending and `collectIncome` never reverts.
+    function test_DEC068_fork_pendingIncomeAboveReserveLiquidityNeverBlocksPrincipal() public {
         _open(SUPPLIED);
         _accrue(30 days);
         uint256 pending = adapter.positionValue(key).income0;
         assertGt(pending, 100e6);
         _drainReserveTo(pending / 2);
+        uint256 vaultBefore = IERC20(USDC).balanceOf(vault);
 
         vm.startPrank(vault);
-        vm.expectRevert();
-        adapter.decreasePosition(key, abi.encode(uint256(1e6)));
-        vm.expectRevert();
-        adapter.collectIncome(key);
-        vm.expectRevert();
-        adapter.closePosition(key, "");
+        IAdapter.Amounts memory a = adapter.decreasePosition(key, abi.encode(uint256(1e6)));
+        IAdapter.Amounts memory c = adapter.collectIncome(key);
         vm.stopPrank();
-        assertEq(IERC20(USDC).balanceOf(vault), 9 * SUPPLIED, "nothing moved");
+        assertEq(a.principal0, 1e6, "the principal asked is served");
+        assertLe(a.income0 + c.income0, pending / 2 - 1e6, "income bounded by the liquidity left");
+        assertEq(IERC20(USDC).balanceOf(vault) - vaultBefore, 1e6 + a.income0 + c.income0, "paid what it reported");
+        IAdapter.PositionValue memory v = adapter.positionValue(key);
+        assertGe(v.income0 + a.income0 + c.income0 + 2, pending, "the rest stays pending");
+        assertApproxEqAbs(v.principal0, SUPPLIED - 1e6, 2);
     }
 
     /// Q60: cumulative income never regresses across collect, decrease, increase and close on the real pool, and the
@@ -125,7 +127,7 @@ contract AaveV3AdapterAdversarialForkTest is Test {
         _accrue(3 days);
         vm.startPrank(vault);
         IERC20(USDC).transfer(address(adapter), 55_555e6);
-        (uint256 used0,, uint256 income0,) = adapter.increasePosition(key, "");
+        (uint256 used0,, uint256 income0,) = adapter.increasePosition(key, abi.encode(uint256(55_555e6)));
         vm.stopPrank();
         paidOut += income0;
         paidIn += used0;

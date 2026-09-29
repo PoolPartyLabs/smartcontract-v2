@@ -129,10 +129,16 @@ interface IAdapter is IAdapterGuard {
         returns (uint256 used0, uint256 used1, uint256 income0, uint256 income1);
 
     /// @notice Removes part of a position. Vault only; never gated by pause or deprecation (DEC-056).
+    /// @dev The principal asked leaves first; income the protocol cannot pay now stays pending and never blocks it
+    ///      (final verification, DEC-056, DEC-068).
     /// @return amounts Principal and income transferred to the vault, separated per token (DEC-079).
     function decreasePosition(bytes32 positionKey, bytes calldata params) external returns (Amounts memory amounts);
 
     /// @notice Removes a position entirely. Vault only; never gated by pause or deprecation (DEC-056).
+    /// @dev The whole principal always leaves. Income the protocol cannot pay now never blocks it (final verification,
+    ///      DEC-056, DEC-068): an adapter may then keep the key open, holding only that pending income, and emit
+    ///      `PositionDecreased` instead of `PositionClosed`; the Spoke Vault keeps the position registered while
+    ///      `positionKeys()` lists it.
     /// @return amounts Principal and income transferred to the vault, separated per token (DEC-079).
     function closePosition(bytes32 positionKey, bytes calldata params) external returns (Amounts memory amounts);
 

@@ -19,9 +19,13 @@ import {AdapterGuard} from "./AdapterGuard.sol";
 /// @dev DEC-059: an aToken supply is an Exact-Value Position, `isExactValue()` is true.
 /// @dev DEC-068: the ledger of each position stores the scaled balance and the reserve's normalized income index at the
 ///      last measurement; `principal` is the amount supplied and not yet withdrawn; income is
-///      `scaledBalance * indexNow / 1e27 - principal`, in asset units. Every verb that moves value realizes the whole
-///      income measured at that block and pays it out as income before touching principal, so income is never
-///      compounded into principal (DEC-064).
+///      `scaledBalance * indexNow / 1e27 - principal`, in asset units. Income is never compounded into principal
+///      (DEC-064): every verb that moves value realizes the income measured at that block and pays it out as income,
+///      but only as far as the reserve's available liquidity allows (final verification, DEC-056, DEC-059, DEC-068):
+///      the principal asked is withdrawn first, pending income is withdrawn best effort up to the liquidity left
+///      (`IERC20(asset).balanceOf(aToken)`, a sufficiency bound only, never a value base, DEC-080; and a reverting
+///      Aave withdrawal is caught), and what the reserve cannot pay stays pending in the position. Income never
+///      blocks a principal exit.
 /// @dev DEC-079: principal and income are delivered separately from Aave's own accounting; the vault does not classify.
 /// @dev DEC-080: `scaledBalance` is an internal ledger credited and debited only by the scaled deltas this adapter's
 ///      own supply and withdraw calls produce. aTokens anyone transfers to the adapter are never reported as principal
@@ -176,9 +180,9 @@ contract AaveV3Adapter is IAdapter, AdapterGuard, ReentrancyGuard {
 
     /// @inheritdoc IAdapter
     /// @param params `abi.encode(uint256 amount)` to supply, or empty to supply the whole amount transferred in.
-    /// @dev DEC-068: the income measured at this block is paid to the vault as income first, then the principal is
-    ///      re-based to `principal + amount` at the current index. The supply runs before the income withdrawal so the
-    ///      new liquidity helps serve it.
+    /// @dev DEC-068: the principal is re-based to `principal + amount` at the current index and the income measured at
+    ///      this block is paid to the vault as income, best effort up to the reserve's available liquidity (what it
+    ///      cannot pay stays pending). The supply runs before the income withdrawal so the new liquidity helps serve it.
     function increasePosition(bytes32 positionKey, bytes calldata params)
         external
         onlyVault
@@ -189,13 +193,12 @@ contract AaveV3Adapter is IAdapter, AdapterGuard, ReentrancyGuard {
         address asset = _openAsset(positionKey);
         Ledger storage l = _ledgers[asset];
         uint256 index = pool.getReserveNormalizedIncome(asset);
-        (, income0) = _split(l, index);
+        (, uint256 income) = _split(l, index);
 
         l.lastIndex = index;
-        l.realizedIncome += income0;
         used0 = _supply(asset, l, params);
         l.principal += used0;
-        if (income0 != 0) _withdraw(asset, l, income0);
+        income0 = _takeIncome(asset, l, index, income, _value(l, index));
 
         emit PositionIncreased(positionKey, used0, 0, income0, 0);
         return (used0, 0, income0, 0);
@@ -208,10 +211,13 @@ contract AaveV3Adapter is IAdapter, AdapterGuard, ReentrancyGuard {
     /// @inheritdoc IAdapter
     /// @param params `abi.encode(uint256 principalAmount)`: principal to withdraw, in asset units, or
     ///        `type(uint256).max` for all of it. The position stays open (possibly empty) until `closePosition`.
-    /// @dev DEC-068, DEC-079: withdraws `principalAmount` plus the whole income measured at this block; returns
-    ///      `principal0 = principalAmount` and `income0 = income`. Reverts above the current principal. A reserve without
-    ///      enough liquidity makes Aave revert; the adapter never pays less than asked (a Partial Payout is the vault's
-    ///      decision, DEC-068).
+    /// @dev DEC-068, DEC-079 (final verification, DEC-056, DEC-059): withdraws `principalAmount` first, then the
+    ///      income measured at this block best effort, up to the reserve's available liquidity; returns
+    ///      `principal0 = principalAmount` and `income0` = the income actually withdrawn, and the rest of the income
+    ///      stays pending. Reverts above the current principal. A reserve without enough liquidity for the principal
+    ///      asked makes Aave revert; the adapter never pays less principal than asked (a Partial Payout is the vault's
+    ///      decision, DEC-068). With `type(uint256).max`, a reserve that can pay everything is emptied in one
+    ///      withdrawal (no scaled dust, AAVE-4).
     function decreasePosition(bytes32 positionKey, bytes calldata params)
         external
         onlyVault
@@ -221,18 +227,22 @@ contract AaveV3Adapter is IAdapter, AdapterGuard, ReentrancyGuard {
         address asset = _openAsset(positionKey);
         uint256 principalAmount = abi.decode(params, (uint256));
         if (principalAmount == 0) revert ZeroAmount();
-        amounts = _exit(asset, _ledgers[asset], principalAmount);
+        (amounts,) = _exit(asset, _ledgers[asset], principalAmount);
         emit PositionDecreased(positionKey, amounts);
     }
 
     /// @inheritdoc IAdapter
     /// @dev Takes no parameters; any `params` are ignored.
     /// @dev DEC-068, DEC-079: withdraws everything and splits it into the principal and the income measured at this
-    ///      block; the key leaves `positionKeys()`. `realizedIncome` keeps counting (Q60).
-    /// @dev Checks-effects-interactions: `open` is cleared before Aave is called. The ledger writes that follow the
-    ///      Aave calls in `_supply`, `_withdraw` and `_exit` are inherent (they record the scaled delta Aave produced)
-    ///      and accepted (Slither reentrancy-no-eth): every entry is `onlyVault` and `nonReentrant` against the fixed
-    ///      Aave Pool (Aave verifier finding).
+    ///      block; the key leaves `positionKeys()`. `realizedIncome` keeps counting (Q60). Final verification (DEC-056,
+    ///      DEC-059): when the reserve cannot pay everything, the whole principal is still withdrawn, the income is
+    ///      withdrawn up to the liquidity left, and the key stays open holding only the pending income (emitting
+    ///      `PositionDecreased`, not `PositionClosed`), so no income is abandoned; the Spoke Vault keeps the position
+    ///      registered while this adapter lists it, and a later `collectIncome` or `closePosition` takes the rest.
+    /// @dev Checks-effects-interactions: `open` is cleared before Aave is called, and set back only when pending
+    ///      income stays behind. The ledger writes that follow the Aave calls in `_supply`, `_withdraw` and `_exit` are
+    ///      inherent (they record the scaled delta Aave produced) and accepted (Slither reentrancy-no-eth): every entry
+    ///      is `onlyVault` and `nonReentrant` against the fixed Aave Pool (Aave verifier finding).
     function closePosition(bytes32 positionKey, bytes calldata)
         external
         onlyVault
@@ -242,13 +252,21 @@ contract AaveV3Adapter is IAdapter, AdapterGuard, ReentrancyGuard {
         address asset = _openAsset(positionKey);
         Ledger storage l = _ledgers[asset];
         l.open = false;
-        amounts = _exit(asset, l, type(uint256).max);
-        emit PositionClosed(positionKey, amounts);
+        bool emptied;
+        (amounts, emptied) = _exit(asset, l, type(uint256).max);
+        if (emptied) {
+            emit PositionClosed(positionKey, amounts);
+        } else {
+            l.open = true;
+            emit PositionDecreased(positionKey, amounts);
+        }
     }
 
     /// @inheritdoc IAdapter
-    /// @dev DEC-068: withdraws only the income measured at this block; principal is untouched. No Aave call when there
-    ///      is no income (Aave rejects a zero withdrawal).
+    /// @dev DEC-068: withdraws only the income measured at this block, best effort up to the reserve's available
+    ///      liquidity (final verification: `min(income, available)`, a reverting withdrawal is caught and pays 0); the
+    ///      rest stays pending and principal is untouched. No Aave call when there is nothing to withdraw (Aave rejects
+    ///      a zero withdrawal).
     function collectIncome(bytes32 positionKey) external onlyVault nonReentrant returns (Amounts memory amounts) {
         address asset = _openAsset(positionKey);
         Ledger storage l = _ledgers[asset];
@@ -256,11 +274,8 @@ contract AaveV3Adapter is IAdapter, AdapterGuard, ReentrancyGuard {
         (, uint256 income) = _split(l, index);
 
         l.lastIndex = index;
-        l.realizedIncome += income;
-        if (income != 0) _withdraw(asset, l, income);
-
-        amounts.income0 = income;
-        emit IncomeCollected(positionKey, income, 0);
+        amounts.income0 = _takeIncome(asset, l, index, income, _value(l, index));
+        emit IncomeCollected(positionKey, amounts.income0, 0);
     }
 
     /// @inheritdoc IAdapter
@@ -329,45 +344,86 @@ contract AaveV3Adapter is IAdapter, AdapterGuard, ReentrancyGuard {
     // Internal
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @dev Full or partial exit. `principalAmount == type(uint256).max` or equal to the current principal is a full
-    ///      exit: Aave's `type(uint256).max` withdrawal empties the adapter's aToken balance, so no scaled dust stays
-    ///      behind. DEC-080: only the ledger's share of what Aave paid is reported; foreign aTokens are paid out
-    ///      unreported.
-    function _exit(address asset, Ledger storage l, uint256 principalAmount) internal returns (Amounts memory amounts) {
+    /// @dev Full or partial exit, principal first (final verification, DEC-056, DEC-059, DEC-068). A full exit
+    ///      (`type(uint256).max` or the whole current principal) first tries Aave's `type(uint256).max` withdrawal, which
+    ///      empties the adapter's aToken balance with no scaled dust; DEC-080: only the ledger's share of what Aave paid
+    ///      is reported and foreign aTokens are paid out unreported. When the reserve cannot pay that (the revert is
+    ///      caught and the ledger restored), or for a partial exit, exactly `principalAmount` is withdrawn (Aave
+    ///      reverts when even that is not available: genuine illiquidity, DEC-069 waits on it) and the income follows
+    ///      best effort (`_takeIncome`).
+    /// @return amounts Principal and income paid to the vault (DEC-079).
+    /// @return emptied True when the position holds nothing of the ledger's any more (the full withdrawal ran, or the
+    ///         value left rounds to zero).
+    function _exit(address asset, Ledger storage l, uint256 principalAmount)
+        internal
+        returns (Amounts memory amounts, bool emptied)
+    {
         uint256 index = pool.getReserveNormalizedIncome(asset);
         (uint256 principalNow, uint256 income) = _split(l, index);
         l.lastIndex = index;
+        if (principalAmount == type(uint256).max) principalAmount = principalNow;
+        else if (principalAmount > principalNow) revert AmountAbovePrincipal(principalAmount, principalNow);
 
-        if (principalAmount != type(uint256).max && principalAmount < principalNow) {
-            // Partial: the whole income plus `principalAmount`, which is below the ledger value, so Aave burns at most
-            // the ledger's scaled balance.
-            l.principal -= principalAmount;
-            l.realizedIncome += income;
-            _withdraw(asset, l, principalAmount + income);
-            amounts.principal0 = principalAmount;
-            amounts.income0 = income;
-            return amounts;
-        }
-        if (principalAmount != type(uint256).max && principalAmount > principalNow) {
-            revert AmountAbovePrincipal(principalAmount, principalNow);
+        if (principalAmount == principalNow) {
+            uint256 ledgerScaled = l.scaledBalance;
+            uint256 ledgerPrincipal = l.principal;
+            l.scaledBalance = 0;
+            l.principal = 0;
+            uint256 heldScaled = IAToken(l.aToken).scaledBalanceOf(address(this));
+            if (heldScaled == 0) return (amounts, true);
+            try pool.withdraw(asset, type(uint256).max, vault) returns (uint256 withdrawn) {
+                uint256 attributable =
+                    heldScaled <= ledgerScaled ? withdrawn : Math.mulDiv(withdrawn, ledgerScaled, heldScaled);
+                // Rounding: Aave may pay one unit more than the rounded-down ledger value (that unit is income) or,
+                // when foreign units share the balance, one unit less (taken from principal so the income counter
+                // never regresses).
+                if (attributable >= principalNow + income) {
+                    amounts.income0 = attributable - principalNow;
+                } else {
+                    amounts.income0 = Math.min(income, attributable);
+                }
+                amounts.principal0 = attributable - amounts.income0;
+                l.realizedIncome += amounts.income0;
+                return (amounts, true);
+            } catch {
+                l.scaledBalance = ledgerScaled;
+                l.principal = ledgerPrincipal;
+            }
         }
 
-        uint256 ledgerScaled = l.scaledBalance;
-        l.scaledBalance = 0;
-        l.principal = 0;
-        uint256 heldScaled = IAToken(l.aToken).scaledBalanceOf(address(this));
-        uint256 withdrawn = heldScaled == 0 ? 0 : pool.withdraw(asset, type(uint256).max, vault);
-        uint256 attributable = heldScaled <= ledgerScaled ? withdrawn : Math.mulDiv(withdrawn, ledgerScaled, heldScaled);
-
-        // Rounding: Aave may pay one unit more than the rounded-down ledger value (that unit is income) or, when
-        // foreign units share the balance, one unit less (taken from principal so the income counter never regresses).
-        if (attributable >= principalNow + income) {
-            amounts.income0 = attributable - principalNow;
-        } else {
-            amounts.income0 = Math.min(income, attributable);
+        // Principal first; the whole current principal leaves the ledger's principal at 0 (a rounding shortfall is
+        // borne by principal, AAVE-3).
+        uint256 valueLeft = _value(l, index) - principalAmount;
+        if (principalAmount != 0) {
+            l.principal = principalAmount == principalNow ? 0 : l.principal - principalAmount;
+            _withdraw(asset, l, principalAmount, false);
         }
-        amounts.principal0 = attributable - amounts.income0;
-        l.realizedIncome += amounts.income0;
+        amounts.principal0 = principalAmount;
+        amounts.income0 = _takeIncome(asset, l, index, income, valueLeft);
+        emptied = _value(l, index) == 0;
+        if (emptied) l.scaledBalance = 0;
+    }
+
+    /// @dev Withdraws up to `income` to the vault, bounded by the reserve's available liquidity (the aToken's
+    ///      underlying balance, a sufficiency bound only, DEC-080) and never reverting on Aave's side: a failed
+    ///      withdrawal pays 0 (final verification, DEC-056, DEC-068). Q60: when only part of the income leaves, Aave's
+    ///      burn rounding (up to ceil(index / 1e27) units) is taken from principal (AAVE-3), so the income still
+    ///      pending plus what was withdrawn never falls below what was measured and `cumulativeIncome` never regresses.
+    ///      `valueBefore` is the value the position should hold before this withdrawal (an exit passes its value net of
+    ///      the principal it withdrew, so that withdrawal's rounding is taken from principal too).
+    function _takeIncome(address asset, Ledger storage l, uint256 index, uint256 income, uint256 valueBefore)
+        internal
+        returns (uint256 take)
+    {
+        if (income == 0) return 0;
+        take = Math.min(income, IERC20(asset).balanceOf(l.aToken));
+        if (take != 0 && !_withdraw(asset, l, take, true)) take = 0;
+        l.realizedIncome += take;
+        if (take < income) {
+            uint256 valueAfter = _value(l, index);
+            uint256 expected = valueBefore - take;
+            if (valueAfter < expected) l.principal -= Math.min(l.principal, expected - valueAfter);
+        }
     }
 
     /// @dev Supplies `params` amount (or everything transferred in) on the adapter's behalf and returns any excess to
@@ -390,22 +446,38 @@ contract AaveV3Adapter is IAdapter, AdapterGuard, ReentrancyGuard {
     }
 
     /// @dev Withdraws exactly `amount` to the vault and debits the scaled delta Aave burned. DEC-068: a different paid
-    ///      amount reverts.
-    function _withdraw(address asset, Ledger storage l, uint256 amount) internal {
+    ///      amount reverts. With `bestEffort`, a reverting Aave withdrawal returns false instead of reverting (income
+    ///      only; principal is never best effort).
+    function _withdraw(address asset, Ledger storage l, uint256 amount, bool bestEffort) internal returns (bool) {
         IAToken aToken = IAToken(l.aToken);
         uint256 scaledBefore = aToken.scaledBalanceOf(address(this));
-        uint256 withdrawn = pool.withdraw(asset, amount, vault);
+        uint256 withdrawn;
+        if (bestEffort) {
+            try pool.withdraw(asset, amount, vault) returns (uint256 paid) {
+                withdrawn = paid;
+            } catch {
+                return false;
+            }
+        } else {
+            withdrawn = pool.withdraw(asset, amount, vault);
+        }
         if (withdrawn != amount) revert UnexpectedWithdrawnAmount(amount, withdrawn);
         uint256 burned = scaledBefore - aToken.scaledBalanceOf(address(this));
         uint256 scaledBalance = l.scaledBalance;
         if (burned > scaledBalance) revert LedgerUnderflow(burned, scaledBalance);
         l.scaledBalance = scaledBalance - burned;
+        return true;
+    }
+
+    /// @dev DEC-068: the ledger's value at `index`, `scaledBalance * index / 1e27` rounded down.
+    function _value(Ledger storage l, uint256 index) internal view returns (uint256) {
+        return Math.mulDiv(l.scaledBalance, index, RAY);
     }
 
     /// @dev DEC-068: `value = scaledBalance * index / 1e27` rounded down; principal now is `min(principal, value)` and
     ///      income is the rest. A rounding shortfall of Aave's scaled arithmetic is borne by principal, never by income.
     function _split(Ledger storage l, uint256 index) internal view returns (uint256 principalNow, uint256 income) {
-        uint256 value = Math.mulDiv(l.scaledBalance, index, RAY);
+        uint256 value = _value(l, index);
         uint256 principal = l.principal;
         return value >= principal ? (principal, value - principal) : (value, 0);
     }

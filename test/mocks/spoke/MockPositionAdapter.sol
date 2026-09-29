@@ -47,6 +47,9 @@ contract MockPositionAdapter is AdapterGuard, IAdapter {
     uint256 public swapNumerator = 1;
     uint256 public swapDenominator = 1;
     bool public revertOnExit;
+    /// @dev When set, `closePosition` pays the principal but keeps the key open with its income pending, as the Aave
+    ///      adapter does when the reserve cannot pay the income (final verification, DEC-056, DEC-068).
+    bool public keepKeyOnClose;
 
     error ExitReverted();
 
@@ -87,6 +90,10 @@ contract MockPositionAdapter is AdapterGuard, IAdapter {
 
     function setRevertOnExit(bool value) external {
         revertOnExit = value;
+    }
+
+    function setKeepKeyOnClose(bool value) external {
+        keepKeyOnClose = value;
     }
 
     /// @dev The test transferred `amount0`/`amount1` of the pool tokens to this adapter before calling.
@@ -180,6 +187,10 @@ contract MockPositionAdapter is AdapterGuard, IAdapter {
         p.principal1 = 0;
         _pay(pool.token0, a.principal0);
         _pay(pool.token1, a.principal1);
+        if (keepKeyOnClose) {
+            emit PositionDecreased(positionKey, a);
+            return a;
+        }
         (a.income0, a.income1) = _realize(p, pool);
         p.open = false;
         _removeKey(positionKey);

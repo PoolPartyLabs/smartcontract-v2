@@ -123,27 +123,70 @@ contract AaveV3AdapterAdversarialTest is AaveV3AdapterFixture {
     // DEC-068: reserve liquidity below the pending income
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// DEC-068 (finding, round 1): every exit verb withdraws the whole pending income on top of what was asked, so
-    /// once the reserve's available liquidity drops below the pending income no principal can be served at all, not
-    /// even one unit, and `collectIncome` reverts too. The "pay what is possible" reading of DEC-068 has nothing to
-    /// pay with until liquidity returns. Documented behaviour of the current design.
-    function test_DEC068_pendingIncomeAboveReserveLiquidityLocksEveryExit() public {
+    /// DEC-068, DEC-056, DEC-059 (finding, round 1, fixed in the final verification): every exit verb used to
+    /// withdraw the whole pending income on top of what was asked, so once the reserve's available liquidity dropped
+    /// below the pending income no principal could be served at all. Now the principal asked is withdrawn first and
+    /// the income only up to the liquidity left; the rest stays pending and is collected when liquidity returns.
+    function test_DEC068_pendingIncomeAboveReserveLiquidityNeverBlocksPrincipal() public {
         _open(1000e6);
         _grow(RAY * 11 / 10); // 100e6 of pending income
         aToken.lendOut(makeAddr("borrower"), asset.balanceOf(address(aToken)) - 60e6);
         assertEq(asset.balanceOf(address(aToken)), 60e6, "reserve keeps 60 of liquidity");
 
+        uint256 before = _vaultBalance();
         vm.startPrank(vault);
-        vm.expectRevert();
-        adapter.decreasePosition(key, abi.encode(uint256(1)));
-        vm.expectRevert();
-        adapter.collectIncome(key);
-        vm.expectRevert();
-        adapter.closePosition(key, "");
+        IAdapter.Amounts memory a = adapter.decreasePosition(key, abi.encode(uint256(60e6)));
+        assertEq(a.principal0, 60e6, "the reserve serves the principal it can");
+        assertEq(a.income0, 0, "no liquidity is left for the income");
+        IAdapter.Amounts memory c = adapter.collectIncome(key);
+        assertEq(c.income0, 0, "collect never reverts on liquidity");
         vm.stopPrank();
+        assertEq(_vaultBalance() - before, 60e6);
+        assertApproxEqAbs(adapter.ledger(address(asset)).principal, 940e6, 2, "AAVE-3: principal bears the rounding");
+        assertEq(adapter.positionValue(key).income0, 100e6, "the income stays pending");
+        assertEq(adapter.cumulativeIncome(address(asset)), 100e6);
 
-        // The reserve could have served 60 of principal; the adapter has no verb that asks for it.
-        assertEq(adapter.positionValue(key).principal0, 1000e6);
+        // Part of the liquidity returns: collect takes what the reserve holds, the rest stays pending.
+        asset.mint(address(aToken), 30e6);
+        vm.prank(vault);
+        c = adapter.collectIncome(key);
+        assertEq(c.income0, 30e6);
+        assertGe(adapter.cumulativeIncome(address(asset)), 100e6, "Q60: never regresses");
+        assertApproxEqAbs(adapter.positionValue(key).income0, 70e6, 2);
+        _assertAdapterHoldsNothing();
+    }
+
+    /// DEC-068, DEC-056 (final verification): a close whose reserve can pay the principal but not the income withdraws
+    /// the whole principal and keeps the key open holding only the pending income; a later close takes the rest.
+    function test_DEC068_closeUnderLowLiquidityPaysPrincipalAndKeepsIncomePending() public {
+        _open(1000e6);
+        _grow(RAY * 11 / 10);
+        aToken.lendOut(makeAddr("borrower"), asset.balanceOf(address(aToken)) - 1000e6);
+
+        uint256 before = _vaultBalance();
+        vm.expectEmit(true, false, false, true, address(adapter));
+        emit IAdapter.PositionDecreased(key, IAdapter.Amounts(1000e6, 0, 0, 0));
+        vm.prank(vault);
+        IAdapter.Amounts memory a = adapter.closePosition(key, "");
+        assertEq(a.principal0, 1000e6);
+        assertEq(a.income0, 0);
+        assertEq(_vaultBalance() - before, 1000e6);
+        assertTrue(adapter.ledger(address(asset)).open, "the key stays open for the pending income");
+        assertEq(adapter.positionKeys().length, 1);
+        IAdapter.PositionValue memory v = adapter.positionValue(key);
+        assertEq(v.principal0, 0);
+        assertApproxEqAbs(v.income0, 100e6, 2);
+        assertGe(adapter.cumulativeIncome(address(asset)), 100e6 - 2);
+
+        asset.mint(address(aToken), 200e6); // liquidity returns
+        vm.prank(vault);
+        a = adapter.closePosition(key, "");
+        assertEq(a.principal0, 0);
+        assertApproxEqAbs(a.income0, 100e6, 2);
+        assertFalse(adapter.ledger(address(asset)).open);
+        assertEq(adapter.positionKeys().length, 0);
+        assertEq(aToken.scaledBalanceOf(address(adapter)), 0);
+        _assertAdapterHoldsNothing();
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -291,7 +334,7 @@ contract AaveV3AdapterAdversarialTest is AaveV3AdapterFixture {
         assertEq(a.income0, 0);
         assertEq(adapter.collectIncome(key).income0, 0);
         asset.transfer(address(adapter), 10);
-        (,, uint256 income0,) = adapter.increasePosition(key, "");
+        (,, uint256 income0,) = adapter.increasePosition(key, abi.encode(uint256(10)));
         assertEq(income0, 0);
         uint256 before = _vaultBalance();
         a = adapter.closePosition(key, "");
@@ -314,7 +357,7 @@ contract AaveV3AdapterAdversarialTest is AaveV3AdapterFixture {
         _grow(RAY * 12 / 10);
         _fund(600e6);
         vm.prank(vault);
-        (uint256 used0,, uint256 income0,) = adapter.increasePosition(key, "");
+        (uint256 used0,, uint256 income0,) = adapter.increasePosition(key, abi.encode(uint256(600e6)));
         assertEq(used0, 600e6);
         assertEq(income0, 0);
         AaveV3Adapter.Ledger memory l = adapter.ledger(address(asset));

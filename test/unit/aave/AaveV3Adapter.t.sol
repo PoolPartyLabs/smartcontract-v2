@@ -335,7 +335,8 @@ contract AaveV3AdapterTest is AaveV3AdapterFixture {
         vm.expectEmit(true, false, false, true, address(adapter));
         emit IAdapter.PositionIncreased(key, 550e6, 0, 100e6, 0);
         vm.prank(vault);
-        (uint256 used0, uint256 used1, uint256 income0, uint256 income1) = adapter.increasePosition(key, "");
+        (uint256 used0, uint256 used1, uint256 income0, uint256 income1) =
+            adapter.increasePosition(key, abi.encode(uint256(550e6)));
 
         assertEq(used0, 550e6);
         assertEq(used1 + income1, 0);

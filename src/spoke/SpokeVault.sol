@@ -716,6 +716,15 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         delete _s.positionSlot[adapter][positionKey];
     }
 
+    /// @dev Whether `a` still lists `positionKey` among its open positions.
+    function _adapterLists(IAdapter a, bytes32 positionKey) internal view returns (bool) {
+        bytes32[] memory keys = a.positionKeys();
+        for (uint256 i; i < keys.length; ++i) {
+            if (keys[i] == positionKey) return true;
+        }
+        return false;
+    }
+
     function _positionKeysOf(address adapter, bytes32 poolKey) internal view returns (bytes32[] memory keys) {
         uint256 n = _s.positions.length;
         keys = new bytes32[](n);
@@ -730,7 +739,9 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
     }
 
     /// @dev DEC-056, DEC-079: decrease, close or collect; principal to Unallocated Balance, income to the collected
-    ///      income bucket, both from what the adapter returned.
+    ///      income bucket, both from what the adapter returned. A close leaves the registry only when the adapter no
+    ///      longer lists the key: an adapter may keep it open holding income the protocol could not pay yet (Aave
+    ///      reserve liquidity, final verification, DEC-056, DEC-068), and that income stays reachable and reported.
     function _exit(address adapter, bytes32 positionKey, SpokeVaultTypes.ExitKind kind, bytes memory params)
         internal
         returns (IAdapter.Amounts memory amounts, SpokeVaultTypes.PoolTokens memory p)
@@ -742,8 +753,12 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
             emit PositionDecreased(adapter, positionKey, amounts);
         } else if (kind == SpokeVaultTypes.ExitKind.Close) {
             amounts = a.closePosition(positionKey, params);
-            _removePosition(adapter, positionKey);
-            emit PositionClosed(adapter, positionKey, amounts);
+            if (_adapterLists(a, positionKey)) {
+                emit PositionDecreased(adapter, positionKey, amounts);
+            } else {
+                _removePosition(adapter, positionKey);
+                emit PositionClosed(adapter, positionKey, amounts);
+            }
         } else {
             amounts = a.collectIncome(positionKey);
             emit IncomeCollected(adapter, positionKey, amounts.income0, amounts.income1);

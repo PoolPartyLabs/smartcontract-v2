@@ -313,6 +313,30 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         assertEq(vault.collectedIncome(address(usdg)), 5e6);
     }
 
+    /// @dev DEC-056, DEC-068 (final verification): an adapter that keeps the key open after a close (income the
+    ///      protocol could not pay yet) keeps the position registered, so its income stays reported and collectable;
+    ///      the next close that empties it removes it.
+    function test_DEC068_closeKeptOpenByTheAdapterStaysRegistered() public {
+        _disableOperatingCash();
+        bytes32 key = _openSpokePosition(0.2e18, 200e6, 10_000);
+        _earnIncome(spokeUni, key, 0, 4e6);
+        spokeUni.setKeepKeyOnClose(true);
+        uint256 usdgBefore = vault.unallocatedBalance(address(usdg));
+        vm.expectEmit(address(vault));
+        emit ISpokeVault.PositionDecreased(address(spokeUni), key, IAdapter.Amounts(0.2e18, 200e6, 0, 0));
+        vm.prank(manager);
+        vault.closePosition(address(spokeUni), key, "");
+        assertEq(vault.unallocatedBalance(address(usdg)), usdgBefore + 200e6, "the principal left");
+        assertEq(vault.positions().length, 1, "still registered while the adapter lists it");
+        assertEq(vault.buildReport().positions[0].income1, 4e6, "its pending income is still reported");
+
+        spokeUni.setKeepKeyOnClose(false);
+        vm.prank(manager);
+        vault.closePosition(address(spokeUni), key, "");
+        assertEq(vault.positions().length, 0);
+        assertEq(vault.collectedIncome(address(usdg)), 4e6);
+    }
+
     function test_DEC079_swapCreditsWhatTheAdapterReturns() public {
         _disableOperatingCash();
         _arrive(1000e6, ARRIVAL, TransferKind.Principal);
