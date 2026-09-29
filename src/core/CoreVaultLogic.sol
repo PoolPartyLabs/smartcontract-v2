@@ -27,9 +27,9 @@ import {CoreVaultState, CoreVaultWiring, SpokeBook, HubBoundTransfer} from "./Co
 ///      settings. The Core Vault applies access control, the reentrancy guard and the Operating Cash top-up before
 ///      calling in. Events are emitted with the Core Vault as their address; the library's own events and errors are
 ///      declared in ICoreVault, which the Core Vault implements, so they are in the Core Vault's ABI.
-/// @dev Deployment (reported as an assumption): the factory deploys this library once per chain and links its
-///      address into the Core Vault's creation code, so the library address is part of every CREATE2 init code hash
-///      and of each fund's trust surface (immutable: no proxy, no upgrade path, DEC-022, DEC-058). ARCHITECTURE §6
+/// @dev Deployment (reported as an assumption): the operator deploys this library once per chain and links its
+///      address into the Core Vault's creation code, whose hash the FundFactory pins, so the library address is part
+///      of each fund's trust surface (immutable: no proxy, no upgrade path, DEC-022, DEC-058). ARCHITECTURE §6
 ///      forbids DELEGATECALL into adapters; this is the fund's own code, never an adapter (DEC-054).
 library CoreVaultLogic {
     using SafeERC20 for IERC20;
