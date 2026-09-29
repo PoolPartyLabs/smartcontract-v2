@@ -278,6 +278,7 @@ contract ValueReportReceiverTest is Test {
         assertEq(receiver.coreBridge(), address(bridge));
         assertEq(receiver.coreVault(), address(vault));
         assertEq(receiver.fundId(), FUND);
+        assertEq(IValueReportReceiver(address(receiver)).fundId(), FUND, "exposed through the interface");
     }
 
     function test_DEC099_unknownSpokeIndexReverts() public {

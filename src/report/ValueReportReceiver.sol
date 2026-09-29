@@ -66,7 +66,7 @@ contract ValueReportReceiver is IValueReportReceiver, ReentrancyGuard {
     /// @inheritdoc IValueReportReceiver
     address public immutable coreVault;
 
-    /// @notice Fund this receiver serves; a report carrying another fund id is rejected.
+    /// @inheritdoc IValueReportReceiver
     bytes32 public immutable fundId;
 
     /// @inheritdoc IValueReportReceiver

@@ -52,6 +52,10 @@ interface IValueReportReceiver {
     /// @notice The fund's Core Vault, notified on every accepted report.
     function coreVault() external view returns (address);
 
+    /// @notice Fund identifier every accepted report must carry (`ReportMismatch` otherwise, DEC-070, DEC-086); the
+    ///         factory and the Core Vault cross-check it against their own fund id.
+    function fundId() external view returns (bytes32);
+
     /// @notice Verifies and stores a report, then notifies the Core Vault (`ICoreVault.onReportAccepted`).
     ///         Permissionless (DEC-093).
     /// @return spokeIndex Mandate index of the reporting spoke.
