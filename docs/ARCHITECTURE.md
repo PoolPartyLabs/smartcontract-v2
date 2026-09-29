@@ -131,11 +131,17 @@ Protocol-level constants live in the core, not the Mandate: flow fee 25 bps defa
   USDG) credits Unallocated Balance, records the deposit id as arrived and runs the Operating Cash top-up (DEC-096);
   the next report carries the arrived ids; the Core Vault moves those transits to `ArrivalConfirmed` and drops them
   from In-flight (DEC-090).
-- Arrival window (OQ-09 stance, liveness only, never value): the report lists the last 256 arrival ids
-  (`ReportCodec.ARRIVAL_WINDOW`), and an id is listed only once its credited total reaches 1e6 base units (1 USDG);
-  smaller arrivals are still credited to the ledger and to `cumulativeReceived`. Across passes no depositor, so a
-  stranger can reach the callback; flushing the window now costs 256 USDG donated to the fund, and value is never at
-  stake because the hub confirms only ids it sent and deducts `cumulativeReceived` above what it confirmed.
+- Arrival window (OQ-09 stance: the window serves liveness; value rests on the hub's ledger): the report lists the
+  last 256 arrival ids (`ReportCodec.ARRIVAL_WINDOW`), and an id is listed only once its credited total reaches 1e6
+  base units (1 USDG); smaller arrivals are still credited to the ledger and to `cumulativeReceived`. Across passes
+  no depositor, so a stranger can reach the callback; flushing the window costs 256 USDG donated to the fund. A
+  hub-to-spoke transit evicted before an accepted report lists it (or sent below the listing minimum, CS-OQ-6) is
+  never confirmed: it stays in In-flight Value for good and keeps its Spoke Cap (the liveness cost), while the hub
+  deducts `cumulativeReceived` above what it confirmed as unknown-origin value (DEC-080). The two cancel because
+  that deduction is taken from the fund total: the part a spoke's principal no longer covers (the value was sent
+  home, or lost in a position) is subtracted from the total, not clamped per spoke, so the same USDC is never counted
+  in Idle and in In-flight Value (DEC-104; consolidation verifier finding). Tradeoff: a market loss on unknown-origin
+  funds on a spoke lowers Share Assets.
 - Expiry: after the fill deadline anyone may call `attestExpiry(transitId)`: it needs a spoke report built after
   the deadline that does not list the id **and lists fewer than 256 arrivals** (a full window may have evicted it),
   or the deadline plus the report lifetime to have passed; the Spoke Cap is released then; the amount stays in Share
@@ -219,7 +225,10 @@ entrant (DEC-014 tension).
   valuation the hub Spoke Vault's report read and every `IPriceSource` read are wrapped; a failure falls back to the
   last successfully computed value kept in storage (`lastHubValue`; `lastPrice` per token), with
   `HubValuationFallback` or `PriceFallback`. The last known values are refreshed on every successful deposit and
-  payout (the hub value only when the hub read and all its prices answered). A token never priced before falls back
+  payout (the hub value only when the hub read and all its prices answered); between two valuations `lastHubValue`
+  follows the exact USDC legs between Idle and the hub Spoke Vault (`allocateToHubSpokeVault` adds, `returnToIdle`
+  subtracts, floored at 0), so the fallback never counts a moved amount twice or misses it (consolidation verifier
+  finding); market moves since the last read are not seen. A token never priced before falls back
   to 0. Remote spokes need no value fallback: the receiver keeps their last accepted report. Deposits keep reverting
   on any failure, stale report or stale price.
 - Instant: 2% Payout Fee on the requested amount into Operating Cash (DEC-102); network costs charged to the
