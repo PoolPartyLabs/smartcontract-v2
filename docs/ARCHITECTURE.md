@@ -28,7 +28,7 @@ as the Transport Route, Wormhole (finalized consistency) for value reports. Addr
 | `ValueReportReceiver` | hub | Accepts a spoke's report only if the guardian quorum signed it, the emitter is the fund's Spoke Vault on that chain, the sequence is strictly greater than the last accepted, and the report is within the max age; stores the latest accepted report per spoke | DEC-086, DEC-093, DEC-094, DEC-099 |
 | `UniswapV3Adapter` | both | Opens, increases, decreases, closes and collects V3 positions in pools from the Mandate's closed list; reports principal and income of each position **separately** by reading the pool's own accounting; immutable, one instance per fund per chain | DEC-053, DEC-058, DEC-079 |
 | `AcrossBridgeAdapter` | both | Builds the Across `depositV3` call for the vault; the **vault**, not the adapter, fixes the recipient (the fund's own vault on the destination chain) and the token pair; 6-hour fill deadline as an adapter constant | DEC-031, DEC-066, DEC-087, DEC-088, DEC-090 |
-| `TransitEscrow` | both | Minimal per-send depositor (EIP-1167 clone) so an Across refund lands in a dedicated address and can be recognized as a Reverted transit rather than mistaken for a donation | implements research proposal QA6; **OPEN** |
+| `TransitEscrow` | both | Minimal per-send depositor (EIP-1167 clone, no EIP-1271 so nobody can sign a `fillRelayWithUpdatedDeposit` that delivers less, DEC-066) so an Across refund lands in a dedicated address and is recognized as a refund rather than mistaken for a donation | DEC-066 (keyless depositor); the escrow itself implements research proposal QA6, **OPEN** |
 | `ManagerRegistry` | hub | One record per manager: protocol slice of the manager's fee (default 50%), adjustable per manager by the protocol; outside the Mandate | DEC-106, DEC-110 |
 | `FundFactory` | both | Deploys a fund's contracts from its Mandate with CREATE2 and a fund-id salt so hub and spoke addresses are known to each other at creation | DEC-053, DEC-054 |
 | `IPriceSource` + `ChainlinkPriceSource` | hub | Prices non-USDC tokens carried in reports and hub positions into USDC for Share Assets; pluggable because the pricing rule is **OPEN** | see §5 |
@@ -48,7 +48,8 @@ Written once at creation (DEC-053), stored in the Core Vault and mirrored on eac
 | `payoutFeeBps` | uint16, default 200 (2%) | immutable | DEC-075, DEC-095, DEC-102 |
 | `standardPayoutTerm` | uint32 seconds, default 72 h | immutable | DEC-060, DEC-095 |
 | `minFirstDeposit` | uint256 USDC, set by the manager, no protocol floor (confirmation pending, DEC-095 erratum item 22) | immutable | DEC-061, DEC-095 |
-| `performanceFeeBps`, `managementFeeBps` | uint16; management default 0 | may only **decrease** after creation | DEC-107, DEC-108, DEC-110 |
+| `performanceFeeBps` | uint16 | may only **decrease** after creation (settling accrued first) | DEC-107, DEC-110 |
+| `managementFeeBps` | uint16, default 0 | MVP accepts only 0 at creation: base and accrual are decided (Share Assets, continuous) but recipient and the meaning of "position close" are **OPEN** (LC-144) | DEC-108, DEC-110 |
 | `operatingCashFloor[chainId]`, `operatingCashTopUp[chainId]` | uint256 | manager may adjust on a live fund | DEC-096, DEC-100 |
 | `maxReportAge[spoke]` | uint32 seconds | immutable; value **OPEN** (Q57) | DEC-094, DEC-099 |
 | `maxBridgeFeeBps` | uint16 | immutable; value **OPEN** (QA19) | DEC-030 exception |
@@ -58,8 +59,8 @@ Protocol-level constants live in the core, not the Mandate: flow fee 25 bps defa
 
 ## 3. Value bases (DEC-042, DEC-083, DEC-084, DEC-098, DEC-104)
 
-- **Share Assets** = Idle (incl. Payout Reserve) + hub positions' principal (read directly from the hub Spoke
-  Vault) + In-flight Value at the amount that will arrive (DEC-085) + each spoke's principal and Unallocated
+- **Share Assets** = Idle (incl. Payout Reserve; Idle exists only in the Core Vault, DEC-055) + the hub Spoke
+  Vault's Unallocated Balance and positions' principal (read directly, same chain) + In-flight Value at the amount that will arrive (DEC-085) + each spoke's principal and Unallocated
   Balance from its last accepted report. Excludes Operating Cash, Attributed Income (collected or not, DEC-092)
   and external rewards (DEC-078).
 - **Share Price** = Share Assets / totalSupply, the only published price, used for every mint and burn.
@@ -77,9 +78,12 @@ Protocol-level constants live in the core, not the Mandate: flow fee 25 bps defa
 2. Flow fee: 25 bps of the deposited amount goes to the Protocol Recipient (DEC-106). **OPEN** whether the fee
    is taken from the amount before pricing or on top; MVP takes it from the amount, flagged.
 3. `shares = floor(net / sharePrice)` in whole units (DEC-035); charge only `shares * sharePrice`, truncated
-   to 6 decimals, the remainder never leaves the wallet (DEC-061). Revert if `shares < minShares` or zero.
+   to 6 decimals, the remainder never leaves the wallet (DEC-061). Revert if `shares < minShares` or zero (a deposit
+   below one share's price is rejected, DEC-035).
 4. Pull USDC, mint, credit Idle. Same transaction; no queue; no wait for a fresh report (DEC-071, DEC-085).
 5. Update the income accumulator checkpoint for the depositor before minting (§4.5).
+6. Revert if any spoke's last accepted report is older than its `maxReportAge` (mint closes on a stale report; an
+   idle-paid payout does not, research reading of Q57, flagged).
 
 ### 4.2 Allocation
 - Hub: `CoreVault.allocateToHubSpoke(amount)` moves Idle to the hub Spoke Vault's Unallocated Balance; the
@@ -88,15 +92,24 @@ Protocol-level constants live in the core, not the Mandate: flow fee 25 bps defa
   `spokeValue + inFlightTo + inFlightFrom + amount <= spokeCap` (DEC-037, DEC-095); the bridge adapter builds
   the Across deposit with recipient = the spoke's vault, `outputAmount` from the quote, fill deadline = now + 6 h;
   the vault checks the quote's fee against `maxBridgeFeeBps`; a `TransitEscrow` clone is the depositor;
-  in-flight counted at `outputAmount` (DEC-085). Transit state: `Initiated`.
+  in-flight counted at `outputAmount` in Share Assets and at the amount sent in the Spoke Cap (DEC-085, DEC-066).
+  Transit states mirror DEC-066: `Sent`, `ArrivalConfirmed`, `ExpiryAttested`, `RefundRecognized` (the three-state
+  reading of DEC-090 is OPEN, QB11; four states lose nothing). The core accepts transitions only from the
+  fund's own Mandate adapters and vaults (DEC-090).
 - Arrival: the Robinhood Spoke Vault's `handleV3AcrossMessage` (callable only by the Across SpokePool, only for
   USDG) credits Unallocated Balance and records the deposit id as arrived; the next report carries the arrived
   ids; the receiver moves those transits to `Arrived` and drops them from In-flight (DEC-090).
-- Expiry: after the fill deadline, if the refund reaches the escrow, `recognizeRefund(transitId)` pulls it back
-  to Idle and marks `Reverted` (DEC-066). Cap is released on the first known outcome.
+- Expiry: after the fill deadline anyone may call `attestExpiry(transitId)` (needs the spoke's report to show the
+  id as not arrived, or the deadline plus the report lifetime to have passed); the Spoke Cap is released then; the
+  amount stays in Share Assets until `recognizeRefund(transitId)` pulls the refund from the escrow back to Idle
+  (DEC-066; the window between the two is OPEN, QB11/QB10).
 
 ### 4.3 Positions (Spoke Vault on any chain)
-Manager-only `openPosition`, `increasePosition`, `decreasePosition`, `closePosition`, `collectIncome`, each
+Every adapter exposes a monotonic `cumulativeIncome(token)` counter (all income ever realized plus currently
+uncollected, never a balance) so the income index can advance from deltas; the Uniswap V3 adapter pokes the position
+with zero liquidity before `burn` so fees are separated from principal. Every adapter exposes `isExactValue()` (DEC-059: Idle, Unallocated Balance and Aave aUSDC are read, never unwound;
+Uniswap positions are price-dependent and are unwound). Manager-only `openPosition`, `increasePosition`,
+`decreasePosition`, `closePosition`, `collectIncome`, each
 restricted to `(adapter, poolKey)` in the Mandate. The vault transfers tokens to the adapter, the adapter acts
 on the protocol and returns `(principalDelta0, principalDelta1, income0, income1)`; the vault updates its
 ledger from what the adapter returned, never from balances (DEC-080). Income collected goes to the income bucket
@@ -104,17 +117,20 @@ of the vault (spoke) or is bridged/handed to the Core Vault's Attributed Income 
 open/increase only, never decrease/close/collect (DEC-021, DEC-058; who may pause is **OPEN**).
 
 ### 4.4 Value report (DEC-070, DEC-086, DEC-093)
-`SpokeVault.report()` is permissionless: builds `ReportPayload { fundId, sequence, spokeChainId, blockNumber,
-timestamp, unallocated[token], positions[] {adapter, poolKey, token0, token1, principal0, principal1, income0,
-income1}, arrivedTransitIds[], inFlightToHub }` from the ledger and adapters, and calls
+`SpokeVault.report()` is permissionless: builds a versioned `ReportPayload` that is a superset serving every pricing
+option still open (Q57): `fundId, sequence, spokeChainId, blockNumber, timestamp, unallocated[] {token, amount},
+positions[] {adapter, poolKey, pool, tickLower, tickUpper, liquidity, token0, token1, principal0, principal1,
+income0, income1}, cumulativeIncome[] {token, amount} (monotonic since inception), cumulativeReceived,
+cumulativeSentHome, arrivedTransitRefs[], inFlightToHub` from the ledger and adapters, and calls
 `CoreBridge.publishMessage(nonce, payload, 1 /* finalized */)`. Anyone delivers the VAA to
 `ValueReportReceiver.deliver(bytes vaa)`, which verifies with the Core Bridge, checks emitter chain and address
 against the Mandate, requires `sequence > lastSequence`, requires `now - timestamp <= maxReportAge`, and stores
 the report. Pricing of the quantities into USDC happens on the hub through `IPriceSource` (§5).
 
 ### 4.5 Attributed Income (DEC-014, DEC-025, DEC-064, DEC-073, DEC-092)
-Global accumulator `incomePerShare` (1e18 scale) with a per-holder checkpoint, advanced only when income is
-recognized (adapter collect on the hub; spoke report income for spoke positions, pending Q60 details). Holders
+Per-token global index in Q128 (2^128 scale, 512-bit mulDiv, remainder carried) with a per-holder checkpoint,
+advanced only when income is recognized; sources report monotonic cumulative income and a regressed counter is
+logged, never reverted; income recognized with zero supply goes to an ownerless bucket. Advanced (adapter collect on the hub; spoke report income for spoke positions, pending Q60 details). Holders
 call `withdrawIncome()` to take the USDC out at any time without burning shares; burning all shares pays the
 income too. No compounding in the contract (DEC-064). Performance fee is taken on income at collection, in
 kind, no high-water mark (DEC-107, DEC-109); the protocol slice is read from `ManagerRegistry` at that moment
@@ -125,7 +141,11 @@ only when it is actually bridged back to the hub, which is conservative.
 - `requestPayout(uint256 usdcAmount, PayoutMode mode)`: one open request per holder, not cancellable, shares
   are not locked or burned at request time. Standard: reserve `min(usdcAmount, Free Idle)` in the Payout
   Reserve as USDC and start the term. Instant: no reserve.
-- `claim(bytes unwindHints)`: only the requester. If the idle the request may use covers it (Instant: Free
+- `claimPayout(bytes unwindHints)`: only the requester (DEC-065, DEC-074). Events `PayoutExecuted` and
+  `PartialPayoutExecuted` carry the Settlement Price, the payer of every Operating Expense (DEC-041) and the
+  consolidation fields of DEC-083 (number of chains summed, block and sequence of each spoke report, age of the
+  oldest report, In-flight Value on its own line). Burning all of a holder's shares pays their Attributed Income in
+  the same transaction (DEC-045, DEC-047). If the idle the request may use covers it (Instant: Free
   Idle only, never the Payout Reserve; Standard: its reserve then Free Idle), burn `floor(amount / sharePrice)`
   whole shares, pay `shares * sharePrice` (never more than requested), atomically. Otherwise unwind in Mandate
   order only what is missing plus 2% (fund bears the margin's market cost, DEC-097), proceeds go to Idle, then
@@ -134,7 +154,10 @@ only when it is actually bridged back to the hub, which is conservative.
 - Instant: 2% Payout Fee on the requested amount into Operating Cash (DEC-102); network costs charged to the
   requester separately (**OPEN** how, LC-45/LC-47: MVP charges nothing extra and flags it). Standard: after the
   term the requester's claim runs the remaining unwind; the fund pays network costs from Operating Cash (DEC-060).
-- Flow fee 25 bps on the amount paid out goes to the Protocol Recipient (DEC-106).
+- Flow fee 25 bps on the amount paid out goes to the Protocol Recipient (DEC-106); never on Income Withdrawal
+  (LC-143 reading).
+- A report only has to postdate the unwind on the spoke where the unwind happened (DEC-105, erratum 11); a
+  hub-only unwind needs no new spoke report beyond the max-age rule.
 - Unwinds on a spoke need an instruction from the hub. **OPEN** (feedback question 2): MVP restricts automatic
   unwind to hub positions and to spoke positions the manager has already closed and bridged; a spoke unwind
   driven by a hub-to-spoke message is the next milestone.
