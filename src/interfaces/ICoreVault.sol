@@ -167,7 +167,11 @@ interface ICoreVault is IAcrossMessageHandler {
     /// @notice The hub Spoke Vault returned USDC to Idle.
     event ReturnedToIdle(uint256 amount);
 
-    /// @notice Collected income reached the Core Vault; fees were split before the accumulator (DEC-107, DEC-109).
+    /// @notice Collected income reached the Core Vault and was split there (ruling 2026-09-29; DEC-107, DEC-109):
+    ///         `amount` is the gross collected amount, `managerFee` the manager portion transferred to the
+    ///         ManagerFeeVault, `protocolSlice` the protocol portion transferred to the Protocol Recipient (read from the
+    ///         ManagerRegistry at this moment as `protocolSliceBps`, DEC-106, DEC-110); the rest entered the
+    ///         shareholders' accumulator.
     event CollectedIncomeReceived(
         address indexed token, uint256 amount, uint256 managerFee, uint256 protocolSlice, uint16 protocolSliceBps
     );
@@ -179,9 +183,6 @@ interface ICoreVault is IAcrossMessageHandler {
         uint16 previousManagementFeeBps,
         uint16 newManagementFeeBps
     );
-
-    /// @notice Owed fees were transferred to a recipient (DEC-109: paid in the collected token, never in shares).
-    event FeesPaid(address indexed token, address indexed recipient, uint256 amount);
 
     /// @notice Balance above the ledger was swept (DEC-080, DEC-096, DEC-101).
     event ExcessSwept(address indexed token, address indexed recipient, uint256 amount);
@@ -259,10 +260,6 @@ interface ICoreVault is IAcrossMessageHandler {
     // Permissionless verbs
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @notice Advances the income index from the hub Spoke Vault's cumulative income counters (Q60 hub
-    ///         recognition). Permissionless; never reverts because a counter regressed.
-    function recognizeHubIncome() external;
-
     /// @notice Attests that a hub-to-spoke transit expired without arriving (DEC-066). Permissionless.
     /// @dev Requires the fill deadline to have passed and proof of non-arrival: a spoke report built after the
     ///      deadline that does not list the transit, or the deadline plus the report lifetime having passed. Releases
@@ -271,11 +268,6 @@ interface ICoreVault is IAcrossMessageHandler {
 
     /// @notice Pulls an expired transit's refund from its escrow back to Idle (DEC-066, QA6). Permissionless.
     function recognizeRefund(bytes32 transitId) external returns (uint256 amount);
-
-    /// @notice Transfers the owed manager fee and protocol fees in `token` to their recipients. Permissionless.
-    /// @dev DEC-106, DEC-109: manager fee to the manager's address; protocol slice and flow fee to the Protocol
-    ///      Recipient (LC-132: identity to confirm).
-    function payOwedFees(address token) external;
 
     /// @notice Sends `balanceOf(token)` minus every ledger amount of `token` to the excess recipient. Permissionless.
     /// @dev DEC-080, DEC-096, DEC-101. Never sweeps ledger value (Idle, Operating Cash, collected income, owed fees).
@@ -301,7 +293,10 @@ interface ICoreVault is IAcrossMessageHandler {
         returns (bytes32 transitId);
 
     /// @notice Lowers the manager fee; it can never rise on a live fund (DEC-110). Manager only.
-    /// @dev Books the amounts already due at the old rate first. `newManagementFeeBps` must stay 0 in the MVP (DEC-108, LC-144).
+    /// @dev Ruling 2026-09-29: the performance fee is charged only when collected income reaches the Core Vault, so
+    ///      no fee accrues between collections and nothing is left to settle at the old rate (DEC-110 "settling
+    ///      accrued first" is empty); income collected afterwards is charged at the new rate. `newManagementFeeBps`
+    ///      must stay 0 in the MVP (DEC-108, LC-144).
     function decreaseManagerFee(uint16 newPerformanceFeeBps, uint16 newManagementFeeBps) external;
 
     /// @notice Sets the hub Operating Cash floor and top-up. Manager only (DEC-096, DEC-100).
@@ -318,15 +313,19 @@ interface ICoreVault is IAcrossMessageHandler {
     /// @notice Credits USDC the hub Spoke Vault transferred to Idle. Hub Spoke Vault only.
     function returnToIdle(uint256 usdcAmount) external;
 
-    /// @notice Credits collected income the hub Spoke Vault transferred. Splits the performance fee and protocol slice
-    ///         before the accumulator (DEC-107, DEC-109; slice read from the ManagerRegistry at this moment, DEC-106,
-    ///         DEC-110). Hub Spoke Vault only.
+    /// @notice Credits collected income the hub Spoke Vault transferred and splits it at once (ruling 2026-09-29): the
+    ///         performance fee (DEC-107) times `amount`, of which the protocol slice (ManagerRegistry at this moment,
+    ///         DEC-106, DEC-110) is transferred to the Protocol Recipient and the rest to the ManagerFeeVault, in kind
+    ///         (DEC-109); the net enters the shareholders' accumulator and the collected balance. Hub Spoke Vault only.
+    /// @dev This and a matched spoke-to-hub Income arrival are the only points where the income index advances;
+    ///      uncollected income stays in its own bucket (DEC-092) and only informs Gross Assets.
     function receiveCollectedIncome(address token, uint256 amount) external;
 
     /// @notice Across fill callback for spoke-to-hub transfers. Only the Across SpokePool; only USDC.
     /// @dev Decodes TransitMessage and rejects another fund's id. Across passes no depositor, so the amount is credited
-    ///      to Idle (Principal) or the collected income bucket (Income) only when an accepted report lists the transit
-    ///      id as in flight to the hub; otherwise it is held apart until a report matches it (DEC-080, DEC-104).
+    ///      to Idle (Principal) or, split as in `receiveCollectedIncome`, to the collected income bucket (Income) only
+    ///      when an accepted report lists the transit id as in flight to the hub; otherwise it is held apart until a
+    ///      report matches it (DEC-080, DEC-104).
     function handleV3AcrossMessage(address tokenSent, uint256 amount, address relayer, bytes memory message) external;
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -350,6 +349,9 @@ interface ICoreVault is IAcrossMessageHandler {
 
     /// @notice Recipient of swept excess balances (DEC-096, DEC-101; LC-132 OPEN).
     function excessRecipient() external view returns (address);
+
+    /// @notice The fund's ManagerFeeVault, deployed by the Core Vault's constructor (ruling 2026-09-29, DEC-107).
+    function managerFeeVault() external view returns (address);
 
     // ---------------------------------------------------------------------------------------------------------------
     // Value bases (DEC-072, DEC-083, DEC-084, DEC-085, DEC-098)
@@ -431,10 +433,4 @@ interface ICoreVault is IAcrossMessageHandler {
 
     /// @notice Standard Payout term, seconds (DEC-060, DEC-095).
     function standardPayoutTerm() external view returns (uint32);
-
-    /// @notice Protocol fees owed in `token` (slice and flow fee), not yet transferred.
-    function protocolOwed(address token) external view returns (uint256);
-
-    /// @notice Manager fee owed in `token`, not yet transferred.
-    function managerOwed(address token) external view returns (uint256);
 }

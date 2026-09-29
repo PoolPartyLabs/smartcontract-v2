@@ -60,9 +60,9 @@ contract CoreVault is CoreVaultTransit {
         if (supply == 0 && usdcAmount < _minFirstDeposit) revert BelowMinFirstDeposit(usdcAmount, _minFirstDeposit);
         // DEC-096: Operating Cash top-up first, so the depositor enters at the post-expense price.
         _topUpOperatingCash();
-        // Q60: hub income is recognized before the checkpoint so the entrant gets none of it (DEC-014); Q57 reading: a
-        // mint reverts on a stale spoke report or a stale price.
-        (uint256 assets, NavConsolidation memory consolidation) = CoreVaultLogic.recognizeAndValue(_s, _wiring(), true);
+        // Q57 reading: a mint reverts on a stale spoke report or a stale price. DEC-014: the entrant's checkpoint below
+        // gives it no income collected before entry (ruling 2026-09-29: the index moves only at collection).
+        (uint256 assets, NavConsolidation memory consolidation) = CoreVaultLogic.valuation(_s, _wiring(), true);
         uint256 price = ShareMath.sharePrice(assets, supply);
         uint256 usdcForShares;
         uint256 fee;
@@ -160,13 +160,12 @@ contract CoreVault is CoreVaultTransit {
         else emit PartialPayoutExecuted(msg.sender, receipt, consolidation);
     }
 
-    /// @notice Recognizes hub income, prices the claim at the current Share Assets and sizes what it wants.
+    /// @notice Prices the claim at the current Share Assets and sizes what it wants.
     function _priceClaim(Claim memory c, PayoutRequest storage req)
         private
         returns (NavConsolidation memory consolidation)
     {
-        // Q60: the index is current before the burn's checkpoint.
-        (c.shareAssets, consolidation) = CoreVaultLogic.recognizeAndValue(_s, _wiring(), false);
+        (c.shareAssets, consolidation) = CoreVaultLogic.valuation(_s, _wiring(), false);
         c.totalShares = _totalShares();
         c.price = ShareMath.sharePrice(c.shareAssets, c.totalShares);
         // DEC-077, DEC-020: floor(outstanding / price) whole shares, capped at the balance.

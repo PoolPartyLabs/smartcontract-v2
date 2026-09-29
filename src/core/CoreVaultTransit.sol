@@ -9,7 +9,6 @@ import {TransferKind, BridgeQuote} from "../interfaces/FundTypes.sol";
 import {TransitMessage} from "../libraries/TransitMessage.sol";
 import {CoreVaultIncome} from "./CoreVaultIncome.sol";
 import {CoreVaultLogic} from "./CoreVaultLogic.sol";
-import {HubBoundTransfer} from "./CoreVaultTypes.sol";
 
 /// @title CoreVaultTransit
 /// @notice Sends to spokes, the DEC-066 transit state machine, spoke-to-hub arrivals, report application, hub
@@ -84,8 +83,8 @@ abstract contract CoreVaultTransit is CoreVaultIncome {
     // ---------------------------------------------------------------------------------------------------------------
 
     /// @inheritdoc ICoreVault
-    /// @dev Confirms arrived transits, credits matched spoke-to-hub arrivals and recognizes spoke income (Q60 stance),
-    ///      in CoreVaultLogic. Never reverts because of income or of an unknown or repeated transit id.
+    /// @dev Confirms arrived transits and credits matched spoke-to-hub arrivals, in CoreVaultLogic. Never reverts because
+    ///      of an unknown or repeated transit id.
     function onReportAccepted(uint256 spokeIndex) external nonReentrant {
         if (msg.sender != reportReceiver) revert NotReportReceiver(msg.sender);
         CoreVaultLogic.applyReport(_s, _wiring(), spokeIndex);
@@ -96,10 +95,11 @@ abstract contract CoreVaultTransit is CoreVaultIncome {
     // ---------------------------------------------------------------------------------------------------------------
 
     /// @inheritdoc ICoreVault
-    /// @dev A Principal arrival goes to Idle and an Income arrival to the USDC collected income bucket (no second fee
-    ///      split, OQ-02/03), but only up to what an accepted report of the origin spoke listed for that id; before
-    ///      any report lists it the amount is held apart in `unmatchedArrivals`, outside every base and never swept,
-    ///      and it is credited on the report that lists it. A fabricated id therefore never reaches a base.
+    /// @dev A Principal arrival goes to Idle; an Income arrival is collected income reaching the Core Vault, split at
+    ///      once (ruling 2026-09-29: fee to the Protocol Recipient and the ManagerFeeVault, net to the accumulator);
+    ///      both only up to what an accepted report of the origin spoke listed for that id. Before any report lists it
+    ///      the amount is held apart in `unmatchedArrivals`, outside every base and never swept, and it is credited on
+    ///      the report that lists it. A fabricated id therefore never reaches a base.
     function handleV3AcrossMessage(address tokenSent, uint256 amount, address, bytes memory message)
         external
         override(ICoreVault)
@@ -111,15 +111,7 @@ abstract contract CoreVaultTransit is CoreVaultIncome {
         (bytes32 messageFundId, uint256 originChainId, bytes32 transitId, TransferKind kind) =
             TransitMessage.decode(message);
         if (messageFundId != fundId) revert WrongFund(messageFundId);
-        HubBoundTransfer storage h = _s.hubBound[CoreVaultLogic.hubBoundKey(originChainId, transitId)];
-        if (h.listed == 0) {
-            if (kind == TransferKind.Principal) h.pendingPrincipal += amount;
-            else h.pendingIncome += amount;
-            _s.unmatchedArrivals += amount;
-            emit TransitReceived(transitId, originChainId, kind, amount, false);
-            return;
-        }
-        CoreVaultLogic.creditHubBound(_s, usdc, h, transitId, originChainId, kind, amount);
+        CoreVaultLogic.receiveHubBound(_s, _wiring(), originChainId, transitId, kind, amount);
     }
 
     // ---------------------------------------------------------------------------------------------------------------

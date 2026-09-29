@@ -114,25 +114,27 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         assertEq(vault.shareAssets(), 9975e6 + 400e6);
         assertGt(vault.sharePrice(), priceBefore);
         pool.fill(address(vault), address(usdc), 400e6, _homeMessage(id, TransferKind.Income));
-        assertEq(vault.collectedIncome(address(usdc)), 400e6, "credited to collected income, never Idle");
+        // Split at collection (ruling 2026-09-29): 80 of fees leave, 320 net stays for holders; never Idle.
+        assertEq(vault.collectedIncome(address(usdc)), 320e6, "credited to collected income, never Idle");
         assertEq(vault.sharePrice(), priceBefore, "back to the price without the income once it arrives");
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // DEC-014 ordering: hub income that accumulated before an entrant's deposit but was never recognized by anyone
-    // is recognized inside the deposit, before the checkpoint, so the entrant gets none of it.
+    // DEC-014 vs ruling 2026-09-29: income is attributed when it is collected, to the holders of that moment. Income
+    // generated in a hub position before an entrant's deposit but collected after it is therefore shared with the
+    // entrant (reported as an open question); income collected before the entry is not.
     // ---------------------------------------------------------------------------------------------------------------
 
-    function test_DEC014_depositRecognizesPendingHubIncomeBeforeTheMint() public {
+    function test_DEC014_OPEN_incomeGeneratedBeforeEntryIsSharedWhenCollectedAfterIt() public {
         _deployFeeless();
         _deposit(ana, 10_000e6); // 10,000 shares
-        hubVault.setCumulativeIncome(address(usdc), 1000e6); // accumulated, nobody called recognizeHubIncome
+        hubVault.forwardIncome(address(usdc), 1000e6); // collected before Bruno: all Ana's
+        hubVault.setCumulativeIncome(address(usdc), 1000e6 + 2100e6); // generated, not yet collected
         _deposit(bruno, 11_000e6); // 11,000 shares
-        assertEq(vault.attributedIncome(bruno, address(usdc)), 0, "Bruno gets nothing of the prior income");
+        assertEq(vault.attributedIncome(bruno, address(usdc)), 0, "nothing collected since Bruno entered");
         assertApproxEqAbs(vault.attributedIncome(ana, address(usdc)), 1000e6, 1, "all of it is Ana's");
-        // Income accumulated after Bruno's entry is shared pro rata (Ana 10,000 / Bruno 11,000 shares).
-        hubVault.setCumulativeIncome(address(usdc), 1000e6 + 2100e6);
-        vault.recognizeHubIncome();
+        // The 2,100 generated before Bruno's entry is collected after it: shared pro rata (10,000 / 11,000).
+        hubVault.forwardIncome(address(usdc), 2100e6);
         assertApproxEqAbs(vault.attributedIncome(ana, address(usdc)), 2000e6, 2);
         assertApproxEqAbs(vault.attributedIncome(bruno, address(usdc)), 1100e6, 2);
     }
@@ -173,9 +175,7 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         c.incomeTokens[1] = address(mal);
         _deploy(_mandate(2000), c);
         _deposit(alice, 10_000e6);
-        hubVault.setCumulativeIncome(address(mal), 100e18);
-        vault.recognizeHubIncome();
-        hubVault.forwardIncome(address(mal), 100e18); // 80 to Alice, 20 owed as fees
+        hubVault.forwardIncome(address(mal), 100e18); // 80 to Alice, 20 of fees transferred out at once
         assertApproxEqAbs(vault.attributedIncome(alice, address(mal)), 80e18, 1);
     }
 
@@ -186,7 +186,7 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         vm.expectRevert(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector);
         vault.withdrawIncome(address(mal));
         assertApproxEqAbs(vault.attributedIncome(alice, address(mal)), 80e18, 1, "nothing was taken");
-        assertEq(vault.collectedIncome(address(mal)), 100e18);
+        assertEq(vault.collectedIncome(address(mal)), 80e18);
     }
 
     function test_Reentrancy_incomeTokenReenteringDepositDuringFullBurnIsRefused() public {

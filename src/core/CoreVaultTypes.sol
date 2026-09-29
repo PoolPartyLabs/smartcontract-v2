@@ -51,6 +51,8 @@ struct CoreVaultWiring {
     address managerRegistry;
     address priceSource;
     address escrowImplementation;
+    address protocolRecipient;
+    address managerFeeVault;
     uint256 hubChainId;
     uint16 maxBridgeFeeBps;
 }
@@ -93,15 +95,13 @@ struct HubBoundTransfer {
 ///        (DEC-080, DEC-104, OQ-01).
 /// @param transitNonce Counter behind transit ids.
 /// @param income Attributed Income accumulator (Q60).
-/// @param collectedIncome Collected income per token, payable now (LC-100).
-/// @param managerOwed Manager fee owed per token (DEC-107, DEC-109).
-/// @param protocolOwed Protocol slice owed per token (DEC-106, DEC-109).
+/// @param collectedIncome Collected income per token, net of fees, payable now to holders (LC-100; ruling 2026-09-29:
+///        fees leave at collection, so nothing owed to the manager or the protocol waits here).
 /// @param requests Payout Request per address (DEC-024, DEC-046).
 /// @param transits Hub-to-spoke transits (DEC-066).
 /// @param transitSpoke Mandate spoke index of each transit.
 /// @param spokeBooks Transit book per spoke.
 /// @param hubBound Spoke-to-hub transfers by key.
-/// @param spokeIncomeCounter Highest cumulative income counter per spoke and spoke token (Q60).
 /// @param bridgeTarget Protocol target pinned per hub-side bridge adapter at creation (IBridgeAdapter).
 /// @param bridgeCodehash Codehash pinned per hub-side bridge adapter at creation (Q17-4 reading O2).
 struct CoreVaultState {
@@ -117,14 +117,11 @@ struct CoreVaultState {
     uint256 transitNonce;
     IncomeAccumulator.State income;
     mapping(address token => uint256) collectedIncome;
-    mapping(address token => uint256) managerOwed;
-    mapping(address token => uint256) protocolOwed;
     mapping(address shareholder => ICoreVault.PayoutRequest) requests;
     mapping(bytes32 transitId => Transit) transits;
     mapping(bytes32 transitId => uint256) transitSpoke;
     mapping(uint256 spokeIndex => SpokeBook) spokeBooks;
     mapping(bytes32 key => HubBoundTransfer) hubBound;
-    mapping(uint256 spokeIndex => mapping(address token => uint256)) spokeIncomeCounter;
     mapping(address bridgeAdapter => address) bridgeTarget;
     mapping(address bridgeAdapter => bytes32) bridgeCodehash;
 }

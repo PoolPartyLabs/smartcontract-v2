@@ -24,30 +24,6 @@ interface ICoreVaultExtensions {
     ///         DEC-068: Partial Payout).
     event UnwindForPayoutFailed(uint256 usdcTarget);
 
-    /// @notice Fees booked on recognized income (DEC-107, DEC-106, DEC-110). `recognized` is the gross delta.
-    event IncomeFeesBooked(
-        bytes32 indexed source,
-        address indexed token,
-        uint256 recognized,
-        uint256 managerFee,
-        uint256 protocolSlice,
-        uint16 protocolSliceBps
-    );
-
-    /// @notice The hub Spoke Vault's counters could not be read; recognition skipped, never reverted (Q60).
-    event HubIncomeReadFailed();
-
-    /// @notice A spoke's cumulative income counter in `token` advanced by `delta`, priced at `usdcValue` (Q60).
-    event SpokeIncomeRecognized(uint256 indexed spokeIndex, address indexed token, uint256 delta, uint256 usdcValue);
-
-    /// @notice A spoke counter regressed or advanced anomalously; skipped, never reverted (Q60).
-    event SpokeIncomeCounterSkipped(
-        uint256 indexed spokeIndex, address indexed token, uint256 previous, uint256 reported
-    );
-
-    /// @notice A spoke income delta could not be priced; the counter was not advanced so the next report retries.
-    event SpokeIncomePriceUnavailable(uint256 indexed spokeIndex, address indexed token, uint256 delta);
-
     /// @notice A spoke-to-hub arrival or its remainder was held apart because no report listed it or the listed amount
     ///         was already credited (DEC-080, OQ-01).
     event ArrivalHeldApart(bytes32 indexed transitId, uint256 indexed originChainId, TransferKind kind, uint256 amount);

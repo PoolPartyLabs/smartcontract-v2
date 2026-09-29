@@ -10,6 +10,7 @@ import {Mandate, MandateLib, SpokeConfig, BridgeAdapterConfig} from "../mandate/
 import {ShareMath} from "../libraries/ShareMath.sol";
 import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 import {ShareToken} from "./ShareToken.sol";
+import {ManagerFeeVault} from "./ManagerFeeVault.sol";
 import {CoreVaultConfig, CoreVaultWiring, CoreVaultState} from "./CoreVaultTypes.sol";
 import {CoreVaultLogic} from "./CoreVaultLogic.sol";
 import {ICoreVaultExtensions} from "./ICoreVaultExtensions.sol";
@@ -42,6 +43,8 @@ abstract contract CoreVaultBase is ICoreVault, ICoreVaultExtensions, ReentrancyG
     address public immutable protocolRecipient;
     address public immutable excessRecipient;
     address public immutable escrowImplementation;
+    /// @notice The fund's ManagerFeeVault (ruling 2026-09-29, DEC-107, DEC-109), deployed by this constructor.
+    address public immutable managerFeeVault;
     uint16 public immutable flowFeeBps;
     uint16 public immutable payoutFeeBps;
     uint32 public immutable standardPayoutTerm;
@@ -109,6 +112,8 @@ abstract contract CoreVaultBase is ICoreVault, ICoreVaultExtensions, ReentrancyG
 
         // Q59 OPEN: name and symbol are factory strings; the Core Vault deploys and owns its Share token.
         shareToken = address(new ShareToken(c.shareName, c.shareSymbol, address(this)));
+        // Ruling 2026-09-29: the manager portion of every fee goes to the fund's own ManagerFeeVault.
+        managerFeeVault = address(new ManagerFeeVault(address(this), m.manager));
     }
 
     /// @dev DEC-053: the Mandate is stored once, element by element (value-only structs).
@@ -303,6 +308,8 @@ abstract contract CoreVaultBase is ICoreVault, ICoreVaultExtensions, ReentrancyG
             managerRegistry: managerRegistry,
             priceSource: priceSource,
             escrowImplementation: escrowImplementation,
+            protocolRecipient: protocolRecipient,
+            managerFeeVault: managerFeeVault,
             hubChainId: _hubChainId,
             maxBridgeFeeBps: _maxBridgeFeeBps
         });
@@ -310,8 +317,8 @@ abstract contract CoreVaultBase is ICoreVault, ICoreVaultExtensions, ReentrancyG
 
     /// @notice Every amount of `token` the Core Vault's ledger holds.
     /// @dev DEC-080, DEC-096, DEC-101: Idle, Operating Cash and unmatched arrivals (USDC only) plus the collected income
-    ///      of the token. Owed fees and Attributed Income are claims paid out of the collected balance, so they are
-    ///      inside it and are not added a second time.
+    ///      of the token. Attributed Income is a claim paid out of the collected balance, so it is inside it and is not
+    ///      added a second time; no fee is ever owed here (ruling 2026-09-29: fees leave at collection).
     function _ledger(address token) internal view returns (uint256 amount) {
         amount = _s.collectedIncome[token];
         if (token == usdc) amount += _s.idle + _s.operatingCash + _s.unmatchedArrivals;

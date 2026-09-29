@@ -125,16 +125,16 @@ contract CoreVaultDepositTest is CoreVaultFixture {
         _deployFeeless();
         _deposit(ana, 10_000e6);
         assertEq(shares.balanceOf(ana), 10_000e18);
-        // 1,000 USDC of income generated and collected before Bruno enters; recognized inside his deposit (Q60).
-        hubVault.setCumulativeIncome(address(usdc), 1000e6);
+        // 1,000 USDC of income generated and collected before Bruno enters (ruling 2026-09-29: attributed at
+        // collection, to the holders of that moment).
+        hubVault.forwardIncome(address(usdc), 1000e6);
         (uint256 minted, uint256 charged) = _deposit(bruno, 11_000e6);
         assertEq(minted, 11_000e18, "income is outside Share Assets (DEC-092)");
         assertEq(charged, 11_000e6);
         // Q60: the Q128 index rounds down; at most one base unit of dust stays in the bucket.
         assertApproxEqAbs(vault.attributedIncome(ana, address(usdc)), 1000e6, 1);
         assertEq(vault.attributedIncome(bruno, address(usdc)), 0);
-        // Collection only moves tokens into the collected balance; Ana takes it all, Bruno nothing.
-        hubVault.forwardIncome(address(usdc), 1000e6);
+        // Ana takes it all, Bruno nothing.
         vm.prank(ana);
         assertApproxEqAbs(vault.withdrawIncome(address(usdc)), 1000e6, 1);
         vm.prank(bruno);
@@ -145,8 +145,7 @@ contract CoreVaultDepositTest is CoreVaultFixture {
         _deployFeeless();
         _deposit(ana, 10_000e6);
         _deposit(bruno, 11_000e6);
-        hubVault.setCumulativeIncome(address(usdc), 2100e6);
-        vault.recognizeHubIncome();
+        hubVault.forwardIncome(address(usdc), 2100e6);
         assertApproxEqAbs(vault.attributedIncome(ana, address(usdc)), 1000e6, 1);
         assertApproxEqAbs(vault.attributedIncome(bruno, address(usdc)), 1100e6, 1);
     }

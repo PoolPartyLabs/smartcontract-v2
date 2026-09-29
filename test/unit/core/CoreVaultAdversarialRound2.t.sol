@@ -223,10 +223,13 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
 
         pool.fill(address(vault), address(usdc), 5, _homeMessage(id, TransferKind.Principal)); // stranger's dust
         assertEq(vault.idle(), idle0 + 5, "the dust is credited as what its message claims");
+        uint256 protocol0 = usdc.balanceOf(protocol);
         pool.fill(address(vault), address(usdc), 400e6, _homeMessage(id, TransferKind.Income)); // the real fill
-        assertEq(vault.collectedIncome(address(usdc)), 400e6 - 5, "the income is short by the dust");
+        // Ruling 2026-09-29: the income credited is split at once; fees leave to the protocol and the fee vault.
+        uint256 feesOut = usdc.balanceOf(protocol) - protocol0 + usdc.balanceOf(vault.managerFeeVault());
+        assertEq(vault.collectedIncome(address(usdc)) + feesOut, 400e6 - 5, "the income is short by the dust");
         assertEq(vault.unmatchedArrivals(), 5, "the same amount is held apart for good");
-        assertEq((vault.idle() - idle0) + vault.collectedIncome(address(usdc)), 400e6, "bases got the listed amount");
+        assertEq((vault.idle() - idle0) + vault.collectedIncome(address(usdc)) + feesOut, 400e6, "listed amount");
         assertEq(usdc.balanceOf(address(vault)), _ledgerUsdc());
         assertEq(vault.sweepExcess(address(usdc)), 0, "nothing sweepable: the ledger covers the balance exactly");
     }

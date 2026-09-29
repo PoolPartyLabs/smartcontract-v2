@@ -373,14 +373,15 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         assertEq(vault.shareAssets(), assets, "DEC-104: in flight to Idle, same value");
     }
 
-    function test_OQ02_incomeArrivalCreditsCollectedIncomeWithoutSecondSplit() public {
+    function test_DEC107_incomeArrivalIsSplitAtCollection() public {
         bytes32 homeId = keccak256("income-1");
         _deliver(_inFlightToHub(_spokeReport(0, 0), homeId, 100e6));
-        uint256 managerOwedBefore = vault.managerOwed(address(usdc));
+        uint256 protocol0 = usdc.balanceOf(protocol);
         pool.fill(address(vault), address(usdc), 100e6, _homeMessage(homeId, TransferKind.Income));
-        assertEq(vault.collectedIncome(address(usdc)), 100e6);
+        assertEq(vault.collectedIncome(address(usdc)), 80e6);
         assertEq(vault.idle(), 9975e6);
-        assertEq(vault.managerOwed(address(usdc)), managerOwedBefore);
+        assertEq(usdc.balanceOf(protocol) - protocol0, 10e6);
+        assertEq(usdc.balanceOf(vault.managerFeeVault()), 10e6);
     }
 
     function test_OQ01_fabricatedIdNeverReachesABase() public {
@@ -413,7 +414,6 @@ contract CoreVaultTransitTest is CoreVaultFixture {
     function test_DEC101_sweepExcessSendsOnlyUnledgeredBalance() public {
         usdc.mint(address(vault), 123e6);
         weth.mint(address(vault), 2e18);
-        hubVault.setCumulativeIncome(address(usdc), 50e6);
         hubVault.forwardIncome(address(usdc), 50e6);
         vm.expectEmit(address(vault));
         emit ICoreVault.ExcessSwept(address(usdc), excess, 123e6);

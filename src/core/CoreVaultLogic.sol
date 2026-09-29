@@ -20,7 +20,7 @@ import {CoreVaultState, CoreVaultWiring, SpokeBook, HubBoundTransfer} from "./Co
 import {ICoreVaultExtensions as X} from "./ICoreVaultExtensions.sol";
 
 /// @title CoreVaultLogic
-/// @notice Value bases, income recognition, report application, sends to spokes and transit outcomes of the Core
+/// @notice Value bases, collected income, report application, sends to spokes and transit outcomes of the Core
 ///         Vault, as an external library that runs in the Core Vault's context (DELEGATECALL into the fund's own linked
 ///         library, never into an adapter).
 /// @dev Exists only to keep the Core Vault's runtime bytecode under the 24,576-byte limit without changing compiler
@@ -35,9 +35,6 @@ library CoreVaultLogic {
     using SafeERC20 for IERC20;
     using IncomeAccumulator for IncomeAccumulator.State;
 
-    /// @dev Source id of the hub Spoke Vault in the accumulator (Q60 per-source counters).
-    bytes32 internal constant HUB_INCOME_SOURCE = keccak256("HUB_SPOKE_VAULT");
-
     /// @dev DEC-106: default protocol slice when the registry cannot be read.
     uint16 internal constant DEFAULT_PROTOCOL_SLICE_BPS = 5000;
 
@@ -47,15 +44,15 @@ library CoreVaultLogic {
     // Value bases (DEC-042, DEC-083, DEC-084, DEC-085, DEC-098, DEC-104)
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @notice Reads the hub Spoke Vault, recognizes its income (Q60, before any checkpoint) and returns Share Assets
-    ///         with their consolidation (DEC-083). With `mint` true, stale reports and prices revert (Q57 reading).
-    function recognizeAndValue(CoreVaultState storage s, CoreVaultWiring memory w, bool mint)
+    /// @notice Reads the hub Spoke Vault and returns Share Assets with their consolidation (DEC-083). With `mint` true,
+    ///         stale reports and prices revert (Q57 reading). Income is never recognized here (ruling 2026-09-29: the
+    ///         index advances only when collected income reaches the Core Vault).
+    function valuation(CoreVaultState storage s, CoreVaultWiring memory w, bool mint)
         public
+        view
         returns (uint256 assets, ICoreVault.NavConsolidation memory consolidation)
     {
-        ReportCodec.Report memory hub = ISpokeVault(w.hubSpokeVault).buildReport();
-        _recognizeHub(s, w, hub.cumulativeIncome);
-        return _valuation(s, w, hub, mint);
+        return _valuation(s, w, ISpokeVault(w.hubSpokeVault).buildReport(), mint);
     }
 
     /// @notice Share Assets and In-flight Value now, with the last prices and reports (never reverts on age).
@@ -228,85 +225,33 @@ library CoreVaultLogic {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // Income recognition (Q60, OQ-02 / OQ-03 stance, DEC-106, DEC-107, DEC-109, DEC-110)
+    // Collected income (ruling 2026-09-29; DEC-092, DEC-106, DEC-107, DEC-109, DEC-110)
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @notice Reads the hub Spoke Vault's counters and recognizes them. Never reverts (Q60).
-    function recognizeHubIncome(CoreVaultState storage s, CoreVaultWiring memory w) public {
-        try ISpokeVault(w.hubSpokeVault).buildReport() returns (ReportCodec.Report memory r) {
-            _recognizeHub(s, w, r.cumulativeIncome);
-        } catch {
-            emit X.HubIncomeReadFailed();
-        }
+    /// @notice Splits income that reached the Core Vault and advances the index (ruling 2026-09-29: fee split and
+    ///         attribution at collection).
+    /// @dev DEC-107: performance fee = `amount * performanceFeeBps`, on income only, no high-water mark. DEC-106,
+    ///      DEC-110: its protocol slice is read from the ManagerRegistry at this charge. DEC-109: both are paid in the
+    ///      collected token at once, the slice to the Protocol Recipient and the rest of the fee to the ManagerFeeVault,
+    ///      so no fee ever waits in the Core Vault. The net enters the shareholders' accumulator (DEC-014, Q60; with no
+    ///      shares outstanding it is kept ownerless, LC-32) and the collected balance (LC-100). The caller checked the
+    ///      token is an income token and that `amount` is held above the ledger (DEC-080). Rounding: the fee rounds
+    ///      down (in the holders' favour), the slice rounds down (in the manager's favour).
+    function collectIncome(CoreVaultState storage s, CoreVaultWiring memory w, address token, uint256 amount) public {
+        _collectIncome(s, w, token, amount);
     }
 
-    /// @notice Q60: advances the hub source counter per income token and books the delta. A regressed, anomalous or
-    ///         unknown-token counter is skipped by the accumulator with an event, never reverted.
-    function _recognizeHub(CoreVaultState storage s, CoreVaultWiring memory w, ReportCodec.TokenAmount[] memory list)
-        private
-    {
-        uint256 supply = IERC20(w.shareToken).totalSupply();
-        for (uint256 i; i < list.length; ++i) {
-            uint256 delta = s.income.advanceSource(HUB_INCOME_SOURCE, list[i].token, list[i].amount);
-            if (delta != 0) _bookIncome(s, w, HUB_INCOME_SOURCE, list[i].token, delta, supply);
-        }
-    }
-
-    /// @notice Q60 stance for spoke income: on report acceptance each cumulative counter's delta, in the spoke token,
-    ///         is priced into hub USDC through IPriceSource and recognized in the USDC index, because spoke income can
-    ///         only come home as USDC through the Transport Route (DEC-031, DEC-055). Never reverts: a regressed or
-    ///         anomalous counter is skipped; an unpriceable delta leaves the counter where it was.
-    function _recognizeSpokeIncome(
-        CoreVaultState storage s,
-        CoreVaultWiring memory w,
-        uint256 spokeIndex,
-        ReportCodec.TokenAmount[] memory list
-    ) private {
-        bytes32 source = keccak256(abi.encode("SPOKE", spokeIndex));
-        uint256 supply = IERC20(w.shareToken).totalSupply();
-        for (uint256 i; i < list.length; ++i) {
-            address token = list[i].token;
-            uint256 reported = list[i].amount;
-            uint256 previous = s.spokeIncomeCounter[spokeIndex][token];
-            if (reported == previous) continue;
-            if (reported < previous || reported - previous > IncomeAccumulator.MAX_STEP) {
-                emit X.SpokeIncomeCounterSkipped(spokeIndex, token, previous, reported);
-                continue;
-            }
-            uint256 delta = reported - previous;
-            try IPriceSource(w.priceSource).usdcValue(token, delta) returns (uint256 value, uint256) {
-                if (value > IncomeAccumulator.MAX_STEP) {
-                    emit X.SpokeIncomeCounterSkipped(spokeIndex, token, previous, reported);
-                    continue;
-                }
-                s.spokeIncomeCounter[spokeIndex][token] = reported;
-                emit X.SpokeIncomeRecognized(spokeIndex, token, delta, value);
-                if (value != 0) _bookIncome(s, w, source, w.usdc, value, supply);
-            } catch {
-                emit X.SpokeIncomePriceUnavailable(spokeIndex, token, delta);
-            }
-        }
-    }
-
-    /// @notice DEC-107: the performance fee comes out of recognized income before it enters the shareholders'
-    ///         accumulator; DEC-106, DEC-110: the protocol slice of that fee is read from the ManagerRegistry at this
-    ///         charge. Both are booked as owed, in kind (DEC-109), and paid from the collected balance.
-    function _bookIncome(
-        CoreVaultState storage s,
-        CoreVaultWiring memory w,
-        bytes32 source,
-        address token,
-        uint256 delta,
-        uint256 supply
-    ) private {
+    function _collectIncome(CoreVaultState storage s, CoreVaultWiring memory w, address token, uint256 amount) private {
         uint16 sliceBps = protocolSliceBps(w);
-        uint256 managerFee = delta * s.performanceFeeBps / BPS;
+        uint256 managerFee = amount * s.performanceFeeBps / BPS;
         uint256 slice = managerFee * sliceBps / BPS;
         managerFee -= slice;
-        s.managerOwed[token] += managerFee;
-        s.protocolOwed[token] += slice;
-        emit X.IncomeFeesBooked(source, token, delta, managerFee, slice, sliceBps);
-        s.income.distribute(token, delta - managerFee - slice, supply);
+        uint256 net = amount - managerFee - slice;
+        s.collectedIncome[token] += net;
+        s.income.distribute(token, net, IERC20(w.shareToken).totalSupply());
+        emit ICoreVault.CollectedIncomeReceived(token, amount, managerFee, slice, sliceBps);
+        if (slice != 0) IERC20(token).safeTransfer(w.protocolRecipient, slice);
+        if (managerFee != 0) IERC20(token).safeTransfer(w.managerFeeVault, managerFee);
     }
 
     /// @notice DEC-106, DEC-110: the registry is read at every charge. A failed read or a value above 100% never blocks
@@ -324,15 +269,15 @@ library CoreVaultLogic {
     // Report application (DEC-066, DEC-080, DEC-090, Q60)
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @notice Applies a newly accepted report: confirms arrived transits, credits matched spoke-to-hub arrivals and
-    ///         recognizes spoke income. Never reverts because of income or of an unknown or repeated transit id.
+    /// @notice Applies a newly accepted report: confirms arrived transits and credits matched spoke-to-hub arrivals.
+    ///         Never reverts because of an unknown or repeated transit id. The report's cumulative income counters are
+    ///         informational (ruling 2026-09-29: spoke income is attributed only when it arrives as Income).
     function applyReport(CoreVaultState storage s, CoreVaultWiring memory w, uint256 spokeIndex) public {
         if (spokeIndex >= s.mandate.spokes.length) revert ICoreVault.UnknownSpoke(spokeIndex);
         (ReportCodec.Report memory r,,) = IValueReportReceiver(w.reportReceiver).latestReport(spokeIndex);
         if (r.fundId != w.fundId) revert ICoreVault.WrongFund(r.fundId);
         uint256 arrived = _confirmArrivals(s, spokeIndex, r.arrivedTransits, r.sequence);
         _matchReturnLeg(s, w, s.mandate.spokes[spokeIndex].chainId, r.inFlightToHub);
-        _recognizeSpokeIncome(s, w, spokeIndex, r.cumulativeIncome);
         emit ICoreVault.ReportAccepted(spokeIndex, r.sequence, r.blockNumber, r.timestamp, arrived);
     }
 
@@ -381,30 +326,52 @@ library CoreVaultLogic {
             h.pendingPrincipal = 0;
             h.pendingIncome = 0;
             s.unmatchedArrivals -= principal + income;
-            creditHubBound(s, w.usdc, h, id, originChainId, TransferKind.Principal, principal);
-            creditHubBound(s, w.usdc, h, id, originChainId, TransferKind.Income, income);
+            _creditHubBound(s, w, h, id, originChainId, TransferKind.Principal, principal);
+            _creditHubBound(s, w, h, id, originChainId, TransferKind.Income, income);
         }
     }
 
-    /// @notice Credits up to the listed amount not yet credited: Principal to Idle, Income to the USDC collected income
-    ///         bucket with no second fee split (OQ-02/03); the rest is held apart for good (DEC-080).
-    function creditHubBound(
+    /// @notice ICoreVault.handleV3AcrossMessage after the caller, token, amount and fund checks: holds the amount apart
+    ///         until a report lists the transfer, else credits it against what the report listed (DEC-080, OQ-01).
+    function receiveHubBound(
         CoreVaultState storage s,
-        address usdc,
+        CoreVaultWiring memory w,
+        uint256 originChainId,
+        bytes32 transitId,
+        TransferKind kind,
+        uint256 amount
+    ) public {
+        HubBoundTransfer storage h = s.hubBound[hubBoundKey(originChainId, transitId)];
+        if (h.listed == 0) {
+            if (kind == TransferKind.Principal) h.pendingPrincipal += amount;
+            else h.pendingIncome += amount;
+            s.unmatchedArrivals += amount;
+            emit ICoreVault.TransitReceived(transitId, originChainId, kind, amount, false);
+            return;
+        }
+        _creditHubBound(s, w, h, transitId, originChainId, kind, amount);
+    }
+
+    /// @notice Credits up to the listed amount not yet credited: Principal to Idle; Income is collected income that
+    ///         reached the Core Vault, split at once (ruling 2026-09-29, `collectIncome`); the rest is held apart for
+    ///         good (DEC-080).
+    function _creditHubBound(
+        CoreVaultState storage s,
+        CoreVaultWiring memory w,
         HubBoundTransfer storage h,
         bytes32 transitId,
         uint256 originChainId,
         TransferKind kind,
         uint256 amount
-    ) internal {
+    ) private {
         if (amount == 0) return;
         uint256 room = h.listed - h.credited;
         uint256 credit = amount < room ? amount : room;
         if (credit != 0) {
             h.credited += credit;
-            if (kind == TransferKind.Principal) s.idle += credit;
-            else s.collectedIncome[usdc] += credit;
             emit ICoreVault.TransitReceived(transitId, originChainId, kind, credit, true);
+            if (kind == TransferKind.Principal) s.idle += credit;
+            else _collectIncome(s, w, w.usdc, credit);
         }
         if (amount > credit) {
             s.unmatchedArrivals += amount - credit;

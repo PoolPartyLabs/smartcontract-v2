@@ -221,13 +221,12 @@ contract CoreVaultSetupTest is CoreVaultFixture {
 
     function test_DEC098_grossAssetsAddsCashAndIncome() public {
         _deposit(alice, 1000e6);
-        hubVault.setCumulativeIncome(address(usdc), 100e6);
-        hubVault.forwardIncome(address(usdc), 100e6);
+        hubVault.forwardIncome(address(usdc), 100e6); // 80 net to holders at 20% performance
         hubVault.setPositionIncome(7e6);
         vm.prank(manager);
         vault.setOperatingCashParameters(1e6, 2e6);
         _request(alice, 10e6, ICoreVault.PayoutMode.Instant);
         _claim(alice);
-        assertEq(vault.grossAssets(), vault.shareAssets() + vault.operatingCash() + 100e6 + 7e6);
+        assertEq(vault.grossAssets(), vault.shareAssets() + vault.operatingCash() + 80e6 + 7e6);
     }
 }

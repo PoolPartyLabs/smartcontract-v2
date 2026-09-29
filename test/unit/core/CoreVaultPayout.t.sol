@@ -271,7 +271,6 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         _deployFeeless();
         _deposit(alice, 1000e6);
         _deposit(bob, 1000e6);
-        hubVault.setCumulativeIncome(address(usdc), 200e6);
         hubVault.forwardIncome(address(usdc), 200e6);
         _request(alice, 1000e6, INSTANT);
         uint256 owed = vault.attributedIncome(alice, address(usdc));
@@ -288,7 +287,6 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
     function test_DEC045_partialBurnKeepsIncomeAttributed() public {
         _deployFeeless();
         _deposit(alice, 1000e6);
-        hubVault.setCumulativeIncome(address(usdc), 100e6);
         hubVault.forwardIncome(address(usdc), 100e6);
         _request(alice, 500e6, INSTANT);
         _claim(alice);
