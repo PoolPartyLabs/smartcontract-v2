@@ -56,6 +56,7 @@ contract EndToEndForkTest is EndToEndBase {
         _createForks();
         _phase1CreateFund();
         _phase2AnaDeposits();
+        _phase3HubAllocationAndIncome();
     }
 
     // -----------------------------------------------------------------------------------------------------------------
@@ -177,5 +178,70 @@ contract EndToEndForkTest is EndToEndBase {
         assertEq(core.idle(), ANA_DEPOSIT - fee);
         assertEq(core.shareAssets(), ANA_DEPOSIT - fee);
         assertEq(core.sharePrice(), ShareMath.INITIAL_SHARE_PRICE, "DEC-061: 1 share = 1.00 USDC");
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // Phase 3: allocation to the hub Spoke Vault, Aave supply, a Uniswap V4 position, income on both
+    // -----------------------------------------------------------------------------------------------------------------
+
+    /// @dev DEC-017, DEC-072: only Free Idle moves to the hub Spoke Vault. DEC-079, DEC-080: the vault's ledger follows
+    ///      what the adapters return. DEC-068: Aave interest is income. DEC-092: income stays outside Share Assets.
+    function _phase3HubAllocationAndIncome() internal {
+        _onArbitrum();
+        uint256 idleBefore = core.idle();
+        vm.prank(manager);
+        core.allocateToHubSpokeVault(HUB_ALLOCATION);
+        assertEq(core.idle(), idleBefore - HUB_ALLOCATION, "DEC-072: Free Idle allocated");
+        assertEq(hubSpoke.unallocatedBalance(ARB_USDC), HUB_ALLOCATION, "DEC-055: Unallocated Balance, not Idle");
+        assertEq(core.shareAssets(), idleBefore, "DEC-104: a move between buckets keeps Share Assets");
+
+        vm.prank(manager);
+        (bytes32 aaveKey, uint256 supplied,) =
+            hubSpoke.openPosition(hubAave, _aavePoolKey(), AAVE_SUPPLY, 0, abi.encode(AAVE_SUPPLY));
+        hubAavePosition = aaveKey;
+        assertEq(supplied, AAVE_SUPPLY, "AAVE-2: explicit amount supplied");
+
+        _openHubUniswapPosition();
+
+        _advance(AAVE_ACCRUAL_TIME);
+        IAdapter.PositionValue memory aave = IAdapter(hubAave).positionValue(hubAavePosition);
+        assertEq(aave.principal0, AAVE_SUPPLY, "DEC-068: principal stays the amount supplied");
+        assertGt(aave.income0, 0, "DEC-068: interest since supply is income");
+
+        arbitrumRouter = _deployRouter(ARB_V4_POOL_MANAGER, ARB_WETH, ARB_USDC, 10_000e18, 50_000_000e6);
+        _generateFees(
+            arbitrumRouter, _hubPoolKey(), ARB_V4_STATE_VIEW, _center(ARB_V4_STATE_VIEW, ARB_WETH_USDC_POOL_ID)
+        );
+        IAdapter.PositionValue memory v4 = IAdapter(hubUniswap).positionValue(hubUniswapPosition);
+        assertGt(v4.income0, 0, "DEC-079: WETH fees");
+        assertGt(v4.income1, 0, "DEC-079: USDC fees");
+        assertEq(core.shareAssets(), _sumOfBuckets(), "DEC-092, DEC-104: income is outside Share Assets");
+    }
+
+    /// @dev Half of the USDC is swapped to WETH through the adapter in the Mandate pool, then both go into a range
+    ///      around the current price; what the position does not use returns to Unallocated Balance (DEC-079).
+    function _openHubUniswapPosition() internal {
+        uint256 half = HUB_V4_USDC / 2;
+        uint256 usdcBefore = hubSpoke.unallocatedBalance(ARB_USDC);
+        uint256 weth = _swapHubUsdcForWeth(half);
+        bytes memory params = _openParams(_center(ARB_V4_STATE_VIEW, ARB_WETH_USDC_POOL_ID), weth, half);
+        vm.prank(manager);
+        (bytes32 key, uint256 used0, uint256 used1) =
+            hubSpoke.openPosition(hubUniswap, ARB_WETH_USDC_POOL_ID, weth, half, params);
+        hubUniswapPosition = key;
+        assertGt(used0, 0);
+        assertGt(used1, 0);
+        assertEq(hubSpoke.unallocatedBalance(ARB_WETH), weth - used0, "DEC-079: unused WETH back");
+        assertEq(hubSpoke.unallocatedBalance(ARB_USDC), usdcBefore - half - used1, "DEC-079: unused USDC back");
+        assertEq(hubSpoke.positions().length, 2);
+    }
+
+    /// @dev OQ-04 stance: the manager swaps Unallocated Balance through the adapter in a Mandate pool, with a minimum
+    ///      from the hub price source.
+    function _swapHubUsdcForWeth(uint256 usdcIn) internal returns (uint256 weth) {
+        uint256 minWeth = _minWethFor(usdcIn);
+        vm.prank(manager);
+        weth = hubSpoke.swapExactInput(hubUniswap, ARB_WETH_USDC_POOL_ID, ARB_USDC, usdcIn, minWeth, _swapParams());
+        assertEq(hubSpoke.unallocatedBalance(ARB_WETH), weth, "DEC-080: swap output credited from the adapter");
     }
 }
