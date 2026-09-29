@@ -75,17 +75,11 @@ contract ChainlinkPriceSourceTest is Test {
         assertEq(updatedAt, block.timestamp - 10 days);
     }
 
-    function test_OQ10_maxPriceAgeIsTheStrictestFeedBound() public view {
-        assertEq(source.maxPriceAge(), 1800);
-        assertEq(source.maxPriceAgeOf(WETH), 3600);
-        assertEq(source.maxPriceAgeOf(WBTC), 1800);
-        assertEq(source.maxPriceAgeOf(USDG), 0);
+    function test_OQ10_maxPriceAgeIsPerFeed() public view {
+        assertEq(source.maxPriceAge(WETH), 3600);
+        assertEq(source.maxPriceAge(WBTC), 1800);
+        assertEq(source.maxPriceAge(USDG), 0, "a fixed token is always current");
         assertEq(source.aggregatorOf(WETH), address(ethUsd));
-    }
-
-    function test_OQ10_fixedOnlySourceHasZeroMaxPriceAge() public {
-        ChainlinkPriceSource fixedOnly = new ChainlinkPriceSource(new ChainlinkPriceSource.FeedConfig[](0), _fixed());
-        assertEq(fixedOnly.maxPriceAge(), 0);
     }
 
     function test_Q57b_revertsOnZeroOrNegativeAnswer() public {
@@ -107,7 +101,7 @@ contract ChainlinkPriceSourceTest is Test {
         vm.expectRevert(abi.encodeWithSelector(IPriceSource.UnsupportedToken.selector, address(0xDEAD)));
         source.priceInUsdc(address(0xDEAD));
         vm.expectRevert(abi.encodeWithSelector(IPriceSource.UnsupportedToken.selector, address(0xDEAD)));
-        source.maxPriceAgeOf(address(0xDEAD));
+        source.maxPriceAge(address(0xDEAD));
     }
 
     function test_Q57b_constructorRejectsBadConfig() public {

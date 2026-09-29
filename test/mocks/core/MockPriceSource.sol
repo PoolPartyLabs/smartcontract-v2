@@ -13,7 +13,8 @@ contract MockPriceSource is IPriceSource {
     }
 
     mapping(address => Price) public prices;
-    uint256 public maxPriceAge = 1 hours;
+    uint256 public defaultMaxPriceAge = 1 hours;
+    mapping(address => uint256) public maxPriceAgeOf;
 
     function setPrice(address token, uint256 price1e18) external {
         prices[token] = Price(price1e18, block.timestamp, true, false);
@@ -28,7 +29,17 @@ contract MockPriceSource is IPriceSource {
     }
 
     function setMaxPriceAge(uint256 age) external {
-        maxPriceAge = age;
+        defaultMaxPriceAge = age;
+    }
+
+    function setMaxPriceAge(address token, uint256 age) external {
+        maxPriceAgeOf[token] = age;
+    }
+
+    /// @notice Per-token bound when set, else the default (IPriceSource.maxPriceAge(token)).
+    function maxPriceAge(address token) external view returns (uint256) {
+        uint256 age = maxPriceAgeOf[token];
+        return age != 0 ? age : defaultMaxPriceAge;
     }
 
     function priceInUsdc(address token) public view returns (uint256, uint256) {

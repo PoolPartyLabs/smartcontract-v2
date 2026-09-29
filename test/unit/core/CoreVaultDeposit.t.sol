@@ -90,6 +90,15 @@ contract CoreVaultDepositTest is CoreVaultFixture {
         vm.stopPrank();
     }
 
+    function test_OQ10_mintJudgesEachPriceByItsOwnMaxAge() public {
+        _deposit(alice, 1000e6);
+        _deliver(_spokeReport(10e6, 0));
+        prices.setPriceAt(address(usdg), 1e18, block.timestamp - 2 hours); // default bound 1 h: stale
+        prices.setMaxPriceAge(address(usdg), 3 hours); // this token's feed has a longer heartbeat
+        (uint256 minted,) = _deposit(bob, 1000e6);
+        assertGt(minted, 0, "fresh under its own bound");
+    }
+
     function test_DEC083_depositEventCarriesConsolidation() public {
         _deposit(alice, 1000e6);
         ReportCodec.Report memory r = _spokeReport(0, 0);

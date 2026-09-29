@@ -294,7 +294,8 @@ library CoreVaultLogic {
     }
 
     /// @notice Price of `token` for this valuation, read once.
-    /// @dev MINT (Q57 / OQ-10 reading): reverts with `StalePrice` when the price is older than the source's bound.
+    /// @dev MINT (Q57 / OQ-10 reading): reverts with `StalePrice` when the price is older than the token's own bound
+    ///      (`IPriceSource.maxPriceAge(token)`).
     ///      PAYOUT: a reverting source falls back to `lastPrice[token]` (payout liveness); never checks age (OQ-10).
     function _price(CoreVaultState storage s, CoreVaultWiring memory w, Prices memory p, address token)
         private
@@ -315,7 +316,7 @@ library CoreVaultLogic {
         } else {
             uint256 updatedAt;
             (price, updatedAt) = IPriceSource(w.priceSource).priceInUsdc(token);
-            if (p.mode == MINT && updatedAt + IPriceSource(w.priceSource).maxPriceAge() < block.timestamp) {
+            if (p.mode == MINT && updatedAt + IPriceSource(w.priceSource).maxPriceAge(token) < block.timestamp) {
                 revert ICoreVault.StalePrice(token, updatedAt);
             }
         }

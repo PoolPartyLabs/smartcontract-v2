@@ -57,6 +57,7 @@ contract ChainlinkPriceSourceForkTest is Test {
         (uint256 value, uint256 updatedAt) = source.usdcValue(RH_USDG, 2500e6);
         assertEq(value, 2500e6);
         assertEq(updatedAt, block.timestamp);
-        assertEq(source.maxPriceAge(), MAX_PRICE_AGE);
+        assertEq(source.maxPriceAge(ARB_WETH), MAX_PRICE_AGE);
+        assertEq(source.maxPriceAge(RH_USDG), 0);
     }
 }

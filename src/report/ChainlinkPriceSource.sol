@@ -15,7 +15,7 @@ import {IChainlinkAggregatorV3} from "../interfaces/external/IChainlinkAggregato
 ///      fixed tokens (QB9 OPEN).
 /// @dev Tokens are keyed by address and may be addresses on a Spoke Chain (a report carries the spoke's token
 ///      addresses), so token decimals are constructor input and never read from the token.
-/// @dev OQ-10 (Q57): never reverts on age. It returns `updatedAt` and exposes `maxPriceAge()`; the consumer decides
+/// @dev OQ-10 (Q57): never reverts on age. It returns `updatedAt` and exposes `maxPriceAge(token)`; the consumer decides
 ///      (MVP: mints revert on a stale price, payouts use the last price).
 contract ChainlinkPriceSource is IPriceSource {
     /// @notice Decimals of hub USDC, the unit every price is expressed in.
@@ -62,18 +62,11 @@ contract ChainlinkPriceSource is IPriceSource {
     /// @notice Decimals too large to scale safely.
     error DecimalsTooLarge(address token, uint256 decimals);
 
-    /// @inheritdoc IPriceSource
-    /// @dev The strictest (smallest) `maxPriceAge` across the configured feeds, because the interface exposes one
-    ///      bound for every token; 0 when only fixed tokens are configured (their `updatedAt` is always now).
-    ///      `maxPriceAgeOf` gives the per-feed bound.
-    uint256 public immutable maxPriceAge;
-
     mapping(address token => Price) internal _prices;
 
     /// @param feeds Chainlink-priced tokens.
     /// @param fixedTokens Tokens held at 1:1 with USDC, each with 6 decimals (USDC, USDG; QB9 OPEN).
     constructor(FeedConfig[] memory feeds, address[] memory fixedTokens) {
-        uint256 strictest = type(uint256).max;
         for (uint256 i; i < feeds.length; ++i) {
             FeedConfig memory f = feeds[i];
             if (f.token == address(0) || f.aggregator == address(0)) revert ZeroAddress();
@@ -90,7 +83,6 @@ contract ChainlinkPriceSource is IPriceSource {
                 scaleNumerator: 10 ** (USDC_DECIMALS + 18),
                 scaleDenominator: 10 ** denominatorDecimals
             });
-            if (f.maxPriceAge < strictest) strictest = f.maxPriceAge;
         }
         for (uint256 i; i < fixedTokens.length; ++i) {
             address token = fixedTokens[i];
@@ -100,7 +92,6 @@ contract ChainlinkPriceSource is IPriceSource {
                 kind: KIND_FIXED, aggregator: address(0), maxPriceAge: 0, scaleNumerator: 0, scaleDenominator: 0
             });
         }
-        maxPriceAge = feeds.length == 0 ? 0 : strictest;
     }
 
     /// @inheritdoc IPriceSource
@@ -127,8 +118,9 @@ contract ChainlinkPriceSource is IPriceSource {
         value = Math.mulDiv(amount, price1e18, 1e18);
     }
 
-    /// @notice Max price age of `token`'s feed; 0 for a fixed token. Reverts with `UnsupportedToken` if unknown.
-    function maxPriceAgeOf(address token) external view returns (uint256) {
+    /// @inheritdoc IPriceSource
+    /// @dev The feed's own bound; 0 for a fixed token (its `updatedAt` is always the current block).
+    function maxPriceAge(address token) external view returns (uint256) {
         Price storage p = _prices[token];
         if (p.kind == KIND_NONE) revert UnsupportedToken(token);
         return p.maxPriceAge;
