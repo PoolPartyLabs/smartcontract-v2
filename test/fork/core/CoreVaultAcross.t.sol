@@ -1,0 +1,146 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.28;
+
+import {Test} from "forge-std/Test.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {CoreVault} from "../../../src/core/CoreVault.sol";
+import {CoreVaultConfig} from "../../../src/core/CoreVaultTypes.sol";
+import {TransitEscrow} from "../../../src/core/TransitEscrow.sol";
+import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {BridgeQuote, Transit, TransitState, TransferKind} from "../../../src/interfaces/FundTypes.sol";
+import {IAcrossSpokePool} from "../../../src/interfaces/external/IAcrossSpokePool.sol";
+import {
+    Mandate,
+    AdapterConfig,
+    PoolConfig,
+    UnwindStep,
+    SpokeConfig,
+    BridgeAdapterConfig,
+    OperatingCashConfig
+} from "../../../src/mandate/Mandate.sol";
+import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
+import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
+import {MockBridgeAdapter} from "../../mocks/core/MockBridgeAdapter.sol";
+import {MockHubSpokeVault} from "../../mocks/core/MockHubSpokeVault.sol";
+import {MockReportReceiver} from "../../mocks/core/MockReportReceiver.sol";
+import {MockPriceSource} from "../../mocks/core/MockPriceSource.sol";
+import {MockManagerRegistry} from "../../mocks/core/MockManagerRegistry.sol";
+
+/// @notice Core Vault custody against the live Across SpokePool on Arbitrum One (docs/INTEGRATIONS.md): the vault
+///         approves exactly, the SpokePool pulls exactly the input amount from the vault with the per-send escrow as
+///         depositor, the approval is reset, and a fill callback from the SpokePool address is matched by transit id.
+contract CoreVaultAcrossForkTest is Test {
+    address internal constant USDC = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
+    address internal constant SPOKE_POOL = 0xe35e9842fceaCA96570B734083f4a58e8F7C5f2A;
+    address internal constant USDG_ROBINHOOD = 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168;
+    uint256 internal constant HUB = 42_161;
+    uint256 internal constant SPOKE = 4663;
+    bytes32 internal constant FUND_ID = keccak256("fork-fund");
+
+    CoreVault internal vault;
+    MockBridgeAdapter internal bridge;
+    MockHubSpokeVault internal hubVault;
+    MockReportReceiver internal receiver;
+    address internal manager = makeAddr("manager");
+    address internal alice = makeAddr("alice");
+    address internal spokeVaultAddress = makeAddr("robinhoodSpokeVault");
+
+    function setUp() public {
+        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envUint("ARBITRUM_FORK_BLOCK"));
+        bridge = new MockBridgeAdapter(SPOKE_POOL);
+        hubVault = new MockHubSpokeVault(USDC);
+        receiver = new MockReportReceiver();
+        receiver.setMaxReportAge(0, 1587);
+        MockPriceSource prices = new MockPriceSource();
+        prices.setPrice(USDG_ROBINHOOD, 1e18);
+
+        Mandate memory m;
+        m.manager = manager;
+        m.hubChainId = HUB;
+        m.usdc = USDC;
+        m.adapters = new AdapterConfig[](1);
+        m.adapters[0] = AdapterConfig(HUB, makeAddr("hubAdapter"));
+        m.pools = new PoolConfig[](1);
+        m.pools[0] = PoolConfig(HUB, m.adapters[0].adapter, keccak256("pool"));
+        m.unwindOrder = new UnwindStep[](1);
+        m.unwindOrder[0] = UnwindStep(HUB, m.adapters[0].adapter, keccak256("pool"));
+        m.spokes = new SpokeConfig[](1);
+        m.spokes[0] =
+            SpokeConfig(SPOKE, 72, bytes32(uint256(uint160(spokeVaultAddress))), USDG_ROBINHOOD, 1_000_000e6, 1587);
+        m.bridgeAdapters = new BridgeAdapterConfig[](2);
+        m.bridgeAdapters[0] = BridgeAdapterConfig(SPOKE, HUB, address(bridge));
+        m.bridgeAdapters[1] = BridgeAdapterConfig(SPOKE, SPOKE, makeAddr("spokeBridge"));
+        m.operatingCash = new OperatingCashConfig[](0);
+        m.payoutFeeBps = 200;
+        m.standardPayoutTerm = 72 hours;
+        m.minFirstDeposit = 100e6;
+        m.maxBridgeFeeBps = 50;
+
+        CoreVaultConfig memory c;
+        c.fundId = FUND_ID;
+        c.usdc = USDC;
+        c.hubSpokeVault = address(hubVault);
+        c.reportReceiver = address(receiver);
+        c.managerRegistry = address(new MockManagerRegistry());
+        c.priceSource = address(prices);
+        c.acrossSpokePool = SPOKE_POOL;
+        c.protocolRecipient = makeAddr("protocol");
+        c.excessRecipient = makeAddr("excess");
+        c.escrowImplementation = address(new TransitEscrow());
+        c.flowFeeBps = 25;
+        c.incomeTokens = new address[](0);
+        c.shareName = "Pool Party Fund 1";
+        c.shareSymbol = "PP-1";
+        vault = new CoreVault(m, c);
+        hubVault.setCoreVault(address(vault));
+        receiver.setCoreVault(address(vault));
+
+        deal(USDC, alice, 10_000e6);
+        vm.startPrank(alice);
+        IERC20(USDC).approve(address(vault), 10_000e6);
+        vault.deposit(10_000e6, 0);
+        vm.stopPrank();
+    }
+
+    function test_DEC087_sendThroughLiveSpokePoolDebitsExactlyAndResetsApproval() public {
+        uint32 depositId = IAcrossSpokePool(SPOKE_POOL).numberOfDeposits();
+        uint256 poolBefore = IERC20(USDC).balanceOf(SPOKE_POOL);
+        BridgeQuote memory quote = BridgeQuote({
+            outputAmount: 999.4e6,
+            quoteTimestamp: uint32(block.timestamp),
+            exclusivityDeadline: 0,
+            exclusiveRelayer: address(0)
+        });
+        vm.prank(manager);
+        bytes32 id = vault.sendToSpoke(0, 1000e6, 0, quote);
+        Transit memory t = vault.transit(id);
+        assertEq(uint8(t.state), uint8(TransitState.Sent));
+        assertEq(t.bridgeRef, bytes32(uint256(depositId)), "Across deposit id");
+        assertEq(IAcrossSpokePool(SPOKE_POOL).numberOfDeposits(), depositId + 1);
+        assertEq(IERC20(USDC).balanceOf(SPOKE_POOL), poolBefore + 1000e6);
+        assertEq(IERC20(USDC).allowance(address(vault), SPOKE_POOL), 0);
+        assertEq(vault.idle(), 9975e6 - 1000e6);
+        assertEq(vault.inFlightValue(), 999.4e6);
+    }
+
+    function test_OQ01_fillFromLiveSpokePoolAddressMatchedByReport() public {
+        bytes32 homeId = keccak256("home-1");
+        deal(USDC, address(vault), IERC20(USDC).balanceOf(address(vault)) + 500e6);
+        vm.prank(SPOKE_POOL);
+        vault.handleV3AcrossMessage(
+            USDC, 500e6, makeAddr("relayer"), TransitMessage.encode(FUND_ID, SPOKE, homeId, TransferKind.Principal)
+        );
+        assertEq(vault.unmatchedArrivals(), 500e6);
+        ReportCodec.Report memory r;
+        r.fundId = FUND_ID;
+        r.sequence = 1;
+        r.spokeChainId = SPOKE;
+        r.timestamp = uint64(block.timestamp);
+        r.inFlightToHub = new ReportCodec.TransitAmount[](1);
+        r.inFlightToHub[0] = ReportCodec.TransitAmount(homeId, 500e6);
+        receiver.deliver(0, r);
+        assertEq(vault.unmatchedArrivals(), 0);
+        assertEq(vault.idle(), 9975e6 + 500e6);
+        assertEq(vault.sweepExcess(USDC), 0);
+    }
+}
