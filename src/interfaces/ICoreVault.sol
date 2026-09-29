@@ -308,6 +308,10 @@ interface ICoreVault is IAcrossMessageHandler {
     function attestExpiry(bytes32 transitId) external;
 
     /// @notice Pulls an expired transit's refund from its escrow back to Idle (DEC-066, QA6). Permissionless.
+    /// @dev Only for a transit in state ExpiryAttested (DEC-066, DEC-090: Sent -> ExpiryAttested -> RefundRecognized)
+    ///      whose escrow holds at least `amountSent` (DEC-063: Across refunds the full input amount); reverts
+    ///      `InvalidTransitState` or `NoRefund` otherwise. Exactly `amountSent` is credited to Idle; any surplus in the
+    ///      escrow reaches the Core Vault unledgered and is swept as excess (DEC-080).
     function recognizeRefund(bytes32 transitId) external returns (uint256 amount);
 
     /// @notice Sends `balanceOf(token)` minus every ledger amount of `token` to the excess recipient. Permissionless.
