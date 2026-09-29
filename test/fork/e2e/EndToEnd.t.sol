@@ -57,6 +57,7 @@ contract EndToEndForkTest is EndToEndBase {
         _phase1CreateFund();
         _phase2AnaDeposits();
         _phase3HubAllocationAndIncome();
+        _phase4SendToRobinhood();
     }
 
     // -----------------------------------------------------------------------------------------------------------------
@@ -243,5 +244,81 @@ contract EndToEndForkTest is EndToEndBase {
         vm.prank(manager);
         weth = hubSpoke.swapExactInput(hubUniswap, ARB_WETH_USDC_POOL_ID, ARB_USDC, usdcIn, minWeth, _swapParams());
         assertEq(hubSpoke.unallocatedBalance(ARB_WETH), weth, "DEC-080: swap output credited from the adapter");
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // Phase 4: 4,000 USDC to Robinhood through the live Across SpokePool
+    // -----------------------------------------------------------------------------------------------------------------
+
+    /// @dev DEC-037, DEC-095: the Spoke Cap bounds the send. QA19: the quote's fee within `maxBridgeFeeBps`. DEC-066: a
+    ///      per-send escrow is the depositor. DEC-085: Share Assets count the transit at the amount that will arrive.
+    ///      DEC-087: the vault fixes recipient, token pair and message.
+    function _phase4SendToRobinhood() internal {
+        _onArbitrum();
+        BridgeQuote memory quote = BridgeQuote(BRIDGE_AMOUNT - BRIDGE_FEE, uint32(block.timestamp), 0, address(0));
+        _assertSendRefusals(quote);
+
+        uint256 assetsBefore = core.shareAssets();
+        uint256 idleBefore = core.idle();
+        uint32 depositId = IAcrossSpokePool(ARB_ACROSS_SPOKE_POOL).numberOfDeposits();
+        vm.recordLogs();
+        vm.prank(manager);
+        transitId = core.sendToSpoke(0, BRIDGE_AMOUNT, 0, quote);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        Transit memory t = core.transit(transitId);
+        amountToArrive = t.amountToArrive;
+        assertEq(uint8(t.state), uint8(TransitState.Sent), "DEC-066: state Sent");
+        assertEq(amountToArrive, BRIDGE_AMOUNT - BRIDGE_FEE, "DEC-085: the quote's outputAmount");
+        assertEq(t.bridgeRef, bytes32(uint256(depositId)), "Across deposit id");
+        assertEq(t.fillDeadline, block.timestamp + 6 hours, "DEC-066: 6 h fill deadline");
+        _assertFundsDeposited(logs, t, depositId);
+
+        assertEq(core.idle(), idleBefore - BRIDGE_AMOUNT);
+        assertEq(core.inFlightValue(), amountToArrive, "DEC-085: In-flight Value at the amount that will arrive");
+        assertEq(assetsBefore - core.shareAssets(), BRIDGE_FEE, "DEC-085: Share Assets drop by the bridge fee only");
+        (, uint256 inFlightSent,, uint256 cap) = core.spokeCapUsage(0);
+        assertEq(inFlightSent, BRIDGE_AMOUNT, "DEC-066 C1: the Spoke Cap counts the amount sent");
+        assertEq(cap, SPOKE_CAP);
+        assertEq(IERC20(ARB_USDC).allowance(address(core), ARB_ACROSS_SPOKE_POOL), 0, "DEC-087: approval reset");
+
+        // The spoke swap minimum comes from the hub price source (USDG at 1:1, ruling 2026-09-29).
+        spokeSwapMinWeth = _minWethFor(SPOKE_V4_USDG / 2);
+    }
+
+    function _assertSendRefusals(BridgeQuote memory quote) internal {
+        uint256 above = BRIDGE_AMOUNT + 1e6;
+        vm.prank(manager);
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.SpokeCapExceeded.selector, 0, 0, above, SPOKE_CAP));
+        core.sendToSpoke(0, above, 0, BridgeQuote(above - BRIDGE_FEE, quote.quoteTimestamp, 0, address(0)));
+
+        BridgeQuote memory greedy = BridgeQuote(quote.outputAmount - 1, quote.quoteTimestamp, 0, address(0));
+        vm.prank(manager);
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.BridgeFeeAboveMax.selector, BRIDGE_FEE + 1, BRIDGE_FEE));
+        core.sendToSpoke(0, BRIDGE_AMOUNT, 0, greedy);
+    }
+
+    /// @dev The live SpokePool's `FundsDeposited`: destination, deposit id, the escrow as depositor, the vault-fixed
+    ///      recipient, tokens, amounts and message (DEC-066, DEC-087).
+    function _assertFundsDeposited(Vm.Log[] memory logs, Transit memory t, uint32 depositId) internal {
+        (uint256 destination, uint256 id, bytes32 depositor, DepositData memory d) =
+            _fundsDeposited(logs, ARB_ACROSS_SPOKE_POOL);
+        assertEq(destination, ROBINHOOD);
+        assertEq(id, depositId);
+        assertEq(depositor, toUniversalAddress(t.escrow), "DEC-066: the per-send escrow is the depositor");
+        assertEq(d.inputToken, toUniversalAddress(ARB_USDC));
+        assertEq(d.outputToken, toUniversalAddress(RH_USDG));
+        assertEq(d.inputAmount, BRIDGE_AMOUNT);
+        assertEq(d.outputAmount, amountToArrive);
+        assertEq(d.quoteTimestamp, block.timestamp);
+        assertEq(d.fillDeadline, t.fillDeadline);
+        assertEq(d.recipient, toUniversalAddress(address(spokeVault)), "DEC-087: the Mandate's Spoke Vault");
+        (bytes32 messageFund, uint256 origin, bytes32 messageTransit, TransferKind kind) =
+            TransitMessage.decode(d.message);
+        assertEq(messageFund, fundId);
+        assertEq(origin, ARBITRUM);
+        assertEq(messageTransit, transitId);
+        assertEq(uint8(kind), uint8(TransferKind.Principal));
+        acrossMessage = d.message;
     }
 }
