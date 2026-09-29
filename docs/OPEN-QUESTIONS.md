@@ -12,7 +12,7 @@ parameter or an interface so the founder's answer slots in). The digest that fol
 | Adapters | Uniswap V4 on both chains plus Aave V3 supply-only on Arbitrum, per DEC-018/028 | No V3 adapter |
 | Spoke pricing (Q57 b) | `IPriceSource`: Chainlink for WETH, 1:1 for USDG; other tokens need a reliable on-chain method derived from how Uniswap V4 prices them (to research) | `ChainlinkPriceSource` with fixed 1:1 tokens; adding a token is a new price source, never a Mandate change |
 | Report lifetime (Q57 a / Q66 b) | Keep the research value (Robinhood 1,587 s plus one block); adjust later if complications appear | Mandate `maxReportAge` for Robinhood = 1587 + spoke block time |
-| Fee split point (DEC-107, OQ-02/03) | At collection: the investor portion enters the accumulator, the manager portion goes into the manager's own fee vault, the protocol portion is transferred to the fee wallet immediately | Income index advances when collected income reaches the Core Vault (hub adapter operations forwarded, or spoke income bridged home as `Income`); `ManagerFeeVault` per fund holds the manager's tokens; protocol fees (slice and flow fee) transfer to the Protocol Recipient at each charge |
+| Fee split point (DEC-107, OQ-02/03) | At collection: the investor portion enters the accumulator, the manager portion goes into the manager's own fee vault, the protocol portion is transferred to the fee wallet immediately | Income index advances when collected income reaches the Core Vault (hub adapter operations forwarded, or spoke income bridged home as `Income`); `ManagerFeeVault` per fund holds the manager's tokens; protocol fees (slice and flow fee) transfer to the Protocol Recipient at each charge. **Handled in consolidation:** `feat(core-vault): split income fees at collection, drop recognition-time booking`. |
 | Management fee (DEC-108, LC-144) | Paid at fund closure; 0 in the MVP | Mandate accepts only 0 |
 | Hub-to-spoke instructions (feedback q2) | Same approach as reports (Wormhole in the other direction) later; MVP stays limited | Automatic unwinds on hub positions only |
 | Across refund recognition (QA6) | Approved | Keyless per-send `TransitEscrow` |
@@ -23,16 +23,16 @@ parameter or an interface so the founder's answer slots in). The digest that fol
 | Id | Question | MVP code behaviour |
 |---|---|---|
 | DEC-079 open | Uniswap V4 pools with hooks that charge on withdrawal (a third value outside principal/income) | MVP Mandate validation accepts only hookless pools (`hooks == address(0)`) |
-| Q57 (b) | How spoke positions are priced into USDC on the hub (report value vs quantities priced with Chainlink) | Report carries a superset (quantities, ticks, liquidity, cumulative income counters); the hub prices through `IPriceSource` with a Chainlink implementation for WETH and 1:1 for USDG; stale feed reverts mints |
+| Q57 (b) | How spoke positions are priced into USDC on the hub (report value vs quantities priced with Chainlink) | Report carries a superset (quantities, ticks, liquidity, cumulative income counters); the hub prices through `IPriceSource` with a Chainlink implementation for WETH and 1:1 for USDG (fixed tokens configured with their decimals); a feed older than its own `maxPriceAge(token)` reverts mints. **Handled in consolidation:** `feat(price-source): maxPriceAge per token`. |
 | Q57 (c) | Who pays VAA delivery gas and how it is reimbursed | Not implemented; delivery is permissionless and unpaid; Operating Cash bucket exists |
 | Q57 (d) | Variation band on accepted report values (2% proposed) | Not enforced; parameter slot reserved on the receiver, default disabled |
 | Q66 | Cadence and the exact report lifetime parameter per spoke | `maxReportAge` per spoke in the Mandate, no round concept; recommended Robinhood value 1,587 s plus one block |
 | Q58 | Share transferability | Transfers, approvals and permit disabled (DEC-004); per-address state kept in one copyable block |
 | Q59 | Share token name/symbol pattern | Constructor strings set by the factory; factory keeps a creation counter; no manager text |
-| Q60 | Income accumulator mechanism (when the index advances) | Per-token Q128 index with per-holder checkpoint; advances on hub recognition (adapter operations and permissionless `recognizeHubIncome`) and on report delivery for spoke income; never reverts on a regressed counter |
+| Q60 | Income accumulator mechanism (when the index advances) | Per-token Q128 index with per-holder checkpoint; advances only when collected income reaches the Core Vault (ruling 2026-09-29): `receiveCollectedIncome` from the hub Spoke Vault and matched spoke-to-hub Income arrivals; reports' cumulative counters are informational. **Handled in consolidation:** `feat(core-vault): split income fees at collection, drop recognition-time booking`. |
 | LC-100 / LC-77 | How much Attributed Income is payable now when part sits uncollected on a spoke | Income Withdrawal pays `min(owed, collected balance on the hub)` |
 | LC-142 / LC-143 / LC-144 / LC-57 | Fee registry writer and caps, flow fee on payouts, management fee recipient, fee caps | Flow fee applied on deposit and on both payout modes, never on Income Withdrawal; registry writer is `Ownable2Step` owner; management fee accepted only as 0; caps exposed as constants with the proposed values |
-| DEC-107 ambiguity | Fee at collection vs index at recognition | Fee and slice are split at the moment income becomes recognized on the hub (adapter collect or arrival from a spoke) |
+| DEC-107 ambiguity | Fee at collection vs index at recognition | Ruled 2026-09-29: both at collection. Fee and slice are split when collected income reaches the Core Vault and transferred at once (slice to the Protocol Recipient, the rest to the `ManagerFeeVault`). **Handled in consolidation:** `feat(core-vault): split income fees at collection, drop recognition-time booking`. |
 | LC-45 / LC-141 | Who bears the market cost of a leaver's unwound slice | Fund bears it (single consolidated Share Price per DEC-105); flagged |
 | QB11 / QB10 | Number of transit states; the window between attested expiry and recognized refund | Four states mirroring DEC-066; the amount stays in Share Assets until the refund is recognized |
 | QA6 | How the hub recognizes an Across refund | Per-send keyless `TransitEscrow` clone as depositor |
@@ -44,24 +44,68 @@ parameter or an interface so the founder's answer slots in). The digest that fol
 | Erratum 22 | Protocol floor under the first-deposit minimum | No floor; Mandate value only |
 | DEC-105 reading | Whether every spoke or only the unwound spoke needs a post-unwind report | Only the unwound spoke |
 | Q57 reading | Whether a stale report may block an idle-paid payout | Idle-paid payouts use the last accepted report even if past its lifetime; mints revert |
-| OQ-01 (DEC-080) | Across passes no depositor to `handleV3AcrossMessage`, so a stranger can bridge dust with a valid-looking message | Arrivals are credited only when the id matches a transfer the fund itself sent (hub: an in-flight transit; spoke: an id the hub's send list carries); unmatched amounts are held apart and swept |
-| OQ-02 / OQ-03 (Q60, DEC-107) | When income is recognized, and fee-at-collection vs index-at-recognition | Ruled 2026-09-29: both at collection. The index advances only when collected income reaches the Core Vault; uncollected income stays in its own bucket (DEC-092) and only informs Gross Assets. Reports carry cumulative income for information; `recognizeHubIncome` becomes a no-op alias of forwarding collected income |
+| OQ-01 (DEC-080) | Across passes no depositor to `handleV3AcrossMessage`, so a stranger can bridge dust with a valid-looking message | Hub: an arrival is credited only up to what an accepted report of the origin spoke listed for that id, and by the kind the report carries, never the message's claim; anything else is held apart in `unmatchedArrivals` for good, never swept. Spoke: every well-formed arrival is credited and reported (ids of 1 USDG or more, plus `cumulativeReceived`); the hub confirms only ids it sent and deducts the rest as unknown value. **Handled in consolidation:** `feat(report-codec): TransferKind on inFlightToHub entries, payload version 2`. |
+| OQ-02 / OQ-03 (Q60, DEC-107) | When income is recognized, and fee-at-collection vs index-at-recognition | Ruled 2026-09-29: both at collection. The index advances only when collected income reaches the Core Vault; uncollected income stays in its own bucket (DEC-092) and only informs Gross Assets. Reports carry cumulative income for information; `recognizeHubIncome`, `payOwedFees` and the owed-fee views are removed. **Handled in consolidation:** `feat(core-vault): split income fees at collection, drop recognition-time booking`. |
 | OQ-04 (swap verb) | Whether a swap is an entry or exit verb, and who bears its Market Costs | `swapExactInput` exists on adapters and vaults, manager only; blocked when deprecated, not when paused; Market Costs stay LC-45/LC-141 |
 | OQ-05 / OQ-06 (LC-143) | Flow fee base on deposit (offered amount vs amount spent) and rounding of bps fees | Fee on the offered amount, rounded down; the remainder left by whole-share rounding stays in the wallet |
 | OQ-07 (DEC-060) | Standard Payout claim before the term ends when the reserve already covers it | Claim allowed only after the term ends |
 | OQ-08 | Whether a fund must have a Spoke Chain | Hub-only funds accepted |
-| OQ-09 (QB11) | Retention of arrivals on the spoke; hub-bound transit past its deadline with no refund seen | Spoke keeps ids in the report until the hub confirms them; hub-bound transits stay in flight until `recognizeRefund` |
-| OQ-10 (Q57) | Payout behaviour on a stale price feed | Mints revert; payouts use the last price and never revert on age |
+| OQ-09 (QB11) | Retention of arrivals on the spoke; hub-bound transit past its deadline with no refund seen | Liveness only, never value. The report lists the last 256 arrival ids whose credited total reached 1e6 base units (smaller arrivals are credited but not listed); the hub accepts a report's silence as proof of non-arrival only while it lists fewer than 256 ids, else only the deadline plus report lifetime path. A hub-bound transit leaves the spoke's `inFlightToHub` once its refund is recognized or `fillDeadline + maxReportAge` has passed (presumed filled; a later refund is still recognized). (Reconciled with the code: the earlier "until the hub confirms" wording needs hub-to-spoke messaging.) **Handled in consolidation:** `fix(spoke-vault, core-vault): 256-id arrival window, listing minimum, no proof from a full window`. |
+| OQ-10 (Q57) | Payout behaviour on a stale price feed | Mints revert on a stale report or price and on any failing dependency; payouts use the last price and never revert on age, and on a reverting price source or hub report they fall back to the last known valuation kept from the last successful deposit or payout, with an event. **Handled in consolidation:** `fix(core-vault): payout liveness with last known valuation fallback`. |
 | OQ-11 (LC-142) | Protocol slice cap and writer | Cap 5,000 bps, only at or below the default; writer is the registry owner (`Ownable2Step`) |
 | OQ-12 (DEC-079) | Hooked V4 pools | Adapter `poolTokens` reverts for hooked pools; the Spoke Vault checks every Mandate pool at creation |
 | OQ-13 (Q17-4) | Whether the adapter codehash belongs in `mandateHash` | Pinned in the vault at creation, not in the Mandate hash |
-| DEC-066 B1 | Spoke Cap must count the pending return leg | `spokeCapUsage` counts hub-bound transits reported in flight as well as hub-to-spoke sends |
+| DEC-066 B1 | Spoke Cap must count the pending return leg | `spokeCapUsage` returns the pending return leg (Principal and Income) as its own value `inFlightToHub`, next to hub-to-spoke sends `inFlightSent`; the send check adds both. **Handled in consolidation:** `feat(core-vault): ICoreVault views and explicit return leg in spokeCapUsage`. |
 | DEC-061 residual | Share Price when every share was burned but Share Assets remain (dust, late refund) | Next mint prices at 1.00 and captures the residual; flagged for a ruling |
 | DEC-095 | Minimum Standard Payout term (a zero term makes it a fee-free Instant Payout) | No minimum enforced; flagged |
 | DEC-069 | Whether the unwind order must cover every pool | Not enforced; a pool outside the order can only be unwound manually |
 | DEC-027 / DEC-044 | Manager full-unwind trigger above 50% (base open) | No hook in the MVP; flagged |
-| DEC-041 | Explicit "insufficient cash" state | Payer field on every expense event; a dedicated event when an expense falls through to Share Assets |
+| DEC-041 | Explicit "insufficient cash" state | Payer field on every expense event; `OperatingCashInsufficient` only when Free Idle cannot fund the whole top-up (cash stays unable to pay), never on a routine top-up. **Handled in consolidation:** `fix(core-vault): OperatingCashInsufficient only when the top-up falls short`. |
 | Bridge custody | Whether a buggy immutable bridge adapter can misdirect funds | The vault holds the tokens, pins the bridge target at creation, approves exactly the input amount for one call built by the adapter, and requires the exact balance debit |
+| CV-OQ-1 (DEC-085 vs DEC-092) | Whether a spoke-to-hub transfer in flight is Principal or Income | The report's `inFlightToHub` entries carry the kind (ReportCodec version 2): Principal in flight counts in Share Assets, Income does not; both count toward the Spoke Cap. **Handled in consolidation:** `feat(report-codec): TransferKind on inFlightToHub entries, payload version 2`. |
+| CV-OQ-2 (Q60 spoke income tokens) | Spoke income in spoke-chain tokens can never be paid in kind on the hub | Spoke income reaches the hub as USDC: `swapCollectedIncome` turns non-base income into the spoke token inside the collected bucket, `sendToHub(..., Income, ...)` brings it home, and the fee split happens on arrival. **Handled in consolidation:** `feat(spoke-vault): swapCollectedIncome so spoke income reaches the hub as USDC`. |
+| Payout liveness (DEC-021, DEC-056) | Whether a claim may revert while a valuation dependency fails | Never: last known valuation with an event (see OQ-10). **Handled in consolidation:** `fix(core-vault): payout liveness with last known valuation fallback`. |
+| Linked libraries (DEC-022, DEC-054, DEC-058) | Whether the external linked libraries `CoreVaultLogic` and `SpokeCrossChainLib` are acceptable | Ratified: the only DELEGATECALL, into the fund's own immutable code; the factory deploys them once per chain (the Spoke Vault's at a chain-independent address) and pins them (docs/ARCHITECTURE.md §1.1). **Handled in consolidation:** `docs(spoke-vault, core-vault): disclose the linked-library DELEGATECALL boundary`. |
+| CS-OQ-1 (DEC-014 vs ruling 2026-09-29) | Income generated in a position before a Shareholder's entry but collected after it | **OPEN, raised in consolidation.** Attributed at collection to the holders of that moment, so the entrant shares it (pinned by `test_DEC014_OPEN_incomeGeneratedBeforeEntryIsSharedWhenCollectedAfterIt`); income collected before the entry is not shared. Frequent collection narrows the window. |
+| CS-OQ-2 (DEC-110 "settling accrued first") | What a manager-fee decrease settles when fees are charged only at collection | **OPEN, raised in consolidation.** Nothing accrues between collections, so the decrease applies from the next collection, including to income generated before it. |
+| CS-OQ-3 (DEC-109 "no swap by the contract") | Spoke income swapped into the spoke token before the fee is taken | **OPEN, raised in consolidation.** The swap is a manager verb on income (its Market Costs are borne by the income, LC-45 / LC-141), and the fee on spoke income is then paid in USDC, not in the token the income was earned in. Hub income stays in kind. |
+| CS-OQ-4 (payout fallback) | Value of a token that fails to price in a payout and was never priced before | **OPEN, raised in consolidation.** Valued at 0 (with `PriceFallback(token, 0)`), which lowers the Share Price for that claim; only reachable for a token that appeared after the last successful deposit or payout. |
+| CS-OQ-5 (DEC-099 clock skew) | A spoke report timestamp ahead of the hub clock | **Assumption, raised in consolidation.** Tolerated up to one `maxReportAge` (counts as age 0), rejected beyond (`ReportFromFuture`), so a report is fresh for at most twice its lifetime. |
+| CS-OQ-6 (OQ-09 listing minimum) | A hub-to-spoke send below 1e6 base units is never listed by the spoke | **OPEN, raised in consolidation.** Its expiry is attested only through the deadline plus report lifetime path and it stays `ExpiryAttested` in Share Assets while the spoke counts it and the hub deducts it as unknown value, so it is counted once; no minimum send is enforced. |
+
+
+
+## Handled in consolidation (2026-09-29)
+
+Review-log items (docs/REVIEW-LOG-2026-09-29.md) closed in the consolidation stage, with the commit subject that
+closes each. Open questions that remain open keep their row above.
+
+| Item | Commit subject |
+|---|---|
+| Fee split at collection, `ManagerFeeVault`, `CollectedIncomeReceived` with real fees (ruling 2026-09-29, CV finding) | `feat(manager-fee-vault): per-fund ManagerFeeVault for the manager fee portion`; `feat(core-vault): split income fees at collection, drop recognition-time booking` |
+| CV-OQ-2 spoke income tokens | `feat(spoke-vault): swapCollectedIncome so spoke income reaches the hub as USDC` |
+| CV-OQ-1, DEC-092 return-leg kind, kind relabelling by a stranger (CV minor) | `feat(report-codec): TransferKind on inFlightToHub entries, payload version 2` |
+| Payout liveness (CV major) | `fix(core-vault): payout liveness with last known valuation fallback` |
+| Per-feed `maxPriceAge` (report-receiver request, OQ-10) | `feat(price-source): maxPriceAge per token` |
+| `fundId()` in IValueReportReceiver | `feat(report-receiver): expose fundId in IValueReportReceiver` |
+| `unmatchedArrivals`, `incomeState` in ICoreVault; `spokeCapUsage` return leg (DEC-066 B1) | `feat(core-vault): ICoreVault views and explicit return leg in spokeCapUsage` |
+| ICoreVaultExtensions folded into ICoreVault | `refactor(core-vault): fold ICoreVaultExtensions into ICoreVault` |
+| Across exclusivityParameter, quoteTimestamp, `enabledDepositRoutes`, InvalidParty NatSpec | `docs(bridge-interfaces): Across exclusivityParameter, quote time and InvalidParty NatSpec` |
+| OQ-09 arrival window dust eviction (spoke major), attestExpiry proof from a flushed window (CV minor) | `fix(spoke-vault, core-vault): 256-id arrival window, listing minimum, no proof from a full window` |
+| DEC-041 OperatingCashInsufficient (CV minor) | `fix(core-vault): OperatingCashInsufficient only when the top-up falls short` |
+| Across test ids citing DEC-085 | `test(across-adapter): cite DEC-087 for the InvalidAmounts rule` |
+| TransitEscrow zero-address initialize | `fix(transit-escrow): reject a zero vault or token at initialize` |
+| Aave ledger clamp, CEI in close, `lastIndex` and rounding NatSpec | `fix(aave-adapter): ledger underflow reverts, open cleared before exit, NatSpec` |
+| V4 swap surplus, settle return, cumulativeIncome cost, custody citations, test ids | `fix(v4-adapter): hand back swap surplus, named settle mismatch, NatSpec and test ids` |
+| Receiver unbounded future timestamp | `fix(report-receiver): bound a future report timestamp to one report lifetime` |
+| Fixed-token decimals, feed decimals assumption | `fix(price-source): fixed 1:1 tokens take their decimals; document feed decimals` |
+| ManagerRegistry `renounceOwnership` | `fix(manager-registry): renounceOwnership reverts` |
+| Unwind proceeds from a balance-derived amount (CV minor) | `fix(core-vault): unwind proceeds reach Idle only through returnToIdle` |
+| Spoke arrival top-up, refund CEI (spoke minors) | `fix(spoke-vault): arrivals top up Operating Cash; refund state before escrow release` |
+| Spoke collected income and Operating Cash missing from the report (spoke minor, DEC-098) | `feat(report-codec): spoke collected income and Operating Cash in the report` |
+| Across route list gone, report delivery gas (docs) | `docs(integrations): Across route liveness and report delivery gas` |
+| `recognizeRefund` preconditions in ICoreVault | `docs(core-vault): state recognizeRefund's preconditions in ICoreVault` |
+| Linked-library DELEGATECALL boundary (CV and spoke majors, ratified) | `docs(spoke-vault, core-vault): disclose the linked-library DELEGATECALL boundary` |
 
 ---
 
