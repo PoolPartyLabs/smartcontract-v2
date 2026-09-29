@@ -329,7 +329,25 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         IAdapter a = _positionAdapter(adapter);
         SpokeVaultTypes.PoolTokens memory p = _pool(adapter, poolKey);
         _topUpOperatingCash();
-        amountOut = _swap(a, p, poolKey, tokenIn, amountIn, minAmountOut, params);
+        amountOut = _swap(a, p, poolKey, tokenIn, amountIn, minAmountOut, params, false);
+    }
+
+    /// @inheritdoc ISpokeVault
+    /// @dev CV-OQ-2, ruling 2026-09-29, DEC-092: collected income in, base token out, both inside the collected income
+    ///      bucket; DEC-079, DEC-080: credited from what the adapter returns.
+    function swapCollectedIncome(
+        address adapter,
+        bytes32 poolKey,
+        address tokenIn,
+        uint256 amountIn,
+        uint256 minAmountOut,
+        bytes calldata params
+    ) external onlyOnSpokeChain onlyManager nonReentrant returns (uint256 amountOut) {
+        IAdapter a = _positionAdapter(adapter);
+        SpokeVaultTypes.PoolTokens memory p = _pool(adapter, poolKey);
+        if (_otherToken(p, tokenIn) != baseToken) revert UnexpectedToken(tokenIn);
+        _topUpOperatingCash();
+        amountOut = _swap(a, p, poolKey, tokenIn, amountIn, minAmountOut, params, true);
     }
 
     /// @inheritdoc ISpokeVault
@@ -720,7 +738,8 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         _requireBacked(p);
     }
 
-    /// @dev Swaps Unallocated Balance of `tokenIn` for the pool's other token (DEC-079, DEC-080).
+    /// @dev Swaps `tokenIn` for the pool's other token (DEC-079, DEC-080), from and into Unallocated Balance, or from
+    ///      and into the collected income bucket when `income` is true (DEC-092: the two never mix).
     function _swap(
         IAdapter a,
         SpokeVaultTypes.PoolTokens memory p,
@@ -728,16 +747,29 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         address tokenIn,
         uint256 amountIn,
         uint256 minAmountOut,
-        bytes memory params
+        bytes memory params,
+        bool income
     ) internal returns (uint256 amountOut) {
         address tokenOut = _otherToken(p, tokenIn);
         if (amountIn == 0) revert ZeroAmount();
-        _sendToAdapter(address(a), tokenIn, amountIn);
+        if (income) {
+            uint256 available = _s.collectedIncome[tokenIn];
+            if (amountIn > available) revert InsufficientCollectedIncome(tokenIn, available, amountIn);
+            _s.collectedIncome[tokenIn] = available - amountIn;
+            IERC20(tokenIn).safeTransfer(address(a), amountIn);
+        } else {
+            _sendToAdapter(address(a), tokenIn, amountIn);
+        }
         amountOut = a.swapExactInput(poolKey, tokenIn, amountIn, minAmountOut, params);
         if (amountOut < minAmountOut) revert SpokeVaultTypes.SwapOutputBelowMinimum(amountOut, minAmountOut);
-        _s.unallocated[tokenOut] += amountOut;
+        if (income) {
+            _s.collectedIncome[tokenOut] += amountOut;
+            emit IncomeSwapped(address(a), poolKey, tokenIn, tokenOut, amountIn, amountOut);
+        } else {
+            _s.unallocated[tokenOut] += amountOut;
+            emit Swapped(address(a), poolKey, tokenIn, tokenOut, amountIn, amountOut);
+        }
         _requireBacked(tokenOut);
-        emit Swapped(address(a), poolKey, tokenIn, tokenOut, amountIn, amountOut);
     }
 
     function _otherToken(SpokeVaultTypes.PoolTokens memory p, address tokenIn) internal pure returns (address out) {
@@ -776,7 +808,7 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
             if (_otherToken(sp, sw.tokenIn) != usdc) {
                 revert SpokeVaultTypes.InvalidUnwindSwap(sw.adapter, sw.poolKey, sw.tokenIn);
             }
-            _swap(swapAdapter, sp, sw.poolKey, sw.tokenIn, amountIn, sw.minAmountOut, sw.params);
+            _swap(swapAdapter, sp, sw.poolKey, sw.tokenIn, amountIn, sw.minAmountOut, sw.params, false);
         }
     }
 

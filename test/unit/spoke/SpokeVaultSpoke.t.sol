@@ -676,6 +676,57 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         assertEq(uint8(vault.hubBoundTransit(id).kind), uint8(TransferKind.Income));
     }
 
+    function test_CVOQ2_wethIncomeSwappedIntoBaseTokenThenSentHomeAsIncome() public {
+        _disableOperatingCash();
+        bytes32 key = _openSpokePosition(0.2e18, 200e6, 10_000);
+        _earnIncome(spokeUni, key, 0.01e18, 0);
+        vm.prank(manager);
+        vault.collectIncome(address(spokeUni), key);
+        assertEq(vault.collectedIncome(address(weth)), 0.01e18);
+        uint256 unallocatedUsdg = vault.unallocatedBalance(address(usdg));
+        uint256 unallocatedWeth = vault.unallocatedBalance(address(weth));
+
+        _fundSwap(address(usdg), 100e6, 2000e6, 1e18); // 2,000 USDG per WETH
+        vm.expectEmit(address(vault));
+        emit ISpokeVault.IncomeSwapped(address(spokeUni), SPOKE_POOL, address(weth), address(usdg), 0.01e18, 20e6);
+        vm.prank(manager);
+        uint256 out = vault.swapCollectedIncome(address(spokeUni), SPOKE_POOL, address(weth), 0.01e18, 20e6, "");
+        assertEq(out, 20e6);
+        // DEC-092: the swap stays inside the collected income bucket.
+        assertEq(vault.collectedIncome(address(weth)), 0);
+        assertEq(vault.collectedIncome(address(usdg)), 20e6);
+        assertEq(vault.unallocatedBalance(address(usdg)), unallocatedUsdg);
+        assertEq(vault.unallocatedBalance(address(weth)), unallocatedWeth);
+
+        vm.prank(manager);
+        bytes32 id = vault.sendToHub(20e6, TransferKind.Income, 0, _quote(20e6));
+        assertEq(uint8(vault.hubBoundTransit(id).kind), uint8(TransferKind.Income));
+        assertEq(vault.hubBoundTransit(id).outputToken, address(usdc), "lands on the hub as USDC");
+        assertEq(vault.collectedIncome(address(usdg)), 0);
+    }
+
+    function test_CVOQ2_swapCollectedIncomeOnlyFromIncomeIntoTheBaseToken() public {
+        _disableOperatingCash();
+        _arrive(100e6, ARRIVAL, TransferKind.Principal);
+        _arrive(50e6, keccak256("income"), TransferKind.Income);
+        _fundSwap(address(weth), 1e18, 1e18, 2000e6);
+        vm.startPrank(manager);
+        // The output must be the base token: USDG income cannot be swapped into WETH.
+        vm.expectRevert(abi.encodeWithSelector(ISpokeVault.UnexpectedToken.selector, address(usdg)));
+        vault.swapCollectedIncome(address(spokeUni), SPOKE_POOL, address(usdg), 10e6, 0, "");
+        // Only the collected income bucket is spent, never Unallocated Balance.
+        vm.expectRevert(abi.encodeWithSelector(ISpokeVault.InsufficientCollectedIncome.selector, address(weth), 0, 1));
+        vault.swapCollectedIncome(address(spokeUni), SPOKE_POOL, address(weth), 1, 0, "");
+        vm.stopPrank();
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(ISpokeVault.NotManager.selector, stranger));
+        vault.swapCollectedIncome(address(spokeUni), SPOKE_POOL, address(weth), 1, 0, "");
+        _deployHub();
+        vm.prank(manager);
+        vm.expectRevert(ISpokeVault.NotOnSpokeChain.selector);
+        vault.swapCollectedIncome(address(hubUni), HUB_POOL, address(weth), 1, 0, "");
+    }
+
     function test_DEC080_sendAboveUnallocatedReverts() public {
         _disableOperatingCash();
         _arrive(100e6, ARRIVAL, TransferKind.Principal);
