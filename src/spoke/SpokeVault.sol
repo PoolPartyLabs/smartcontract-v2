@@ -426,7 +426,10 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
     ///      did not. A repeated id adds to the same entry and is listed once, when its credited total first reaches
     ///      `MIN_LISTED_ARRIVAL`; below it the arrival is credited but never listed (the hub then counts the transit
     ///      once through a fund-level deduction, at a liveness cost: see SpokeVaultTypes.MIN_LISTED_ARRIVAL). DEC-096: an arrival is a value-moving operation, so it runs the
-    ///      Operating Cash top-up after crediting, like every other one (Spoke Vault verifier finding).
+    ///      Operating Cash top-up after crediting, like every other one (Spoke Vault verifier finding). OQ-09, OQ-01: only
+    ///      a Principal-kind arrival feeds the per-id total and the listing, because the hub only ever sends Principal
+    ///      (DEC-085); an Income-kind message carrying a real transit id is credited to the collected income bucket
+    ///      (DEC-092) but can never help confirm that transit on the hub.
     function handleV3AcrossMessage(address tokenSent, uint256 amount, address, bytes memory message)
         external
         nonReentrant
@@ -443,14 +446,14 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         if (kind == TransferKind.Principal) {
             _s.unallocated[tokenSent] += amount;
             _s.cumulativeReceived += amount;
+            uint256 before = _s.arrivals[transitId];
+            _s.arrivals[transitId] = before + amount;
+            if (before < SpokeVaultTypes.MIN_LISTED_ARRIVAL && before + amount >= SpokeVaultTypes.MIN_LISTED_ARRIVAL) {
+                _s.recentArrivals[_s.arrivalCount % SpokeVaultTypes.ARRIVAL_WINDOW] = transitId;
+                ++_s.arrivalCount;
+            }
         } else {
             _s.collectedIncome[tokenSent] += amount;
-        }
-        uint256 before = _s.arrivals[transitId];
-        _s.arrivals[transitId] = before + amount;
-        if (before < SpokeVaultTypes.MIN_LISTED_ARRIVAL && before + amount >= SpokeVaultTypes.MIN_LISTED_ARRIVAL) {
-            _s.recentArrivals[_s.arrivalCount % SpokeVaultTypes.ARRIVAL_WINDOW] = transitId;
-            ++_s.arrivalCount;
         }
         _requireBacked(tokenSent);
         emit TransitArrived(transitId, originChainId, tokenSent, amount, kind);

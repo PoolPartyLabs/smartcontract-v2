@@ -273,8 +273,10 @@ interface ISpokeVault is IAcrossMessageHandler {
 
     /// @notice Across fill callback. Only the Across SpokePool; only the base token.
     /// @dev Decodes TransitMessage, rejects another fund's id, credits Unallocated Balance (Principal) or the collected
-    ///      income bucket (Income), records the arrival for the next report, and increases `cumulativeReceived`.
-    ///      Across passes no depositor, so an arrival is recorded as a claim that the hub confirms by transit id.
+    ///      income bucket (Income). A Principal arrival also increases `cumulativeReceived` and is recorded per transit
+    ///      id for the next report; an Income arrival is not, because the hub only ever sends Principal (DEC-085,
+    ///      OQ-09). Across passes no depositor, so an arrival is recorded as a claim that the hub confirms by transit id
+    ///      only when the listed total reaches the amount it expects to arrive (OQ-01, OQ-09).
     function handleV3AcrossMessage(address tokenSent, uint256 amount, address relayer, bytes memory message) external;
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -351,6 +353,6 @@ interface ISpokeVault is IAcrossMessageHandler {
     /// @notice A transfer this vault sent to the hub.
     function hubBoundTransit(bytes32 transitId) external view returns (Transit memory);
 
-    /// @notice Whether a hub-to-spoke transit id was credited here.
+    /// @notice Whether a Principal hub-to-spoke transit id was credited here (OQ-09: Income arrivals are not tracked).
     function hasArrived(bytes32 transitId) external view returns (bool);
 }

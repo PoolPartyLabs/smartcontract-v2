@@ -26,7 +26,10 @@ library SpokeVaultTypes {
     ///      only because that deduction is taken from the fund total, not clamped per spoke, so it follows the value
     ///      when the spoke sends it home (`CoreVaultLogic._valuation`, consolidation verifier finding); the cost of a
     ///      flush is liveness (the transit keeps its Spoke Cap). The hub also refuses a full window as proof of
-    ///      non-arrival (`CoreVaultLogic.nonArrivalProvable`).
+    ///      non-arrival (`CoreVaultLogic.nonArrivalProvable`). Only Principal arrivals are counted per id and listed,
+    ///      at their monotonic credited total, and the hub confirms an id only when that total reaches the amount it
+    ///      expects to arrive, so a stranger listing a real id below it cannot confirm the transit (OQ-01, OQ-09,
+    ///      consolidation verifier round 2).
     uint256 internal constant MIN_LISTED_ARRIVAL = 1e6;
 
     /// @notice Tokens of a Mandate pool on this chain, as the adapter's `poolTokens` returned them at creation

@@ -511,7 +511,15 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         assertEq(vault.collectedIncome(address(usdg)), 9e6);
         assertEq(vault.unallocatedBalance(address(usdg)), 0);
         assertEq(vault.cumulativeReceived(), 0);
-        assertTrue(vault.hasArrived(ARRIVAL));
+    }
+
+    /// @dev OQ-09, OQ-01, DEC-085: the hub only sends Principal, so an Income-kind message carrying a transit id is
+    ///      credited to the collected income bucket but never feeds the per-id total or the report's listing.
+    function test_OQ09_incomeArrivalIsNeitherCountedPerIdNorListed() public {
+        _arrive(9e6, ARRIVAL, TransferKind.Income);
+        assertFalse(vault.hasArrived(ARRIVAL));
+        assertEq(vault.arrivals(ARRIVAL), 0);
+        assertEq(vault.buildReport().arrivedTransits.length, 0);
     }
 
     function test_OQ09_repeatedArrivalIdAddsAndIsListedOnce() public {
