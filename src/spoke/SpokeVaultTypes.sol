@@ -16,12 +16,17 @@ library SpokeVaultTypes {
 
     /// @notice Smallest credited total, in base token units, for which an arrival id is listed in the report: 1e6
     ///         (1 USDG on Robinhood Chain).
-    /// @dev Spoke Vault verifier finding (dust eviction of the window). OQ-09 stance: the window serves liveness only,
-    ///      never value. Across passes no depositor, so anyone can reach `handleV3AcrossMessage`; a smaller arrival is
-    ///      still credited to the ledger and to `cumulativeReceived`, but not listed, so flushing the window costs at
-    ///      least `ARRIVAL_WINDOW` of these units instead of gas only. Value is never at stake: the hub confirms only
-    ///      ids it sent and deducts `cumulativeReceived` above what it confirmed as value of unknown origin (DEC-080,
-    ///      OQ-01), and it refuses a full window as proof of non-arrival (`CoreVaultLogic.nonArrivalProvable`).
+    /// @dev Spoke Vault verifier finding (dust eviction of the window). OQ-09 stance: the window serves liveness; value
+    ///      rests on the hub's ledger, not on the window. Across passes no depositor, so anyone can reach
+    ///      `handleV3AcrossMessage`; a smaller arrival is still credited to the ledger and to `cumulativeReceived`, but
+    ///      not listed, so flushing the window costs at least `ARRIVAL_WINDOW` of these units instead of gas only. A
+    ///      hub-to-spoke transit whose id is evicted before an accepted report lists it (or that is below this
+    ///      minimum, CS-OQ-6) is never confirmed: it stays in the hub's In-flight Value for good, while the hub deducts
+    ///      `cumulativeReceived` above what it confirmed as value of unknown origin (DEC-080, OQ-01). The two cancel
+    ///      only because that deduction is taken from the fund total, not clamped per spoke, so it follows the value
+    ///      when the spoke sends it home (`CoreVaultLogic._valuation`, consolidation verifier finding); the cost of a
+    ///      flush is liveness (the transit keeps its Spoke Cap). The hub also refuses a full window as proof of
+    ///      non-arrival (`CoreVaultLogic.nonArrivalProvable`).
     uint256 internal constant MIN_LISTED_ARRIVAL = 1e6;
 
     /// @notice Tokens of a Mandate pool on this chain, as the adapter's `poolTokens` returned them at creation
