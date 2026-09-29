@@ -59,6 +59,7 @@ contract EndToEndForkTest is EndToEndBase {
         _phase3HubAllocationAndIncome();
         _phase4SendToRobinhood();
         _phase5FillPositionAndReport();
+        _phase6DeliverReport();
     }
 
     // -----------------------------------------------------------------------------------------------------------------
@@ -398,5 +399,64 @@ contract EndToEndForkTest is EndToEndBase {
         assertEq(r.inFlightToHub.length, 0);
         publishedEnvelope = e;
         publishedPayload = published[0].payload;
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // Phase 6: the VAA delivered on Arbitrum
+    // -----------------------------------------------------------------------------------------------------------------
+
+    /// @dev DEC-086, DEC-093: the receiver verifies the guardian quorum (WormholeOverride on the real Arbitrum Core), the
+    ///      emitter and the sequence. DEC-066, DEC-090: the listed arrival confirms the transit and it leaves In-flight
+    ///      Value. Ruling 2026-09-29: the spoke's quantities are priced through Chainlink for WETH and 1:1 for USDG.
+    function _phase6DeliverReport() internal {
+        _onArbitrum();
+        ICoreBridge arbitrumCore = ICoreBridge(ARB_WORMHOLE_CORE);
+        arbitrumCore.setUpOverride();
+        uint256 assetsBefore = core.shareAssets();
+        uint256 inFlightBefore = core.inFlightValue();
+        assertEq(inFlightBefore, amountToArrive);
+
+        // The VAA a guardian quorum signs for the published message: emitter chain 72, the Spoke Vault, finalized.
+        VaaEnvelope memory e = VaaEnvelope(
+            uint32(block.timestamp),
+            publishedEnvelope.nonce,
+            WORMHOLE_ROBINHOOD,
+            toUniversalAddress(address(spokeVault)),
+            publishedEnvelope.sequence,
+            1
+        );
+        bytes memory vaa = VaaLib.encode(arbitrumCore.sign(VaaBody(e, publishedPayload)));
+        vm.prank(makeAddr("anyone"));
+        (uint256 spokeIndex, uint64 reportSequence) = receiver.deliver(vaa);
+        assertEq(spokeIndex, 0);
+        assertEq(reportSequence, 1);
+        assertTrue(receiver.isReportFresh(0), "DEC-099: within the report lifetime");
+
+        Transit memory t = core.transit(transitId);
+        assertEq(uint8(t.state), uint8(TransitState.ArrivalConfirmed), "DEC-066, DEC-090: ArrivalConfirmed");
+        assertEq(core.inFlightValue(), 0, "DEC-085: In-flight Value dropped");
+        (uint256 spokeValue, uint256 inFlightSent,,) = core.spokeCapUsage(0);
+        assertEq(inFlightSent, 0, "DEC-066: the Spoke Cap is released on arrival");
+
+        _assertSpokePricing();
+        (ReportCodec.Report memory r,,) = receiver.latestReport(0);
+        uint256 spokePrincipal = _principalValue(r);
+        assertEq(spokeValue, spokePrincipal);
+        assertEq(core.shareAssets(), assetsBefore - inFlightBefore + spokePrincipal, "DEC-083: the spoke value entered");
+        assertLt(spokePrincipal, amountToArrive, "DEC-096: Operating Cash and the swap's Market Costs left");
+        assertGt(spokePrincipal, amountToArrive * 99 / 100);
+        assertEq(core.shareAssets(), _sumOfBuckets(), "DEC-104: Share Assets is the sum of its buckets");
+        assertGt(core.grossAssets(), core.shareAssets(), "DEC-098: Gross Assets add income and Operating Cash");
+        emit log_named_decimal_uint("Share Price after the Robinhood report (USDC)", core.sharePrice(), 24);
+    }
+
+    /// @dev Ruling 2026-09-29 (Q57 b): Robinhood WETH through the ETH / USD feed, USDG at 1:1.
+    function _assertSpokePricing() internal view {
+        (, int256 answer,,,) = IChainlinkAggregatorV3(ARB_ETH_USD_FEED).latestRoundData();
+        IPriceSource prices = IPriceSource(hubDeployment.priceSource);
+        (uint256 weth,) = prices.priceInUsdc(RH_WETH);
+        (uint256 usdg,) = prices.priceInUsdc(RH_USDG);
+        assertEq(weth, Math.mulDiv(SafeCast.toUint256(answer), 1e24, 1e26), "Chainlink ETH / USD for WETH");
+        assertEq(usdg, 1e18, "USDG at 1:1");
     }
 }
