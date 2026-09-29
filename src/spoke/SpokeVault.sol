@@ -421,7 +421,8 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
     ///      `ARRIVAL_WINDOW` listed ids plus `cumulativeReceived`) so the hub confirms what it sent and excludes what it
     ///      did not. A repeated id adds to the same entry and is listed once, when its credited total first reaches
     ///      `MIN_LISTED_ARRIVAL`; below it the arrival is credited but never listed (liveness only, never value: see
-    ///      SpokeVaultTypes.MIN_LISTED_ARRIVAL).
+    ///      SpokeVaultTypes.MIN_LISTED_ARRIVAL). DEC-096: an arrival is a value-moving operation, so it runs the
+    ///      Operating Cash top-up after crediting, like every other one (Spoke Vault verifier finding).
     function handleV3AcrossMessage(address tokenSent, uint256 amount, address, bytes memory message)
         external
         nonReentrant
@@ -449,6 +450,7 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         }
         _requireBacked(tokenSent);
         emit TransitArrived(transitId, originChainId, tokenSent, amount, kind);
+        _topUpOperatingCash();
     }
 
     // ---------------------------------------------------------------------------------------------------------------

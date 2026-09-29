@@ -59,7 +59,10 @@ library SpokeCrossChainLib {
 
     /// @notice Pulls an expired send's refund from its escrow back into the bucket the send debited.
     /// @dev DEC-066, QA6: only after the fill deadline. DEC-080: at most `amountSent` is credited; anything else the
-    ///      escrow held stays outside the ledger and is swept as excess.
+    ///      escrow held stays outside the ledger and is swept as excess. Checks-effects-interactions: the transit is
+    ///      marked refunded and leaves the in-flight list before the escrow is released (Spoke Vault verifier
+    ///      finding); the credit, which depends on what the escrow released, follows the release and reverts the whole
+    ///      call with `NoRefund` when nothing was released.
     function recognizeRefund(SpokeVaultTypes.State storage s, address baseToken, bytes32 transitId)
         external
         returns (uint256 amount)
@@ -67,11 +70,11 @@ library SpokeCrossChainLib {
         Transit storage t = s.hubBoundTransits[transitId];
         if (t.state != TransitState.Sent) revert ISpokeVault.UnknownTransit(transitId);
         if (block.timestamp <= t.fillDeadline) revert ISpokeVault.FillDeadlineNotReached(transitId, t.fillDeadline);
+        t.state = TransitState.RefundRecognized;
+        _removeInFlight(s, transitId);
         uint256 released = ITransitEscrow(t.escrow).release(address(this));
         if (released == 0) revert ISpokeVault.NoRefund(transitId);
         amount = Math.min(released, t.amountSent);
-        t.state = TransitState.RefundRecognized;
-        _removeInFlight(s, transitId);
         if (t.kind == TransferKind.Principal) s.unallocated[baseToken] += amount;
         else s.collectedIncome[baseToken] += amount;
         emit ISpokeVault.TransitRefundRecognized(transitId, amount);

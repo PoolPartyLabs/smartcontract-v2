@@ -390,17 +390,22 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
     // Operating Cash (DEC-041, DEC-096, DEC-100)
     // ---------------------------------------------------------------------------------------------------------------
 
-    function test_DEC096_belowFloorNextOperationTopsUpFromUnallocated() public {
-        _arrive(100e6, ARRIVAL, TransferKind.Principal);
-        assertEq(vault.operatingCash(), 0, "an arrival alone does not top up");
-        _fundSwap(address(weth), 1e18, 1e18, 2000e6);
-
+    function test_DEC096_arrivalIsAnOperationThatTopsUpFromUnallocated() public {
+        // Spoke Vault verifier finding: an arrival moves value, so it tops up like every other operation.
+        usdg.mint(address(spokePool), 100e6);
         vm.expectEmit(address(vault));
         emit ISpokeVault.OperatingCashToppedUp(SPOKE_TOP_UP, SPOKE_TOP_UP);
         vm.expectEmit(address(vault));
         emit ISpokeVault.OperatingExpensePaid(
             SPOKE, address(0), vault.OPERATING_CASH_TOP_UP(), SPOKE_TOP_UP, ExpensePayer.ShareAssets
         );
+        spokePool.fill(
+            address(vault), address(usdg), 100e6, TransitMessage.encode(FUND_ID, HUB, ARRIVAL, TransferKind.Principal)
+        );
+        assertEq(vault.operatingCash(), SPOKE_TOP_UP);
+
+        // At the floor again: the next operation does not top up.
+        _fundSwap(address(weth), 1e18, 1e18, 2000e6);
         vm.prank(manager);
         vault.swapExactInput(address(spokeUni), SPOKE_POOL, address(usdg), 20e6, 0, "");
 
@@ -482,6 +487,7 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
     }
 
     function test_DEC090_principalArrivalCreditsUnallocatedAndRecordsId() public {
+        _disableOperatingCash();
         assertFalse(vault.hasArrived(ARRIVAL));
         usdg.mint(address(spokePool), 250e6);
         vm.expectEmit(address(vault));
@@ -534,6 +540,7 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
     }
 
     function test_OQ09_idIsListedOnceItsCreditedTotalReachesTheMinimum() public {
+        _disableOperatingCash();
         _arrive(0.4e6, ARRIVAL, TransferKind.Principal);
         assertEq(vault.buildReport().arrivedTransits.length, 0, "below 1 USDG: credited, not listed");
         assertEq(vault.unallocatedBalance(address(usdg)), 0.4e6);
