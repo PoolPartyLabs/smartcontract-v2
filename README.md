@@ -1,0 +1,106 @@
+# Pool Party v2 smart contracts
+
+On-chain funds run by a manager, human or AI agent, inside a Mandate fixed at creation. Investors deposit and
+withdraw USDC on one chain (the Hub Chain) while the fund's capital works on several chains (Spoke Chains).
+
+This repository holds the Solidity implementation. **Everything here is in English.** The product definition,
+decision register and research live in the separate specification repository (`PoolParty_SCs_v2`, in
+Portuguese); its decisions (DEC-001 to DEC-110, later decisions override earlier ones) are the business rules
+this code must follow. `docs/DECISIONS.md` is the English digest of that register and `docs/OPEN-QUESTIONS.md`
+lists what is still undecided and how the code leaves room for it.
+
+## Status
+
+Buildathon MVP, in progress. Nothing is deployed to production. See `docs/ARCHITECTURE.md` for the target
+design and the current scope.
+
+## Scope of the buildathon MVP
+
+| In scope now | Next | Not planned for now |
+|---|---|---|
+| Arbitrum One as Hub Chain, Robinhood Chain as Spoke Chain | Uniswap V4 and Aave V3 (supply only) adapters | Borrowing, leverage, perps |
+| Uniswap V3 position adapter on both chains | More spokes (Base, Ethereum) with CCTP as primary bridge | Share transfers between owners |
+| Across bridge adapter (USDC on Arbitrum, USDG on Robinhood) | Collectors for reward campaigns (Merkl) | Auto-compounding inside the contract |
+| Wormhole value reports, finalized consistency, permissionless relay | Multi-spoke report scheduling | ZK proofs of value |
+| Deposit, allocate, report, Instant and Standard Payouts, Income Withdrawal | Autonomous-manager guardrails, emergency runbook | CCTP on Robinhood Chain, Solana |
+
+The specification's MVP names Uniswap V4 for the MVP and Uniswap V3 for the proof of concept (DEC-018). The
+buildathon ships the V3 adapter first, behind the same adapter interface, so V4 slots in without touching the
+core.
+
+## Layout
+
+```
+src/
+  core/        Core Vault (hub books: shares, idle, payouts), Share token, Fund Factory
+  spoke/       Spoke Vault (the fund's account on every chain, hub included), internal ledger
+  report/      Value report encoding, Wormhole publisher (spoke) and receiver (hub)
+  adapters/    IAdapter, IBridgeAdapter, Uniswap V3 adapter, Across bridge adapter
+  mandate/     Mandate struct, validation and immutability rules
+  libraries/   Shared math (whole-share rounding, USDC truncation, income accumulator)
+  interfaces/  External protocol interfaces not shipped by a dependency (Across)
+test/
+  unit/        Pure unit and fuzz tests, no network
+  invariant/   Invariant suites (share price never moved by third-party entries, ledger vs balance, ...)
+  fork/        Mainnet fork tests against Arbitrum One and Robinhood Chain (never testnets)
+script/        Deployment scripts (fork first, then mainnet)
+docs/          DECISIONS.md, OPEN-QUESTIONS.md, ARCHITECTURE.md, INTEGRATIONS.md
+```
+
+## Toolchain
+
+- Foundry (forge 1.7+), Solidity 0.8.28, EVM `cancun`.
+- OpenZeppelin Contracts 5.7 for ERC-20, access control, reentrancy guards, SafeERC20, math.
+- Uniswap `v3-core` and `v3-periphery` (`0.8` branches, interfaces only).
+- `wormhole-solidity-sdk` v1.0.0 for Core Bridge interfaces, VAA parsing, replay protection and the
+  `WormholeOverride` fork-test helper that signs VAAs with a guardian set the test controls.
+- Across: minimal interfaces vendored in `src/interfaces/` (the upstream repo is a Hardhat monorepo).
+
+## Getting started
+
+```bash
+cp .env.example .env            # public RPCs work; a provider key is recommended for fork suites
+forge build
+forge test --no-match-path "test/fork/**"     # unit + invariant, no network
+forge test --match-path "test/fork/**" -vvv   # mainnet forks of Arbitrum One and Robinhood Chain
+forge fmt --check
+```
+
+Fork tests read `ARBITRUM_RPC_URL` and `ROBINHOOD_RPC_URL`. Set `ARBITRUM_FORK_BLOCK` and
+`ROBINHOOD_FORK_BLOCK` to pin blocks for deterministic runs.
+
+## Canonical vocabulary
+
+Identifiers, NatSpec and docs use the canonical English names from the specification glossary. The ones that
+matter most:
+
+| Term | Meaning |
+|---|---|
+| Fund, Mandate | A fund and its rules, written once at creation |
+| Core Vault | Hub-chain contract: custody of idle USDC, share ledger, payout requests and payments; never calls a protocol |
+| Spoke Vault | The fund's account on a chain (hub included): holds positions, drives adapters, keeps an internal ledger, publishes value reports |
+| Share, Share Assets, Share Price | ERC-20 share (18 decimals, whole units only); what backs shares; assets divided by shares |
+| Gross Assets | Everything the fund holds: Share Assets, Operating Cash, Attributed Income, external rewards |
+| Idle, Payout Reserve, Free Idle | USDC in the Core Vault; the part reserved for Standard Payouts; the part the manager may allocate |
+| Unallocated Balance, In-flight Value, Spoke Cap | Value in a Spoke Vault not yet in a position; value moving between chains; how much may be sent to a spoke |
+| Payout Request, Payout, Instant Payout, Standard Payout, Payout Fee | The exit flow and its two speeds |
+| Attributed Income, Income Withdrawal | Income that belongs to holders who held while it was earned; taking it out without burning shares |
+| Unwind | Turning positions into USDC on the hub, in Mandate order, only for what Idle cannot cover, with a 2% margin |
+| Adapter, Bridge Adapter, Collector, Transport Route | Integration code per protocol; the bridge as an adapter; receive-only code; the bridge route |
+| Operating Cash, Operating Expense, Network Costs, Market Costs | Per-chain gas budget; a fund expense with its funding source; gas and bridge fees; swap fees, impact, slippage |
+
+Words the glossary forbids in identifiers: `liquidation`, `settlement` (as a process name), `fulfillment`,
+`yield`, `revenue`, `accrued`, `cost` (for Operating Expense), `withdrawal` for exits that burn shares.
+
+## Contributing rules
+
+1. Every rule in code cites the decision that governs it (`DEC-nnn`) in NatSpec and in the test name.
+2. No rule is assumed. If a decision does not cover a case, the case goes to `docs/OPEN-QUESTIONS.md` and the
+   code takes the most conservative behaviour (revert) until the founder decides.
+3. English only, canonical names only.
+4. Tests run on mainnet forks, never on testnets.
+5. Branches follow `<type>/pp-sc-<type>-<num>-<slug>`; parallel work happens in git worktrees.
+
+## License
+
+To be decided by Pool Party Labs.
