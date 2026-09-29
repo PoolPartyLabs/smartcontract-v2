@@ -35,7 +35,7 @@ parameter or an interface so the founder's answer slots in). The digest that fol
 | DEC-107 ambiguity | Fee at collection vs index at recognition | Ruled 2026-09-29: both at collection. Fee and slice are split when collected income reaches the Core Vault and transferred at once (slice to the Protocol Recipient, the rest to the `ManagerFeeVault`). **Handled in consolidation:** `feat(core-vault): split income fees at collection, drop recognition-time booking`. |
 | LC-45 / LC-141 | Who bears the market cost of a leaver's unwound slice | Fund bears it (single consolidated Share Price per DEC-105); flagged |
 | QB11 / QB10 | Number of transit states; the window between attested expiry and recognized refund | Four states mirroring DEC-066; the amount stays in Share Assets until the refund is recognized |
-| QA6 | How the hub recognizes an Across refund | Per-send keyless `TransitEscrow` clone as depositor |
+| QA6 | How the hub recognizes an Across refund | Per-send keyless `TransitEscrow` clone as depositor. Hub and spoke apply the same guard: Across refunds the full `inputAmount` (DEC-063), so a refund is recognized only once the escrow holds at least `amountSent`; less (a donation) is no refund and changes nothing, the transit stays in flight, and the real refund later releases everything together, exactly `amountSent` credited and the rest swept as excess (DEC-080, DEC-101; final verification) |
 | QA19 | Max bridge fee per send | Mandate parameter `maxBridgeFeeBps` |
 | Q17-2a/2b, LC-26, LC-121 | Who triggers pause and `deprecated`, where the flag lives, deprecated-position timing | Pause and deprecate are booleans on the adapter set by an immutable `guardian` address passed at construction; entry verbs check them, exit verbs never do |
 | Q17-4 | Whether the Mandate pins the adapter codehash | Codehash stored next to the address at creation and revalidated on each call |
@@ -116,6 +116,18 @@ closes each. Open questions that remain open keep their row above.
 | Across route list gone, report delivery gas (docs) | `docs(integrations): Across route liveness and report delivery gas` |
 | `recognizeRefund` preconditions in ICoreVault | `docs(core-vault): state recognizeRefund's preconditions in ICoreVault` |
 | Linked-library DELEGATECALL boundary (CV and spoke majors, ratified) | `docs(spoke-vault, core-vault): disclose the linked-library DELEGATECALL boundary` |
+## Handled in the final verification (2026-09-29)
+
+Findings of the final whole-tree audit, with the commit subject that closes each. The readings they introduce are the
+FV-OQ-1, FV-OQ-2 and QA3 rows above.
+
+| Item | Commit subject |
+|---|---|
+| Spoke refund recognized on any non-zero escrow balance, stranding the real refund (BLOCKING, DEC-066, QA6) | `fix(spoke-vault): recognize a refund only once the escrow holds the amount sent (DEC-066, DEC-063, DEC-080, QA6)` |
+| Standard reserve unbounded by the requester's share value; request below one share; silent zero-share close (MAJOR, DEC-017, DEC-020, DEC-024, DEC-072) | `fix(core-vault): bound the Standard reserve by the requester's share value, one-share floor, explicit zero-share close (DEC-017, DEC-020, DEC-024, DEC-035, DEC-072, DEC-077)` |
+| Unwind exits and swap minimums taken from the claimant's hints (MAJOR, DEC-069, DEC-081, DEC-097, QA3, LC-45) | `fix(spoke-vault): the vault sizes every unwind step and floors every unwind swap at spot less 5% (DEC-069, DEC-081, DEC-097, QA3)` |
+| Aave exits locked while pending income exceeds reserve liquidity (MAJOR, DEC-056, DEC-059, DEC-068; AAVE-1, AAVE-4, AAVE-5 readings updated: the decrease amount is principal, income is withdrawn best effort and never blocks a principal exit, a close the reserve cannot finish keeps the key holding only pending income) | `fix(aave-adapter): principal first on every exit, pending income best effort up to reserve liquidity (DEC-056, DEC-059, DEC-068)` |
+| Aave supply sized from `balanceOf` on empty params (minor, DEC-080, AAVE-2) | `fix(aave-adapter): openPosition and increasePosition require an explicit amount (DEC-080)` |
 
 ---
 
