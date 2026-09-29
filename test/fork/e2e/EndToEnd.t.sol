@@ -60,6 +60,7 @@ contract EndToEndForkTest is EndToEndBase {
         _phase4SendToRobinhood();
         _phase5FillPositionAndReport();
         _phase6DeliverReport();
+        _phase7IncomeAndBrunoDeposit();
     }
 
     // -----------------------------------------------------------------------------------------------------------------
@@ -458,5 +459,102 @@ contract EndToEndForkTest is EndToEndBase {
         (uint256 usdg,) = prices.priceInUsdc(RH_USDG);
         assertEq(weth, Math.mulDiv(SafeCast.toUint256(answer), 1e24, 1e26), "Chainlink ETH / USD for WETH");
         assertEq(usdg, 1e18, "USDG at 1:1");
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // Phase 7: hub income collected and split, Bruno enters, Ana withdraws her income
+    // -----------------------------------------------------------------------------------------------------------------
+
+    /// @dev Ruling 2026-09-29, DEC-107, DEC-109: the split happens when collected income reaches the Core Vault. DEC-014
+    ///      (CS-OQ-1 stance): income is attributed at collection to the holders of that moment, so the income already
+    ///      generated is collected before Bruno enters and he captures none of it. DEC-025, DEC-073: Income Withdrawal.
+    function _phase7IncomeAndBrunoDeposit() internal {
+        _onArbitrum();
+        (uint256 netUsdc, uint256 netWeth) = _collectHubIncome();
+        assertApproxEqAbs(core.attributedIncome(ana, ARB_USDC), netUsdc, 1, "DEC-014: Ana held while it was earned");
+        assertApproxEqAbs(core.attributedIncome(ana, ARB_WETH), netWeth, 1);
+
+        _brunoDeposits();
+
+        uint256 anaUsdc = core.attributedIncome(ana, ARB_USDC);
+        uint256 anaWeth = core.attributedIncome(ana, ARB_WETH);
+        uint256 usdcBefore = IERC20(ARB_USDC).balanceOf(ana);
+        uint256 wethBefore = IERC20(ARB_WETH).balanceOf(ana);
+        uint256 sharesBefore = IERC20(shareToken).balanceOf(ana);
+        vm.startPrank(ana);
+        assertEq(core.withdrawIncome(ARB_USDC), anaUsdc, "DEC-073: Income Withdrawal pays Attributed Income");
+        assertEq(core.withdrawIncome(ARB_WETH), anaWeth);
+        vm.stopPrank();
+        assertEq(IERC20(ARB_USDC).balanceOf(ana) - usdcBefore, anaUsdc, "LC-143: no flow fee on Income Withdrawal");
+        assertEq(IERC20(ARB_WETH).balanceOf(ana) - wethBefore, anaWeth, "DEC-109: paid in kind");
+        assertEq(IERC20(shareToken).balanceOf(ana), sharesBefore, "DEC-025: no share is burned");
+        assertEq(core.attributedIncome(ana, ARB_USDC), 0);
+        vm.prank(bruno);
+        assertEq(core.withdrawIncome(ARB_USDC), 0, "DEC-014: Bruno has nothing to withdraw");
+    }
+
+    /// @dev DEC-092: collecting moves income from the positions to the collected bucket and never touches Share Assets.
+    function _collectHubIncome() internal returns (uint256 netUsdc, uint256 netWeth) {
+        uint256 assetsBefore = core.shareAssets();
+        vm.startPrank(manager);
+        IAdapter.Amounts memory v4 = hubSpoke.collectIncome(hubUniswap, hubUniswapPosition);
+        IAdapter.Amounts memory aave = hubSpoke.collectIncome(hubAave, hubAavePosition);
+        vm.stopPrank();
+        assertGt(v4.income0, 0);
+        assertGt(v4.income1, 0);
+        assertGt(aave.income0, 0, "DEC-068: Aave interest collected");
+        uint256 usdcIncome = hubSpoke.collectedIncome(ARB_USDC);
+        uint256 wethIncome = hubSpoke.collectedIncome(ARB_WETH);
+        assertEq(usdcIncome, v4.income1 + aave.income0);
+        assertEq(wethIncome, v4.income0);
+        // AAVE-3: Aave's scaled rounding is borne by principal, at most a unit per operation.
+        assertApproxEqAbs(core.shareAssets(), assetsBefore, 2, "DEC-092: collection leaves Share Assets");
+
+        assertEq(IManagerRegistry(hubDeployment.managerRegistry).protocolSliceBps(manager), 5000, "DEC-106: 50% slice");
+        netUsdc = _forwardAndAssertSplit(ARB_USDC, usdcIncome);
+        netWeth = _forwardAndAssertSplit(ARB_WETH, wethIncome);
+    }
+
+    /// @dev DEC-107: 20% performance fee on the collected amount; DEC-106, DEC-110: half of it to the Protocol
+    ///      Recipient; DEC-109: the rest of the fee to the ManagerFeeVault, in kind, at once; the net to the holders.
+    function _forwardAndAssertSplit(address token, uint256 amount) internal returns (uint256 net) {
+        uint256 fee = amount * PERFORMANCE_FEE_BPS / 10_000;
+        uint256 slice = fee * 5000 / 10_000;
+        net = amount - fee;
+        uint256 recipientBefore = IERC20(token).balanceOf(recipient);
+        uint256 feeVaultBefore = IERC20(token).balanceOf(managerFeeVault);
+        uint256 collectedBefore = core.collectedIncome(token);
+        vm.prank(makeAddr("anyone"));
+        assertEq(hubSpoke.forwardIncomeToCoreVault(token), amount, "permissionless forward");
+        assertEq(IERC20(token).balanceOf(recipient) - recipientBefore, slice, "DEC-106: protocol slice");
+        assertEq(IERC20(token).balanceOf(managerFeeVault) - feeVaultBefore, fee - slice, "DEC-109: ManagerFeeVault");
+        assertEq(core.collectedIncome(token) - collectedBefore, net, "ruling 2026-09-29: the net to the accumulator");
+    }
+
+    /// @dev DEC-014: Bruno enters at the Share Price that excludes every income bucket (DEC-092) and owes nothing of
+    ///      the income collected before him. DEC-035, DEC-061: whole shares, the rest stays in his wallet. Q57 reading,
+    ///      OQ-10: a mint needs a fresh report and fresh prices.
+    function _brunoDeposits() internal {
+        _refreshEthUsdFeed();
+        uint256 price = core.sharePrice();
+        uint256 assetsBefore = core.shareAssets();
+        uint256 anaUsdc = core.attributedIncome(ana, ARB_USDC);
+        deal(ARB_USDC, bruno, BRUNO_DEPOSIT);
+        vm.startPrank(bruno);
+        IERC20(ARB_USDC).approve(address(core), BRUNO_DEPOSIT);
+        (uint256 shares, uint256 charged) = core.deposit(BRUNO_DEPOSIT, 0);
+        vm.stopPrank();
+
+        (uint256 expectedShares, uint256 forShares, uint256 fee) =
+            ShareMath.previewDeposit(BRUNO_DEPOSIT, FLOW_FEE_BPS, price);
+        assertEq(shares, expectedShares, "DEC-035: whole shares at the new Share Price");
+        assertEq(shares % 1e18, 0);
+        assertEq(charged, forShares + fee);
+        assertEq(IERC20(ARB_USDC).balanceOf(bruno), BRUNO_DEPOSIT - charged, "DEC-061: the remainder stays");
+        assertEq(core.shareAssets(), assetsBefore + forShares);
+        assertApproxEqAbs(core.sharePrice(), price, price / 1e9, "DEC-061: rounding only");
+        assertEq(core.attributedIncome(bruno, ARB_USDC), 0, "DEC-014: none of the income already generated");
+        assertEq(core.attributedIncome(bruno, ARB_WETH), 0, "DEC-014: none of the income already generated");
+        assertEq(core.attributedIncome(ana, ARB_USDC), anaUsdc, "DEC-014: Ana keeps hers");
     }
 }
