@@ -468,7 +468,8 @@ contract FundFactoryTest is Test, FactoryDeployment, FundMandate {
             _createFundThenSpokeFactory();
         bytes32 mandateHash = MandateLib.hash(m);
         vm.prank(manager);
-        IFundFactory.ChainAddresses memory c = spokeFactory.createSpoke(a.fundId, m, _spokeParams(mandateHash, _plan()));
+        IFundFactory.ChainAddresses memory c =
+            spokeFactory.createSpoke(a.creationNumber, m, _spokeParams(mandateHash, _plan()));
 
         assertEq(bytes32(uint256(uint160(c.spokeVault))), m.spokes[0].spokeVault);
         assertEq(c.uniswapV4Adapter, m.adapters[2].adapter);
@@ -495,7 +496,7 @@ contract FundFactoryTest is Test, FactoryDeployment, FundMandate {
         m.performanceFeeBps = 2500;
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(IFundFactory.MandateHashMismatch.selector, MandateLib.hash(m), hubHash));
-        spokeFactory.createSpoke(a.fundId, m, _spokeParams(hubHash, _plan()));
+        spokeFactory.createSpoke(a.creationNumber, m, _spokeParams(hubHash, _plan()));
     }
 
     function test_DEC054_createSpokeRejectsASpokeEntryOtherThanThePrediction() public {
@@ -506,7 +507,7 @@ contract FundFactoryTest is Test, FactoryDeployment, FundMandate {
         m.spokes[0].spokeVault = foreign;
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(IFundFactory.SpokeVaultMismatch.selector, SPOKE, predicted, foreign));
-        spokeFactory.createSpoke(a.fundId, m, _spokeParams(MandateLib.hash(m), _plan()));
+        spokeFactory.createSpoke(a.creationNumber, m, _spokeParams(MandateLib.hash(m), _plan()));
     }
 
     function test_DEC001_createSpokeOnlyByTheMandateManager() public {
@@ -515,7 +516,7 @@ contract FundFactoryTest is Test, FactoryDeployment, FundMandate {
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
         vm.expectRevert(abi.encodeWithSelector(IFundFactory.NotManager.selector, stranger, manager));
-        spokeFactory.createSpoke(a.fundId, m, _spokeParams(MandateLib.hash(m), _plan()));
+        spokeFactory.createSpoke(a.creationNumber, m, _spokeParams(MandateLib.hash(m), _plan()));
     }
 
     function test_DEC054_createSpokeOnlyOnce() public {
@@ -523,30 +524,44 @@ contract FundFactoryTest is Test, FactoryDeployment, FundMandate {
             _createFundThenSpokeFactory();
         IFundFactory.SpokeParams memory p = _spokeParams(MandateLib.hash(m), _plan());
         vm.prank(manager);
-        IFundFactory.ChainAddresses memory c = spokeFactory.createSpoke(a.fundId, m, p);
+        IFundFactory.ChainAddresses memory c = spokeFactory.createSpoke(a.creationNumber, m, p);
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(IFundFactory.SpokeAlreadyCreated.selector, a.fundId, c.spokeVault));
-        spokeFactory.createSpoke(a.fundId, m, p);
+        spokeFactory.createSpoke(a.creationNumber, m, p);
     }
 
-    function test_DEC054_createSpokeRejectsAFundIdTheMandateWasNotBuiltFor() public {
+    function test_DEC054_createSpokeRejectsACreationNumberTheMandateWasNotBuiltFor() public {
         (IFundFactory.FundAddresses memory a, Mandate memory m, FundFactory spokeFactory) =
             _createFundThenSpokeFactory();
-        bytes32 otherFund = spokeFactory.fundIdOf(HUB, 2);
         vm.prank(manager);
         vm.expectRevert(
             abi.encodeWithSelector(IFundFactory.UnexpectedAdapter.selector, HUB, a.chains[0].uniswapV4Adapter)
         );
-        spokeFactory.createSpoke(otherFund, m, _spokeParams(MandateLib.hash(m), _plan()));
+        spokeFactory.createSpoke(a.creationNumber + 1, m, _spokeParams(MandateLib.hash(m), _plan()));
     }
 
     function test_DEC054_createSpokeOnAChainTheMandateDoesNotList() public {
         (IFundFactory.FundAddresses memory a, Mandate memory m, FundFactory spokeFactory) =
             _createFundThenSpokeFactory();
-        vm.chainId(HUB);
+        vm.chainId(999);
         vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(MandateLib.UnknownSpokeChain.selector, HUB));
-        spokeFactory.createSpoke(a.fundId, m, _spokeParams(MandateLib.hash(m), _plan()));
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.UnknownSpokeChain.selector, 999));
+        spokeFactory.createSpoke(a.creationNumber, m, _spokeParams(MandateLib.hash(m), _plan()));
+    }
+
+    /// @dev DEC-011, DEC-054, verifier finding (blocking): the hub's own Spoke Vault is `createFund`'s; `createSpoke`
+    ///      on the Mandate's Hub Chain reverts before any deployment, so the fund ids this factory derives for
+    ///      `createFund` are unreachable through `createSpoke`.
+    function test_DEC054_createSpokeOnTheHubChainReverts() public {
+        uint256 n = factory.nextCreationNumber();
+        Mandate memory m = _mandate(n);
+        vm.prank(manager);
+        vm.expectRevert(abi.encodeWithSelector(IFundFactory.SpokeOnHubChain.selector, HUB));
+        factory.createSpoke(n, m, _spokeParams(MandateLib.hash(m), _plan()));
+        // Nothing was consumed: fund n is still created.
+        vm.prank(manager);
+        IFundFactory.FundAddresses memory a = factory.createFund(m, _params(n));
+        assertEq(factory.fundByNumber(n), a.coreVault);
     }
 
     function test_DEC028_aaveAdapterOnAChainWithoutAaveReverts() public {
@@ -570,7 +585,7 @@ contract FundFactoryTest is Test, FactoryDeployment, FundMandate {
             abi.encodeWithSelector(IFundFactory.ProtocolNotOnChain.selector, spokeFactory.ROLE_AAVE_V3_ADAPTER());
         vm.prank(manager);
         vm.expectRevert(reason);
-        spokeFactory.createSpoke(fundId, m, _spokeParams(MandateLib.hash(m), _plan()));
+        spokeFactory.createSpoke(1, m, _spokeParams(MandateLib.hash(m), _plan()));
     }
 
     // ---------------------------------------------------------------------------------------------------------------

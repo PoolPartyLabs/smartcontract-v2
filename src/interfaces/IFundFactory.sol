@@ -188,8 +188,9 @@ interface IFundFactory {
     /// @notice The fund's Spoke Vault on this chain already exists.
     error SpokeAlreadyCreated(bytes32 fundId, address spokeVault);
 
-    /// @notice The fund id is zero.
-    error ZeroFundId();
+    /// @notice `createSpoke` was called on the Mandate's Hub Chain, whose Spoke Vault only `createFund` deploys
+    ///         (DEC-011, DEC-054).
+    error SpokeOnHubChain(uint256 chainId);
 
     /// @notice Creates a fund on its Hub Chain: the hub adapters the Mandate lists (Uniswap V4 and Aave V3 with the hub
     ///         Spoke Vault as vault, Across with the Core Vault as vault), the hub Spoke Vault, the
@@ -201,12 +202,17 @@ interface IFundFactory {
     ///      fund's predicted one.
     function createFund(Mandate memory m, HubParams memory p) external returns (FundAddresses memory addresses);
 
-    /// @notice Creates the fund's Spoke Vault and its adapters on this Spoke Chain at the predicted addresses.
-    /// @dev Reverts unless `msg.sender == m.manager`, the Mandate hashes to `p.mandateHash`, this chain is a Mandate
-    ///      spoke whose token is this chain's base token, and every Mandate address is the fund's predicted one (the
-    ///      spoke entry for this chain included). The spoke cannot see the hub, so `p.mandateHash` binds the Mandate to
-    ///      the hub's `FundCreated` event only as far as the caller copies it faithfully (see docs/DEPLOYMENT.md).
-    function createSpoke(bytes32 fundId, Mandate memory m, SpokeParams memory p)
+    /// @notice Creates the Spoke Vault and adapters of fund number `creationNumber` of the Mandate's Hub Chain on this
+    ///         Spoke Chain, at the predicted addresses.
+    /// @dev The fund id is derived here from `m.hubChainId` and `creationNumber`, never taken from the caller, and
+    ///      `m.hubChainId` must not be this chain (`SpokeOnHubChain`): a fund id this factory derives for its own
+    ///      `createFund` is therefore unreachable through `createSpoke`, so nobody can consume the hub salts of a
+    ///      future fund (DEC-001, DEC-054). Reverts unless `msg.sender == m.manager`, the Mandate hashes to
+    ///      `p.mandateHash`, this chain is a Mandate spoke whose token is this chain's base token, and every Mandate
+    ///      address is the fund's predicted one (the spoke entry for this chain included). The spoke cannot see the
+    ///      hub, so `p.mandateHash` binds the Mandate to the hub's `FundCreated` event only as far as the caller copies
+    ///      it faithfully (see docs/DEPLOYMENT.md).
+    function createSpoke(uint256 creationNumber, Mandate memory m, SpokeParams memory p)
         external
         returns (ChainAddresses memory addresses);
 

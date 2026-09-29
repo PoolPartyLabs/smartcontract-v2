@@ -184,12 +184,12 @@ contract FundFactoryForkTest is Test, FactoryDeployment, FundMandate {
         vm.expectRevert(
             abi.encodeWithSelector(IFundFactory.SpokeVaultMismatch.selector, ROBINHOOD, m.spokes[0].spokeVault, foreign)
         );
-        rd.factory.createSpoke(predicted.fundId, forged, forgedParams);
+        rd.factory.createSpoke(predicted.creationNumber, forged, forgedParams);
 
         IFundFactory.SpokeParams memory sp = _spokeParams(MandateLib.hash(m), plan);
         uint256 gasBefore = gasleft();
         vm.prank(manager);
-        IFundFactory.ChainAddresses memory spoke = rd.factory.createSpoke(predicted.fundId, m, sp);
+        IFundFactory.ChainAddresses memory spoke = rd.factory.createSpoke(predicted.creationNumber, m, sp);
         emit log_named_uint("createSpoke gas (execution, Robinhood Chain)", gasBefore - gasleft());
 
         assertEq(spoke.spokeVault, predicted.chains[1].spokeVault);

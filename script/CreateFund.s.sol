@@ -54,11 +54,11 @@ contract CreateFund is Script, FactoryDeployment, FundMandate {
                 m.spokes.length != 0 ? address(uint160(uint256(m.spokes[0].spokeVault))) : address(0)
             );
         } else if (block.chainid == ROBINHOOD) {
-            bytes32 fundId = factory.fundIdOf(ARBITRUM, vm.envUint("CREATION_NUMBER"));
-            Mandate memory m = _buildMandate(factory, fundId, plan);
+            uint256 n = vm.envUint("CREATION_NUMBER");
+            Mandate memory m = _buildMandate(factory, factory.fundIdOf(ARBITRUM, n), plan);
             IFundFactory.SpokeParams memory p = _spokeParams(vm.envBytes32("MANDATE_HASH"), plan);
             vm.startBroadcast(manager);
-            IFundFactory.ChainAddresses memory c = factory.createSpoke(fundId, m, p);
+            IFundFactory.ChainAddresses memory c = factory.createSpoke(n, m, p);
             vm.stopBroadcast();
             console.log("Spoke Vault", c.spokeVault);
             console.log("Uniswap V4 adapter", c.uniswapV4Adapter);

@@ -181,17 +181,20 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
     }
 
     /// @inheritdoc IFundFactory
-    function createSpoke(bytes32 fundId, Mandate memory m, SpokeParams memory p)
+    function createSpoke(uint256 creationNumber, Mandate memory m, SpokeParams memory p)
         external
         nonReentrant
         returns (ChainAddresses memory addresses)
     {
-        if (fundId == bytes32(0)) revert ZeroFundId();
         // DEC-001, DEC-002: only the fund's Manager creates its spokes.
         if (msg.sender != m.manager) revert NotManager(msg.sender, m.manager);
         bytes32 mandateHash = m.hash();
         if (mandateHash != p.mandateHash) revert MandateHashMismatch(mandateHash, p.mandateHash);
         uint256 chainId = block.chainid;
+        // DEC-011, DEC-054: the fund id is derived, never given, and never one this factory derives for its own
+        // `createFund`, so a spoke can never consume the hub salts of a future fund here.
+        if (m.hubChainId == chainId) revert SpokeOnHubChain(chainId);
+        bytes32 fundId = _fundIdOf(m.hubChainId, creationNumber);
         // Reverts UnknownSpokeChain when this chain is not a Mandate spoke (the Hub Chain included).
         (, SpokeConfig memory spoke) = m.spokeByChainId(chainId);
         if (spoke.spokeToken != _baseToken) revert BaseTokenMismatch(spoke.spokeToken, _baseToken);
