@@ -242,14 +242,16 @@ contract AcrossBridgeAdapterTest is Test {
         adapter.buildSend(req, escrow);
     }
 
-    function test_DEC085_buildSendRejectsZeroOutput() public {
+    /// DEC-087 (a bridge is an Adapter whose interface the vault relies on): the InvalidAmounts rule comes from the
+    /// IBridgeAdapter NatSpec ("zero input or output amount, or output above input"), not from DEC-085.
+    function test_DEC087_buildSendRejectsZeroOutput() public {
         IBridgeAdapter.SendRequest memory req = _request();
         req.outputAmount = 0;
         vm.expectRevert(abi.encodeWithSelector(IBridgeAdapter.InvalidAmounts.selector, req.inputAmount, 0));
         adapter.buildSend(req, escrow);
     }
 
-    function test_DEC085_buildSendRejectsOutputAboveInput() public {
+    function test_DEC087_buildSendRejectsOutputAboveInput() public {
         IBridgeAdapter.SendRequest memory req = _request();
         req.outputAmount = req.inputAmount + 1;
         vm.expectRevert(
@@ -258,7 +260,7 @@ contract AcrossBridgeAdapterTest is Test {
         adapter.buildSend(req, escrow);
     }
 
-    function test_DEC085_buildSendAcceptsOutputEqualToInput() public view {
+    function test_DEC087_buildSendAcceptsOutputEqualToInput() public view {
         IBridgeAdapter.SendRequest memory req = _request();
         req.outputAmount = req.inputAmount;
         _assertEncodes(req, escrow);
