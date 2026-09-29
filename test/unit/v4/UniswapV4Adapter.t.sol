@@ -158,7 +158,7 @@ contract UniswapV4AdapterTest is Test {
         vm.stopPrank();
     }
 
-    function test_unlockCallbackIsPoolManagerOnly() public {
+    function test_DEC058_unlockCallbackIsPoolManagerOnly() public {
         vm.expectRevert(abi.encodeWithSelector(UniswapV4Adapter.NotPoolManager.selector, stranger));
         vm.prank(stranger);
         adapter.unlockCallback("");
@@ -259,7 +259,7 @@ contract UniswapV4AdapterTest is Test {
         vault.open(poolId, address(token0), 0, address(token1), 0, abi.encode(p));
     }
 
-    function test_openRevertsAfterDeadline() public {
+    function test_DEC079_openRevertsAfterDeadline() public {
         UniswapV4Adapter.OpenParams memory p = _open_(LIQUIDITY);
         p.deadline = block.timestamp - 1;
         vm.expectRevert(abi.encodeWithSelector(MockV4.DeadlinePassed.selector, p.deadline));
@@ -466,6 +466,16 @@ contract UniswapV4AdapterTest is Test {
         uint256 before0 = token0.balanceOf(address(vault));
         out = vault.swap(poolId, address(token1), 1e18, 0, _swapParams());
         assertEq(token0.balanceOf(address(vault)) - before0, out);
+    }
+
+    /// IAdapter custody (Uniswap V4 verifier finding): input already sitting in the adapter goes back to the vault.
+    function test_DEC080_swapHandsBackAnySurplusInput() public {
+        v4.setSwap(2e18, 10_000);
+        token0.mint(address(adapter), 3); // dust a stranger left in the adapter
+        uint256 before0 = token0.balanceOf(address(vault));
+        vault.swap(poolId, address(token0), 1e18, 0, _swapParams());
+        assertEq(token0.balanceOf(address(vault)), before0 - 1e18 + 3, "the surplus came back, unreported");
+        _assertAdapterHoldsNothing();
     }
 
     function test_OQ04_swapRevertsBelowMinimumOutput() public {

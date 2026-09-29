@@ -285,6 +285,9 @@ contract UniswapV4Adapter is IAdapter, AdapterGuard, ReentrancyGuard, IUnlockCal
     /// @dev Q60, DEC-092: `realizedIncome[token]` plus the uncollected income of every open position in `token`.
     ///      Monotonic: uncollected income only grows with fee growth, and every realization moves the exact same
     ///      amount from the uncollected term to the realized term (closed positions leave nothing uncollected).
+    /// @dev Cost: O(open positions), two StateView reads per position (the set is bounded by what the manager opens).
+    ///      DEC-092 forbids reading all positions on each user operation, so the Spoke Vault calls this only when it
+    ///      builds a report or after a collect, never from a Shareholder path (Uniswap V4 verifier finding).
     function cumulativeIncome(address token) external view returns (uint256 total) {
         total = realizedIncome[token];
         uint256 count = _openPositions.length();
@@ -498,6 +501,9 @@ contract UniswapV4Adapter is IAdapter, AdapterGuard, ReentrancyGuard, IUnlockCal
 
         amountOut = abi.decode(poolManager.unlock(abi.encode(key, zeroForOne, amountIn, limit)), (uint256));
         if (amountOut < minAmountOut) revert InsufficientOutput(amountOut, minAmountOut);
+        // IAdapter custody: no idle balance stays here between calls; anything above `amountIn` goes back, unreported
+        // (DEC-080: a physical hand-back, never a reported amount).
+        _returnUnused(tokenIn);
 
         address tokenOut = zeroForOne ? Currency.unwrap(key.currency1) : Currency.unwrap(key.currency0);
         emit Swapped(poolKey, tokenIn, tokenOut, amountIn, amountOut);
@@ -531,7 +537,10 @@ contract UniswapV4Adapter is IAdapter, AdapterGuard, ReentrancyGuard, IUnlockCal
             zeroForOne ? (key.currency0, key.currency1) : (key.currency1, key.currency0);
         poolManager.sync(currencyIn);
         IERC20(Currency.unwrap(currencyIn)).safeTransfer(address(poolManager), amountIn);
-        poolManager.settle();
+        // A fee-on-transfer or rebasing input surfaces as a named error instead of the PoolManager's opaque
+        // CurrencyNotSettled.
+        uint256 paid = poolManager.settle();
+        if (paid != amountIn) revert PartialSwap(paid, amountIn);
         if (amountOut != 0) poolManager.take(currencyOut, vault, amountOut);
         return abi.encode(amountOut);
     }
@@ -634,12 +643,15 @@ contract UniswapV4Adapter is IAdapter, AdapterGuard, ReentrancyGuard, IUnlockCal
         _returnUnused(token1);
     }
 
+    /// @dev IAdapter custody: ephemeral allowance of exactly the owed amount, cleared in the same call (forceApprove to
+    ///      zero in `_revoke`); the Permit2 allowance expires at this block.
     function _grant(address token, uint256 amount) private {
         if (amount == 0) return;
         IERC20(token).forceApprove(address(permit2), amount);
         permit2.approve(token, address(positionManager), amount.toUint160(), uint48(block.timestamp));
     }
 
+    /// @dev IAdapter custody: clears both allowances `_grant` set, in the same call.
     function _revoke(address token, uint256 amount) private {
         if (amount == 0) return;
         permit2.approve(token, address(positionManager), 0, 0);
