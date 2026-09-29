@@ -428,6 +428,12 @@ library CoreVaultLogic {
     ///         balances. A RefundRecognized transit (its escrow held the full amount sent, DEC-063) that a report still
     ///         lists is confirmed too, without touching In-flight Value again: the escrow's amount was then a donation
     ///         already in Idle, and the arrival must not be deducted as unknown value (DEC-080).
+    /// @dev OQ-09, OQ-01, DEC-080, DEC-104: an id is confirmed only when the listed amount reaches the transit's
+    ///      `amountToArrive`. Across passes no depositor and transit ids are public (`SentToSpoke`), so a listing below
+    ///      that amount may be a stranger's donation carrying a real id; confirming on id presence would release the
+    ///      transit from In-flight Value and leave a later expiry refund stranded in its escrow. The spoke lists the
+    ///      monotonic credited total per id, so a genuine arrival is never under-listed; a stranger who lists an id at
+    ///      or above the amount has made the fund whole, and any excess is deducted as unknown-origin value.
     function _confirmArrivals(
         CoreVaultState storage s,
         uint256 spokeIndex,
@@ -441,6 +447,7 @@ library CoreVaultLogic {
             TransitState state = t.state;
             if (state == TransitState.None || state == TransitState.ArrivalConfirmed) continue;
             if (s.transitSpoke[id] != spokeIndex) continue;
+            if (list[i].amount < t.amountToArrive) continue;
             if (state == TransitState.Sent) book.inFlightSent -= t.amountSent;
             if (state != TransitState.RefundRecognized) book.inFlightToArrive -= t.amountToArrive;
             book.confirmedArrived += t.amountToArrive;
@@ -528,7 +535,9 @@ library CoreVaultLogic {
     /// @dev OQ-09 (Spoke Vault and Core Vault verifier findings): the report lists only the last
     ///      `ReportCodec.ARRIVAL_WINDOW` arrivals, so its silence proves non-arrival only while it lists fewer than
     ///      that; a full window may have evicted the id (dust spam), and then only the deadline plus report lifetime
-    ///      path applies.
+    ///      path applies. OQ-09, OQ-01: a listing below the transit's `amountToArrive` is not an arrival (see
+    ///      `_confirmArrivals`), so a report built after the deadline that lists the id only below that amount proves
+    ///      non-arrival as well: once the deadline has passed Across can no longer fill the deposit.
     function nonArrivalProvable(
         CoreVaultState storage s,
         CoreVaultWiring memory w,
@@ -543,8 +552,9 @@ library CoreVaultLogic {
         if (!receiver.hasReport(spokeIndex)) return false;
         (ReportCodec.Report memory r,,) = receiver.latestReport(spokeIndex);
         if (r.timestamp <= deadline || r.arrivedTransits.length >= ReportCodec.ARRIVAL_WINDOW) return false;
+        uint256 expected = s.transits[transitId].amountToArrive;
         for (uint256 i; i < r.arrivedTransits.length; ++i) {
-            if (r.arrivedTransits[i].transitId == transitId) return false;
+            if (r.arrivedTransits[i].transitId == transitId && r.arrivedTransits[i].amount >= expected) return false;
         }
         return true;
     }

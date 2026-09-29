@@ -49,6 +49,35 @@ contract CoreVaultConsolidateVerifyRound2Test is CoreVaultFixture {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
+    // OQ-09 / OQ-01 / DEC-066: a report built after the fill deadline that lists the id only below `amountToArrive`
+    // proves non-arrival (Across can no longer fill the deposit), so the stranger's listing does not delay the
+    // attestation to the deadline plus report lifetime path.
+    // ---------------------------------------------------------------------------------------------------------------
+    function test_OQ09_underListedIdAfterTheDeadlineProvesNonArrival() public {
+        bytes32 id = _send(SENT, SENT);
+        vm.warp(uint256(vault.transit(id).fillDeadline) + 1);
+        _deliver(_arrived(_spokeReport(1e6, 1e6), id, 1e6));
+        assertEq(uint8(vault.transit(id).state), uint8(TransitState.Sent));
+
+        vault.attestExpiry(id);
+        assertEq(uint8(vault.transit(id).state), uint8(TransitState.ExpiryAttested));
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // OQ-09 / OQ-01 / DEC-066: a listing that reaches `amountToArrive` over several reports (the spoke lists its
+    // monotonic credited total per id) confirms the transit once it reaches the amount.
+    // ---------------------------------------------------------------------------------------------------------------
+    function test_OQ09_listingConfirmsOnceTheCreditedTotalReachesTheAmountToArrive() public {
+        bytes32 id = _send(SENT, SENT);
+        _deliver(_arrived(_spokeReport(1e6, 1e6), id, 1e6));
+        assertEq(uint8(vault.transit(id).state), uint8(TransitState.Sent));
+
+        _deliver(_arrived(_spokeReport(SENT + 1e6, SENT + 1e6), id, SENT + 1e6));
+        assertEq(uint8(vault.transit(id).state), uint8(TransitState.ArrivalConfirmed));
+        assertEq(vault.inFlightValue(), 0);
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
     // OQ-09 / CS-OQ-6 / DEC-096: a stranded transit (never listed) whose arrival topped up the spoke's Operating Cash.
     // The top-up is outside Share Assets on the confirmed path (unallocated 990, Operating Cash 10), and the fund-level
     // deduction must give the same number on the unconfirmed path: In-flight Value 1,000 minus the shortfall 10.
