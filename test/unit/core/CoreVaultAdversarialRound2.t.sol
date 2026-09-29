@@ -34,7 +34,7 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
         vm.warp(uint256(vault.transit(id).fillDeadline) + MAX_REPORT_AGE + 1);
         prices.setPrice(address(usdg), 1e18);
         vault.attestExpiry(id);
-        (, uint256 inFlightSent,) = vault.spokeCapUsage(0);
+        (, uint256 inFlightSent,,) = vault.spokeCapUsage(0);
         assertEq(inFlightSent, 0, "the Spoke Cap is released at the attested expiry");
         assertEq(vault.inFlightValue(), ARRIVES, "Share Assets still count the transit (QB11 stance)");
 
@@ -42,7 +42,7 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
         _deliver(_arrived(_spokeReport(ARRIVES, ARRIVES), id, ARRIVES));
         assertEq(uint8(vault.transit(id).state), uint8(TransitState.ArrivalConfirmed));
         assertEq(vault.inFlightValue(), 0, "released exactly once");
-        (uint256 spokeValue, uint256 sentAfter,) = vault.spokeCapUsage(0);
+        (uint256 spokeValue, uint256 sentAfter,,) = vault.spokeCapUsage(0);
         assertEq(spokeValue, ARRIVES, "the report carries it now, nothing deducted as unknown");
         assertEq(sentAfter, 0, "the Spoke Cap book was not decremented twice");
         assertEq(vault.shareAssets(), 9975e6 - SENT + ARRIVES);
@@ -75,7 +75,8 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
         bobRequest = bound(bobRequest, 1e6, 20_000e6);
         _request(bob, bobRequest, ICoreVault.PayoutMode.Standard);
         uint256 bobReserve = vault.payoutRequest(bob).reserved;
-        assertEq(bobReserve, bobRequest < 14_950e6 ? bobRequest : 14_950e6);
+        // FV-OQ-1 reading (final verification): bounded by Bob's 9,975 shares at 1.00, below Free Idle (14,950).
+        assertEq(bobReserve, bobRequest < 9975e6 ? bobRequest : 9975e6);
         aliceRequest = bound(aliceRequest, 1e6, 20_000e6);
         _request(alice, aliceRequest, ICoreVault.PayoutMode.Standard);
         uint256 aliceReserve = vault.payoutRequest(alice).reserved;
@@ -179,54 +180,95 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // FLAGGED (DEC-021 "investor exit is unblockable", DEC-056, OQ-10): an Idle-paid payout never reverts on a STALE
-    // price or report, but it does revert when the price source or the hub Spoke Vault's `buildReport` REVERTS,
-    // because `recognizeAndValue` reads both without a fallback. This test pins the current behaviour so the gap is
-    // visible; the ruling (last known price / last valuation for Idle-paid claims) is not in the decisions.
+    // Payout liveness (DEC-021 "investor exit is unblockable", DEC-056, OQ-10; Core Vault verifier major): a claim never
+    // reverts because the price source or the hub Spoke Vault's `buildReport` REVERTS. It falls back to the last known
+    // price / hub value kept from the last successful deposit or payout, with an event; a deposit still reverts.
     // ---------------------------------------------------------------------------------------------------------------
-    function test_DEC021_FLAGGED_revertingValuationDependencyBlocksIdlePaidPayout() public {
+
+    /// @dev Alice holds 9,975 shares; 1,000 USDC went to the hub Spoke Vault, which now holds 1 WETH priced at 2,500.
+    ///      Bob's deposit is the last successful valuation (it records the WETH price and the hub value).
+    function _hubWethFund() internal {
         _deposit(alice, 10_000e6); // Idle 9,975
         vm.prank(manager);
         vault.allocateToHubSpokeVault(1000e6);
-        hubVault.setPosition(address(weth), 1e18); // a hub position priced through the feed
+        hubVault.moveToPosition(1000e6);
+        hubVault.setPosition(address(weth), 1e18); // the position is now 1 WETH
+        _deposit(bob, 1000e6);
         _request(alice, 100e6, ICoreVault.PayoutMode.Instant); // fully payable from Free Idle
+    }
 
+    function test_DEC021_revertingFeedFallsBackToTheLastPriceForAPayout() public {
+        _hubWethFund();
+        uint256 assetsBefore = vault.shareAssets();
         prices.setReverts(address(weth), true);
-        vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(IPriceSource.UnsupportedToken.selector, address(weth)));
-        vault.claimPayout("");
 
-        prices.setReverts(address(weth), false);
-        hubVault.setBuildReverts(true);
-        vm.prank(alice);
-        vm.expectRevert(bytes("build reverts"));
-        vault.claimPayout("");
-
-        // Once the dependency answers again, the Idle-paid claim goes through.
-        hubVault.setBuildReverts(false);
+        vm.expectEmit(address(vault));
+        emit ICoreVault.PriceFallback(address(weth), 2.5e9);
         ICoreVault.PayoutReceipt memory r = _claim(alice);
+        assertEq(r.shareAssets, assetsBefore, "valued at the last known WETH price");
+        assertGt(r.usdcPaid, 0);
+
+        // A deposit keeps reverting on the failing dependency (Q57 reading: mints need every value fresh).
+        usdc.mint(bob, 1000e6);
+        vm.startPrank(bob);
+        usdc.approve(address(vault), 1000e6);
+        vm.expectRevert(abi.encodeWithSelector(IPriceSource.UnsupportedToken.selector, address(weth)));
+        vault.deposit(1000e6, 0);
+        vm.stopPrank();
+    }
+
+    function test_DEC021_revertingHubReportFallsBackToTheLastHubValueForAPayout() public {
+        _hubWethFund();
+        uint256 assetsBefore = vault.shareAssets();
+        hubVault.setBuildReverts(true);
+
+        vm.expectEmit(address(vault));
+        emit ICoreVault.HubValuationFallback(2500e6);
+        ICoreVault.PayoutReceipt memory r = _claim(alice);
+        assertEq(r.shareAssets, assetsBefore, "the hub Spoke Vault at its last known value");
         assertEq(r.unwindProceeds, 0);
         assertGt(r.usdcPaid, 0);
+
+        usdc.mint(bob, 1000e6);
+        vm.startPrank(bob);
+        usdc.approve(address(vault), 1000e6);
+        vm.expectRevert(bytes("build reverts"));
+        vault.deposit(1000e6, 0);
+        vm.stopPrank();
+    }
+
+    function test_DEC021_successfulPayoutRefreshesTheLastKnownValuation() public {
+        _hubWethFund();
+        prices.setPrice(address(weth), 3e9); // WETH moves to 3,000; Alice's claim records it
+        _claim(alice);
+        prices.setReverts(address(weth), true);
+        _request(bob, 10e6, ICoreVault.PayoutMode.Instant);
+        vm.expectEmit(address(vault));
+        emit ICoreVault.PriceFallback(address(weth), 3e9);
+        _claim(bob);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // OQ-01 / DEC-092: the kind of a hub-bound arrival comes from the Across message, not from the report (a
-    // ReportCodec.TransitAmount carries no TransferKind). A stranger who front-runs a listed Income transfer with
-    // Principal dust can relabel exactly its own dust into Idle and strand the same amount of the fund's income in the
-    // held-apart bucket; the bases never receive more than the listed amount and no value leaves the ledger.
+    // OQ-01 / DEC-092 / CV-OQ-1: a hub-bound arrival is credited by the kind the report listed, never by the kind the
+    // Across message claims. A stranger who front-runs a listed Income transfer with dust labelled Principal cannot
+    // move anything into Idle: its dust is credited as income and the same amount of the real fill is held apart; the
+    // bases never receive more than the listed amount and no value leaves the ledger.
     // ---------------------------------------------------------------------------------------------------------------
-    function test_OQ01_kindRelabellingByStrangerIsBoundedByItsOwnDust() public {
+    function test_OQ01_reportedKindWinsOverTheMessageKind() public {
         _deposit(alice, 10_000e6);
         bytes32 id = keccak256("spoke income transfer 9");
-        _deliver(_inFlightToHub(_spokeReport(0, 0), id, 400e6)); // the spoke reports 400 in flight
+        _deliver(_inFlightToHub(_spokeReport(0, 0), id, 400e6, TransferKind.Income)); // 400 of income in flight
         uint256 idle0 = vault.idle();
+        uint256 protocol0 = usdc.balanceOf(protocol);
 
         pool.fill(address(vault), address(usdc), 5, _homeMessage(id, TransferKind.Principal)); // stranger's dust
-        assertEq(vault.idle(), idle0 + 5, "the dust is credited as what its message claims");
+        assertEq(vault.idle(), idle0, "the message cannot relabel income into Idle");
         pool.fill(address(vault), address(usdc), 400e6, _homeMessage(id, TransferKind.Income)); // the real fill
-        assertEq(vault.collectedIncome(address(usdc)), 400e6 - 5, "the income is short by the dust");
+        // Ruling 2026-09-29: the income credited is split at once; fees leave to the protocol and the fee vault.
+        uint256 feesOut = usdc.balanceOf(protocol) - protocol0 + usdc.balanceOf(vault.managerFeeVault());
+        assertEq(vault.collectedIncome(address(usdc)) + feesOut, 400e6, "exactly the listed amount, as income");
         assertEq(vault.unmatchedArrivals(), 5, "the same amount is held apart for good");
-        assertEq((vault.idle() - idle0) + vault.collectedIncome(address(usdc)), 400e6, "bases got the listed amount");
+        assertEq(vault.idle(), idle0, "Idle never moved");
         assertEq(usdc.balanceOf(address(vault)), _ledgerUsdc());
         assertEq(vault.sweepExcess(address(usdc)), 0, "nothing sweepable: the ledger covers the balance exactly");
     }

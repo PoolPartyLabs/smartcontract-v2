@@ -107,6 +107,13 @@ contract MockAaveV3Pool is IAaveV3Pool {
         payOneLess = value;
     }
 
+    /// @notice Scaled units a misbehaving pool burns on top of what a withdrawal needs.
+    uint256 public extraBurn;
+
+    function setExtraBurn(uint256 value) external {
+        extraBurn = value;
+    }
+
     function toAmount(uint256 scaled, uint256 index) public view returns (uint256) {
         if (rounding == Rounding.HalfUp) return (scaled * index + RAY / 2) / RAY;
         return Math.mulDiv(scaled, index, RAY);
@@ -138,7 +145,7 @@ contract MockAaveV3Pool is IAaveV3Pool {
         uint256 scaled = toScaledForBurn(amount, index);
         require(scaled != 0, "invalid burn amount");
         ++withdrawCalls;
-        aToken.burn(msg.sender, scaled);
+        aToken.burn(msg.sender, scaled + extraBurn);
         uint256 paid = payOneLess ? amount - 1 : amount;
         aToken.transferUnderlying(to, paid);
         return paid;

@@ -55,6 +55,13 @@ contract ManagerRegistry is IManagerRegistry, Ownable2Step {
         emit ProtocolSliceSet(manager, previous, bps, true);
     }
 
+    /// @notice Disabled: the owner can hand the writer role over (two steps) but never drop it.
+    /// @dev LC-142 (OPEN, writer = protocol admin) and the report-receiver verifier finding: renouncing would freeze
+    ///      every manager's slice for good with one call on a global registry read at every charge (DEC-110).
+    function renounceOwnership() public view override onlyOwner {
+        revert RenounceDisabled();
+    }
+
     /// @inheritdoc IManagerRegistry
     /// @dev DEC-052: the manager returns to the default.
     function clearProtocolSliceBps(address manager) external onlyOwner {

@@ -83,8 +83,8 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
 
     // ---------------------------------------------------------------------------------------------------------------
     // Return leg. DEC-085 / DEC-104: a Principal transfer home counts in Share Assets while in flight, so Share Price
-    // holds through the send and the fill. DEC-092 (OPEN, interface change reported): ReportCodec.TransitAmount has no
-    // TransferKind, so an Income transfer home is counted too until it arrives; the test pins that stance and its bound.
+    // holds through the send and the fill. DEC-092: an Income transfer home stays out of Share Assets while in flight
+    // (the report carries the kind since ReportCodec version 2, CV-OQ-1) and both kinds count toward the Spoke Cap.
     // ---------------------------------------------------------------------------------------------------------------
 
     function test_DEC104_principalReturnLegKeepsSharePriceThroughTheFill() public {
@@ -97,7 +97,7 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         // The spoke sent 400 home: its Unallocated Balance fell by 400 and the transfer is reported in flight.
         _deliver(_inFlightToHub(_spokeReport(ARRIVES - 400e6, ARRIVES), id, 400e6));
         assertEq(vault.sharePrice(), priceBefore, "principal in flight stays in Share Assets (DEC-085)");
-        (, uint256 inFlight,) = vault.spokeCapUsage(0);
+        (,, uint256 inFlight,) = vault.spokeCapUsage(0);
         assertEq(inFlight, 400e6, "the pending return leg counts toward the Spoke Cap (DEC-066 B1)");
 
         pool.fill(address(vault), address(usdc), 400e6, _homeMessage(id, TransferKind.Principal));
@@ -105,34 +105,39 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         assertEq(vault.shareAssets(), _bucketSum());
     }
 
-    function test_DEC092_OPEN_incomeReturnLegCountsUntilTheReportCarriesItsKind() public {
+    function test_DEC092_incomeReturnLegStaysOutOfShareAssetsWhileInFlight() public {
         _deposit(alice, 10_000e6); // 9,975 shares
         uint256 priceBefore = vault.sharePrice();
         bytes32 id = keccak256("spoke income transfer 1");
-        _deliver(_inFlightToHub(_spokeReport(0, 0), id, 400e6)); // 400 USDC of collected income sent home
-        // OPEN stance: counted like a Principal leg while in flight (bounded by the income in flight).
-        assertEq(vault.shareAssets(), 9975e6 + 400e6);
-        assertGt(vault.sharePrice(), priceBefore);
+        // 400 USDC of collected income sent home, reported as Income.
+        _deliver(_inFlightToHub(_spokeReport(0, 0), id, 400e6, TransferKind.Income));
+        assertEq(vault.shareAssets(), 9975e6, "income in flight is outside Share Assets (DEC-092)");
+        assertEq(vault.inFlightValue(), 0);
+        assertEq(vault.sharePrice(), priceBefore);
+        (,, uint256 capInFlight,) = vault.spokeCapUsage(0);
+        assertEq(capInFlight, 400e6, "but it counts toward the Spoke Cap (DEC-066 B1)");
         pool.fill(address(vault), address(usdc), 400e6, _homeMessage(id, TransferKind.Income));
-        assertEq(vault.collectedIncome(address(usdc)), 400e6, "credited to collected income, never Idle");
-        assertEq(vault.sharePrice(), priceBefore, "back to the price without the income once it arrives");
+        // Split at collection (ruling 2026-09-29): 80 of fees leave, 320 net stays for holders; never Idle.
+        assertEq(vault.collectedIncome(address(usdc)), 320e6, "credited to collected income, never Idle");
+        assertEq(vault.sharePrice(), priceBefore, "the arrival does not move the Share Price either");
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // DEC-014 ordering: hub income that accumulated before an entrant's deposit but was never recognized by anyone
-    // is recognized inside the deposit, before the checkpoint, so the entrant gets none of it.
+    // DEC-014 vs ruling 2026-09-29: income is attributed when it is collected, to the holders of that moment. Income
+    // generated in a hub position before an entrant's deposit but collected after it is therefore shared with the
+    // entrant (reported as an open question); income collected before the entry is not.
     // ---------------------------------------------------------------------------------------------------------------
 
-    function test_DEC014_depositRecognizesPendingHubIncomeBeforeTheMint() public {
+    function test_DEC014_OPEN_incomeGeneratedBeforeEntryIsSharedWhenCollectedAfterIt() public {
         _deployFeeless();
         _deposit(ana, 10_000e6); // 10,000 shares
-        hubVault.setCumulativeIncome(address(usdc), 1000e6); // accumulated, nobody called recognizeHubIncome
+        hubVault.forwardIncome(address(usdc), 1000e6); // collected before Bruno: all Ana's
+        hubVault.setCumulativeIncome(address(usdc), 1000e6 + 2100e6); // generated, not yet collected
         _deposit(bruno, 11_000e6); // 11,000 shares
-        assertEq(vault.attributedIncome(bruno, address(usdc)), 0, "Bruno gets nothing of the prior income");
+        assertEq(vault.attributedIncome(bruno, address(usdc)), 0, "nothing collected since Bruno entered");
         assertApproxEqAbs(vault.attributedIncome(ana, address(usdc)), 1000e6, 1, "all of it is Ana's");
-        // Income accumulated after Bruno's entry is shared pro rata (Ana 10,000 / Bruno 11,000 shares).
-        hubVault.setCumulativeIncome(address(usdc), 1000e6 + 2100e6);
-        vault.recognizeHubIncome();
+        // The 2,100 generated before Bruno's entry is collected after it: shared pro rata (10,000 / 11,000).
+        hubVault.forwardIncome(address(usdc), 2100e6);
         assertApproxEqAbs(vault.attributedIncome(ana, address(usdc)), 2000e6, 2);
         assertApproxEqAbs(vault.attributedIncome(bruno, address(usdc)), 1100e6, 2);
     }
@@ -173,9 +178,7 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         c.incomeTokens[1] = address(mal);
         _deploy(_mandate(2000), c);
         _deposit(alice, 10_000e6);
-        hubVault.setCumulativeIncome(address(mal), 100e18);
-        vault.recognizeHubIncome();
-        hubVault.forwardIncome(address(mal), 100e18); // 80 to Alice, 20 owed as fees
+        hubVault.forwardIncome(address(mal), 100e18); // 80 to Alice, 20 of fees transferred out at once
         assertApproxEqAbs(vault.attributedIncome(alice, address(mal)), 80e18, 1);
     }
 
@@ -186,7 +189,7 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         vm.expectRevert(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector);
         vault.withdrawIncome(address(mal));
         assertApproxEqAbs(vault.attributedIncome(alice, address(mal)), 80e18, 1, "nothing was taken");
-        assertEq(vault.collectedIncome(address(mal)), 100e18);
+        assertEq(vault.collectedIncome(address(mal)), 80e18);
     }
 
     function test_Reentrancy_incomeTokenReenteringDepositDuringFullBurnIsRefused() public {
@@ -220,12 +223,13 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         bobRequest = bound(bobRequest, 1e6, 20_000e6);
         _request(bob, bobRequest, ICoreVault.PayoutMode.Standard);
         uint256 reserve = vault.payoutReserve();
-        assertEq(reserve, bobRequest < 14_950e6 ? bobRequest : 14_950e6);
+        // FV-OQ-1 reading (final verification): bounded by Bob's 9,975 shares at 1.00, below Free Idle (14,950).
+        assertEq(reserve, bobRequest < 9975e6 ? bobRequest : 9975e6);
 
         // The hub position moves the Share Price anywhere between 0.5x and 2x before Alice claims.
         hubVault.setPosition(address(usdc), bound(positionPrincipal, 0, 20_000e6));
         hubVault.setUnwindMode(MockHubSpokeVault.UnwindMode.Reverts); // Idle only, DEC-068 partial if short
-        aliceRequest = bound(aliceRequest, 1e6, 20_000e6);
+        aliceRequest = bound(aliceRequest, 2e6, 20_000e6); // at least one share up to 1.75 (DEC-035 spirit)
         _request(alice, aliceRequest, ICoreVault.PayoutMode.Instant);
         vm.prank(alice);
         try vault.claimPayout("") returns (ICoreVault.PayoutReceipt memory r) {

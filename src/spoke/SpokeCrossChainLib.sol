@@ -58,8 +58,15 @@ library SpokeCrossChainLib {
     }
 
     /// @notice Pulls an expired send's refund from its escrow back into the bucket the send debited.
-    /// @dev DEC-066, QA6: only after the fill deadline. DEC-080: at most `amountSent` is credited; anything else the
-    ///      escrow held stays outside the ledger and is swept as excess.
+    /// @dev DEC-066, QA6: only after the fill deadline. DEC-063 (docs/DECISIONS.md, Across expired-deposit refund):
+    ///      Across refunds the full `inputAmount` to the depositor, so an escrow holding less than `amountSent` holds
+    ///      no refund yet: nothing changes (`NoRefund`), the transit stays Sent and in flight, and whatever the escrow
+    ///      holds waits there until the real refund lands and everything is released together (final verification,
+    ///      the same guard as `CoreVaultLogic.recognizeRefund` on the hub, CV-OQ-6). The escrow balance is only a
+    ///      sufficiency check, never a value base (DEC-080): exactly `amountSent` is credited, and anything above it
+    ///      (a donation) reaches the vault unledgered and only `sweepExcess` moves it (DEC-101). Checks-effects-
+    ///      interactions: the transit is marked refunded, leaves the in-flight list and is credited before the escrow
+    ///      is released (Spoke Vault verifier finding); the vault's balance delta must equal what the escrow held.
     function recognizeRefund(SpokeVaultTypes.State storage s, address baseToken, bytes32 transitId)
         external
         returns (uint256 amount)
@@ -67,14 +74,20 @@ library SpokeCrossChainLib {
         Transit storage t = s.hubBoundTransits[transitId];
         if (t.state != TransitState.Sent) revert ISpokeVault.UnknownTransit(transitId);
         if (block.timestamp <= t.fillDeadline) revert ISpokeVault.FillDeadlineNotReached(transitId, t.fillDeadline);
-        uint256 released = ITransitEscrow(t.escrow).release(address(this));
-        if (released == 0) revert ISpokeVault.NoRefund(transitId);
-        amount = Math.min(released, t.amountSent);
+        address escrow = t.escrow;
+        IERC20 token = IERC20(baseToken);
+        uint256 held = token.balanceOf(escrow);
+        amount = t.amountSent;
+        if (held < amount) revert ISpokeVault.NoRefund(transitId);
         t.state = TransitState.RefundRecognized;
         _removeInFlight(s, transitId);
         if (t.kind == TransferKind.Principal) s.unallocated[baseToken] += amount;
         else s.collectedIncome[baseToken] += amount;
         emit ISpokeVault.TransitRefundRecognized(transitId, amount);
+        uint256 before = token.balanceOf(address(this));
+        ITransitEscrow(escrow).release(address(this));
+        uint256 received = token.balanceOf(address(this)) - before;
+        if (received != held) revert SpokeVaultTypes.RefundReleaseMismatch(held, received);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -124,15 +137,19 @@ library SpokeCrossChainLib {
         r.blockNumber = uint64(block.number);
         r.timestamp = uint64(block.timestamp);
 
-        // DEC-055, DEC-080: Unallocated Balance from the ledger, never balanceOf; every ledger token is listed.
+        // DEC-055, DEC-080: Unallocated Balance from the ledger, never balanceOf; every ledger token is listed. The
+        // collected income bucket and Operating Cash travel for the hub's Gross Assets (DEC-092, DEC-096, DEC-098).
         uint256 n = s.tokens.length;
         r.unallocated = new ReportCodec.TokenAmount[](n);
         r.cumulativeIncome = new ReportCodec.TokenAmount[](n);
+        r.collectedIncome = new ReportCodec.TokenAmount[](n);
         for (uint256 i; i < n; ++i) {
             address token = s.tokens[i];
             r.unallocated[i] = ReportCodec.TokenAmount(token, s.unallocated[token]);
             r.cumulativeIncome[i] = ReportCodec.TokenAmount(token, cumulativeIncome(s, token));
+            r.collectedIncome[i] = ReportCodec.TokenAmount(token, s.collectedIncome[token]);
         }
+        r.operatingCash = s.operatingCash;
 
         // DEC-079: principal and income separated, as each adapter reads its protocol.
         n = s.positions.length;
@@ -146,7 +163,8 @@ library SpokeCrossChainLib {
         r.cumulativeReceived = s.cumulativeReceived;
         r.cumulativeSentHome = s.cumulativeSentHome;
 
-        // OQ-09 stance: the last ARRIVAL_WINDOW distinct arrival ids, oldest first, with the amount credited.
+        // OQ-09 stance: the last ARRIVAL_WINDOW listed arrival ids (credited total at least MIN_LISTED_ARRIVAL), oldest
+        // first, with the amount credited.
         uint256 count = s.arrivalCount;
         n = Math.min(count, SpokeVaultTypes.ARRIVAL_WINDOW);
         r.arrivedTransits = new ReportCodec.TransitAmount[](n);
@@ -155,14 +173,17 @@ library SpokeCrossChainLib {
             r.arrivedTransits[i] = ReportCodec.TransitAmount(id, s.arrivals[id]);
         }
 
-        // DEC-085: every hub-bound transit still in flight, at the amount that will arrive.
+        // DEC-085: every hub-bound transit still in flight, at the amount that will arrive, with its kind (CV-OQ-1,
+        // DEC-092: the hub keeps Income in flight out of Share Assets).
         n = s.inFlightIds.length;
-        ReportCodec.TransitAmount[] memory inFlight = new ReportCodec.TransitAmount[](n);
+        ReportCodec.HubBoundAmount[] memory inFlight = new ReportCodec.HubBoundAmount[](n);
         uint256 found;
         for (uint256 i; i < n; ++i) {
             bytes32 id = s.inFlightIds[i];
             Transit storage t = s.hubBoundTransits[id];
-            if (_stillInFlight(t, c.maxReportAge)) inFlight[found++] = ReportCodec.TransitAmount(id, t.amountToArrive);
+            if (_stillInFlight(t, c.maxReportAge)) {
+                inFlight[found++] = ReportCodec.HubBoundAmount(id, t.amountToArrive, t.kind);
+            }
         }
         assembly ("memory-safe") {
             mstore(inFlight, found)

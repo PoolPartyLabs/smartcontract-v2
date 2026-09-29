@@ -47,6 +47,16 @@ contract TransitEscrowTest is Test {
         escrow.initialize(address(1), address(2));
     }
 
+    function test_DEC066_cloneRejectsZeroVaultOrToken() public {
+        ITransitEscrow escrow = ITransitEscrow(Clones.clone(address(implementation)));
+        vm.expectRevert(ITransitEscrow.ZeroAddress.selector);
+        escrow.initialize(address(0), address(token));
+        vm.expectRevert(ITransitEscrow.ZeroAddress.selector);
+        escrow.initialize(vault, address(0));
+        escrow.initialize(vault, address(token));
+        assertEq(escrow.vault(), vault);
+    }
+
     function test_DEC066_implementationCannotBeInitialized() public {
         vm.expectRevert(ITransitEscrow.AlreadyInitialized.selector);
         implementation.initialize(vault, address(token));

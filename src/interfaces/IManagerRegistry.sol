@@ -19,6 +19,9 @@ interface IManagerRegistry {
     /// @notice Zero manager address.
     error ZeroManager();
 
+    /// @notice The registry's writer cannot be renounced (LC-142: a global registry read at every charge).
+    error RenounceDisabled();
+
     /// @notice Default protocol slice, in bps of the manager fee (DEC-106): 5,000.
     function DEFAULT_PROTOCOL_SLICE_BPS() external view returns (uint16);
 

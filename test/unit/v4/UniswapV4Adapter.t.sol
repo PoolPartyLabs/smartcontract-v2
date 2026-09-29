@@ -158,7 +158,7 @@ contract UniswapV4AdapterTest is Test {
         vm.stopPrank();
     }
 
-    function test_unlockCallbackIsPoolManagerOnly() public {
+    function test_DEC058_unlockCallbackIsPoolManagerOnly() public {
         vm.expectRevert(abi.encodeWithSelector(UniswapV4Adapter.NotPoolManager.selector, stranger));
         vm.prank(stranger);
         adapter.unlockCallback("");
@@ -259,7 +259,7 @@ contract UniswapV4AdapterTest is Test {
         vault.open(poolId, address(token0), 0, address(token1), 0, abi.encode(p));
     }
 
-    function test_openRevertsAfterDeadline() public {
+    function test_DEC079_openRevertsAfterDeadline() public {
         UniswapV4Adapter.OpenParams memory p = _open_(LIQUIDITY);
         p.deadline = block.timestamp - 1;
         vm.expectRevert(abi.encodeWithSelector(MockV4.DeadlinePassed.selector, p.deadline));
@@ -455,6 +455,49 @@ contract UniswapV4AdapterTest is Test {
     // ------------------------------------------------------------------ swap
 
     /// OQ-04: swap in a registered pool sends the output to the vault.
+    /// Final verification (DEC-069, DEC-081, QA3 OPEN): the vault sizes an unwind step through the adapter. The exit
+    /// removes ceil(liquidity * numerator / denominator), with no minimums and the current block as deadline; only the
+    /// whole liquidity is a close.
+    function test_DEC069_unwindExitParamsSizeTheShareAndCloseOnlyTheWhole() public {
+        bytes32 positionKey = _open();
+        (bool close, bytes memory params) = adapter.unwindExitParams(positionKey, 1, 4);
+        assertFalse(close);
+        assertEq(params, _decreaseParams(LIQUIDITY / 4));
+        (close, params) = adapter.unwindExitParams(positionKey, 1, 3);
+        assertFalse(close);
+        assertEq(params, _decreaseParams(LIQUIDITY / 3 + 1), "rounded up");
+        vault.decrease(positionKey, params);
+        assertEq(adapter.positionValue(positionKey).liquidity, LIQUIDITY - LIQUIDITY / 3 - 1);
+
+        (close, params) = adapter.unwindExitParams(positionKey, 7, 7);
+        assertTrue(close);
+        assertEq(params, _closeParams());
+        vault.close(positionKey, params);
+        vm.expectRevert(abi.encodeWithSelector(IAdapter.UnknownPosition.selector, positionKey));
+        adapter.unwindExitParams(positionKey, 1, 2);
+    }
+
+    /// Final verification (QA3 OPEN): the spot quote is the slot0 price with no fee or impact, in both directions.
+    function test_QA3_spotQuoteReadsSlot0BothWays() public {
+        assertEq(adapter.spotQuote(poolId, address(token0), 1e18), 1e18, "tick 0 is 1:1");
+        v4.setTick(poolId, 6932); // about 2 token1 per token0
+        uint256 out = adapter.spotQuote(poolId, address(token0), 1e18);
+        assertApproxEqRel(out, 2e18, 1e14);
+        assertApproxEqRel(adapter.spotQuote(poolId, address(token1), out), 1e18, 1e14);
+        vm.expectRevert(abi.encodeWithSelector(UniswapV4Adapter.TokenNotInPool.selector, stranger));
+        adapter.spotQuote(poolId, stranger, 1e18);
+        vm.expectRevert(abi.encodeWithSelector(IAdapter.UnknownPool.selector, hookedId));
+        adapter.spotQuote(hookedId, address(token0), 1e18);
+    }
+
+    /// Final verification: empty swap params mean no price limit and the current block as deadline, so the vault's
+    /// automatic unwind can swap without a claimant hint.
+    function test_OQ04_swapWithEmptyParamsUsesDefaults() public {
+        v4.setSwap(2e18, 10_000);
+        assertEq(vault.swap(poolId, address(token0), 1e18, 2e18, ""), 2e18);
+        _assertAdapterHoldsNothing();
+    }
+
     function test_OQ04_swapSendsOutputToVault() public {
         v4.setSwap(2e18, 10_000);
         uint256 before1 = token1.balanceOf(address(vault));
@@ -466,6 +509,16 @@ contract UniswapV4AdapterTest is Test {
         uint256 before0 = token0.balanceOf(address(vault));
         out = vault.swap(poolId, address(token1), 1e18, 0, _swapParams());
         assertEq(token0.balanceOf(address(vault)) - before0, out);
+    }
+
+    /// IAdapter custody (Uniswap V4 verifier finding): input already sitting in the adapter goes back to the vault.
+    function test_DEC080_swapHandsBackAnySurplusInput() public {
+        v4.setSwap(2e18, 10_000);
+        token0.mint(address(adapter), 3); // dust a stranger left in the adapter
+        uint256 before0 = token0.balanceOf(address(vault));
+        vault.swap(poolId, address(token0), 1e18, 0, _swapParams());
+        assertEq(token0.balanceOf(address(vault)), before0 - 1e18 + 3, "the surplus came back, unreported");
+        _assertAdapterHoldsNothing();
     }
 
     function test_OQ04_swapRevertsBelowMinimumOutput() public {

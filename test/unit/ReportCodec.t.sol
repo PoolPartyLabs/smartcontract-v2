@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {TransferKind} from "../../src/interfaces/FundTypes.sol";
 import {ReportCodec} from "../../src/libraries/ReportCodec.sol";
 
 contract ReportCodecHarness {
@@ -51,12 +52,15 @@ contract ReportCodecTest is Test {
         });
         r.cumulativeIncome = new ReportCodec.TokenAmount[](1);
         r.cumulativeIncome[0] = ReportCodec.TokenAmount(address(0x5fc5), 42e6);
+        r.collectedIncome = new ReportCodec.TokenAmount[](1);
+        r.collectedIncome[0] = ReportCodec.TokenAmount(address(0x5fc5), 7e6);
+        r.operatingCash = 10e6;
         r.cumulativeReceived = 10_000e6;
         r.cumulativeSentHome = 1000e6;
         r.arrivedTransits = new ReportCodec.TransitAmount[](1);
         r.arrivedTransits[0] = ReportCodec.TransitAmount(keccak256("t1"), 9994e6);
-        r.inFlightToHub = new ReportCodec.TransitAmount[](1);
-        r.inFlightToHub[0] = ReportCodec.TransitAmount(keccak256("t2"), 999e6);
+        r.inFlightToHub = new ReportCodec.HubBoundAmount[](1);
+        r.inFlightToHub[0] = ReportCodec.HubBoundAmount(keccak256("t2"), 999e6, TransferKind.Income);
     }
 
     function _assertSame(ReportCodec.Report memory a, ReportCodec.Report memory b) internal pure {
@@ -71,6 +75,7 @@ contract ReportCodecTest is Test {
         _assertSame(r, d);
         assertEq(d.positions[0].tickLower, -887_220);
         assertEq(d.inFlightToHub[0].amount, 999e6);
+        assertEq(uint8(d.inFlightToHub[0].kind), uint8(TransferKind.Income), "CV-OQ-1: the kind travels");
     }
 
     function test_DEC093_roundTripOfEmptyReport() public view {
@@ -80,8 +85,11 @@ contract ReportCodecTest is Test {
 
     /// Q57: the payload is versioned; an unknown version is rejected before decoding.
     function test_Q57_unknownVersionReverts() public {
-        bytes memory payload = abi.encode(uint256(2), _sample());
-        vm.expectRevert(abi.encodeWithSelector(ReportCodec.UnsupportedReportVersion.selector, 2));
+        bytes memory payload = abi.encode(uint256(1), _sample());
+        vm.expectRevert(abi.encodeWithSelector(ReportCodec.UnsupportedReportVersion.selector, 1));
+        h.decode(payload);
+        payload = abi.encode(uint256(3), _sample());
+        vm.expectRevert(abi.encodeWithSelector(ReportCodec.UnsupportedReportVersion.selector, 3));
         h.decode(payload);
         payload = abi.encode(uint256(0), _sample());
         vm.expectRevert(abi.encodeWithSelector(ReportCodec.UnsupportedReportVersion.selector, 0));
@@ -95,7 +103,7 @@ contract ReportCodecTest is Test {
 
     function test_Q57_malformedBodyReverts() public {
         // Correct version word, truncated body.
-        bytes memory payload = abi.encodePacked(uint256(1), uint256(64));
+        bytes memory payload = abi.encodePacked(ReportCodec.VERSION, uint256(64));
         vm.expectRevert();
         h.decode(payload);
     }
@@ -119,8 +127,10 @@ contract ReportCodecTest is Test {
         r.cumulativeSentHome = uint256(keccak256(abi.encode(seed, "sent")));
         r.unallocated = _tokenAmounts(seed, nUnallocated % 8, "unallocated");
         r.cumulativeIncome = _tokenAmounts(seed, nIncome % 8, "income");
+        r.collectedIncome = _tokenAmounts(seed, nIncome % 5, "collected");
+        r.operatingCash = seed >> 32;
         r.arrivedTransits = _transitAmounts(seed, nArrived % 8, "arrived");
-        r.inFlightToHub = _transitAmounts(seed, nInFlight % 8, "inflight");
+        r.inFlightToHub = _hubBoundAmounts(seed, nInFlight % 8, "inflight");
         r.positions = new ReportCodec.PositionReport[](nPositions % 6);
         for (uint256 i; i < r.positions.length; ++i) {
             uint256 x = uint256(keccak256(abi.encode(seed, "position", i)));
@@ -163,6 +173,18 @@ contract ReportCodecTest is Test {
         for (uint256 i; i < n; ++i) {
             uint256 x = uint256(keccak256(abi.encode(seed, tag, i)));
             out[i] = ReportCodec.TransitAmount(bytes32(x), x >> 3);
+        }
+    }
+
+    function _hubBoundAmounts(uint256 seed, uint256 n, string memory tag)
+        internal
+        pure
+        returns (ReportCodec.HubBoundAmount[] memory out)
+    {
+        out = new ReportCodec.HubBoundAmount[](n);
+        for (uint256 i; i < n; ++i) {
+            uint256 x = uint256(keccak256(abi.encode(seed, tag, i)));
+            out[i] = ReportCodec.HubBoundAmount(bytes32(x), x >> 3, TransferKind(x % 2));
         }
     }
 }

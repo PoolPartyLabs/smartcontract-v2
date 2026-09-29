@@ -313,6 +313,30 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         assertEq(vault.collectedIncome(address(usdg)), 5e6);
     }
 
+    /// @dev DEC-056, DEC-068 (final verification): an adapter that keeps the key open after a close (income the
+    ///      protocol could not pay yet) keeps the position registered, so its income stays reported and collectable;
+    ///      the next close that empties it removes it.
+    function test_DEC068_closeKeptOpenByTheAdapterStaysRegistered() public {
+        _disableOperatingCash();
+        bytes32 key = _openSpokePosition(0.2e18, 200e6, 10_000);
+        _earnIncome(spokeUni, key, 0, 4e6);
+        spokeUni.setKeepKeyOnClose(true);
+        uint256 usdgBefore = vault.unallocatedBalance(address(usdg));
+        vm.expectEmit(address(vault));
+        emit ISpokeVault.PositionDecreased(address(spokeUni), key, IAdapter.Amounts(0.2e18, 200e6, 0, 0));
+        vm.prank(manager);
+        vault.closePosition(address(spokeUni), key, "");
+        assertEq(vault.unallocatedBalance(address(usdg)), usdgBefore + 200e6, "the principal left");
+        assertEq(vault.positions().length, 1, "still registered while the adapter lists it");
+        assertEq(vault.buildReport().positions[0].income1, 4e6, "its pending income is still reported");
+
+        spokeUni.setKeepKeyOnClose(false);
+        vm.prank(manager);
+        vault.closePosition(address(spokeUni), key, "");
+        assertEq(vault.positions().length, 0);
+        assertEq(vault.collectedIncome(address(usdg)), 4e6);
+    }
+
     function test_DEC079_swapCreditsWhatTheAdapterReturns() public {
         _disableOperatingCash();
         _arrive(1000e6, ARRIVAL, TransferKind.Principal);
@@ -390,17 +414,22 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
     // Operating Cash (DEC-041, DEC-096, DEC-100)
     // ---------------------------------------------------------------------------------------------------------------
 
-    function test_DEC096_belowFloorNextOperationTopsUpFromUnallocated() public {
-        _arrive(100e6, ARRIVAL, TransferKind.Principal);
-        assertEq(vault.operatingCash(), 0, "an arrival alone does not top up");
-        _fundSwap(address(weth), 1e18, 1e18, 2000e6);
-
+    function test_DEC096_arrivalIsAnOperationThatTopsUpFromUnallocated() public {
+        // Spoke Vault verifier finding: an arrival moves value, so it tops up like every other operation.
+        usdg.mint(address(spokePool), 100e6);
         vm.expectEmit(address(vault));
         emit ISpokeVault.OperatingCashToppedUp(SPOKE_TOP_UP, SPOKE_TOP_UP);
         vm.expectEmit(address(vault));
         emit ISpokeVault.OperatingExpensePaid(
             SPOKE, address(0), vault.OPERATING_CASH_TOP_UP(), SPOKE_TOP_UP, ExpensePayer.ShareAssets
         );
+        spokePool.fill(
+            address(vault), address(usdg), 100e6, TransitMessage.encode(FUND_ID, HUB, ARRIVAL, TransferKind.Principal)
+        );
+        assertEq(vault.operatingCash(), SPOKE_TOP_UP);
+
+        // At the floor again: the next operation does not top up.
+        _fundSwap(address(weth), 1e18, 1e18, 2000e6);
         vm.prank(manager);
         vault.swapExactInput(address(spokeUni), SPOKE_POOL, address(usdg), 20e6, 0, "");
 
@@ -482,6 +511,7 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
     }
 
     function test_DEC090_principalArrivalCreditsUnallocatedAndRecordsId() public {
+        _disableOperatingCash();
         assertFalse(vault.hasArrived(ARRIVAL));
         usdg.mint(address(spokePool), 250e6);
         vm.expectEmit(address(vault));
@@ -505,7 +535,15 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         assertEq(vault.collectedIncome(address(usdg)), 9e6);
         assertEq(vault.unallocatedBalance(address(usdg)), 0);
         assertEq(vault.cumulativeReceived(), 0);
-        assertTrue(vault.hasArrived(ARRIVAL));
+    }
+
+    /// @dev OQ-09, OQ-01, DEC-085: the hub only sends Principal, so an Income-kind message carrying a transit id is
+    ///      credited to the collected income bucket but never feeds the per-id total or the report's listing.
+    function test_OQ09_incomeArrivalIsNeitherCountedPerIdNorListed() public {
+        _arrive(9e6, ARRIVAL, TransferKind.Income);
+        assertFalse(vault.hasArrived(ARRIVAL));
+        assertEq(vault.arrivals(ARRIVAL), 0);
+        assertEq(vault.buildReport().arrivedTransits.length, 0);
     }
 
     function test_OQ09_repeatedArrivalIdAddsAndIsListedOnce() public {
@@ -517,16 +555,33 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         assertEq(r.arrivedTransits[0].amount, 3e6);
     }
 
-    function test_OQ09_reportCarriesLast64ArrivalsAndCumulativeReceived() public {
-        for (uint256 i; i < 70; ++i) {
+    function test_OQ09_reportCarriesLast256ArrivalsAndCumulativeReceived() public {
+        for (uint256 i; i < 262; ++i) {
             _arrive(1e6, bytes32(i + 1), TransferKind.Principal);
         }
         ReportCodec.Report memory r = vault.buildReport();
-        assertEq(r.arrivedTransits.length, 64);
+        assertEq(r.arrivedTransits.length, 256);
         assertEq(r.arrivedTransits[0].transitId, bytes32(uint256(7)));
-        assertEq(r.arrivedTransits[63].transitId, bytes32(uint256(70)));
-        assertEq(r.cumulativeReceived, 70e6);
+        assertEq(r.arrivedTransits[255].transitId, bytes32(uint256(262)));
+        assertEq(r.cumulativeReceived, 262e6);
         assertTrue(vault.hasArrived(bytes32(uint256(1))));
+    }
+
+    function test_OQ09_spokeWindowEqualsTheWindowTheHubReads() public pure {
+        assertEq(SpokeVaultTypes.ARRIVAL_WINDOW, ReportCodec.ARRIVAL_WINDOW);
+    }
+
+    function test_OQ09_idIsListedOnceItsCreditedTotalReachesTheMinimum() public {
+        _disableOperatingCash();
+        _arrive(0.4e6, ARRIVAL, TransferKind.Principal);
+        assertEq(vault.buildReport().arrivedTransits.length, 0, "below 1 USDG: credited, not listed");
+        assertEq(vault.unallocatedBalance(address(usdg)), 0.4e6);
+        _arrive(0.6e6, ARRIVAL, TransferKind.Principal);
+        ReportCodec.Report memory r = vault.buildReport();
+        assertEq(r.arrivedTransits.length, 1, "listed when the total reaches 1 USDG");
+        assertEq(r.arrivedTransits[0].amount, 1e6);
+        _arrive(5e6, ARRIVAL, TransferKind.Principal);
+        assertEq(vault.buildReport().arrivedTransits.length, 1, "and only once");
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -578,6 +633,7 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         assertEq(r.inFlightToHub.length, 1);
         assertEq(r.inFlightToHub[0].transitId, id);
         assertEq(r.inFlightToHub[0].amount, 499e6);
+        assertEq(uint8(r.inFlightToHub[0].kind), uint8(TransferKind.Principal), "CV-OQ-1: the kind is reported");
         assertEq(r.cumulativeSentHome, 500e6);
     }
 
@@ -674,6 +730,69 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         (,,, TransferKind kind) = TransitMessage.decode(spokePool.deposit(0).message);
         assertEq(uint8(kind), uint8(TransferKind.Income));
         assertEq(uint8(vault.hubBoundTransit(id).kind), uint8(TransferKind.Income));
+        // CV-OQ-1: the report tells the hub it is income, so the hub keeps it out of Share Assets (DEC-092).
+        assertEq(uint8(vault.buildReport().inFlightToHub[0].kind), uint8(TransferKind.Income));
+    }
+
+    function test_DEC098_reportCarriesCollectedIncomeAndOperatingCash() public {
+        _arrive(100e6, ARRIVAL, TransferKind.Principal); // tops Operating Cash up by 10 (DEC-096)
+        _arrive(7e6, keccak256("income"), TransferKind.Income);
+        ReportCodec.Report memory r = vault.buildReport();
+        assertEq(r.operatingCash, SPOKE_TOP_UP);
+        assertEq(r.collectedIncome[0].token, address(usdg));
+        assertEq(r.collectedIncome[0].amount, 7e6);
+        assertEq(r.unallocated[0].amount, 90e6, "neither is in Unallocated Balance");
+    }
+
+    function test_CVOQ2_wethIncomeSwappedIntoBaseTokenThenSentHomeAsIncome() public {
+        _disableOperatingCash();
+        bytes32 key = _openSpokePosition(0.2e18, 200e6, 10_000);
+        _earnIncome(spokeUni, key, 0.01e18, 0);
+        vm.prank(manager);
+        vault.collectIncome(address(spokeUni), key);
+        assertEq(vault.collectedIncome(address(weth)), 0.01e18);
+        uint256 unallocatedUsdg = vault.unallocatedBalance(address(usdg));
+        uint256 unallocatedWeth = vault.unallocatedBalance(address(weth));
+
+        _fundSwap(address(usdg), 100e6, 2000e6, 1e18); // 2,000 USDG per WETH
+        vm.expectEmit(address(vault));
+        emit ISpokeVault.IncomeSwapped(address(spokeUni), SPOKE_POOL, address(weth), address(usdg), 0.01e18, 20e6);
+        vm.prank(manager);
+        uint256 out = vault.swapCollectedIncome(address(spokeUni), SPOKE_POOL, address(weth), 0.01e18, 20e6, "");
+        assertEq(out, 20e6);
+        // DEC-092: the swap stays inside the collected income bucket.
+        assertEq(vault.collectedIncome(address(weth)), 0);
+        assertEq(vault.collectedIncome(address(usdg)), 20e6);
+        assertEq(vault.unallocatedBalance(address(usdg)), unallocatedUsdg);
+        assertEq(vault.unallocatedBalance(address(weth)), unallocatedWeth);
+
+        vm.prank(manager);
+        bytes32 id = vault.sendToHub(20e6, TransferKind.Income, 0, _quote(20e6));
+        assertEq(uint8(vault.hubBoundTransit(id).kind), uint8(TransferKind.Income));
+        assertEq(vault.hubBoundTransit(id).outputToken, address(usdc), "lands on the hub as USDC");
+        assertEq(vault.collectedIncome(address(usdg)), 0);
+    }
+
+    function test_CVOQ2_swapCollectedIncomeOnlyFromIncomeIntoTheBaseToken() public {
+        _disableOperatingCash();
+        _arrive(100e6, ARRIVAL, TransferKind.Principal);
+        _arrive(50e6, keccak256("income"), TransferKind.Income);
+        _fundSwap(address(weth), 1e18, 1e18, 2000e6);
+        vm.startPrank(manager);
+        // The output must be the base token: USDG income cannot be swapped into WETH.
+        vm.expectRevert(abi.encodeWithSelector(ISpokeVault.UnexpectedToken.selector, address(usdg)));
+        vault.swapCollectedIncome(address(spokeUni), SPOKE_POOL, address(usdg), 10e6, 0, "");
+        // Only the collected income bucket is spent, never Unallocated Balance.
+        vm.expectRevert(abi.encodeWithSelector(ISpokeVault.InsufficientCollectedIncome.selector, address(weth), 0, 1));
+        vault.swapCollectedIncome(address(spokeUni), SPOKE_POOL, address(weth), 1, 0, "");
+        vm.stopPrank();
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(ISpokeVault.NotManager.selector, stranger));
+        vault.swapCollectedIncome(address(spokeUni), SPOKE_POOL, address(weth), 1, 0, "");
+        _deployHub();
+        vm.prank(manager);
+        vm.expectRevert(ISpokeVault.NotOnSpokeChain.selector);
+        vault.swapCollectedIncome(address(hubUni), HUB_POOL, address(weth), 1, 0, "");
     }
 
     function test_DEC080_sendAboveUnallocatedReverts() public {

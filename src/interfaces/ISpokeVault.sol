@@ -55,6 +55,16 @@ interface ISpokeVault is IAcrossMessageHandler {
         uint256 amountOut
     );
 
+    /// @notice Collected income was swapped into the base token inside the collected income bucket (CV-OQ-2).
+    event IncomeSwapped(
+        address indexed adapter,
+        bytes32 indexed poolKey,
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        uint256 amountOut
+    );
+
     /// @notice A bridge transfer arrived through `handleV3AcrossMessage` and was credited (DEC-090).
     event TransitArrived(
         bytes32 indexed transitId, uint256 indexed originChainId, address token, uint256 amount, TransferKind kind
@@ -205,6 +215,26 @@ interface ISpokeVault is IAcrossMessageHandler {
         bytes calldata params
     ) external returns (uint256 amountOut);
 
+    /// @notice Swaps collected income of `tokenIn` into the base token through a Mandate pool, inside the collected
+    ///         income bucket. Manager only; Spoke Chains only.
+    /// @dev CV-OQ-2 / Q60 (spoke income tokens) and ruling 2026-09-29: spoke income can only be attributed once it
+    ///      reaches the Core Vault, and it can only get there as USDC through the Transport Route (DEC-031, DEC-055),
+    ///      so income collected in another token (WETH fees) is first swapped into the spoke's base token and then
+    ///      sent with `sendToHub(..., Income, ...)`. Debits and credits the collected income bucket only, never
+    ///      Unallocated Balance (DEC-092); the output must be the base token. The Market Costs of the swap are borne by
+    ///      the income (LC-45 / LC-141 OPEN). The fee is split on the hub when the USDC arrives (DEC-107), so this swap
+    ///      happens before any fee is taken; DEC-109's "no swap by the contract" applies to the fee payment, which
+    ///      stays in kind on the hub. `minAmountOut` bounds slippage; the adapter's own rules apply (OQ-04: blocked
+    ///      when deprecated, never when paused).
+    function swapCollectedIncome(
+        address adapter,
+        bytes32 poolKey,
+        address tokenIn,
+        uint256 amountIn,
+        uint256 minAmountOut,
+        bytes calldata params
+    ) external returns (uint256 amountOut);
+
     /// @notice Sets the Operating Cash floor and top-up of this chain. Manager only (DEC-096; no protocol cap on the
     ///         floor, DEC-100).
     function setOperatingCashParameters(uint256 floor, uint256 topUp) external;
@@ -217,8 +247,11 @@ interface ISpokeVault is IAcrossMessageHandler {
     ///         only; Spoke Chains only.
     /// @dev The vault fixes the recipient (the Core Vault), the token pair (base token to hub USDC) and the message
     ///      (TransitMessage) and rejects a quote whose fee exceeds `maxBridgeFeeBps` (DEC-087, QA19). `Principal`
-    ///      debits Unallocated Balance; `Income` debits the collected income bucket (who pays bridging of income is
-    ///      OPEN, LC-22 / LC-37 / LC-49). A per-send TransitEscrow is the depositor (DEC-066, QA6). The exit path is
+    ///      debits Unallocated Balance; `Income` debits the collected income bucket of the base token (who pays
+    ///      bridging of income is OPEN, LC-22 / LC-37 / LC-49). Every send is in the base token (the spoke token, USDG
+    ///      on Robinhood Chain) and lands on the hub as USDC (CV-OQ-2): an `Income` send is credited on the hub as
+    ///      collected USDC income and split there (ruling 2026-09-29, DEC-107); income collected in another token is
+    ///      first turned into the base token with `swapCollectedIncome`. A per-send TransitEscrow is the depositor (DEC-066, QA6). The exit path is
     ///      never blocked by the bridge adapter's pause or deprecation (DEC-056). Custody: the vault executes the call
     ///      `IBridgeAdapter.buildSend` returns against the pinned target, with an exact approval reset to zero; the
     ///      adapter never holds the base token (DEC-087).
@@ -227,6 +260,11 @@ interface ISpokeVault is IAcrossMessageHandler {
         returns (bytes32 transitId);
 
     /// @notice Pulls an expired send's refund from its escrow back into the ledger. Permissionless.
+    /// @dev Only for a transit in state Sent after its fill deadline, and only once the escrow holds at least
+    ///      `amountSent` (DEC-063: Across refunds the full input amount; DEC-066, QA6); reverts `NoRefund` otherwise,
+    ///      and the transit stays Sent and in flight. Exactly `amountSent` is credited to the bucket the send debited;
+    ///      any surplus the escrow held is released too and is sweepable excess (DEC-080, DEC-101). Same guard as
+    ///      `ICoreVault.recognizeRefund` (CV-OQ-6).
     function recognizeRefund(bytes32 transitId) external returns (uint256 amount);
 
     /// @notice Builds the report and publishes it through Wormhole with finalized consistency. Permissionless; Spoke
@@ -240,8 +278,10 @@ interface ISpokeVault is IAcrossMessageHandler {
 
     /// @notice Across fill callback. Only the Across SpokePool; only the base token.
     /// @dev Decodes TransitMessage, rejects another fund's id, credits Unallocated Balance (Principal) or the collected
-    ///      income bucket (Income), records the arrival for the next report, and increases `cumulativeReceived`.
-    ///      Across passes no depositor, so an arrival is recorded as a claim that the hub confirms by transit id.
+    ///      income bucket (Income). A Principal arrival also increases `cumulativeReceived` and is recorded per transit
+    ///      id for the next report; an Income arrival is not, because the hub only ever sends Principal (DEC-085,
+    ///      OQ-09). Across passes no depositor, so an arrival is recorded as a claim that the hub confirms by transit id
+    ///      only when the listed total reaches the amount it expects to arrive (OQ-01, OQ-09).
     function handleV3AcrossMessage(address tokenSent, uint256 amount, address relayer, bytes memory message) external;
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -262,8 +302,13 @@ interface ISpokeVault is IAcrossMessageHandler {
     /// @notice Automatic unwind in Mandate order until `usdcTarget` USDC is available, then returns the USDC proceeds
     ///         to the Core Vault's Idle. Core Vault only; hub only.
     /// @dev DEC-069: Mandate unwind order; DEC-081: `usdcTarget` already includes the 2% margin; DEC-097: the margin's
-    ///      Market Costs are the fund's. Feedback question 2 (OPEN): the MVP unwinds hub positions only.
-    /// @param unwindHints Per-step parameters (minimum amounts, swap limits), ABI-encoded by the caller.
+    ///      Market Costs are the fund's. Feedback question 2 (OPEN): the MVP unwinds hub positions only. Final
+    ///      verification (QA3 OPEN): the vault sizes every step itself (the shortfall still needed against the
+    ///      position's principal value at the pool's spot price, closing a position only when its whole value is
+    ///      needed) and floors every swap's minimum output at the route's spot quote less `MAX_UNWIND_SLIPPAGE_BPS`.
+    /// @param unwindHints Optional `abi.encode(SpokeVaultTypes.UnwindHint[])` from the claimant: swap tightenings only
+    ///        (a higher minimum output, a price limit or deadline), never an exit size; a hint cannot widen what the
+    ///        vault would do on its own.
     /// @return usdcProceeds USDC returned to the Core Vault (may be below target: the payout is then partial,
     ///         DEC-068).
     function unwindForPayout(uint256 usdcTarget, bytes calldata unwindHints) external returns (uint256 usdcProceeds);
@@ -318,6 +363,6 @@ interface ISpokeVault is IAcrossMessageHandler {
     /// @notice A transfer this vault sent to the hub.
     function hubBoundTransit(bytes32 transitId) external view returns (Transit memory);
 
-    /// @notice Whether a hub-to-spoke transit id was credited here.
+    /// @notice Whether a Principal hub-to-spoke transit id was credited here (OQ-09: Income arrivals are not tracked).
     function hasArrived(bytes32 transitId) external view returns (bool);
 }

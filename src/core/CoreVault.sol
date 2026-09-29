@@ -18,6 +18,10 @@ import {CoreVaultLogic} from "./CoreVaultLogic.sol";
 /// @notice Hub Chain contract of a fund: custody of Idle USDC, the Share ledger, Payout Requests and Payouts, the
 ///         Attributed Income bucket and Income Withdrawal, sends to spokes and the transit state machine.
 /// @dev See ICoreVault for the rules of every verb. DEC-022, DEC-058: no proxy, no upgrade path, no selfdestruct.
+///      The value bases, report application, sends and transit outcomes live in the linked external library
+///      `CoreVaultLogic`, called by DELEGATECALL over this vault's storage: its address is part of the creation code
+///      and trust surface; the factory deploys it once per chain and pins it. It is the only DELEGATECALL the vault
+///      makes; the Core Vault never calls an adapter.
 ///      DEC-054: never calls an adapter; reads the hub Spoke Vault and the ValueReportReceiver. Every value-moving
 ///      external entry is `nonReentrant` (the two hub Spoke Vault callbacks are guarded as described in the base).
 contract CoreVault is CoreVaultTransit {
@@ -60,9 +64,9 @@ contract CoreVault is CoreVaultTransit {
         if (supply == 0 && usdcAmount < _minFirstDeposit) revert BelowMinFirstDeposit(usdcAmount, _minFirstDeposit);
         // DEC-096: Operating Cash top-up first, so the depositor enters at the post-expense price.
         _topUpOperatingCash();
-        // Q60: hub income is recognized before the checkpoint so the entrant gets none of it (DEC-014); Q57 reading: a
-        // mint reverts on a stale spoke report or a stale price.
-        (uint256 assets, NavConsolidation memory consolidation) = CoreVaultLogic.recognizeAndValue(_s, _wiring(), true);
+        // Q57 reading: a mint reverts on a stale spoke report or a stale price. DEC-014: the entrant's checkpoint below
+        // gives it no income collected before entry (ruling 2026-09-29: the index moves only at collection).
+        (uint256 assets, NavConsolidation memory consolidation) = CoreVaultLogic.recordValuation(_s, _wiring(), true);
         uint256 price = ShareMath.sharePrice(assets, supply);
         uint256 usdcForShares;
         uint256 fee;
@@ -88,17 +92,27 @@ contract CoreVault is CoreVaultTransit {
     // ---------------------------------------------------------------------------------------------------------------
 
     /// @inheritdoc ICoreVault
+    /// @dev Priced like a claim (payout liveness, DEC-021, DEC-056: a failing valuation dependency falls back to the
+    ///      last known value, never a revert on age, OQ-10), so the reserve bound and the one-share floor use the Share
+    ///      Price the holder would be paid at if the claim ran now.
     function requestPayout(uint256 usdcAmount, PayoutMode mode) external nonReentrant {
         if (usdcAmount == 0) revert ZeroAmount();
         PayoutRequest storage req = _s.requests[msg.sender];
         // DEC-024, DEC-046: one open request per address, never cancellable.
         if (req.open) revert PayoutRequestAlreadyOpen(msg.sender);
-        if (_sharesOf(msg.sender) == 0) revert NoShares(msg.sender);
+        uint256 balance = _sharesOf(msg.sender);
+        if (balance == 0) revert NoShares(msg.sender);
+        (uint256 assets,) = CoreVaultLogic.recordValuation(_s, _wiring(), false);
+        uint256 price = ShareMath.sharePrice(assets, _totalShares());
+        // DEC-035 spirit, DEC-077 (final verification): a request below one share's price could never burn a share.
+        if (ShareMath.sharesToBurn(usdcAmount, price) == 0) revert PayoutBelowOneShare(usdcAmount, price);
         uint256 reserved;
         uint64 termEndsAt = uint64(block.timestamp);
         if (mode == PayoutMode.Standard) {
-            // DEC-072, DEC-095: Standard reserves min(amount, Free Idle) as USDC and starts the term (DEC-060).
-            reserved = Math.min(usdcAmount, freeIdle());
+            // DEC-072, DEC-095: Standard reserves USDC and starts the term (DEC-060). OPEN reading (final verification,
+            // docs/OPEN-QUESTIONS.md FV-OQ-1): the reserve is bounded by the requester's share value now (DEC-020: the
+            // most a request can pay is the whole balance), so a small holder cannot lock Free Idle (DEC-017).
+            reserved = Math.min(Math.min(usdcAmount, ShareMath.usdcFor(balance, price)), freeIdle());
             _s.payoutReserve += reserved;
             termEndsAt += standardPayoutTerm;
         }
@@ -124,7 +138,8 @@ contract CoreVault is CoreVaultTransit {
     /// @dev OQ-07: a Standard Payout is claimable only after its term. Feedback question 2 (OPEN): the automatic unwind
     ///      reaches hub positions only (`ISpokeVault.unwindForPayout` on the hub Spoke Vault), so DEC-105 needs no new
     ///      spoke report (erratum 11 reading). Q57 reading: an Idle-paid payout never reverts on a stale report or
-    ///      price. LC-45 / LC-141: the fund bears the market cost of the unwind (flagged). LC-45 / LC-47: no Network
+    ///      price. Payout liveness (DEC-021, DEC-056): nor when the hub report read or a price read fails; the last
+    ///      known value is used with an event (CoreVaultLogic.recordValuation). LC-45 / LC-141: the fund bears the market cost of the unwind (flagged). LC-45 / LC-47: no Network
     ///      Costs are charged to the requester (flagged).
     function claimPayout(bytes calldata unwindHints) external nonReentrant returns (PayoutReceipt memory receipt) {
         PayoutRequest storage req = _s.requests[msg.sender];
@@ -146,7 +161,8 @@ contract CoreVault is CoreVaultTransit {
             // DEC-105: one Share Price for the whole request, read after the unwind.
             if (c.proceeds != 0) consolidation = _priceClaim(c, req);
         }
-        // A request whose outstanding amount is below one share's price closes with nothing burned (DEC-077).
+        // DEC-077: an outstanding amount below one share's price (after a Partial Payout, or a Share Price that rose
+        // since the request) closes the request with nothing burned; the receipt says so (`closedBelowOneShare`).
         c.shares = _sharesFor(c, req.usdcOutstanding);
         c.complete = true;
         if (c.wanted > c.available) {
@@ -160,13 +176,13 @@ contract CoreVault is CoreVaultTransit {
         else emit PartialPayoutExecuted(msg.sender, receipt, consolidation);
     }
 
-    /// @notice Recognizes hub income, prices the claim at the current Share Assets and sizes what it wants.
+    /// @notice Prices the claim at the current Share Assets and sizes what it wants.
     function _priceClaim(Claim memory c, PayoutRequest storage req)
         private
         returns (NavConsolidation memory consolidation)
     {
-        // Q60: the index is current before the burn's checkpoint.
-        (c.shareAssets, consolidation) = CoreVaultLogic.recognizeAndValue(_s, _wiring(), false);
+        // Payout liveness (DEC-021, DEC-056): a failing valuation dependency falls back to the last known value.
+        (c.shareAssets, consolidation) = CoreVaultLogic.recordValuation(_s, _wiring(), false);
         c.totalShares = _totalShares();
         c.price = ShareMath.sharePrice(c.shareAssets, c.totalShares);
         // DEC-077, DEC-020: floor(outstanding / price) whole shares, capped at the balance.
@@ -181,22 +197,15 @@ contract CoreVault is CoreVaultTransit {
     }
 
     /// @notice Runs the hub Spoke Vault's automatic unwind and credits what reached the Core Vault to Idle.
-    /// @dev The vault may credit through `returnToIdle` during the call, or transfer and report `usdcProceeds`; any part
-    ///      reported but not credited is credited only up to the USDC actually above the ledger (DEC-080). A reverting
-    ///      unwind never blocks the claim (DEC-056): the payout continues with Idle and may be partial (DEC-068).
+    /// @dev DEC-080 (Core Vault verifier finding): only what the hub Spoke Vault credits through `returnToIdle` during
+    ///      the call (itself backed by USDC above the ledger) reaches Idle; the amount it reports is informational, so
+    ///      no `balanceOf`-derived amount can reach a value base. A reverting unwind never blocks the claim (DEC-056):
+    ///      the payout continues with Idle and may be partial (DEC-068).
     function _unwindForPayout(uint256 target, bytes calldata hints) private returns (uint256 proceeds) {
         uint256 idleBefore = _s.idle;
         _unwinding = true;
-        try ISpokeVault(hubSpokeVault).unwindForPayout(target, hints) returns (uint256 reported) {
+        try ISpokeVault(hubSpokeVault).unwindForPayout(target, hints) {
             _unwinding = false;
-            uint256 credited = _s.idle - idleBefore;
-            if (reported > credited) {
-                uint256 extra = Math.min(reported - credited, _unledgered(usdc));
-                if (extra != 0) {
-                    _s.idle += extra;
-                    emit ReturnedToIdle(extra);
-                }
-            }
         } catch {
             _unwinding = false;
             emit UnwindForPayoutFailed(target);
@@ -219,6 +228,7 @@ contract CoreVault is CoreVaultTransit {
         r.shareAssets = c.shareAssets;
         r.totalShares = c.totalShares;
         r.unwindProceeds = c.proceeds;
+        r.closedBelowOneShare = c.complete && c.shares == 0;
         // DEC-084, DEC-105: recorded only, never used for the burn.
         if (c.proceeds != 0 && c.shares != 0) {
             r.payoutSettlementPrice = Math.mulDiv(c.proceeds, ShareMath.WHOLE_SHARE * ShareMath.PRICE_SCALE, c.shares);

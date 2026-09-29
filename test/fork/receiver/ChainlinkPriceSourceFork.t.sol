@@ -28,9 +28,9 @@ contract ChainlinkPriceSourceForkTest is Test {
         feeds[1] = ChainlinkPriceSource.FeedConfig({
             token: RH_WETH, tokenDecimals: 18, aggregator: ARB_ETH_USD, maxPriceAge: MAX_PRICE_AGE
         });
-        address[] memory fixedTokens = new address[](2);
-        fixedTokens[0] = ARB_USDC;
-        fixedTokens[1] = RH_USDG;
+        ChainlinkPriceSource.FixedConfig[] memory fixedTokens = new ChainlinkPriceSource.FixedConfig[](2);
+        fixedTokens[0] = ChainlinkPriceSource.FixedConfig(ARB_USDC, 6);
+        fixedTokens[1] = ChainlinkPriceSource.FixedConfig(RH_USDG, 6);
         source = new ChainlinkPriceSource(feeds, fixedTokens);
     }
 
@@ -57,6 +57,7 @@ contract ChainlinkPriceSourceForkTest is Test {
         (uint256 value, uint256 updatedAt) = source.usdcValue(RH_USDG, 2500e6);
         assertEq(value, 2500e6);
         assertEq(updatedAt, block.timestamp);
-        assertEq(source.maxPriceAge(), MAX_PRICE_AGE);
+        assertEq(source.maxPriceAge(ARB_WETH), MAX_PRICE_AGE);
+        assertEq(source.maxPriceAge(RH_USDG), 0);
     }
 }

@@ -136,8 +136,8 @@ contract CoreVaultAcrossForkTest is Test {
         r.sequence = 1;
         r.spokeChainId = SPOKE;
         r.timestamp = uint64(block.timestamp);
-        r.inFlightToHub = new ReportCodec.TransitAmount[](1);
-        r.inFlightToHub[0] = ReportCodec.TransitAmount(homeId, 500e6);
+        r.inFlightToHub = new ReportCodec.HubBoundAmount[](1);
+        r.inFlightToHub[0] = ReportCodec.HubBoundAmount(homeId, 500e6, TransferKind.Principal);
         receiver.deliver(0, r);
         assertEq(vault.unmatchedArrivals(), 0);
         assertEq(vault.idle(), 9975e6 + 500e6);

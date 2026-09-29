@@ -57,18 +57,20 @@ contract ManagerRegistryAdversarialTest is Test {
         }
     }
 
-    /// @dev Documents an ownership edge: `renounceOwnership` is inherited and not overridden, so the owner can
-    ///      freeze the registry forever; stored entries and the default keep serving reads.
-    function test_LC142_renounceFreezesWritesButReadsKeepServing() public {
+    /// @dev LC-142 (verifier finding, fixed): the writer cannot be renounced, so one call can never freeze every
+    ///      manager's slice; strangers still get the Ownable error.
+    function test_LC142_renounceOwnershipIsDisabled() public {
         vm.startPrank(ADMIN);
         registry.setProtocolSliceBps(address(0x3A), 1000);
+        vm.expectRevert(IManagerRegistry.RenounceDisabled.selector);
         registry.renounceOwnership();
         vm.stopPrank();
-        assertEq(registry.owner(), address(0));
-        assertEq(registry.protocolSliceBps(address(0x3A)), 1000);
-        assertEq(registry.protocolSliceBps(address(0x3B)), 5000);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, ADMIN));
+        assertEq(registry.owner(), ADMIN);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(0x3B)));
+        vm.prank(address(0x3B));
+        registry.renounceOwnership();
         vm.prank(ADMIN);
         registry.setProtocolSliceBps(address(0x3A), 0);
+        assertEq(registry.protocolSliceBps(address(0x3A)), 0);
     }
 }

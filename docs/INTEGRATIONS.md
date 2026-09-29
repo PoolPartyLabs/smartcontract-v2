@@ -62,10 +62,20 @@ Not available on Robinhood Chain: native USDC, CCTP, Aave (so the Aave adapter e
   implements `handleV3AcrossMessage(address tokenSent, uint256 amount, address relayer, bytes message)`, which the
   destination SpokePool calls after transferring `outputAmount` of the output token. On expiry (no fill before
   `fillDeadline`) the input amount is refunded to `depositor` on the origin chain by the Across dataworker bundle.
-  Both live SpokePools expose the legacy `depositV3` and the bytes32 `deposit` entry points.
+  Both live SpokePools expose the legacy `depositV3` and the bytes32 `deposit` entry points. The live implementations
+  (Arbitrum `0xcfcda84333431bcc9155f2368b8362f0d1dff8c9`, Robinhood `0x1771c470d41b8c39338450c380bf2c080a2cedd8`)
+  no longer have `enabledDepositRoutes` (the call reverts with empty data): the only on-chain deposit gate is
+  `pausedDeposits()`, and whether relayers fill USDC (42161) to USDG (4663) and back is an off-chain property that
+  must be monitored off-chain; an unfilled deposit expires and refunds the per-send TransitEscrow (DEC-066). The
+  `depositV3` parameter named `exclusivityDeadline` is Across's `exclusivityParameter` (0 none; up to 31,536,000 an
+  offset from deposit time; larger an absolute timestamp; non-zero needs a non-zero `exclusiveRelayer`).
 - **Wormhole**: `publishMessage(uint32 nonce, bytes payload, uint8 consistencyLevel)` on the Core (consistency 1 =
   finalized) and `parseAndVerifyVM(bytes)` on the Hub Core. The VAA carries `(emitterChainId, emitterAddress,
-  sequence)`; the Core does not deduplicate application messages, so replay protection is ours.
+  sequence)`; the Core does not deduplicate application messages, so replay protection is ours. Measured in the
+  receiver fork test: the first delivery of a one-position report costs about 1.02M gas on the real Arbitrum Core
+  (the receiver stores the whole payload), well above the research's 400k `GAS_CAP`; an Executor-delivered VAA needs
+  a gas limit above about 1.1M for that size, and a full 256-entry arrival window adds about 16 KB of payload. To be
+  weighed where the delivery gas limit and reimbursement are decided (Q57 (c)).
 - **Uniswap V4**: `IPositionManager.modifyLiquidities` with `Actions` (MINT_POSITION, INCREASE_LIQUIDITY,
   DECREASE_LIQUIDITY, BURN_POSITION, SETTLE_PAIR, TAKE_PAIR); pool ids are `keccak256(abi.encode(PoolKey))` with
   `PoolKey{currency0, currency1, fee, tickSpacing, hooks}`; state read through `StateView` (`getSlot0`,

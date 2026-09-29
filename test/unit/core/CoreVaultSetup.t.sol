@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {Vm} from "forge-std/Vm.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {ExpensePayer} from "../../../src/interfaces/FundTypes.sol";
 import {CoreVault} from "../../../src/core/CoreVault.sol";
 import {CoreVaultConfig} from "../../../src/core/CoreVaultTypes.sol";
 import {ShareToken} from "../../../src/core/ShareToken.sol";
+import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {ShareMath} from "../../../src/libraries/ShareMath.sol";
 import {Mandate, MandateLib, OperatingCashConfig} from "../../../src/mandate/Mandate.sol";
 import {MockBridgeAdapter} from "../../mocks/core/MockBridgeAdapter.sol";
 import {CoreVaultFixture} from "./CoreVaultFixture.sol";
-import {ICoreVaultExtensions} from "../../../src/core/ICoreVaultExtensions.sol";
 
 /// @notice Deploys a Core Vault at a CREATE2 address, as the Fund Factory will (DEC-053, DEC-054). The init code
 ///         comes in calldata: a factory that embeds CoreVault's creation code (`new CoreVault{salt: ...}`) would itself
@@ -78,28 +79,26 @@ contract CoreVaultSetupTest is CoreVaultFixture {
 
     function test_DEC011_onlyOnHubChain() public {
         vm.chainId(SPOKE);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVaultExtensions.NotOnHubChain.selector, SPOKE, HUB));
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.NotOnHubChain.selector, SPOKE, HUB));
         new CoreVault(_mandate(2000), _config(25));
     }
 
     function test_DEC110_flowFeeCapInConstructor() public {
-        vm.expectRevert(abi.encodeWithSelector(ICoreVaultExtensions.FlowFeeAboveCap.selector, 101));
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.FlowFeeAboveCap.selector, 101));
         new CoreVault(_mandate(2000), _config(101));
     }
 
     function test_DEC011_usdcMustMatchMandate() public {
         CoreVaultConfig memory c = _config(25);
         c.usdc = address(weth);
-        vm.expectRevert(
-            abi.encodeWithSelector(ICoreVaultExtensions.UsdcMismatch.selector, address(weth), address(usdc))
-        );
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.UsdcMismatch.selector, address(weth), address(usdc)));
         new CoreVault(_mandate(2000), c);
     }
 
     function test_DEC053_zeroWiringRefused() public {
         CoreVaultConfig memory c = _config(25);
         c.excessRecipient = address(0);
-        vm.expectRevert(ICoreVaultExtensions.ZeroAddress.selector);
+        vm.expectRevert(ICoreVault.ZeroAddress.selector);
         new CoreVault(_mandate(2000), c);
     }
 
@@ -114,7 +113,7 @@ contract CoreVaultSetupTest is CoreVaultFixture {
         MockBridgeAdapter unset = new MockBridgeAdapter(address(0));
         Mandate memory m = _mandate(2000);
         m.bridgeAdapters[0].adapter = address(unset);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVaultExtensions.BridgeTargetUnset.selector, address(unset)));
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.BridgeTargetUnset.selector, address(unset)));
         new CoreVault(m, _config(25));
     }
 
@@ -149,8 +148,6 @@ contract CoreVaultSetupTest is CoreVaultFixture {
         vm.startPrank(bob);
         usdc.approve(address(vault), 100e6);
         vm.expectEmit(address(vault));
-        emit ICoreVaultExtensions.OperatingCashInsufficient(0, 1e6, 3e6);
-        vm.expectEmit(address(vault));
         emit ICoreVault.OperatingCashToppedUp(3e6, 3e6);
         vm.expectEmit(address(vault));
         emit ICoreVault.OperatingExpensePaid(
@@ -166,6 +163,34 @@ contract CoreVaultSetupTest is CoreVaultFixture {
         // Operating Cash is back at the floor: the next operation does not top up again.
         _deposit(bob, 100e6);
         assertEq(vault.operatingCash(), 3e6);
+    }
+
+    function test_DEC041_routineTopUpIsNotInsufficientCash() public {
+        _deposit(alice, 1000e6);
+        vm.prank(manager);
+        vault.setOperatingCashParameters(1e6, 3e6);
+        vm.recordLogs();
+        _deposit(bob, 100e6);
+        assertEq(vault.operatingCash(), 3e6);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 i; i < logs.length; ++i) {
+            assertTrue(logs[i].topics[0] != ICoreVault.OperatingCashInsufficient.selector, "routine top-up");
+        }
+    }
+
+    function test_DEC041_shortTopUpIsInsufficientCash() public {
+        _deposit(alice, 1000e6);
+        vm.prank(manager);
+        vault.allocateToHubSpokeVault(996e6); // Free Idle 1
+        vm.prank(manager);
+        vault.setOperatingCashParameters(5e6, 10e6);
+        _request(alice, 1e6, ICoreVault.PayoutMode.Standard); // reserves the last unit
+        vm.warp(block.timestamp + 72 hours);
+        // Operating Cash 0, floor 5, top-up 10, Free Idle 0: cash cannot be restored.
+        vm.expectEmit(address(vault));
+        emit ICoreVault.OperatingCashInsufficient(0, 5e6, 0);
+        _claim(alice);
+        assertEq(vault.operatingCash(), 0);
     }
 
     function test_DEC072_topUpNeverTakesThePayoutReserve() public {
@@ -213,21 +238,33 @@ contract CoreVaultSetupTest is CoreVaultFixture {
 
     function test_DEC080_returnToIdleMustBeBacked() public {
         vm.prank(address(hubVault));
-        vm.expectRevert(abi.encodeWithSelector(ICoreVaultExtensions.UnbackedCredit.selector, address(usdc), 1e6, 0));
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.UnbackedCredit.selector, address(usdc), 1e6, 0));
         vault.returnToIdle(1e6);
         vm.expectRevert(abi.encodeWithSelector(ICoreVault.NotHubSpokeVault.selector, address(this)));
         vault.returnToIdle(1e6);
     }
 
+    function test_DEC098_grossAssetsAddsSpokeCollectedIncomeAndOperatingCash() public {
+        _deposit(alice, 1000e6);
+        uint256 before = vault.grossAssets();
+        ReportCodec.Report memory r = _spokeReport(0, 0);
+        r.collectedIncome = new ReportCodec.TokenAmount[](2);
+        r.collectedIncome[0] = ReportCodec.TokenAmount(address(usdg), 30e6);
+        r.collectedIncome[1] = ReportCodec.TokenAmount(address(spokeWeth), 0.01e18); // 25 USDC
+        r.operatingCash = 5e6;
+        _deliver(r);
+        assertEq(vault.shareAssets(), 997e6, "outside Share Assets");
+        assertEq(vault.grossAssets(), before + 30e6 + 25e6 + 5e6, "inside Gross Assets");
+    }
+
     function test_DEC098_grossAssetsAddsCashAndIncome() public {
         _deposit(alice, 1000e6);
-        hubVault.setCumulativeIncome(address(usdc), 100e6);
-        hubVault.forwardIncome(address(usdc), 100e6);
+        hubVault.forwardIncome(address(usdc), 100e6); // 80 net to holders at 20% performance
         hubVault.setPositionIncome(7e6);
         vm.prank(manager);
         vault.setOperatingCashParameters(1e6, 2e6);
         _request(alice, 10e6, ICoreVault.PayoutMode.Instant);
         _claim(alice);
-        assertEq(vault.grossAssets(), vault.shareAssets() + vault.operatingCash() + 100e6 + 7e6);
+        assertEq(vault.grossAssets(), vault.shareAssets() + vault.operatingCash() + 80e6 + 7e6);
     }
 }

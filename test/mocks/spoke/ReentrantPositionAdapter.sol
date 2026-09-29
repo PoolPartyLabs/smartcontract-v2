@@ -114,6 +114,14 @@ contract ReentrantPositionAdapter is AdapterGuard, IAdapter {
         return 0;
     }
 
+    function unwindExitParams(bytes32, uint256, uint256) external pure returns (bool, bytes memory) {
+        return (true, "");
+    }
+
+    function spotQuote(bytes32, address, uint256) external pure returns (uint256) {
+        revert UnsupportedOperation();
+    }
+
     function positionKeys() external view returns (bytes32[] memory) {
         return _keys;
     }

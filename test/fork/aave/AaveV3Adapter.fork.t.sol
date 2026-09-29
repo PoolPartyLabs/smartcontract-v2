@@ -142,7 +142,8 @@ contract AaveV3AdapterForkTest is Test {
 
         vm.startPrank(vault);
         IERC20(USDC).transfer(address(adapter), SUPPLIED / 2);
-        (uint256 used0, uint256 used1, uint256 income0, uint256 income1) = adapter.increasePosition(key, "");
+        (uint256 used0, uint256 used1, uint256 income0, uint256 income1) =
+            adapter.increasePosition(key, abi.encode(SUPPLIED / 2));
         vm.stopPrank();
 
         assertEq(used0, SUPPLIED / 2);

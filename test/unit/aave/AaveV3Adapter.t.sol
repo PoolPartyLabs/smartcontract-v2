@@ -243,13 +243,20 @@ contract AaveV3AdapterTest is AaveV3AdapterFixture {
         _assertAdapterHoldsNothing();
     }
 
-    function test_DEC068_openWithEmptyParamsSuppliesWholeTransfer() public {
+    /// DEC-080 (final verification): the supply is never sized from the adapter's own balance; empty params revert on
+    /// both entry verbs.
+    function test_DEC080_emptyParamsRevertOnOpenAndIncrease() public {
         _fund(500e6);
         vm.prank(vault);
-        (, uint256 used0,) = adapter.openPosition(key, "");
-        assertEq(used0, 500e6);
+        vm.expectRevert(AaveV3Adapter.AmountRequired.selector);
+        adapter.openPosition(key, "");
+        vm.prank(vault);
+        adapter.openPosition(key, abi.encode(uint256(500e6)));
+        _fund(100e6);
+        vm.prank(vault);
+        vm.expectRevert(AaveV3Adapter.AmountRequired.selector);
+        adapter.increasePosition(key, "");
         assertEq(adapter.ledger(address(asset)).principal, 500e6);
-        _assertAdapterHoldsNothing();
     }
 
     function test_DEC068_openReturnsUnusedToVault() public {
@@ -269,9 +276,9 @@ contract AaveV3AdapterTest is AaveV3AdapterFixture {
         adapter.openPosition(key, abi.encode(uint256(101e6)));
         vm.expectRevert(AaveV3Adapter.ZeroAmount.selector);
         adapter.openPosition(key, abi.encode(uint256(0)));
-        adapter.openPosition(key, "");
+        adapter.openPosition(key, abi.encode(uint256(100e6)));
         vm.expectRevert(abi.encodeWithSelector(AaveV3Adapter.PositionAlreadyOpen.selector, key));
-        adapter.openPosition(key, "");
+        adapter.openPosition(key, abi.encode(uint256(1)));
         vm.stopPrank();
     }
 
@@ -335,7 +342,8 @@ contract AaveV3AdapterTest is AaveV3AdapterFixture {
         vm.expectEmit(true, false, false, true, address(adapter));
         emit IAdapter.PositionIncreased(key, 550e6, 0, 100e6, 0);
         vm.prank(vault);
-        (uint256 used0, uint256 used1, uint256 income0, uint256 income1) = adapter.increasePosition(key, "");
+        (uint256 used0, uint256 used1, uint256 income0, uint256 income1) =
+            adapter.increasePosition(key, abi.encode(uint256(550e6)));
 
         assertEq(used0, 550e6);
         assertEq(used1 + income1, 0);
@@ -415,6 +423,20 @@ contract AaveV3AdapterTest is AaveV3AdapterFixture {
         assertEq(a.principal0 + a.income0, 0);
         assertEq(pool.withdrawCalls(), calls);
         assertEq(adapter.positionKeys().length, 0);
+    }
+
+    /// Final verification (DEC-069, DEC-059): the vault sizes an unwind step through the adapter: a share of the
+    /// principal, rounded up, is a decrease; the whole principal is a close. An Aave supply has no spot price.
+    function test_DEC069_unwindExitParamsAndNoSpotQuote() public {
+        _open(1000e6);
+        _grow(RAY * 11 / 10);
+        (bool close, bytes memory params) = adapter.unwindExitParams(key, 1, 3);
+        assertFalse(close);
+        assertEq(abi.decode(params, (uint256)), 333_333_334, "a third of the principal, rounded up");
+        (close,) = adapter.unwindExitParams(key, 3, 3);
+        assertTrue(close);
+        vm.expectRevert(IAdapter.UnsupportedOperation.selector);
+        adapter.spotQuote(key, address(asset), 1);
     }
 
     /// DEC-068, Q60: close withdraws everything, removes the key and keeps the realized income counter; a new

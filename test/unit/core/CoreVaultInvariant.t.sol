@@ -19,9 +19,8 @@ contract CoreVaultHandler is Test {
     address internal manager;
     address[3] internal actors;
 
-    uint256 public recognized;
     uint256 public forwarded;
-    uint256 public feesPaid;
+    uint256 public feesOut;
     uint256 public lastIndex;
     bool public indexDecreased;
     bool public donationMovedPrice;
@@ -56,7 +55,8 @@ contract CoreVaultHandler is Test {
     function requestPayout(uint256 seed, uint256 amount, bool standard) external trackIndex {
         address who = actors[seed % 3];
         if (shares.balanceOf(who) == 0 || vault.payoutRequest(who).open) return;
-        amount = bound(amount, 1e6, 100_000e6);
+        // DEC-035 spirit (final verification): a request buys at least one share at the current Share Price.
+        amount = bound(amount, (vault.sharePrice() + 1e18 - 1) / 1e18, 100_000e6);
         vm.prank(who);
         vault.requestPayout(amount, standard ? ICoreVault.PayoutMode.Standard : ICoreVault.PayoutMode.Instant);
     }
@@ -78,30 +78,19 @@ contract CoreVaultHandler is Test {
         if (vault.sharePrice() != before) donationMovedPrice = true;
     }
 
-    function recognizeIncome(uint256 delta) external trackIndex {
-        delta = bound(delta, 0, 10_000e6);
-        recognized += delta;
-        hubVault.setCumulativeIncome(address(usdc), recognized);
-        vault.recognizeHubIncome();
-    }
-
+    /// @dev Ruling 2026-09-29: collected income reaching the Core Vault is split at once; the fee leaves it.
     function forwardIncome(uint256 amount) external trackIndex {
-        uint256 room = recognized - forwarded;
-        if (room == 0) return;
-        amount = bound(amount, 1, room);
+        amount = bound(amount, 1, 10_000e6);
         forwarded += amount;
+        address protocol = vault.protocolRecipient();
+        uint256 before = usdc.balanceOf(protocol) + usdc.balanceOf(vault.managerFeeVault());
         hubVault.forwardIncome(address(usdc), amount);
+        feesOut += usdc.balanceOf(protocol) + usdc.balanceOf(vault.managerFeeVault()) - before;
     }
 
     function withdrawIncome(uint256 seed) external trackIndex {
         vm.prank(actors[seed % 3]);
         vault.withdrawIncome(address(usdc));
-    }
-
-    function payFees() external {
-        uint256 before = usdc.balanceOf(manager) + usdc.balanceOf(vault.protocolRecipient());
-        vault.payOwedFees(address(usdc));
-        feesPaid += usdc.balanceOf(manager) + usdc.balanceOf(vault.protocolRecipient()) - before;
     }
 
     function allocate(uint256 amount) external {
@@ -160,16 +149,11 @@ contract CoreVaultInvariantTest is CoreVaultFixture {
         assertFalse(handler.indexDecreased());
     }
 
-    function invariant_DEC107_feesIncomeAndHoldersWithinRecognized() public view {
+    /// @dev Ruling 2026-09-29, DEC-107: every collected unit is either a fee transferred out at collection or in the
+    ///      accumulator (index or ownerless); holders never take more than was distributed.
+    function invariant_DEC107_everyCollectedUnitIsFeeOrAccumulated() public view {
         IncomeAccumulator.TokenIncome memory t = vault.incomeState(address(usdc));
-        uint256 fees = vault.managerOwed(address(usdc)) + vault.protocolOwed(address(usdc));
-        assertLe(t.distributed + t.ownerless + fees + _feesPaidOutOfIncome(), handler.recognized());
+        assertEq(t.distributed + t.ownerless + handler.feesOut(), handler.forwarded());
         assertLe(t.taken, t.distributed);
-        // Collected income never pays out more than was collected.
-        assertLe(t.taken + _feesPaidOutOfIncome(), handler.forwarded());
-    }
-
-    function _feesPaidOutOfIncome() internal view returns (uint256) {
-        return handler.feesPaid();
     }
 }

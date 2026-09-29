@@ -32,7 +32,8 @@ same adapter interface.
 
 ```
 src/
-  core/        Core Vault (hub books: shares, idle, payouts), Share token, Fund Factory
+  core/        Core Vault (hub books: shares, idle, payouts), Share token, Manager Fee Vault
+  factory/     Fund Factory, CREATE3 library, creation code stores, the factory's one-address deployer
   spoke/       Spoke Vault (the fund's account on every chain, hub included), internal ledger
   report/      Value report encoding, Wormhole publisher (spoke) and receiver (hub)
   adapters/    IAdapter, IBridgeAdapter, Uniswap V4 adapter, Aave V3 adapter, Across bridge adapter
@@ -44,7 +45,7 @@ test/
   invariant/   Invariant suites (share price never moved by third-party entries, ledger vs balance, ...)
   fork/        Mainnet fork tests against Arbitrum One and Robinhood Chain (never testnets)
 script/        Deployment scripts (fork first, then mainnet)
-docs/          DECISIONS.md, OPEN-QUESTIONS.md, ARCHITECTURE.md, INTEGRATIONS.md
+docs/          DECISIONS.md, OPEN-QUESTIONS.md, ARCHITECTURE.md, INTEGRATIONS.md, DEPLOYMENT.md
 ```
 
 ## Toolchain

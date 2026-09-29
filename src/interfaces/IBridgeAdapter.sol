@@ -35,8 +35,10 @@ interface IBridgeAdapter is IAdapterGuard {
     /// @param outputAmount Amount of `outputToken` that will arrive, from the signed quote (DEC-085).
     /// @param destinationChainId EVM chain id of the destination.
     /// @param recipient Destination vault as a universal address; fixed by the calling vault (DEC-087).
-    /// @param quoteTimestamp Quote timestamp.
-    /// @param exclusivityDeadline Exclusivity deadline, 0 for none.
+    /// @param quoteTimestamp Quote timestamp; not in the future and within the SpokePool `depositQuoteTimeBuffer`.
+    /// @param exclusivityDeadline Across's `exclusivityParameter`: 0 for none; up to 31,536,000 an offset in seconds from
+    ///        the deposit time; above that an absolute timestamp. Non-zero requires a non-zero `exclusiveRelayer`. The
+    ///        adapter encodes it as received and the SpokePool enforces the rule, so a bad value reverts the send.
     /// @param exclusiveRelayer Exclusive relayer, address(0) for none.
     /// @param message Message the destination vault receives (see TransitMessage); fixed by the calling vault.
     struct SendRequest {
@@ -71,7 +73,9 @@ interface IBridgeAdapter is IAdapterGuard {
     /// @notice Zero input or output amount, or output above input.
     error InvalidAmounts(uint256 inputAmount, uint256 outputAmount);
 
-    /// @notice Recipient or depositor is zero.
+    /// @notice The recipient is zero or is not a 20-byte EVM address (a bytes32 with bits above 160; it is rejected,
+    ///         never truncated, so the adapter never delivers to an address the vault did not fix, DEC-087), or the
+    ///         depositor is zero.
     error InvalidParty();
 
     /// @notice The vault (Core Vault on the hub, Spoke Vault on a spoke) this adapter builds calls for.

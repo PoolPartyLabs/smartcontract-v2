@@ -66,10 +66,8 @@ contract SpokeVaultArbitrumForkTest is SpokeVaultForkBase {
         assertEq(r.unallocated[0].amount, 100e6);
         assertEq(r.positions.length, 2);
 
-        SpokeVaultTypes.UnwindHint[] memory hints = new SpokeVaultTypes.UnwindHint[](2);
-        hints[0].close = true;
-        hints[1].exitParams = abi.encode(uint256(6000));
-        assertEq(core.unwind(vault, 800e6, SpokeVaultTypes.encodeHints(hints)), 800e6);
+        // Final verification (DEC-069): the vault sizes each step itself, no hint needed for USDC principal.
+        assertEq(core.unwind(vault, 800e6, ""), 800e6);
         assertEq(core.idleReturned(), 800e6);
         assertEq(USDC.balanceOf(address(core)), 9000e6 + 800e6);
         assertEq(vault.unallocatedBalance(ARB_USDC), 0);

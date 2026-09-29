@@ -84,7 +84,8 @@ contract SpokeVaultRobinhoodForkTest is SpokeVaultForkBase {
         assertEq(r.spokeChainId, ROBINHOOD);
         assertEq(r.timestamp, block.timestamp);
         assertEq(r.unallocated[0].token, RH_USDG);
-        assertEq(r.unallocated[0].amount, 1000e6);
+        // DEC-096: the arrival topped Operating Cash up by 10 USDG (floor 5, top-up 10), outside Share Assets.
+        assertEq(r.unallocated[0].amount, 1000e6 - 10e6);
         assertEq(r.cumulativeReceived, 1000e6);
         assertEq(r.arrivedTransits.length, 1);
         assertEq(r.arrivedTransits[0].transitId, ARRIVAL);
@@ -104,9 +105,9 @@ contract SpokeVaultRobinhoodForkTest is SpokeVaultForkBase {
     }
 
     function test_DEC087_forkRobinhood_sendHomeThroughAcrossSpokePool() public {
-        _arrive(1000e6);
         vm.prank(manager);
         vault.setOperatingCashParameters(0, 0);
+        _arrive(1000e6);
 
         uint32 depositId = IAcrossSpokePool(RH_SPOKE_POOL).numberOfDeposits();
         vm.recordLogs();

@@ -40,6 +40,10 @@ interface IValueReportReceiver {
     /// @notice The report is older than the spoke's max report age at delivery (DEC-099).
     error ReportTooOld(uint256 age, uint32 maxReportAge);
 
+    /// @notice The report's timestamp is further ahead of the hub clock than the spoke's max report age (DEC-099
+    ///         assumption: cross-chain clock skew is tolerated only up to one report lifetime).
+    error ReportFromFuture(uint64 reportTimestamp, uint256 hubTimestamp);
+
     /// @notice The report is for another fund or another chain than its emitter.
     error ReportMismatch();
 
@@ -51,6 +55,10 @@ interface IValueReportReceiver {
 
     /// @notice The fund's Core Vault, notified on every accepted report.
     function coreVault() external view returns (address);
+
+    /// @notice Fund identifier every accepted report must carry (`ReportMismatch` otherwise, DEC-070, DEC-086); the
+    ///         factory and the Core Vault cross-check it against their own fund id.
+    function fundId() external view returns (bytes32);
 
     /// @notice Verifies and stores a report, then notifies the Core Vault (`ICoreVault.onReportAccepted`).
     ///         Permissionless (DEC-093).

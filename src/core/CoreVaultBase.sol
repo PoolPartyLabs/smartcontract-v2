@@ -10,16 +10,16 @@ import {Mandate, MandateLib, SpokeConfig, BridgeAdapterConfig} from "../mandate/
 import {ShareMath} from "../libraries/ShareMath.sol";
 import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 import {ShareToken} from "./ShareToken.sol";
+import {ManagerFeeVault} from "./ManagerFeeVault.sol";
 import {CoreVaultConfig, CoreVaultWiring, CoreVaultState} from "./CoreVaultTypes.sol";
 import {CoreVaultLogic} from "./CoreVaultLogic.sol";
-import {ICoreVaultExtensions} from "./ICoreVaultExtensions.sol";
 
 /// @title CoreVaultBase
 /// @notice Wiring, storage, value-base views and Operating Cash of the Core Vault. See ICoreVault.
 /// @dev Split out of CoreVault only to keep each source file reviewable; the abstract layers compile into one
-///      contract, and the heavy report logic lives in the linked external library CoreVaultLogic. Events and errors
-///      beyond the frozen ICoreVault (including the library's) are declared in ICoreVaultExtensions.
-abstract contract CoreVaultBase is ICoreVault, ICoreVaultExtensions, ReentrancyGuardTransient {
+///      contract, and the heavy report logic lives in the linked external library CoreVaultLogic. Every event and
+///      error, the library's included, is declared in ICoreVault.
+abstract contract CoreVaultBase is ICoreVault, ReentrancyGuardTransient {
     using IncomeAccumulator for IncomeAccumulator.State;
 
     /// @dev Kind tag of the Operating Cash top-up expense (DEC-041, DEC-096).
@@ -42,6 +42,8 @@ abstract contract CoreVaultBase is ICoreVault, ICoreVaultExtensions, ReentrancyG
     address public immutable protocolRecipient;
     address public immutable excessRecipient;
     address public immutable escrowImplementation;
+    /// @notice The fund's ManagerFeeVault (ruling 2026-09-29, DEC-107, DEC-109), deployed by this constructor.
+    address public immutable managerFeeVault;
     uint16 public immutable flowFeeBps;
     uint16 public immutable payoutFeeBps;
     uint32 public immutable standardPayoutTerm;
@@ -109,6 +111,8 @@ abstract contract CoreVaultBase is ICoreVault, ICoreVaultExtensions, ReentrancyG
 
         // Q59 OPEN: name and symbol are factory strings; the Core Vault deploys and owns its Share token.
         shareToken = address(new ShareToken(c.shareName, c.shareSymbol, address(this)));
+        // Ruling 2026-09-29: the manager portion of every fee goes to the fund's own ManagerFeeVault.
+        managerFeeVault = address(new ManagerFeeVault(address(this), m.manager));
     }
 
     /// @dev DEC-053: the Mandate is stored once, element by element (value-only structs).
@@ -212,8 +216,7 @@ abstract contract CoreVaultBase is ICoreVault, ICoreVaultExtensions, ReentrancyG
         return _s.operatingCashTopUp;
     }
 
-    /// @notice Spoke-to-hub arrivals held apart (pending plus strays); outside every base and never swept (DEC-080,
-    ///         OQ-01).
+    /// @inheritdoc ICoreVault
     function unmatchedArrivals() external view returns (uint256) {
         return _s.unmatchedArrivals;
     }
@@ -249,11 +252,10 @@ abstract contract CoreVaultBase is ICoreVault, ICoreVaultExtensions, ReentrancyG
     }
 
     /// @inheritdoc ICoreVault
-    /// @dev DEC-066 B1: `inFlightSent` also counts the spoke's pending return leg (see CoreVaultLogic.spokeCapUsage).
     function spokeCapUsage(uint256 spokeIndex)
         public
         view
-        returns (uint256 spokeValue, uint256 inFlightSent, uint256 spokeCap)
+        returns (uint256 spokeValue, uint256 inFlightSent, uint256 inFlightToHub, uint256 spokeCap)
     {
         return CoreVaultLogic.spokeCapUsage(_s, _wiring(), spokeIndex);
     }
@@ -273,14 +275,19 @@ abstract contract CoreVaultBase is ICoreVault, ICoreVaultExtensions, ReentrancyG
     /// @notice DEC-096, DEC-100, DEC-041: when hub Operating Cash is below its floor, the value-moving operation that
     ///         calls this tops it up by `operatingCashTopUp` from Free Idle (never the Payout Reserve, DEC-072). The
     ///         top-up is an Operating Expense paid by Share Assets (accepted effect on Share Price, DEC-100).
+    /// @dev DEC-041 "insufficient cash" state (Core Vault verifier finding): `OperatingCashInsufficient` is emitted only
+    ///      when Free Idle cannot fund the whole top-up, i.e. Operating Cash stays unable to pay and the next expense
+    ///      falls through to Share Assets; a routine top-up emits only `OperatingCashToppedUp` and
+    ///      `OperatingExpensePaid`. The top-up is the only hub Operating Expense in the MVP (spending Operating Cash is
+    ///      OPEN, doc 30), so a short top-up is the only way cash can fail to pay.
     function _topUpOperatingCash() internal {
         uint256 cash = _s.operatingCash;
         uint256 floor = _s.operatingCashFloor;
         if (cash >= floor) return;
-        uint256 amount = _s.operatingCashTopUp;
+        uint256 topUp = _s.operatingCashTopUp;
         uint256 free = freeIdle();
-        if (amount > free) amount = free;
-        emit OperatingCashInsufficient(cash, floor, amount);
+        uint256 amount = topUp > free ? free : topUp;
+        if (amount < topUp) emit OperatingCashInsufficient(cash, floor, amount);
         if (amount == 0) return;
         _s.idle -= amount;
         _s.operatingCash = cash + amount;
@@ -303,6 +310,8 @@ abstract contract CoreVaultBase is ICoreVault, ICoreVaultExtensions, ReentrancyG
             managerRegistry: managerRegistry,
             priceSource: priceSource,
             escrowImplementation: escrowImplementation,
+            protocolRecipient: protocolRecipient,
+            managerFeeVault: managerFeeVault,
             hubChainId: _hubChainId,
             maxBridgeFeeBps: _maxBridgeFeeBps
         });
@@ -310,8 +319,8 @@ abstract contract CoreVaultBase is ICoreVault, ICoreVaultExtensions, ReentrancyG
 
     /// @notice Every amount of `token` the Core Vault's ledger holds.
     /// @dev DEC-080, DEC-096, DEC-101: Idle, Operating Cash and unmatched arrivals (USDC only) plus the collected income
-    ///      of the token. Owed fees and Attributed Income are claims paid out of the collected balance, so they are
-    ///      inside it and are not added a second time.
+    ///      of the token. Attributed Income is a claim paid out of the collected balance, so it is inside it and is not
+    ///      added a second time; no fee is ever owed here (ruling 2026-09-29: fees leave at collection).
     function _ledger(address token) internal view returns (uint256 amount) {
         amount = _s.collectedIncome[token];
         if (token == usdc) amount += _s.idle + _s.operatingCash + _s.unmatchedArrivals;

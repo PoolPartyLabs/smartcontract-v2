@@ -201,9 +201,9 @@ contract ValueReportReceiverAdversarialTest is Test {
     function test_DEC093_malformedPayloadIsRejected() public {
         bytes[] memory payloads = new bytes[](4);
         payloads[0] = ""; // empty
-        payloads[1] = abi.encode(uint256(1)); // version only
-        payloads[2] = abi.encodePacked(uint256(1), keccak256("garbage")); // version + one junk word
-        payloads[3] = abi.encodePacked(uint256(1), uint256(0x40), type(uint256).max); // offset to a huge array
+        payloads[1] = abi.encode(ReportCodec.VERSION); // version only
+        payloads[2] = abi.encodePacked(ReportCodec.VERSION, keccak256("garbage")); // version + one junk word
+        payloads[3] = abi.encodePacked(ReportCodec.VERSION, uint256(0x40), type(uint256).max); // offset to a huge array
         for (uint256 i; i < payloads.length; ++i) {
             bytes memory vaa = _vaa(WH_ROBINHOOD, SPOKE_VAULT, 0, 1, payloads[i]);
             vm.expectRevert();
@@ -213,18 +213,24 @@ contract ValueReportReceiverAdversarialTest is Test {
     }
 
     // ------------------------------------------------------------------------------------------------------------
-    // DEC-099: clock skew boundary (documents verifier finding: unbounded future timestamps)
+    // DEC-099: clock skew boundary (verifier finding: a future timestamp extended the report's life without bound)
     // ------------------------------------------------------------------------------------------------------------
 
-    /// @dev A report whose timestamp is far ahead of the hub clock counts as age 0 and stays fresh until the hub
-    ///      clock passes timestamp + maxReportAge. The emitter is the Mandate's own Spoke Vault, so this needs a
-    ///      misbehaving spoke chain clock; recorded here so the bound is a deliberate choice, not an accident.
-    function test_DEC099_reportTimestampFarAheadStaysFreshUntilItAges() public {
+    /// @dev A report stamped more than one lifetime ahead of the hub clock is rejected (DEC-099 assumption).
+    function test_DEC099_reportTimestampFarAheadIsRejected() public {
         uint64 ahead = uint64(block.timestamp) + 365 days;
+        bytes memory vaa = _vaa(WH_ROBINHOOD, SPOKE_VAULT, 0, 1, ReportCodec.encode(_report(0, ROBINHOOD, ahead)));
+        vm.expectRevert(abi.encodeWithSelector(IValueReportReceiver.ReportFromFuture.selector, ahead, block.timestamp));
+        receiver.deliver(vaa);
+        assertFalse(receiver.hasReport(0));
+    }
+
+    /// @dev Skew up to one lifetime is tolerated: the report counts as age 0 until the hub clock reaches its
+    ///      timestamp, so it is fresh for at most twice `maxReportAge`.
+    function test_DEC099_reportTimestampAheadWithinOneLifetimeIsAccepted() public {
+        uint64 ahead = uint64(block.timestamp) + MAX_AGE;
         receiver.deliver(_vaa(WH_ROBINHOOD, SPOKE_VAULT, 0, 1, ReportCodec.encode(_report(0, ROBINHOOD, ahead))));
         assertTrue(receiver.isReportFresh(0));
-        vm.warp(block.timestamp + 300 days);
-        assertTrue(receiver.isReportFresh(0)); // still "fresh": age is clamped to 0 while the clock is behind
         vm.warp(uint256(ahead) + MAX_AGE);
         assertTrue(receiver.isReportFresh(0));
         vm.warp(uint256(ahead) + MAX_AGE + 1);

@@ -70,8 +70,9 @@ struct Transit {
 ///      The vault rejects the quote when `inputAmount - outputAmount` exceeds the Mandate's `maxBridgeFeeBps`
 ///      (QA19 OPEN as to the value).
 /// @param outputAmount Amount that will arrive on the destination chain (DEC-085).
-/// @param quoteTimestamp Across quote timestamp (must be within the SpokePool `depositQuoteTimeBuffer`).
-/// @param exclusivityDeadline Across exclusivity deadline, 0 for none.
+/// @param quoteTimestamp Across quote timestamp (not in the future, within the SpokePool `depositQuoteTimeBuffer`).
+/// @param exclusivityDeadline Across `exclusivityParameter`: 0 for none; up to 31,536,000 an offset in seconds from the
+///        deposit time; above that an absolute timestamp; non-zero requires a non-zero `exclusiveRelayer`.
 /// @param exclusiveRelayer Across exclusive relayer, address(0) for none.
 struct BridgeQuote {
     uint256 outputAmount;

@@ -15,15 +15,11 @@ import {IChainlinkAggregatorV3} from "../interfaces/external/IChainlinkAggregato
 ///      fixed tokens (QB9 OPEN).
 /// @dev Tokens are keyed by address and may be addresses on a Spoke Chain (a report carries the spoke's token
 ///      addresses), so token decimals are constructor input and never read from the token.
-/// @dev OQ-10 (Q57): never reverts on age. It returns `updatedAt` and exposes `maxPriceAge()`; the consumer decides
+/// @dev OQ-10 (Q57): never reverts on age. It returns `updatedAt` and exposes `maxPriceAge(token)`; the consumer decides
 ///      (MVP: mints revert on a stale price, payouts use the last price).
 contract ChainlinkPriceSource is IPriceSource {
     /// @notice Decimals of hub USDC, the unit every price is expressed in.
     uint8 public constant USDC_DECIMALS = 6;
-
-    /// @notice Price of a fixed token: one base unit is worth one USDC base unit, scaled by 1e18 (QB9 OPEN).
-    /// @dev Exact only for a token with USDC's 6 decimals (USDC, USDG); only such tokens may be listed as fixed.
-    uint256 public constant FIXED_PRICE_1E18 = 1e18;
 
     /// @notice A Chainlink-priced token.
     /// @param token Token address as it appears in reports or hub positions.
@@ -37,7 +33,17 @@ contract ChainlinkPriceSource is IPriceSource {
         uint32 maxPriceAge;
     }
 
-    /// @notice Stored per-token configuration. `kind` 0 = unsupported, 1 = feed, 2 = fixed.
+    /// @notice A token held at 1:1 with USDC (QB9 OPEN: USDG, and USDC itself).
+    /// @param token Token address as it appears in reports or hub positions.
+    /// @param tokenDecimals Decimals of `token` on its own chain; one whole token is worth one whole USDC, so the price
+    ///        per base unit is `10^(6 + 18 - tokenDecimals)` (1e18 for a 6-decimals token).
+    struct FixedConfig {
+        address token;
+        uint8 tokenDecimals;
+    }
+
+    /// @notice Stored per-token configuration. `kind` 0 = unsupported, 1 = feed, 2 = fixed. For a fixed token
+    ///         `scaleNumerator` is its constant price1e18.
     struct Price {
         uint8 kind;
         address aggregator;
@@ -62,18 +68,15 @@ contract ChainlinkPriceSource is IPriceSource {
     /// @notice Decimals too large to scale safely.
     error DecimalsTooLarge(address token, uint256 decimals);
 
-    /// @inheritdoc IPriceSource
-    /// @dev The strictest (smallest) `maxPriceAge` across the configured feeds, because the interface exposes one
-    ///      bound for every token; 0 when only fixed tokens are configured (their `updatedAt` is always now).
-    ///      `maxPriceAgeOf` gives the per-feed bound.
-    uint256 public immutable maxPriceAge;
-
     mapping(address token => Price) internal _prices;
 
     /// @param feeds Chainlink-priced tokens.
-    /// @param fixedTokens Tokens held at 1:1 with USDC, each with 6 decimals (USDC, USDG; QB9 OPEN).
-    constructor(FeedConfig[] memory feeds, address[] memory fixedTokens) {
-        uint256 strictest = type(uint256).max;
+    /// @param fixedTokens Tokens held at 1:1 with USDC, with their decimals (USDC, USDG; QB9 OPEN).
+    /// @dev Feed decimals are read once here and baked into the scale. Assumption: a Chainlink proxy keeps its
+    ///      `decimals()` constant across aggregator upgrades (it does in practice); a proxy that changed it would need a
+    ///      new price source, which is how any pricing change is made (ruling 2026-09-29). No L2 sequencer-uptime check
+    ///      and no min/max-answer awareness: the consumer's staleness signal is `updatedAt` (OQ-10).
+    constructor(FeedConfig[] memory feeds, FixedConfig[] memory fixedTokens) {
         for (uint256 i; i < feeds.length; ++i) {
             FeedConfig memory f = feeds[i];
             if (f.token == address(0) || f.aggregator == address(0)) revert ZeroAddress();
@@ -90,26 +93,32 @@ contract ChainlinkPriceSource is IPriceSource {
                 scaleNumerator: 10 ** (USDC_DECIMALS + 18),
                 scaleDenominator: 10 ** denominatorDecimals
             });
-            if (f.maxPriceAge < strictest) strictest = f.maxPriceAge;
         }
         for (uint256 i; i < fixedTokens.length; ++i) {
-            address token = fixedTokens[i];
+            address token = fixedTokens[i].token;
+            uint256 decimals = fixedTokens[i].tokenDecimals;
             if (token == address(0)) revert ZeroAddress();
             if (_prices[token].kind != KIND_NONE) revert DuplicateToken(token);
+            // QB9 (report-receiver verifier finding): the price per base unit follows the token's decimals, so an
+            // 18-decimals token listed as fixed is not valued 1e12 times too high.
+            if (decimals > USDC_DECIMALS + 18) revert DecimalsTooLarge(token, decimals);
             _prices[token] = Price({
-                kind: KIND_FIXED, aggregator: address(0), maxPriceAge: 0, scaleNumerator: 0, scaleDenominator: 0
+                kind: KIND_FIXED,
+                aggregator: address(0),
+                maxPriceAge: 0,
+                scaleNumerator: 10 ** (USDC_DECIMALS + 18 - decimals),
+                scaleDenominator: 0
             });
         }
-        maxPriceAge = feeds.length == 0 ? 0 : strictest;
     }
 
     /// @inheritdoc IPriceSource
-    /// @dev Reverts with `InvalidPrice` on a zero or negative answer; never on age (OQ-10). A fixed token returns
-    ///      `FIXED_PRICE_1E18` with `updatedAt = block.timestamp`.
+    /// @dev Reverts with `InvalidPrice` on a zero or negative answer; never on age (OQ-10). A fixed token returns its
+    ///      constant price (1e18 for 6 decimals) with `updatedAt = block.timestamp`.
     function priceInUsdc(address token) public view returns (uint256 price1e18, uint256 updatedAt) {
         Price storage p = _prices[token];
         uint8 kind = p.kind;
-        if (kind == KIND_FIXED) return (FIXED_PRICE_1E18, block.timestamp);
+        if (kind == KIND_FIXED) return (p.scaleNumerator, block.timestamp);
         if (kind == KIND_NONE) revert UnsupportedToken(token);
         int256 answer;
         (, answer,, updatedAt,) = IChainlinkAggregatorV3(p.aggregator).latestRoundData();
@@ -127,8 +136,9 @@ contract ChainlinkPriceSource is IPriceSource {
         value = Math.mulDiv(amount, price1e18, 1e18);
     }
 
-    /// @notice Max price age of `token`'s feed; 0 for a fixed token. Reverts with `UnsupportedToken` if unknown.
-    function maxPriceAgeOf(address token) external view returns (uint256) {
+    /// @inheritdoc IPriceSource
+    /// @dev The feed's own bound; 0 for a fixed token (its `updatedAt` is always the current block).
+    function maxPriceAge(address token) external view returns (uint256) {
         Price storage p = _prices[token];
         if (p.kind == KIND_NONE) revert UnsupportedToken(token);
         return p.maxPriceAge;

@@ -109,23 +109,37 @@ contract SpokeVaultAdversarialSpokeTest is SpokeVaultTestBase {
     // Ordering attacks on the OQ-09 arrival window (Across passes no depositor: any deposit reaches the callback)
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @dev Sixty-four dust deposits from a stranger, each with a fresh id, push a genuine arrival out of the window
-    ///      the report carries before any report was published. The hub can no longer confirm that id from a report,
-    ///      while the spoke keeps counting the money. Documents the griefing vector of the 64-id window.
-    function test_OQ09_dustSpamEvictsAGenuineArrivalFromTheReportWindow() public {
+    /// @dev OQ-09 stance (liveness only, never value): dust below `MIN_LISTED_ARRIVAL` with fresh ids is credited to
+    ///      the ledger but never listed, so a window's worth of it cannot push a genuine arrival out of the report.
+    function test_OQ09_dustBelowTheListingMinimumCannotEvictAGenuineArrival() public {
         _arrive(1000e6, GENUINE, TransferKind.Principal);
-        for (uint256 i; i < SpokeVaultTypes.ARRIVAL_WINDOW; ++i) {
-            _arrive(1, keccak256(abi.encode("dust", i)), TransferKind.Principal);
+        uint256 spam = SpokeVaultTypes.ARRIVAL_WINDOW + 10;
+        for (uint256 i; i < spam; ++i) {
+            _arrive(SpokeVaultTypes.MIN_LISTED_ARRIVAL - 1, keccak256(abi.encode("dust", i)), TransferKind.Principal);
         }
 
         ReportCodec.Report memory r = vault.buildReport();
-        assertEq(r.arrivedTransits.length, SpokeVaultTypes.ARRIVAL_WINDOW);
+        assertEq(r.arrivedTransits.length, 1, "no dust id is listed");
+        assertEq(r.arrivedTransits[0].transitId, GENUINE);
+        uint256 dust = spam * (SpokeVaultTypes.MIN_LISTED_ARRIVAL - 1);
+        assertEq(vault.unallocatedBalance(address(usdg)), 1000e6 + dust, "dust is still credited to the ledger");
+        assertEq(r.cumulativeReceived, 1000e6 + dust, "and carried for the hub to deduct as unknown value");
+    }
+
+    /// @dev A window of listable arrivals (each at least `MIN_LISTED_ARRIVAL`) still evicts a genuine id: the attack
+    ///      now costs `ARRIVAL_WINDOW` USDG donated to the fund, and the hub no longer takes a full window as proof of
+    ///      non-arrival (CoreVaultLogic.nonArrivalProvable), so the eviction cannot turn into a double count.
+    function test_OQ09_evictionNeedsAFullWindowOfListableArrivals() public {
+        _arrive(1000e6, GENUINE, TransferKind.Principal);
+        for (uint256 i; i < SpokeVaultTypes.ARRIVAL_WINDOW; ++i) {
+            _arrive(SpokeVaultTypes.MIN_LISTED_ARRIVAL, keccak256(abi.encode("spam", i)), TransferKind.Principal);
+        }
+        ReportCodec.Report memory r = vault.buildReport();
+        assertEq(r.arrivedTransits.length, ReportCodec.ARRIVAL_WINDOW);
         for (uint256 i; i < r.arrivedTransits.length; ++i) {
             assertTrue(r.arrivedTransits[i].transitId != GENUINE, "the genuine id was evicted");
         }
         assertTrue(vault.hasArrived(GENUINE), "still credited locally");
-        assertEq(vault.unallocatedBalance(address(usdg)), 1000e6 + SpokeVaultTypes.ARRIVAL_WINDOW);
-        assertEq(r.cumulativeReceived, 1000e6 + SpokeVaultTypes.ARRIVAL_WINDOW);
     }
 
     /// @dev A stranger front-runs the real fill with one unit under the same transit id: the report then lists the id
@@ -216,8 +230,8 @@ contract SpokeVaultAdversarialAdapterTest is SpokeVaultTestBase {
     }
 }
 
-/// @notice Hub role: the unwind hint list is consumed in registry order, and the registry is swap-and-pop, so a manual
-///         close reorders later positions. The caller must read `positions()` in the same block it builds hints.
+/// @notice Hub role: the unwind visits positions in registry order, and the registry is swap-and-pop, so a manual close
+///         reorders later positions. A caller that sends swap hints must read `positions()` in the same block.
 contract SpokeVaultAdversarialHubTest is SpokeVaultTestBase {
     function setUp() public {
         _setUpMocks();
@@ -225,7 +239,7 @@ contract SpokeVaultAdversarialHubTest is SpokeVaultTestBase {
         usdc.mint(address(core), 10_000e6);
     }
 
-    function test_DEC069_unwindHintsFollowTheRegistryOrderAfterASwapAndPopClose() public {
+    function test_DEC069_unwindFollowsTheRegistryOrderAfterASwapAndPopClose() public {
         core.allocate(vault, 900e6);
         vm.startPrank(manager);
         (bytes32 a,,) = vault.openPosition(address(hubUni), HUB_POOL, 0, 300e6, "");
@@ -239,19 +253,17 @@ contract SpokeVaultAdversarialHubTest is SpokeVaultTestBase {
         assertEq(p[0].positionKey, a);
         assertEq(p[1].positionKey, c, "c moved into b's slot");
 
-        // Unallocated 300 (from b) + a closed (300) = 600 < 650: the second hint is applied to c, a 50% decrease.
-        SpokeVaultTypes.UnwindHint[] memory hints = new SpokeVaultTypes.UnwindHint[](2);
-        hints[0].close = true;
-        hints[1].exitParams = abi.encode(uint256(5000));
-        assertEq(core.unwind(vault, 650e6, SpokeVaultTypes.encodeHints(hints)), 650e6);
+        // Final verification (DEC-069): the vault sizes each step. Unallocated 300 (from b); a's whole value (300) is
+        // needed, so a closes; the 50 still missing is taken from c, the next in registry order (ceil 16.67% of 300).
+        assertEq(core.unwind(vault, 650e6, ""), 650e6);
 
         (,, uint256 principalA,,, bool openA) = hubUni.position(a);
         (,, uint256 principalC,,, bool openC) = hubUni.position(c);
         assertFalse(openA);
         assertEq(principalA, 0);
         assertTrue(openC);
-        assertEq(principalC, 150e6, "the decrease hint landed on c, not on the closed b");
-        assertEq(vault.unallocatedBalance(address(usdc)), 100e6);
+        assertEq(principalC, 300e6 - 50.01e6, "only the shortfall left c, rounded up to its bps");
+        assertEq(vault.unallocatedBalance(address(usdc)), 0.01e6);
         assertEq(core.idleReturned(), 650e6);
     }
 }
