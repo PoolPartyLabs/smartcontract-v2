@@ -63,6 +63,7 @@ contract EndToEndForkTest is EndToEndBase {
         _phase7IncomeAndBrunoDeposit();
         _phase8AnaStandardPayout();
         _phase9BrunoInstantPayoutWithUnwind();
+        _phase10Invariants();
     }
 
     // -----------------------------------------------------------------------------------------------------------------
@@ -734,5 +735,31 @@ contract EndToEndForkTest is EndToEndBase {
             assertEq(req.usdcOutstanding, plan.request - receipt.usdcGross, "DEC-068: the rest stays open");
             assertEq(receipt.usdcOutstanding, req.usdcOutstanding);
         }
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // Phase 10: invariants
+    // -----------------------------------------------------------------------------------------------------------------
+
+    /// @dev DEC-072: the Payout Reserve never exceeds Idle. DEC-091: whole shares only. DEC-104: Share Assets is the sum
+    ///      of its buckets. DEC-080: a donation reaches no base, leaves the Share Price and is swept.
+    function _phase10Invariants() internal {
+        _onArbitrum();
+        assertLe(core.payoutReserve(), core.idle(), "DEC-072: Payout Reserve <= Idle");
+        assertEq(IERC20(shareToken).totalSupply() % 1e18, 0, "DEC-091: totalSupply is whole shares");
+        assertEq(core.shareAssets(), _sumOfBuckets(), "DEC-104: Share Assets equals the sum of buckets");
+        assertEq(core.sweepExcess(ARB_USDC), 0, "DEC-080: the ledger covers every unit held");
+
+        uint256 price = core.sharePrice();
+        uint256 idleBefore = core.idle();
+        uint256 recipientBefore = IERC20(ARB_USDC).balanceOf(recipient);
+        deal(ARB_USDC, address(core), IERC20(ARB_USDC).balanceOf(address(core)) + DONATION);
+        assertEq(core.sharePrice(), price, "DEC-080: a donation never moves the Share Price");
+        assertEq(core.idle(), idleBefore, "DEC-080: nor Idle");
+        assertEq(core.excessRecipient(), recipient);
+        assertEq(core.sweepExcess(ARB_USDC), DONATION, "DEC-080, DEC-101: swept by the garbage collector");
+        assertEq(IERC20(ARB_USDC).balanceOf(recipient) - recipientBefore, DONATION);
+        assertEq(core.sharePrice(), price);
+        assertEq(core.shareAssets(), _sumOfBuckets());
     }
 }
