@@ -1,0 +1,440 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.28;
+
+import {IAcrossMessageHandler} from "./external/IAcrossMessageHandler.sol";
+import {Mandate} from "../mandate/Mandate.sol";
+import {Transit, TransferKind, ExpensePayer, BridgeQuote} from "./FundTypes.sol";
+
+/// @title ICoreVault
+/// @notice Hub Chain contract of a fund: custody of Idle USDC, the Share ledger, Payout Requests and Payouts, the
+///         Attributed Income bucket and Income Withdrawal, sends to spokes and the transit state machine.
+/// @dev DEC-011: deposits and payouts only on the Hub Chain. DEC-054: never talks to adapters or collectors; it reads
+///      the hub Spoke Vault directly and spoke values from the ValueReportReceiver. DEC-022, DEC-058: not upgradeable.
+///      Every value-moving entry point is `nonReentrant` and follows checks-effects-interactions.
+/// @dev Value bases (DEC-042, DEC-083, DEC-084, DEC-098, DEC-104):
+///      Share Assets = Idle (Payout Reserve included) + hub Spoke Vault Unallocated Balance and position principal +
+///      In-flight Value at the amount that will arrive (DEC-085) + each spoke's principal and Unallocated Balance from
+///      its last accepted report. Excludes Operating Cash, Attributed Income and external rewards (DEC-078, DEC-092).
+///      Gross Assets = Share Assets + Operating Cash + Attributed Income (collected or not) + external rewards;
+///      informational only (DEC-098, DEC-103). Pricing of non-USDC quantities goes through IPriceSource (OPEN).
+/// @dev Share Price is `ShareMath.sharePrice(shareAssets, totalShares)`: USDC base units per whole share scaled by
+///      1e18; 1e24 = 1.00 USDC.
+interface ICoreVault is IAcrossMessageHandler {
+    /// @notice Payout speed (DEC-075).
+    enum PayoutMode {
+        Instant,
+        Standard
+    }
+
+    /// @notice The open Payout Request of a Shareholder (DEC-024: at most one per address, never cancellable).
+    /// @param mode Instant or Standard.
+    /// @param open Whether the request is open.
+    /// @param requestedAt Timestamp of the request.
+    /// @param termEndsAt Standard: `requestedAt + standardPayoutTerm` (DEC-060); Instant: `requestedAt`.
+    /// @param usdcRequested Gross USDC amount requested (DEC-020, DEC-023).
+    /// @param usdcOutstanding USDC still to pay after Partial Payouts (DEC-068).
+    /// @param reserved USDC held in the Payout Reserve for this request; Standard only (DEC-072, DEC-077, DEC-095).
+    struct PayoutRequest {
+        PayoutMode mode;
+        bool open;
+        uint64 requestedAt;
+        uint64 termEndsAt;
+        uint256 usdcRequested;
+        uint256 usdcOutstanding;
+        uint256 reserved;
+    }
+
+    /// @notice How Share Assets were consolidated for a mint or burn (DEC-083). Carried by every mint and burn event.
+    /// @param chainsSummed Number of chains whose value was summed (hub included).
+    /// @param reportBlockNumbers Block of each spoke report used, in Mandate spoke order.
+    /// @param reportSequences Sequence of each spoke report used, in Mandate spoke order.
+    /// @param oldestReportAge Age in seconds of the oldest spoke report used.
+    /// @param inFlightValue In-flight Value included, on its own line.
+    struct NavConsolidation {
+        uint256 chainsSummed;
+        uint64[] reportBlockNumbers;
+        uint64[] reportSequences;
+        uint256 oldestReportAge;
+        uint256 inFlightValue;
+    }
+
+    /// @notice Result of a Payout or Partial Payout.
+    /// @param mode Instant or Standard.
+    /// @param usdcRequested Gross amount of the request (DEC-020).
+    /// @param sharesBurned Whole shares burned, rounded down (DEC-077).
+    /// @param usdcGross `ShareMath.usdcFor(sharesBurned, sharePrice)`, never above the amount requested (DEC-077).
+    /// @param payoutFee Payout Fee to Operating Cash, Instant only (DEC-075, DEC-102).
+    /// @param flowFee Protocol flow fee (DEC-106; incidence on payouts is the LC-143 reading, OPEN).
+    /// @param usdcPaid USDC transferred to the Shareholder.
+    /// @param usdcOutstanding Amount still open after a Partial Payout (DEC-068); 0 for a full Payout.
+    /// @param sharePrice Share Price used for the burn (DEC-105: one price for the whole request).
+    /// @param shareAssets Numerator of that price.
+    /// @param totalShares Denominator of that price, before the burn.
+    /// @param unwindProceeds USDC realized by an automatic unwind in this claim; 0 when Idle paid.
+    /// @param payoutSettlementPrice Realized unwind proceeds per whole share burned, same scale as Share Price;
+    ///        event-only measure (DEC-084, DEC-105); 0 when nothing was unwound.
+    struct PayoutReceipt {
+        PayoutMode mode;
+        uint256 usdcRequested;
+        uint256 sharesBurned;
+        uint256 usdcGross;
+        uint256 payoutFee;
+        uint256 flowFee;
+        uint256 usdcPaid;
+        uint256 usdcOutstanding;
+        uint256 sharePrice;
+        uint256 shareAssets;
+        uint256 totalShares;
+        uint256 unwindProceeds;
+        uint256 payoutSettlementPrice;
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Events (names per DEC-074, DEC-075)
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// @notice Shares were minted for a deposit (DEC-009, DEC-035, DEC-071). Carries the price numerator and
+    ///         denominator.
+    /// @dev DEC-083: every mint and every burn publishes how its Share Assets were consolidated (chains summed, block
+    ///      and sequence of each spoke report, age of the oldest report, In-flight Value on its own line), so the
+    ///      mint event carries the same `NavConsolidation` as `PayoutExecuted` and `PartialPayoutExecuted`.
+    event Deposited(
+        address indexed shareholder,
+        uint256 usdcForShares,
+        uint256 flowFee,
+        uint256 shares,
+        uint256 sharePrice,
+        uint256 shareAssets,
+        uint256 totalShares,
+        NavConsolidation consolidation
+    );
+
+    /// @notice A Payout Request was opened (DEC-024, DEC-077: nothing is burned or locked).
+    event PayoutRequested(
+        address indexed shareholder, PayoutMode indexed mode, uint256 usdcRequested, uint256 reserved, uint64 termEndsAt
+    );
+
+    /// @notice A Payout closed the request (DEC-074, DEC-083).
+    event PayoutExecuted(address indexed shareholder, PayoutReceipt receipt, NavConsolidation consolidation);
+
+    /// @notice A Partial Payout paid part of the request and left the rest open (DEC-068, DEC-074).
+    event PartialPayoutExecuted(address indexed shareholder, PayoutReceipt receipt, NavConsolidation consolidation);
+
+    /// @notice Attributed Income was paid without burning shares (DEC-025, DEC-029, DEC-073), or with a full burn
+    ///         (DEC-045).
+    event IncomeWithdrawn(address indexed shareholder, address indexed token, uint256 amount);
+
+    /// @notice Capital was sent to a spoke. Cross-chain fields: hub chain id, destination chain id, transit id.
+    event SentToSpoke(bytes32 indexed transitId, uint256 indexed spokeIndex, Transit transit, uint256 hubChainId);
+
+    /// @notice A spoke report confirmed a hub-to-spoke transit's arrival (DEC-066, DEC-090).
+    event TransitArrived(
+        bytes32 indexed transitId, uint256 indexed spokeIndex, uint256 amountArrived, uint64 reportSequence
+    );
+
+    /// @notice A transit's expiry was attested; the Spoke Cap is released, Share Assets still count it (DEC-066).
+    event TransitExpiryAttested(bytes32 indexed transitId, uint256 indexed spokeIndex, address indexed attester);
+
+    /// @notice A transit's refund was pulled from its escrow back to Idle (DEC-066).
+    event TransitRefundRecognized(bytes32 indexed transitId, uint256 indexed spokeIndex, uint256 amount);
+
+    /// @notice A spoke-to-hub transfer arrived through `handleV3AcrossMessage`. `matched` is false when no accepted
+    ///         report lists the transit yet; such an amount is held apart until matched (DEC-080).
+    event TransitReceived(
+        bytes32 indexed transitId, uint256 indexed originChainId, TransferKind kind, uint256 amount, bool matched
+    );
+
+    /// @notice The Core Vault applied a newly accepted spoke report (arrivals, income).
+    event ReportAccepted(
+        uint256 indexed spokeIndex, uint64 reportSequence, uint64 blockNumber, uint64 timestamp, uint256 transitsArrived
+    );
+
+    /// @notice An Operating Expense was paid, with its funding source (DEC-041). `shareholder` is zero for a
+    ///         fund-level expense.
+    event OperatingExpensePaid(
+        uint256 indexed chainId, address indexed shareholder, bytes32 indexed kind, uint256 amount, ExpensePayer payer
+    );
+
+    /// @notice Hub Operating Cash was topped up from Share Assets (DEC-096, DEC-100).
+    event OperatingCashToppedUp(uint256 amount, uint256 balance);
+
+    /// @notice The manager changed the hub Operating Cash floor and top-up (DEC-096).
+    event OperatingCashParametersSet(uint256 floor, uint256 topUp);
+
+    /// @notice Free Idle was moved to the hub Spoke Vault's Unallocated Balance (DEC-017, DEC-072).
+    event AllocatedToHubSpokeVault(uint256 amount);
+
+    /// @notice The hub Spoke Vault returned USDC to Idle.
+    event ReturnedToIdle(uint256 amount);
+
+    /// @notice Collected income reached the Core Vault; fees were split before the accumulator (DEC-107, DEC-109).
+    event CollectedIncomeReceived(
+        address indexed token, uint256 amount, uint256 managerFee, uint256 protocolSlice, uint16 protocolSliceBps
+    );
+
+    /// @notice The manager lowered the manager fee (DEC-110).
+    event ManagerFeeDecreased(
+        uint16 previousPerformanceFeeBps,
+        uint16 newPerformanceFeeBps,
+        uint16 previousManagementFeeBps,
+        uint16 newManagementFeeBps
+    );
+
+    /// @notice Owed fees were transferred to a recipient (DEC-109: paid in the collected token, never in shares).
+    event FeesPaid(address indexed token, address indexed recipient, uint256 amount);
+
+    /// @notice Balance above the ledger was swept (DEC-080, DEC-096, DEC-101).
+    event ExcessSwept(address indexed token, address indexed recipient, uint256 amount);
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Errors
+    // ---------------------------------------------------------------------------------------------------------------
+
+    error NotManager(address caller);
+    error NotReportReceiver(address caller);
+    error NotHubSpokeVault(address caller);
+    error NotAcrossSpokePool(address caller);
+    error ZeroAmount();
+    error BelowMinFirstDeposit(uint256 amount, uint256 minFirstDeposit);
+    error DepositBelowOneShare(uint256 usdcNet, uint256 sharePrice);
+    error SharesBelowMinimum(uint256 shares, uint256 minShares);
+    error StaleSpokeReport(uint256 spokeIndex);
+    error StalePrice(address token, uint256 updatedAt);
+    error PayoutRequestAlreadyOpen(address shareholder);
+    error NoOpenPayoutRequest(address shareholder);
+    error PayoutTermNotEnded(uint64 termEndsAt);
+    error NoShares(address shareholder);
+    error InsufficientFreeIdle(uint256 requested, uint256 available);
+    error UnknownSpoke(uint256 spokeIndex);
+    error SpokeCapExceeded(uint256 spokeIndex, uint256 used, uint256 amount, uint256 spokeCap);
+    error BridgeFeeAboveMax(uint256 fee, uint256 maxFee);
+    error BridgeAdapterUnavailable(address bridgeAdapter);
+    error UnknownTransit(bytes32 transitId);
+    error InvalidTransitState(bytes32 transitId, uint8 state);
+    error FillDeadlineNotReached(bytes32 transitId, uint32 fillDeadline);
+    error ExpiryNotProvable(bytes32 transitId);
+    error NoRefund(bytes32 transitId);
+    error WrongFund(bytes32 fundId);
+    error UnexpectedToken(address token);
+    error ManagerFeeNotDecreasing();
+    error ManagementFeeNotSupported(uint16 bps);
+    error UnknownIncomeToken(address token);
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Shareholder verbs
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// @notice Deposits USDC and mints whole shares in the same transaction (DEC-009, DEC-071).
+    /// @dev DEC-061, DEC-095: the first deposit is at least `minFirstDeposit`. DEC-106: the flow fee is taken from the
+    ///      amount before pricing (MVP reading, OPEN). DEC-035: shares are `floor(net / sharePrice)` whole shares and
+    ///      only `shares * sharePrice` (truncated) is charged; the rest stays in the wallet; revert below one share or
+    ///      below `minShares`. DEC-014, Q60: income checkpoint before the mint. Q57 reading (OPEN): reverts with
+    ///      `StaleSpokeReport` when a spoke's last accepted report is past its max age.
+    /// @return shares Whole shares minted, in base units.
+    /// @return usdcCharged USDC pulled from the depositor: `usdcForShares + flowFee`.
+    function deposit(uint256 usdcAmount, uint256 minShares) external returns (uint256 shares, uint256 usdcCharged);
+
+    /// @notice Opens the caller's Payout Request for a gross USDC amount (DEC-020, DEC-023, DEC-024).
+    /// @dev Shares are neither locked nor burned (DEC-077). Standard: reserves `min(usdcAmount, freeIdle())` in the
+    ///      Payout Reserve and starts the term (DEC-060, DEC-072, DEC-095). Instant: no reserve (DEC-095).
+    function requestPayout(uint256 usdcAmount, PayoutMode mode) external;
+
+    /// @notice Executes the caller's Payout Request: burn and pay atomically (DEC-047, DEC-065, DEC-074). Only the
+    ///         requester. Unlike an ERC-7540 claim, it runs the missing unwind and pays in the same transaction.
+    /// @dev Idle first (Instant: Free Idle only, never the Payout Reserve; Standard: its reserve, then Free Idle,
+    ///      DEC-095); otherwise automatic unwind in Mandate order of the shortfall plus 2% (DEC-069, DEC-081, DEC-097),
+    ///      then a post-unwind report on the unwound spoke before burning (DEC-105). Burns
+    ///      `ShareMath.sharesToBurn(outstanding, sharePrice)` capped at the balance (DEC-020, DEC-077). A full burn
+    ///      pays all Attributed Income payable now in the same transaction (DEC-045). Partial Payout when not
+    ///      everything can be paid (DEC-068).
+    /// @param unwindHints Parameters forwarded to `ISpokeVault.unwindForPayout`; empty when Idle covers the request.
+    function claimPayout(bytes calldata unwindHints) external returns (PayoutReceipt memory receipt);
+
+    /// @notice Pays the caller's Attributed Income in `token` without burning shares (DEC-025, DEC-029, DEC-073).
+    /// @dev No Payout Fee, no flow fee (LC-143 reading), not a Payout Request (DEC-029). Checkpoint first. LC-100
+    ///      (OPEN): pays `min(owed, collectedIncome(token))`.
+    function withdrawIncome(address token) external returns (uint256 amount);
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Permissionless verbs
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// @notice Advances the income index from the hub Spoke Vault's cumulative income counters (Q60 hub
+    ///         recognition). Permissionless; never reverts because a counter regressed.
+    function recognizeHubIncome() external;
+
+    /// @notice Attests that a hub-to-spoke transit expired without arriving (DEC-066). Permissionless.
+    /// @dev Requires the fill deadline to have passed and proof of non-arrival: a spoke report built after the
+    ///      deadline that does not list the transit, or the deadline plus the report lifetime having passed. Releases
+    ///      the Spoke Cap; Share Assets keep counting the transit until its refund is recognized (QB11, QB10 OPEN).
+    function attestExpiry(bytes32 transitId) external;
+
+    /// @notice Pulls an expired transit's refund from its escrow back to Idle (DEC-066, QA6). Permissionless.
+    function recognizeRefund(bytes32 transitId) external returns (uint256 amount);
+
+    /// @notice Transfers the owed manager fee and protocol fees in `token` to their recipients. Permissionless.
+    /// @dev DEC-106, DEC-109: manager fee to the manager's address; protocol slice and flow fee to the Protocol
+    ///      Recipient (LC-132: identity to confirm).
+    function payOwedFees(address token) external;
+
+    /// @notice Sends `balanceOf(token)` minus every ledger amount of `token` to the excess recipient. Permissionless.
+    /// @dev DEC-080, DEC-096, DEC-101. Never sweeps ledger value (Idle, Operating Cash, collected income, owed fees).
+    function sweepExcess(address token) external returns (uint256 amount);
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Manager verbs
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// @notice Moves Free Idle to the hub Spoke Vault's Unallocated Balance. Manager only (DEC-017, DEC-072).
+    function allocateToHubSpokeVault(uint256 usdcAmount) external;
+
+    /// @notice Sends Free Idle to a spoke through the Mandate bridge adapter of priority `bridgeRank`. Manager only.
+    /// @dev DEC-037, DEC-095: reverts unless `spoke value + in flight to the spoke (amount sent) + usdcAmount <=
+    ///      spokeCap`. DEC-087: the vault fixes the recipient (the Mandate Spoke Vault) and the token pair (USDC to the
+    ///      spoke token). QA19: rejects a fee above `maxBridgeFeeBps`. DEC-021, DEC-056, DEC-058: reverts with
+    ///      `BridgeAdapterUnavailable` when the bridge adapter is paused or deprecated. DEC-066: a per-send
+    ///      TransitEscrow is the depositor. DEC-085: counted in Share Assets at `quote.outputAmount`.
+    ///      Custody: the vault executes the call `IBridgeAdapter.buildSend` returns against the pinned target, with an
+    ///      exact approval reset to zero; the adapter never holds USDC (DEC-087).
+    function sendToSpoke(uint256 spokeIndex, uint256 usdcAmount, uint256 bridgeRank, BridgeQuote calldata quote)
+        external
+        returns (bytes32 transitId);
+
+    /// @notice Lowers the manager fee; it can never rise on a live fund (DEC-110). Manager only.
+    /// @dev Books the amounts already due at the old rate first. `newManagementFeeBps` must stay 0 in the MVP (DEC-108, LC-144).
+    function decreaseManagerFee(uint16 newPerformanceFeeBps, uint16 newManagementFeeBps) external;
+
+    /// @notice Sets the hub Operating Cash floor and top-up. Manager only (DEC-096, DEC-100).
+    function setOperatingCashParameters(uint256 floor, uint256 topUp) external;
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Callbacks from the fund's own contracts (DEC-090: transitions only from the Mandate's contracts)
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// @notice Applies a newly accepted report: confirms arrived transits, reconciles spoke-to-hub transfers and, if
+    ///         the MVP recognizes spoke income on delivery, advances the index. ValueReportReceiver only.
+    function onReportAccepted(uint256 spokeIndex) external;
+
+    /// @notice Credits USDC the hub Spoke Vault transferred to Idle. Hub Spoke Vault only.
+    function returnToIdle(uint256 usdcAmount) external;
+
+    /// @notice Credits collected income the hub Spoke Vault transferred. Splits the performance fee and protocol slice
+    ///         before the accumulator (DEC-107, DEC-109; slice read from the ManagerRegistry at this moment, DEC-106,
+    ///         DEC-110). Hub Spoke Vault only.
+    function receiveCollectedIncome(address token, uint256 amount) external;
+
+    /// @notice Across fill callback for spoke-to-hub transfers. Only the Across SpokePool; only USDC.
+    /// @dev Decodes TransitMessage and rejects another fund's id. Across passes no depositor, so the amount is credited
+    ///      to Idle (Principal) or the collected income bucket (Income) only when an accepted report lists the transit
+    ///      id as in flight to the hub; otherwise it is held apart until a report matches it (DEC-080, DEC-104).
+    function handleV3AcrossMessage(address tokenSent, uint256 amount, address relayer, bytes memory message) external;
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Identity and wiring
+    // ---------------------------------------------------------------------------------------------------------------
+
+    function fundId() external view returns (bytes32);
+    function mandateHash() external view returns (bytes32);
+    function mandate() external view returns (Mandate memory);
+    function manager() external view returns (address);
+    function usdc() external view returns (address);
+    function shareToken() external view returns (address);
+    function hubSpokeVault() external view returns (address);
+    function reportReceiver() external view returns (address);
+    function managerRegistry() external view returns (address);
+    function priceSource() external view returns (address);
+    function acrossSpokePool() external view returns (address);
+
+    /// @notice Recipient of the protocol slice and the flow fee (DEC-106; LC-132: identity to confirm).
+    function protocolRecipient() external view returns (address);
+
+    /// @notice Recipient of swept excess balances (DEC-096, DEC-101; LC-132 OPEN).
+    function excessRecipient() external view returns (address);
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Value bases (DEC-072, DEC-083, DEC-084, DEC-085, DEC-098)
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// @notice Total USDC in the Core Vault that backs shares, Payout Reserve included (DEC-055, DEC-072).
+    function idle() external view returns (uint256);
+
+    /// @notice Part of Idle reserved for Standard Payouts; always `<= idle()` (DEC-072).
+    function payoutReserve() external view returns (uint256);
+
+    /// @notice `idle() - payoutReserve()`: what the manager may allocate (DEC-017, DEC-072).
+    function freeIdle() external view returns (uint256);
+
+    /// @notice Share Assets in USDC base units (DEC-083, DEC-084).
+    function shareAssets() external view returns (uint256);
+
+    /// @notice Share Price, USDC base units per whole share scaled by 1e18 (DEC-061, DEC-084).
+    function sharePrice() external view returns (uint256);
+
+    /// @notice Gross Assets in USDC base units; informational only (DEC-098, DEC-103).
+    function grossAssets() external view returns (uint256);
+
+    /// @notice In-flight Value included in Share Assets, at the amount that will arrive (DEC-085).
+    function inFlightValue() external view returns (uint256);
+
+    /// @notice Hub Operating Cash (DEC-013, DEC-096, DEC-102).
+    function operatingCash() external view returns (uint256);
+
+    function operatingCashFloor() external view returns (uint256);
+    function operatingCashTopUp() external view returns (uint256);
+
+    /// @notice Spoke Cap usage of a spoke (DEC-037, DEC-066, DEC-095).
+    /// @return spokeValue Principal value of the spoke from its last accepted report.
+    /// @return inFlightSent Amount sent to the spoke whose outcome is unknown (DEC-066 C1).
+    /// @return spokeCap The Mandate's Spoke Cap.
+    function spokeCapUsage(uint256 spokeIndex)
+        external
+        view
+        returns (uint256 spokeValue, uint256 inFlightSent, uint256 spokeCap);
+
+    /// @notice A hub-to-spoke transit.
+    function transit(bytes32 transitId) external view returns (Transit memory);
+
+    /// @notice A Shareholder's Payout Request.
+    function payoutRequest(address shareholder) external view returns (PayoutRequest memory);
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Attributed Income (DEC-014, DEC-092)
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// @notice Income tokens of the fund (closed list from the Mandate pools).
+    function incomeTokens() external view returns (address[] memory);
+
+    /// @notice Attributed Income of `shareholder` in `token`, pending part included.
+    function attributedIncome(address shareholder, address token) external view returns (uint256);
+
+    /// @notice Collected income of `token` held by the Core Vault, payable now (LC-100).
+    function collectedIncome(address token) external view returns (uint256);
+
+    /// @notice Income recognized with no shares outstanding (LC-32 OPEN: retained).
+    function ownerlessIncome(address token) external view returns (uint256);
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Fees (DEC-102, DEC-106..110)
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// @notice Manager performance fee on collected income, bps (DEC-107); only decreases (DEC-110).
+    function performanceFeeBps() external view returns (uint16);
+
+    /// @notice Manager management fee, bps per year; 0 in the MVP (DEC-108, LC-144).
+    function managementFeeBps() external view returns (uint16);
+
+    /// @notice Protocol flow fee, bps; default 25, capped at 100 (DEC-106, DEC-110; where it is stored, LC-143 OPEN).
+    function flowFeeBps() external view returns (uint16);
+
+    /// @notice Payout Fee on Instant Payouts, bps; immutable (DEC-006, DEC-102, DEC-110).
+    function payoutFeeBps() external view returns (uint16);
+
+    /// @notice Standard Payout term, seconds (DEC-060, DEC-095).
+    function standardPayoutTerm() external view returns (uint32);
+
+    /// @notice Protocol fees owed in `token` (slice and flow fee), not yet transferred.
+    function protocolOwed(address token) external view returns (uint256);
+
+    /// @notice Manager fee owed in `token`, not yet transferred.
+    function managerOwed(address token) external view returns (uint256);
+}
