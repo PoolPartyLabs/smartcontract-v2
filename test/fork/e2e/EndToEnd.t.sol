@@ -61,6 +61,7 @@ contract EndToEndForkTest is EndToEndBase {
         _phase5FillPositionAndReport();
         _phase6DeliverReport();
         _phase7IncomeAndBrunoDeposit();
+        _phase8AnaStandardPayout();
     }
 
     // -----------------------------------------------------------------------------------------------------------------
@@ -556,5 +557,52 @@ contract EndToEndForkTest is EndToEndBase {
         assertEq(core.attributedIncome(bruno, ARB_USDC), 0, "DEC-014: none of the income already generated");
         assertEq(core.attributedIncome(bruno, ARB_WETH), 0, "DEC-014: none of the income already generated");
         assertEq(core.attributedIncome(ana, ARB_USDC), anaUsdc, "DEC-014: Ana keeps hers");
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // Phase 8: Ana's Standard Payout of 3,000 USDC
+    // -----------------------------------------------------------------------------------------------------------------
+
+    /// @dev DEC-072, DEC-095: Standard reserves the amount in the Payout Reserve. DEC-060, DEC-067: after the term it is
+    ///      paid from Idle. DEC-077: shares rounded down, the payout never above the request. DEC-105: one Share Price.
+    ///      DEC-106: flow fee on the amount paid. DEC-024: one request, closed by the claim.
+    function _phase8AnaStandardPayout() internal {
+        _onArbitrum();
+        uint256 idleBefore = core.idle();
+        vm.prank(ana);
+        core.requestPayout(ANA_PAYOUT, ICoreVault.PayoutMode.Standard);
+        ICoreVault.PayoutRequest memory req = core.payoutRequest(ana);
+        assertEq(req.reserved, ANA_PAYOUT, "DEC-072: reserved as USDC");
+        assertEq(core.payoutReserve(), ANA_PAYOUT);
+        assertEq(req.termEndsAt, block.timestamp + 72 hours, "DEC-060: 72 h term");
+        assertEq(IERC20(shareToken).balanceOf(ana), 9975e18, "DEC-077: nothing burned at request");
+        vm.prank(ana);
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.PayoutTermNotEnded.selector, req.termEndsAt));
+        core.claimPayout("");
+
+        _advance(72 hours);
+        uint256 price = core.sharePrice();
+        uint256 shares = ShareMath.sharesToBurn(ANA_PAYOUT, price);
+        uint256 gross = ShareMath.usdcFor(shares, price);
+        uint256 recipientBefore = IERC20(ARB_USDC).balanceOf(recipient);
+        uint256 anaBefore = IERC20(ARB_USDC).balanceOf(ana);
+        vm.prank(ana);
+        ICoreVault.PayoutReceipt memory receipt = core.claimPayout("");
+
+        assertEq(receipt.sharePrice, price, "DEC-105: one Share Price");
+        assertEq(receipt.sharesBurned, shares, "DEC-077: whole shares rounded down");
+        assertEq(receipt.usdcGross, gross);
+        assertLe(gross, ANA_PAYOUT, "DEC-077: never above the request");
+        assertEq(receipt.unwindProceeds, 0, "DEC-067: Idle paid");
+        assertEq(receipt.payoutFee, 0, "DEC-102: no Payout Fee on a Standard Payout");
+        assertEq(receipt.flowFee, ShareMath.flowFee(gross, FLOW_FEE_BPS), "DEC-106: flow fee on the amount paid");
+        assertEq(receipt.usdcPaid, gross - receipt.flowFee);
+        assertEq(receipt.usdcOutstanding, 0);
+        assertEq(IERC20(ARB_USDC).balanceOf(ana) - anaBefore, receipt.usdcPaid);
+        assertEq(IERC20(ARB_USDC).balanceOf(recipient) - recipientBefore, receipt.flowFee);
+        assertEq(IERC20(shareToken).balanceOf(ana), 9975e18 - shares);
+        assertEq(core.idle(), idleBefore - gross);
+        assertEq(core.payoutReserve(), 0, "DEC-072: reserve released");
+        assertFalse(core.payoutRequest(ana).open, "DEC-024: request closed");
     }
 }
