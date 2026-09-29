@@ -6,7 +6,7 @@ import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
 import {Transit, TransitState, TransferKind} from "../../../src/interfaces/FundTypes.sol";
 
 /// @notice Final whole-tree verification of the integration branch, spoke side. Each test pins a finding by asserting
-///         what the code does today, so the suite stays green and a later fix must change the assertion deliberately.
+///         the behaviour its fix established.
 contract SpokeVaultFinalVerifyTest is SpokeVaultTestBase {
     bytes32 internal constant ARRIVAL = keccak256("hub transit 1");
 
@@ -17,15 +17,15 @@ contract SpokeVaultFinalVerifyTest is SpokeVaultTestBase {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // DEC-066 / QA6 / DEC-063 (final verification, BLOCKING): `SpokeCrossChainLib.recognizeRefund` accepts any non-zero
-    // escrow balance as the refund. The escrow address is public (`SentToHub`, and deterministic per transit id) and
-    // Across refunds an expired deposit 55 to 90 minutes after the fill deadline (DEC-063), so a stranger who sends
-    // one base unit to the escrow in that window and calls `recognizeRefund` moves the transit to RefundRecognized
-    // with one unit credited. The real refund that lands afterwards can never be released: `release` is vault-only
-    // and the vault's only path to it requires state Sent. The hub side requires `held >= amountSent` for exactly
-    // this reason (CV-OQ-6); the spoke side does not.
+    // DEC-066 / QA6 / DEC-063 (final verification finding, fixed): `SpokeCrossChainLib.recognizeRefund` accepted any
+    // non-zero escrow balance as the refund. The escrow address is public (`SentToHub`, and deterministic per transit
+    // id) and Across refunds an expired deposit 55 to 90 minutes after the fill deadline (DEC-063), so a stranger who
+    // sent one base unit to the escrow in that window could move the transit to RefundRecognized and strand the real
+    // refund. The spoke now applies the hub's guard (CV-OQ-6): the escrow must hold at least `amountSent`; less is no
+    // refund and changes nothing, and once the real refund lands everything is released together, exactly
+    // `amountSent` is credited and the surplus is sweepable excess (DEC-080, DEC-101).
     // ---------------------------------------------------------------------------------------------------------------
-    function test_DEC066_BLOCKING_dustDonationBeforeTheAcrossRefundStrandsTheRealRefundOnTheSpoke() public {
+    function test_DEC066_dustDonationBeforeTheAcrossRefundIsNoRefundAndTheRealRefundIsRecognized() public {
         _arrive(1000e6, ARRIVAL, TransferKind.Principal);
         vm.prank(manager);
         bytes32 id = vault.sendToHub(500e6, TransferKind.Principal, 0, _quote(499e6));
@@ -36,17 +36,28 @@ contract SpokeVaultFinalVerifyTest is SpokeVaultTestBase {
         vm.warp(uint256(t.fillDeadline) + 1);
         usdg.mint(t.escrow, 1);
         vm.prank(stranger);
-        assertEq(vault.recognizeRefund(id), 1, "one base unit is accepted as the refund");
-        assertEq(uint8(vault.hubBoundTransit(id).state), uint8(TransitState.RefundRecognized));
-        assertEq(vault.unallocatedBalance(address(usdg)), 500e6 + 1);
-        assertEq(vault.inFlightTransitIds().length, 0, "the transit left the in-flight list");
-
-        // The real refund lands in the escrow and is stranded there for good.
-        spokePool.refund(t.escrow, address(usdg), 500e6);
-        vm.expectRevert(abi.encodeWithSelector(ISpokeVault.UnknownTransit.selector, id));
+        vm.expectRevert(abi.encodeWithSelector(ISpokeVault.NoRefund.selector, id));
         vault.recognizeRefund(id);
-        assertEq(usdg.balanceOf(t.escrow), 500e6, "the fund's 500 USDG sit in an escrow nothing can release");
-        assertEq(vault.sweepExcess(address(usdg)), 0, "and they are not in the vault to be swept");
-        assertEq(vault.unallocatedBalance(address(usdg)), 500e6 + 1, "the ledger lost the amount sent");
+        assertEq(uint8(vault.hubBoundTransit(id).state), uint8(TransitState.Sent), "the dust moved nothing");
+        assertEq(vault.inFlightTransitIds().length, 1, "the transit is still in flight");
+        assertEq(vault.buildReport().inFlightToHub.length, 1);
+        assertEq(vault.unallocatedBalance(address(usdg)), 500e6);
+
+        // One unit short of the amount sent is still no refund.
+        usdg.mint(t.escrow, 500e6 - 2);
+        vm.expectRevert(abi.encodeWithSelector(ISpokeVault.NoRefund.selector, id));
+        vault.recognizeRefund(id);
+
+        // The real refund lands; the escrow is released whole and exactly the amount sent is credited.
+        spokePool.refund(t.escrow, address(usdg), 500e6);
+        vm.expectEmit(address(vault));
+        emit ISpokeVault.TransitRefundRecognized(id, 500e6);
+        vm.prank(stranger);
+        assertEq(vault.recognizeRefund(id), 500e6);
+        assertEq(uint8(vault.hubBoundTransit(id).state), uint8(TransitState.RefundRecognized));
+        assertEq(vault.inFlightTransitIds().length, 0);
+        assertEq(usdg.balanceOf(t.escrow), 0, "nothing is left in the escrow");
+        assertEq(vault.unallocatedBalance(address(usdg)), 1000e6, "the ledger is whole again");
+        assertEq(vault.sweepExcess(address(usdg)), 500e6 - 1, "the donations are swept, never credited");
     }
 }

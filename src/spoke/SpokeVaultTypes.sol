@@ -142,6 +142,8 @@ library SpokeVaultTypes {
     error UnexpectedOriginChain(uint256 originChainId);
     error MissingUnwindHint(address adapter, bytes32 positionKey);
     error InvalidUnwindSwap(address adapter, bytes32 poolKey, address tokenIn);
+    /// @notice The vault did not receive exactly what a refund escrow held when it was released (DEC-066, DEC-080).
+    error RefundReleaseMismatch(uint256 held, uint256 received);
 
     /// @notice Encodes the `unwindHints` argument of `ISpokeVault.unwindForPayout`.
     function encodeHints(UnwindHint[] memory hints) internal pure returns (bytes memory) {

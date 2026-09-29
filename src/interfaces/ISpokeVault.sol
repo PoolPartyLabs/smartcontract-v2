@@ -260,6 +260,11 @@ interface ISpokeVault is IAcrossMessageHandler {
         returns (bytes32 transitId);
 
     /// @notice Pulls an expired send's refund from its escrow back into the ledger. Permissionless.
+    /// @dev Only for a transit in state Sent after its fill deadline, and only once the escrow holds at least
+    ///      `amountSent` (DEC-063: Across refunds the full input amount; DEC-066, QA6); reverts `NoRefund` otherwise,
+    ///      and the transit stays Sent and in flight. Exactly `amountSent` is credited to the bucket the send debited;
+    ///      any surplus the escrow held is released too and is sweepable excess (DEC-080, DEC-101). Same guard as
+    ///      `ICoreVault.recognizeRefund` (CV-OQ-6).
     function recognizeRefund(bytes32 transitId) external returns (uint256 amount);
 
     /// @notice Builds the report and publishes it through Wormhole with finalized consistency. Permissionless; Spoke
