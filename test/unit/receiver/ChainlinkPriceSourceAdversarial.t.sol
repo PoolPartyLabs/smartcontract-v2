@@ -34,7 +34,7 @@ contract ChainlinkPriceSourceAdversarialTest is Test {
         feeds[0] = ChainlinkPriceSource.FeedConfig({
             token: TOKEN, tokenDecimals: tokenDecimals, aggregator: address(feed), maxPriceAge: 3600
         });
-        source = new ChainlinkPriceSource(feeds, new address[](0));
+        source = new ChainlinkPriceSource(feeds, new ChainlinkPriceSource.FixedConfig[](0));
     }
 
     /// @dev One whole token is worth `answer / 10^feedDecimals` USD, i.e. `answer * 1e6 / 10^feedDecimals` USDC base
@@ -97,7 +97,7 @@ contract ChainlinkPriceSourceAdversarialTest is Test {
         feeds[0] = ChainlinkPriceSource.FeedConfig({
             token: TOKEN, tokenDecimals: 18, aggregator: address(feed), maxPriceAge: 1
         });
-        ChainlinkPriceSource source = new ChainlinkPriceSource(feeds, new address[](0));
+        ChainlinkPriceSource source = new ChainlinkPriceSource(feeds, new ChainlinkPriceSource.FixedConfig[](0));
         vm.expectRevert("feed down");
         source.priceInUsdc(TOKEN);
     }
@@ -109,17 +109,18 @@ contract ChainlinkPriceSourceAdversarialTest is Test {
             token: TOKEN, tokenDecimals: 18, aggregator: address(0xDEAD), maxPriceAge: 3600
         });
         vm.expectRevert();
-        new ChainlinkPriceSource(feeds, new address[](0));
+        new ChainlinkPriceSource(feeds, new ChainlinkPriceSource.FixedConfig[](0));
     }
 
-    /// @dev Documents the verifier finding on QB9: a fixed token is priced at 1e18 per base unit regardless of its
-    ///      decimals, so an 18-decimals token listed as fixed is valued 1e12 times too high. The constructor takes
-    ///      only addresses and cannot check this; the NatSpec restricts fixed tokens to 6 decimals.
-    function test_QB9_fixedTokenAssumesSixDecimals() public {
-        address[] memory fixedTokens = new address[](1);
-        fixedTokens[0] = TOKEN;
+    /// @dev QB9 (verifier finding, fixed): a fixed token is configured with its decimals, so one whole 18-decimals
+    ///      token listed as fixed is worth one whole USDC, not 1e12 of them.
+    function test_QB9_fixedTokenHonoursItsDecimals() public {
+        ChainlinkPriceSource.FixedConfig[] memory fixedTokens = new ChainlinkPriceSource.FixedConfig[](1);
+        fixedTokens[0] = ChainlinkPriceSource.FixedConfig(TOKEN, 18);
         ChainlinkPriceSource source = new ChainlinkPriceSource(new ChainlinkPriceSource.FeedConfig[](0), fixedTokens);
         (uint256 value,) = source.usdcValue(TOKEN, 1e18); // one whole 18-decimals token
-        assertEq(value, 1e18); // read as 1e12 USDC, not 1 USDC
+        assertEq(value, 1e6, "one USDC");
+        (uint256 price,) = source.priceInUsdc(TOKEN);
+        assertEq(price, 1e6);
     }
 }

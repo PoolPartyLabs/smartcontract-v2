@@ -35,10 +35,10 @@ contract ChainlinkPriceSourceTest is Test {
         });
     }
 
-    function _fixed() internal pure returns (address[] memory t) {
-        t = new address[](2);
-        t[0] = USDG;
-        t[1] = USDC;
+    function _fixed() internal pure returns (ChainlinkPriceSource.FixedConfig[] memory t) {
+        t = new ChainlinkPriceSource.FixedConfig[](2);
+        t[0] = ChainlinkPriceSource.FixedConfig(USDG, 6);
+        t[1] = ChainlinkPriceSource.FixedConfig(USDC, 6);
     }
 
     function test_Q57b_wethPricedPerBaseUnitFromChainlink() public view {
@@ -120,13 +120,18 @@ contract ChainlinkPriceSourceTest is Test {
         vm.expectRevert(ChainlinkPriceSource.ZeroAddress.selector);
         new ChainlinkPriceSource(f, _fixed());
 
-        address[] memory t = _fixed();
-        t[1] = WETH; // already a feed token
+        ChainlinkPriceSource.FixedConfig[] memory t = _fixed();
+        t[1].token = WETH; // already a feed token
         vm.expectRevert(abi.encodeWithSelector(ChainlinkPriceSource.DuplicateToken.selector, WETH));
         new ChainlinkPriceSource(_feeds(), t);
 
-        t[1] = address(0);
+        t[1].token = address(0);
         vm.expectRevert(ChainlinkPriceSource.ZeroAddress.selector);
+        new ChainlinkPriceSource(_feeds(), t);
+
+        t = _fixed();
+        t[1].tokenDecimals = 25;
+        vm.expectRevert(abi.encodeWithSelector(ChainlinkPriceSource.DecimalsTooLarge.selector, USDC, 25));
         new ChainlinkPriceSource(_feeds(), t);
     }
 
