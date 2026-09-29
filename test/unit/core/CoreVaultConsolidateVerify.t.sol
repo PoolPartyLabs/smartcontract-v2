@@ -7,8 +7,8 @@ import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {CoreVaultFixture} from "./CoreVaultFixture.sol";
 
 /// @notice Adversarial verification of the consolidation stage (fees at collection, ReportCodec v2 kinds, payout
-///         fallback, arrival window). Tests named `_BUG_` assert the behaviour the decisions require and fail on the
-///         current code; they document a defect, not a rule change.
+///         fallback, arrival window). The OQ-09 and DEC-021 fallback tests were written failing against the stage and
+///         are kept as the regressions of the fixes.
 contract CoreVaultConsolidateVerifyTest is CoreVaultFixture {
     function setUp() public override {
         super.setUp();
@@ -20,13 +20,13 @@ contract CoreVaultConsolidateVerifyTest is CoreVaultFixture {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // OQ-09 / DEC-080 / DEC-104: the docs claim the arrival window is "liveness only, never value". A hub-to-spoke
-    // transit the hub never confirms (its id evicted by 256 listed arrivals before a report carrying it was accepted,
-    // or a send below the 1e6 listing minimum) stays in `inFlightToArrive` for good while the spoke deducts it as value
-    // of unknown origin. Both cancel out only while the spoke's gross principal covers the deduction: `_spokePrincipal`
-    // clamps at 0, so once the spoke sends its balance home the same USDC is counted in Idle AND in In-flight Value.
+    // OQ-09 / DEC-080 / DEC-104: a hub-to-spoke transit the hub never confirms (its id evicted by 256 listed arrivals
+    // before a report carrying it was accepted, or a send below the 1e6 listing minimum) stays in `inFlightToArrive`
+    // for good while the spoke deducts it as value of unknown origin. Regression of the verifier finding: the deduction
+    // was clamped per spoke, so once the spoke sent its balance home the same USDC was counted in Idle AND in In-flight
+    // Value; the shortfall a spoke's principal does not cover is now deducted from the fund total.
     // ---------------------------------------------------------------------------------------------------------------
-    function test_OQ09_BUG_strandedHubToSpokeTransitIsCountedTwiceOnceTheSpokeSendsItHome() public {
+    function test_OQ09_strandedHubToSpokeTransitIsCountedOnceAfterTheSpokeSendsItHome() public {
         _send(1000e6, 1000e6); // Idle 8,975; 1,000 in flight to the spoke
         assertEq(vault.shareAssets(), 9975e6, "in flight, counted once");
 
@@ -45,6 +45,22 @@ contract CoreVaultConsolidateVerifyTest is CoreVaultFixture {
         pool.fill(address(vault), address(usdc), 1000e6, _homeMessage(home, TransferKind.Principal));
         assertEq(vault.idle(), 9975e6, "the 1,000 is back in Idle");
         assertEq(vault.shareAssets(), 9975e6, "DEC-104: never counted twice (Idle and In-flight Value)");
+    }
+
+    /// DEC-080, OQ-09: a stranger's bridge deposit on a spoke is never Share Assets, including after the manager sends
+    /// it home as Principal: the deduction its spoke principal no longer covers follows it into Idle.
+    function test_DEC080_strangerDepositSentHomeFromASpokeIsNeverShareAssets() public {
+        uint256 assets0 = vault.shareAssets();
+        _deliver(_spokeReport(500e6, 500e6)); // 500 of unknown origin credited by the spoke
+        assertEq(vault.shareAssets(), assets0, "deducted at the spoke");
+
+        bytes32 home = keccak256("stranger-home");
+        _deliver(_inFlightToHub(_spokeReport(0, 500e6), home, 500e6));
+        assertEq(vault.shareAssets(), assets0, "deducted from the return leg");
+
+        pool.fill(address(vault), address(usdc), 500e6, _homeMessage(home, TransferKind.Principal));
+        assertEq(vault.idle(), 9975e6 + 500e6, "credited to Idle as the report listed it");
+        assertEq(vault.shareAssets(), assets0, "deducted from Idle");
     }
 
     // ---------------------------------------------------------------------------------------------------------------

@@ -151,7 +151,7 @@ library CoreVaultLogic {
         IValueReportReceiver receiver = IValueReportReceiver(w.reportReceiver);
         if (receiver.hasReport(spokeIndex)) {
             (ReportCodec.Report memory r,,) = receiver.latestReport(spokeIndex);
-            spokeValue = _spokePrincipal(s, w, _newPrices(VIEW), spokeIndex, r);
+            (spokeValue,) = _spokePrincipal(s, w, _newPrices(VIEW), spokeIndex, r);
             inFlightToHub = _returnLeg(s, spoke.chainId, r, false);
         }
         spokeCap = spoke.spokeCap;
@@ -163,6 +163,11 @@ library CoreVaultLogic {
     ///         (DEC-013, DEC-078, DEC-080, DEC-092).
     /// @dev Q57 reading, OQ-10: in MINT mode a spoke report past its lifetime reverts with `StaleSpokeReport` and a stale
     ///      price with `StalePrice`; otherwise the last report and price are used and nothing reverts on age.
+    ///      DEC-080, DEC-104, OQ-09 (consolidation verifier finding): value of unknown origin a spoke credited is
+    ///      deducted from the fund total, not clamped per spoke. A spoke whose principal no longer covers it (the
+    ///      manager sent it home, or it went into a position) passes the shortfall here, where it is deducted from
+    ///      wherever that value now sits (Idle, the return leg); only the total is floored at 0. This is what keeps a
+    ///      hub-to-spoke transit the hub never confirmed (still in In-flight Value) counted once.
     function _valuation(CoreVaultState storage s, CoreVaultWiring memory w, Prices memory p)
         private
         view
@@ -173,28 +178,33 @@ library CoreVaultLogic {
         consolidation.chainsSummed = 1;
         consolidation.reportBlockNumbers = new uint64[](n);
         consolidation.reportSequences = new uint64[](n);
+        uint256 shortfall;
         for (uint256 i; i < n; ++i) {
-            assets += _spokeValue(s, w, p, i, consolidation);
+            (uint256 principal, uint256 spokeShortfall) = _spokeValue(s, w, p, i, consolidation);
+            assets += principal;
+            shortfall += spokeShortfall;
         }
         assets += s.idle + hubValue + consolidation.inFlightValue;
+        assets = assets > shortfall ? assets - shortfall : 0;
     }
 
-    /// @notice One spoke's principal from its last accepted report; adds its In-flight Value (both legs, DEC-085) and
-    ///         its report's consolidation fields (DEC-083) to `consolidation`.
+    /// @notice One spoke's principal from its last accepted report and the unknown-origin value its principal does not
+    ///         cover (`shortfall`, see `_spokePrincipal`); adds its In-flight Value (both legs, DEC-085) and its report's
+    ///         consolidation fields (DEC-083) to `consolidation`.
     function _spokeValue(
         CoreVaultState storage s,
         CoreVaultWiring memory w,
         Prices memory p,
         uint256 spokeIndex,
         ICoreVault.NavConsolidation memory consolidation
-    ) private view returns (uint256 principal) {
+    ) private view returns (uint256 principal, uint256 shortfall) {
         SpokeConfig storage spoke = s.mandate.spokes[spokeIndex];
         consolidation.inFlightValue += _usdcValue(s, w, p, spoke.spokeToken, s.spokeBooks[spokeIndex].inFlightToArrive);
         IValueReportReceiver receiver = IValueReportReceiver(w.reportReceiver);
-        if (!receiver.hasReport(spokeIndex)) return 0;
+        if (!receiver.hasReport(spokeIndex)) return (0, 0);
         if (p.mode == MINT && !receiver.isReportFresh(spokeIndex)) revert ICoreVault.StaleSpokeReport(spokeIndex);
         (ReportCodec.Report memory r,,) = receiver.latestReport(spokeIndex);
-        principal = _spokePrincipal(s, w, p, spokeIndex, r);
+        (principal, shortfall) = _spokePrincipal(s, w, p, spokeIndex, r);
         consolidation.inFlightValue += _returnLeg(s, spoke.chainId, r, true);
         ++consolidation.chainsSummed;
         consolidation.reportBlockNumbers[spokeIndex] = r.blockNumber;
@@ -249,21 +259,28 @@ library CoreVaultLogic {
         }
     }
 
-    /// @notice A spoke's principal from its report, minus the arrivals it credited that the hub never sent.
+    /// @notice A spoke's principal from its report, minus the arrivals it credited that the hub never confirmed.
     /// @dev DEC-080, OQ-01: `cumulativeReceived` above the amount of the transits the hub confirmed arrived is value of
-    ///      unknown origin (a stranger's bridge deposit); it is priced in the spoke token and deducted, never below 0.
+    ///      unknown origin (a stranger's bridge deposit, or a hub-to-spoke transit whose arrival no accepted report
+    ///      listed: evicted from the arrival window or below its listing minimum, OQ-09, CS-OQ-6); it is priced in the
+    ///      spoke token and deducted. When the spoke's gross principal does not cover it, `principal` is 0 and the rest
+    ///      is returned as `shortfall` for `_valuation` to deduct from the fund total (DEC-104: the value left the
+    ///      spoke, most likely home to Idle, and must not be counted there on top of an unconfirmed transit's
+    ///      In-flight Value). Tradeoff: the deduction stays at the amount received, priced now, so a market loss the
+    ///      spoke takes on unknown-origin funds lowers Share Assets.
     function _spokePrincipal(
         CoreVaultState storage s,
         CoreVaultWiring memory w,
         Prices memory p,
         uint256 spokeIndex,
         ReportCodec.Report memory r
-    ) private view returns (uint256) {
+    ) private view returns (uint256 principal, uint256 shortfall) {
         uint256 gross = _positionsPrincipal(s, w, p, r);
         uint256 confirmed = s.spokeBooks[spokeIndex].confirmedArrived;
-        if (r.cumulativeReceived <= confirmed) return gross;
+        if (r.cumulativeReceived <= confirmed) return (gross, 0);
         uint256 unknown = _usdcValue(s, w, p, s.mandate.spokes[spokeIndex].spokeToken, r.cumulativeReceived - confirmed);
-        return gross > unknown ? gross - unknown : 0;
+        if (gross > unknown) return (gross - unknown, 0);
+        return (0, unknown - gross);
     }
 
     /// @notice The pending return leg of a spoke: `inFlightToHub` entries of its last report not yet credited on the
