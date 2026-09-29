@@ -24,6 +24,14 @@ interface ICoreVaultExtensions {
     ///         DEC-068: Partial Payout).
     event UnwindForPayoutFailed(uint256 usdcTarget);
 
+    /// @notice A payout could not read the hub Spoke Vault's report and used its last known value (payout liveness,
+    ///         DEC-021, DEC-056).
+    event HubValuationFallback(uint256 lastHubValue);
+
+    /// @notice A payout could not read `token`'s price and used its last known price (payout liveness, DEC-021, DEC-056;
+    ///         0 when the token was never priced).
+    event PriceFallback(address indexed token, uint256 lastPrice1e18);
+
     /// @notice A spoke-to-hub arrival or its remainder was held apart because no report listed it or the listed amount
     ///         was already credited (DEC-080, OQ-01).
     event ArrivalHeldApart(bytes32 indexed transitId, uint256 indexed originChainId, TransferKind kind, uint256 amount);

@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {IValueReportReceiver} from "../interfaces/IValueReportReceiver.sol";
@@ -44,15 +45,59 @@ library CoreVaultLogic {
     // Value bases (DEC-042, DEC-083, DEC-084, DEC-085, DEC-098, DEC-104)
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @notice Reads the hub Spoke Vault and returns Share Assets with their consolidation (DEC-083). With `mint` true,
-    ///         stale reports and prices revert (Q57 reading). Income is never recognized here (ruling 2026-09-29: the
-    ///         index advances only when collected income reaches the Core Vault).
-    function valuation(CoreVaultState storage s, CoreVaultWiring memory w, bool mint)
+    /// @dev Valuation modes. VIEW: a failing dependency reverts, age is ignored. MINT: a failing dependency reverts and
+    ///      so does a stale report or price (Q57 reading, OQ-10). PAYOUT: nothing reverts on age (OQ-10) nor on a
+    ///      failing dependency (payout liveness, DEC-021, DEC-056): the last known value is used with an event.
+    uint8 private constant VIEW = 0;
+    uint8 private constant MINT = 1;
+    uint8 private constant PAYOUT = 2;
+
+    /// @dev Prices read by one valuation (price1e18 per token), each token read once; `fellBack` marks a PAYOUT read
+    ///      that failed and used `CoreVaultState.lastPrice`.
+    struct Prices {
+        uint8 mode;
+        uint256 n;
+        bool anyFallback;
+        address[] tokens;
+        uint256[] values;
+        bool[] fellBack;
+    }
+
+    /// @notice Share Assets with their consolidation (DEC-083), for a view: a failing dependency reverts, age is
+    ///         ignored. Income is never recognized here (ruling 2026-09-29: the index advances only at collection).
+    function valuation(CoreVaultState storage s, CoreVaultWiring memory w)
         public
         view
         returns (uint256 assets, ICoreVault.NavConsolidation memory consolidation)
     {
-        return _valuation(s, w, ISpokeVault(w.hubSpokeVault).buildReport(), mint);
+        (assets, consolidation,,) = _valuation(s, w, _newPrices(VIEW));
+    }
+
+    /// @notice Share Assets for a mint (`mint` true) or a payout (`mint` false), keeping the last known valuation.
+    /// @dev Mint (Q57 reading, OQ-10): every dependency must answer, reports and prices must be fresh, else the mint
+    ///      reverts (`StaleSpokeReport`, `StalePrice`, or the dependency's own error). Payout (payout liveness, DEC-021
+    ///      "investor exit is unblockable", DEC-056; Core Vault verifier finding): the hub Spoke Vault's report read and
+    ///      every IPriceSource read are wrapped; a failure falls back to the last successfully computed value kept in
+    ///      storage (`lastHubValue`, `lastPrice` per token), emitting `HubValuationFallback` or `PriceFallback`, so a
+    ///      claim never reverts because a valuation dependency fails. A token never priced before falls back to 0
+    ///      (only reachable for a token that appeared after the last deposit or payout). The last known values are
+    ///      refreshed on every successful deposit or payout: prices that answered, and the hub value when the hub read
+    ///      and all its prices answered. Remote spokes need no value fallback: their last accepted report is kept by
+    ///      the fund's own ValueReportReceiver and only their prices can fail.
+    function recordValuation(CoreVaultState storage s, CoreVaultWiring memory w, bool mint)
+        public
+        returns (uint256 assets, ICoreVault.NavConsolidation memory consolidation)
+    {
+        Prices memory p = _newPrices(mint ? MINT : PAYOUT);
+        uint256 hubValue;
+        bool hubRead;
+        (assets, consolidation, hubValue, hubRead) = _valuation(s, w, p);
+        if (!hubRead) emit X.HubValuationFallback(hubValue);
+        else if (!p.anyFallback) s.lastHubValue = hubValue;
+        for (uint256 i; i < p.n; ++i) {
+            if (p.fellBack[i]) emit X.PriceFallback(p.tokens[i], p.values[i]);
+            else s.lastPrice[p.tokens[i]] = p.values[i];
+        }
     }
 
     /// @notice Share Assets and In-flight Value now, with the last prices and reports (never reverts on age).
@@ -62,7 +107,7 @@ library CoreVaultLogic {
         returns (uint256 assets, uint256 inFlight)
     {
         ICoreVault.NavConsolidation memory consolidation;
-        (assets, consolidation) = _valuation(s, w, ISpokeVault(w.hubSpokeVault).buildReport(), false);
+        (assets, consolidation,,) = _valuation(s, w, _newPrices(VIEW));
         inFlight = consolidation.inFlightValue;
     }
 
@@ -70,19 +115,19 @@ library CoreVaultLogic {
     ///         collected here, plus the hub Spoke Vault's collected bucket and uncollected position income, plus spoke
     ///         position income from the last reports. External rewards are 0 (no Collector in the MVP).
     function grossAssets(CoreVaultState storage s, CoreVaultWiring memory w) public view returns (uint256 total) {
-        ReportCodec.Report memory hub = ISpokeVault(w.hubSpokeVault).buildReport();
-        (total,) = _valuation(s, w, hub, false);
-        total += s.operatingCash + _positionsIncome(w, hub);
+        Prices memory p = _newPrices(VIEW);
+        (total,,,) = _valuation(s, w, p);
+        total += s.operatingCash + _positionsIncome(s, w, p, ISpokeVault(w.hubSpokeVault).buildReport());
         address[] memory tokens = s.income.tokens;
         for (uint256 i; i < tokens.length; ++i) {
             uint256 held = s.collectedIncome[tokens[i]] + ISpokeVault(w.hubSpokeVault).collectedIncome(tokens[i]);
-            total += _usdcValue(w, tokens[i], held, false);
+            total += _usdcValue(s, w, p, tokens[i], held);
         }
         IValueReportReceiver receiver = IValueReportReceiver(w.reportReceiver);
         for (uint256 i; i < s.mandate.spokes.length; ++i) {
             if (!receiver.hasReport(i)) continue;
             (ReportCodec.Report memory r,,) = receiver.latestReport(i);
-            total += _positionsIncome(w, r);
+            total += _positionsIncome(s, w, p, r);
         }
     }
 
@@ -100,7 +145,7 @@ library CoreVaultLogic {
         IValueReportReceiver receiver = IValueReportReceiver(w.reportReceiver);
         if (receiver.hasReport(spokeIndex)) {
             (ReportCodec.Report memory r,,) = receiver.latestReport(spokeIndex);
-            spokeValue = _spokePrincipal(s, w, spokeIndex, r, false);
+            spokeValue = _spokePrincipal(s, w, _newPrices(VIEW), spokeIndex, r);
             inFlightSent += _returnLeg(s, spoke.chainId, r, false);
         }
         spokeCap = spoke.spokeCap;
@@ -110,62 +155,91 @@ library CoreVaultLogic {
     ///         + In-flight Value at the amount that will arrive + each spoke's principal and Unallocated Balance from its
     ///         last accepted report. Operating Cash, Attributed Income, unmatched arrivals and income are excluded
     ///         (DEC-013, DEC-078, DEC-080, DEC-092).
-    /// @dev Q57 reading, OQ-10: with `mint` true a spoke report past its lifetime reverts with `StaleSpokeReport` and a
-    ///      stale price with `StalePrice`; otherwise the last report and price are used and nothing reverts on age.
-    function _valuation(
-        CoreVaultState storage s,
-        CoreVaultWiring memory w,
-        ReportCodec.Report memory hubReport,
-        bool mint
-    ) private view returns (uint256 assets, ICoreVault.NavConsolidation memory consolidation) {
-        assets = s.idle + _positionsPrincipal(w, hubReport, mint);
+    /// @dev Q57 reading, OQ-10: in MINT mode a spoke report past its lifetime reverts with `StaleSpokeReport` and a stale
+    ///      price with `StalePrice`; otherwise the last report and price are used and nothing reverts on age.
+    function _valuation(CoreVaultState storage s, CoreVaultWiring memory w, Prices memory p)
+        private
+        view
+        returns (uint256 assets, ICoreVault.NavConsolidation memory consolidation, uint256 hubValue, bool hubRead)
+    {
+        (hubValue, hubRead) = _hubValue(s, w, p);
         uint256 n = s.mandate.spokes.length;
         consolidation.chainsSummed = 1;
         consolidation.reportBlockNumbers = new uint64[](n);
         consolidation.reportSequences = new uint64[](n);
-        uint256 inFlight;
-        IValueReportReceiver receiver = IValueReportReceiver(w.reportReceiver);
         for (uint256 i; i < n; ++i) {
-            SpokeConfig storage spoke = s.mandate.spokes[i];
-            inFlight += _usdcValue(w, spoke.spokeToken, s.spokeBooks[i].inFlightToArrive, mint);
-            if (!receiver.hasReport(i)) continue;
-            if (mint && !receiver.isReportFresh(i)) revert ICoreVault.StaleSpokeReport(i);
-            (ReportCodec.Report memory r,,) = receiver.latestReport(i);
-            assets += _spokePrincipal(s, w, i, r, mint);
-            inFlight += _returnLeg(s, spoke.chainId, r, true);
-            ++consolidation.chainsSummed;
-            consolidation.reportBlockNumbers[i] = r.blockNumber;
-            consolidation.reportSequences[i] = r.sequence;
-            uint256 age = block.timestamp > r.timestamp ? block.timestamp - r.timestamp : 0;
-            if (age > consolidation.oldestReportAge) consolidation.oldestReportAge = age;
+            assets += _spokeValue(s, w, p, i, consolidation);
         }
-        consolidation.inFlightValue = inFlight;
-        assets += inFlight;
+        assets += s.idle + hubValue + consolidation.inFlightValue;
+    }
+
+    /// @notice One spoke's principal from its last accepted report; adds its In-flight Value (both legs, DEC-085) and
+    ///         its report's consolidation fields (DEC-083) to `consolidation`.
+    function _spokeValue(
+        CoreVaultState storage s,
+        CoreVaultWiring memory w,
+        Prices memory p,
+        uint256 spokeIndex,
+        ICoreVault.NavConsolidation memory consolidation
+    ) private view returns (uint256 principal) {
+        SpokeConfig storage spoke = s.mandate.spokes[spokeIndex];
+        consolidation.inFlightValue += _usdcValue(s, w, p, spoke.spokeToken, s.spokeBooks[spokeIndex].inFlightToArrive);
+        IValueReportReceiver receiver = IValueReportReceiver(w.reportReceiver);
+        if (!receiver.hasReport(spokeIndex)) return 0;
+        if (p.mode == MINT && !receiver.isReportFresh(spokeIndex)) revert ICoreVault.StaleSpokeReport(spokeIndex);
+        (ReportCodec.Report memory r,,) = receiver.latestReport(spokeIndex);
+        principal = _spokePrincipal(s, w, p, spokeIndex, r);
+        consolidation.inFlightValue += _returnLeg(s, spoke.chainId, r, true);
+        ++consolidation.chainsSummed;
+        consolidation.reportBlockNumbers[spokeIndex] = r.blockNumber;
+        consolidation.reportSequences[spokeIndex] = r.sequence;
+        uint256 age = block.timestamp > r.timestamp ? block.timestamp - r.timestamp : 0;
+        if (age > consolidation.oldestReportAge) consolidation.oldestReportAge = age;
+    }
+
+    /// @notice The hub Spoke Vault's Unallocated Balance plus position principal, in USDC (same chain, read directly).
+    /// @dev PAYOUT mode: a failing `buildReport` (a hub adapter's `positionValue` reverting, for instance) returns the
+    ///      last known value with `read` false.
+    function _hubValue(CoreVaultState storage s, CoreVaultWiring memory w, Prices memory p)
+        private
+        view
+        returns (uint256 value, bool read)
+    {
+        if (p.mode != PAYOUT) {
+            return (_positionsPrincipal(s, w, p, ISpokeVault(w.hubSpokeVault).buildReport()), true);
+        }
+        try ISpokeVault(w.hubSpokeVault).buildReport() returns (ReportCodec.Report memory r) {
+            return (_positionsPrincipal(s, w, p, r), true);
+        } catch {
+            return (s.lastHubValue, false);
+        }
     }
 
     /// @notice Unallocated Balance plus position principal of a report, in USDC (DEC-079: income excluded).
-    function _positionsPrincipal(CoreVaultWiring memory w, ReportCodec.Report memory r, bool mint)
-        private
-        view
-        returns (uint256 value)
-    {
+    function _positionsPrincipal(
+        CoreVaultState storage s,
+        CoreVaultWiring memory w,
+        Prices memory p,
+        ReportCodec.Report memory r
+    ) private view returns (uint256 value) {
         for (uint256 i; i < r.unallocated.length; ++i) {
-            value += _usdcValue(w, r.unallocated[i].token, r.unallocated[i].amount, mint);
+            value += _usdcValue(s, w, p, r.unallocated[i].token, r.unallocated[i].amount);
         }
         for (uint256 i; i < r.positions.length; ++i) {
-            ReportCodec.PositionReport memory p = r.positions[i];
-            value += _usdcValue(w, p.token0, p.principal0, mint) + _usdcValue(w, p.token1, p.principal1, mint);
+            ReportCodec.PositionReport memory pos = r.positions[i];
+            value += _usdcValue(s, w, p, pos.token0, pos.principal0) + _usdcValue(s, w, p, pos.token1, pos.principal1);
         }
     }
 
-    function _positionsIncome(CoreVaultWiring memory w, ReportCodec.Report memory r)
-        private
-        view
-        returns (uint256 value)
-    {
+    function _positionsIncome(
+        CoreVaultState storage s,
+        CoreVaultWiring memory w,
+        Prices memory p,
+        ReportCodec.Report memory r
+    ) private view returns (uint256 value) {
         for (uint256 i; i < r.positions.length; ++i) {
-            ReportCodec.PositionReport memory p = r.positions[i];
-            value += _usdcValue(w, p.token0, p.income0, false) + _usdcValue(w, p.token1, p.income1, false);
+            ReportCodec.PositionReport memory pos = r.positions[i];
+            value += _usdcValue(s, w, p, pos.token0, pos.income0) + _usdcValue(s, w, p, pos.token1, pos.income1);
         }
     }
 
@@ -175,14 +249,14 @@ library CoreVaultLogic {
     function _spokePrincipal(
         CoreVaultState storage s,
         CoreVaultWiring memory w,
+        Prices memory p,
         uint256 spokeIndex,
-        ReportCodec.Report memory r,
-        bool mint
+        ReportCodec.Report memory r
     ) private view returns (uint256) {
-        uint256 gross = _positionsPrincipal(w, r, mint);
+        uint256 gross = _positionsPrincipal(s, w, p, r);
         uint256 confirmed = s.spokeBooks[spokeIndex].confirmedArrived;
         if (r.cumulativeReceived <= confirmed) return gross;
-        uint256 unknown = _usdcValue(w, s.mandate.spokes[spokeIndex].spokeToken, r.cumulativeReceived - confirmed, mint);
+        uint256 unknown = _usdcValue(s, w, p, s.mandate.spokes[spokeIndex].spokeToken, r.cumulativeReceived - confirmed);
         return gross > unknown ? gross - unknown : 0;
     }
 
@@ -205,20 +279,67 @@ library CoreVaultLogic {
         }
     }
 
-    /// @notice USDC value of `amount` of `token`: USDC at face value, anything else through IPriceSource (OPEN, §5).
-    /// @dev Q57 / OQ-10 reading: a mint reverts with `StalePrice` when the price is older than `maxPriceAge()`.
-    function _usdcValue(CoreVaultWiring memory w, address token, uint256 amount, bool mint)
-        private
-        view
-        returns (uint256 value)
-    {
+    /// @notice USDC value of `amount` of `token`: USDC at face value, anything else through IPriceSource (OPEN, §5),
+    ///         `amount * price1e18 / 1e18` rounded down.
+    function _usdcValue(
+        CoreVaultState storage s,
+        CoreVaultWiring memory w,
+        Prices memory p,
+        address token,
+        uint256 amount
+    ) private view returns (uint256) {
         if (amount == 0) return 0;
         if (token == w.usdc) return amount;
-        uint256 updatedAt;
-        (value, updatedAt) = IPriceSource(w.priceSource).usdcValue(token, amount);
-        if (mint && updatedAt + IPriceSource(w.priceSource).maxPriceAge() < block.timestamp) {
-            revert ICoreVault.StalePrice(token, updatedAt);
+        return Math.mulDiv(amount, _price(s, w, p, token), 1e18);
+    }
+
+    /// @notice Price of `token` for this valuation, read once.
+    /// @dev MINT (Q57 / OQ-10 reading): reverts with `StalePrice` when the price is older than the source's bound.
+    ///      PAYOUT: a reverting source falls back to `lastPrice[token]` (payout liveness); never checks age (OQ-10).
+    function _price(CoreVaultState storage s, CoreVaultWiring memory w, Prices memory p, address token)
+        private
+        view
+        returns (uint256 price)
+    {
+        for (uint256 i; i < p.n; ++i) {
+            if (p.tokens[i] == token) return p.values[i];
         }
+        bool fellBack;
+        if (p.mode == PAYOUT) {
+            try IPriceSource(w.priceSource).priceInUsdc(token) returns (uint256 value, uint256) {
+                price = value;
+            } catch {
+                (price, fellBack) = (s.lastPrice[token], true);
+                p.anyFallback = true;
+            }
+        } else {
+            uint256 updatedAt;
+            (price, updatedAt) = IPriceSource(w.priceSource).priceInUsdc(token);
+            if (p.mode == MINT && updatedAt + IPriceSource(w.priceSource).maxPriceAge() < block.timestamp) {
+                revert ICoreVault.StalePrice(token, updatedAt);
+            }
+        }
+        if (p.n == p.tokens.length) _grow(p);
+        (p.tokens[p.n], p.values[p.n], p.fellBack[p.n]) = (token, price, fellBack);
+        ++p.n;
+    }
+
+    function _newPrices(uint8 mode) private pure returns (Prices memory p) {
+        p.mode = mode;
+        p.tokens = new address[](4);
+        p.values = new uint256[](4);
+        p.fellBack = new bool[](4);
+    }
+
+    function _grow(Prices memory p) private pure {
+        uint256 size = p.tokens.length * 2;
+        address[] memory tokens = new address[](size);
+        uint256[] memory values = new uint256[](size);
+        bool[] memory fellBack = new bool[](size);
+        for (uint256 i; i < p.n; ++i) {
+            (tokens[i], values[i], fellBack[i]) = (p.tokens[i], p.values[i], p.fellBack[i]);
+        }
+        (p.tokens, p.values, p.fellBack) = (tokens, values, fellBack);
     }
 
     // ---------------------------------------------------------------------------------------------------------------

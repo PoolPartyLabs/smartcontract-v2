@@ -6,6 +6,7 @@ import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {IPriceSource} from "../../../src/interfaces/IPriceSource.sol";
 import {TransitState, TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {CoreVaultConfig} from "../../../src/core/CoreVaultTypes.sol";
+import {ICoreVaultExtensions} from "../../../src/core/ICoreVaultExtensions.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {MockHubSpokeVault} from "../../mocks/core/MockHubSpokeVault.sol";
 import {MockBridgeAdapter} from "../../mocks/core/MockBridgeAdapter.sol";
@@ -179,34 +180,72 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // FLAGGED (DEC-021 "investor exit is unblockable", DEC-056, OQ-10): an Idle-paid payout never reverts on a STALE
-    // price or report, but it does revert when the price source or the hub Spoke Vault's `buildReport` REVERTS,
-    // because `recognizeAndValue` reads both without a fallback. This test pins the current behaviour so the gap is
-    // visible; the ruling (last known price / last valuation for Idle-paid claims) is not in the decisions.
+    // Payout liveness (DEC-021 "investor exit is unblockable", DEC-056, OQ-10; Core Vault verifier major): a claim never
+    // reverts because the price source or the hub Spoke Vault's `buildReport` REVERTS. It falls back to the last known
+    // price / hub value kept from the last successful deposit or payout, with an event; a deposit still reverts.
     // ---------------------------------------------------------------------------------------------------------------
-    function test_DEC021_FLAGGED_revertingValuationDependencyBlocksIdlePaidPayout() public {
+
+    /// @dev Alice holds 9,975 shares; 1,000 USDC went to the hub Spoke Vault, which now holds 1 WETH priced at 2,500.
+    ///      Bob's deposit is the last successful valuation (it records the WETH price and the hub value).
+    function _hubWethFund() internal {
         _deposit(alice, 10_000e6); // Idle 9,975
         vm.prank(manager);
         vault.allocateToHubSpokeVault(1000e6);
-        hubVault.setPosition(address(weth), 1e18); // a hub position priced through the feed
+        hubVault.moveToPosition(1000e6);
+        hubVault.setPosition(address(weth), 1e18); // the position is now 1 WETH
+        _deposit(bob, 1000e6);
         _request(alice, 100e6, ICoreVault.PayoutMode.Instant); // fully payable from Free Idle
+    }
 
+    function test_DEC021_revertingFeedFallsBackToTheLastPriceForAPayout() public {
+        _hubWethFund();
+        uint256 assetsBefore = vault.shareAssets();
         prices.setReverts(address(weth), true);
-        vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(IPriceSource.UnsupportedToken.selector, address(weth)));
-        vault.claimPayout("");
 
-        prices.setReverts(address(weth), false);
-        hubVault.setBuildReverts(true);
-        vm.prank(alice);
-        vm.expectRevert(bytes("build reverts"));
-        vault.claimPayout("");
-
-        // Once the dependency answers again, the Idle-paid claim goes through.
-        hubVault.setBuildReverts(false);
+        vm.expectEmit(address(vault));
+        emit ICoreVaultExtensions.PriceFallback(address(weth), 2.5e9);
         ICoreVault.PayoutReceipt memory r = _claim(alice);
+        assertEq(r.shareAssets, assetsBefore, "valued at the last known WETH price");
+        assertGt(r.usdcPaid, 0);
+
+        // A deposit keeps reverting on the failing dependency (Q57 reading: mints need every value fresh).
+        usdc.mint(bob, 1000e6);
+        vm.startPrank(bob);
+        usdc.approve(address(vault), 1000e6);
+        vm.expectRevert(abi.encodeWithSelector(IPriceSource.UnsupportedToken.selector, address(weth)));
+        vault.deposit(1000e6, 0);
+        vm.stopPrank();
+    }
+
+    function test_DEC021_revertingHubReportFallsBackToTheLastHubValueForAPayout() public {
+        _hubWethFund();
+        uint256 assetsBefore = vault.shareAssets();
+        hubVault.setBuildReverts(true);
+
+        vm.expectEmit(address(vault));
+        emit ICoreVaultExtensions.HubValuationFallback(2500e6);
+        ICoreVault.PayoutReceipt memory r = _claim(alice);
+        assertEq(r.shareAssets, assetsBefore, "the hub Spoke Vault at its last known value");
         assertEq(r.unwindProceeds, 0);
         assertGt(r.usdcPaid, 0);
+
+        usdc.mint(bob, 1000e6);
+        vm.startPrank(bob);
+        usdc.approve(address(vault), 1000e6);
+        vm.expectRevert(bytes("build reverts"));
+        vault.deposit(1000e6, 0);
+        vm.stopPrank();
+    }
+
+    function test_DEC021_successfulPayoutRefreshesTheLastKnownValuation() public {
+        _hubWethFund();
+        prices.setPrice(address(weth), 3e9); // WETH moves to 3,000; Alice's claim records it
+        _claim(alice);
+        prices.setReverts(address(weth), true);
+        _request(bob, 10e6, ICoreVault.PayoutMode.Instant);
+        vm.expectEmit(address(vault));
+        emit ICoreVaultExtensions.PriceFallback(address(weth), 3e9);
+        _claim(bob);
     }
 
     // ---------------------------------------------------------------------------------------------------------------

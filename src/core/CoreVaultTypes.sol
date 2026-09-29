@@ -104,6 +104,11 @@ struct HubBoundTransfer {
 /// @param hubBound Spoke-to-hub transfers by key.
 /// @param bridgeTarget Protocol target pinned per hub-side bridge adapter at creation (IBridgeAdapter).
 /// @param bridgeCodehash Codehash pinned per hub-side bridge adapter at creation (Q17-4 reading O2).
+/// @param lastHubValue Last known USDC value of the hub Spoke Vault (Unallocated Balance plus principal), refreshed on
+///        every successful deposit or payout; a payout falls back to it when the hub report read fails (payout
+///        liveness, DEC-021, DEC-056).
+/// @param lastPrice Last known price1e18 per token (IPriceSource scale), refreshed likewise; a payout falls back to it
+///        when the price source reverts.
 struct CoreVaultState {
     Mandate mandate;
     uint256 idle;
@@ -124,4 +129,6 @@ struct CoreVaultState {
     mapping(bytes32 key => HubBoundTransfer) hubBound;
     mapping(address bridgeAdapter => address) bridgeTarget;
     mapping(address bridgeAdapter => bytes32) bridgeCodehash;
+    uint256 lastHubValue;
+    mapping(address token => uint256) lastPrice;
 }

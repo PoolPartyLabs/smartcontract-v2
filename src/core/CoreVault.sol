@@ -62,7 +62,7 @@ contract CoreVault is CoreVaultTransit {
         _topUpOperatingCash();
         // Q57 reading: a mint reverts on a stale spoke report or a stale price. DEC-014: the entrant's checkpoint below
         // gives it no income collected before entry (ruling 2026-09-29: the index moves only at collection).
-        (uint256 assets, NavConsolidation memory consolidation) = CoreVaultLogic.valuation(_s, _wiring(), true);
+        (uint256 assets, NavConsolidation memory consolidation) = CoreVaultLogic.recordValuation(_s, _wiring(), true);
         uint256 price = ShareMath.sharePrice(assets, supply);
         uint256 usdcForShares;
         uint256 fee;
@@ -124,7 +124,8 @@ contract CoreVault is CoreVaultTransit {
     /// @dev OQ-07: a Standard Payout is claimable only after its term. Feedback question 2 (OPEN): the automatic unwind
     ///      reaches hub positions only (`ISpokeVault.unwindForPayout` on the hub Spoke Vault), so DEC-105 needs no new
     ///      spoke report (erratum 11 reading). Q57 reading: an Idle-paid payout never reverts on a stale report or
-    ///      price. LC-45 / LC-141: the fund bears the market cost of the unwind (flagged). LC-45 / LC-47: no Network
+    ///      price. Payout liveness (DEC-021, DEC-056): nor when the hub report read or a price read fails; the last
+    ///      known value is used with an event (CoreVaultLogic.recordValuation). LC-45 / LC-141: the fund bears the market cost of the unwind (flagged). LC-45 / LC-47: no Network
     ///      Costs are charged to the requester (flagged).
     function claimPayout(bytes calldata unwindHints) external nonReentrant returns (PayoutReceipt memory receipt) {
         PayoutRequest storage req = _s.requests[msg.sender];
@@ -165,7 +166,8 @@ contract CoreVault is CoreVaultTransit {
         private
         returns (NavConsolidation memory consolidation)
     {
-        (c.shareAssets, consolidation) = CoreVaultLogic.valuation(_s, _wiring(), false);
+        // Payout liveness (DEC-021, DEC-056): a failing valuation dependency falls back to the last known value.
+        (c.shareAssets, consolidation) = CoreVaultLogic.recordValuation(_s, _wiring(), false);
         c.totalShares = _totalShares();
         c.price = ShareMath.sharePrice(c.shareAssets, c.totalShares);
         // DEC-077, DEC-020: floor(outstanding / price) whole shares, capped at the balance.
