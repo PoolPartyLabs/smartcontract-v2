@@ -92,17 +92,27 @@ contract CoreVault is CoreVaultTransit {
     // ---------------------------------------------------------------------------------------------------------------
 
     /// @inheritdoc ICoreVault
+    /// @dev Priced like a claim (payout liveness, DEC-021, DEC-056: a failing valuation dependency falls back to the
+    ///      last known value, never a revert on age, OQ-10), so the reserve bound and the one-share floor use the Share
+    ///      Price the holder would be paid at if the claim ran now.
     function requestPayout(uint256 usdcAmount, PayoutMode mode) external nonReentrant {
         if (usdcAmount == 0) revert ZeroAmount();
         PayoutRequest storage req = _s.requests[msg.sender];
         // DEC-024, DEC-046: one open request per address, never cancellable.
         if (req.open) revert PayoutRequestAlreadyOpen(msg.sender);
-        if (_sharesOf(msg.sender) == 0) revert NoShares(msg.sender);
+        uint256 balance = _sharesOf(msg.sender);
+        if (balance == 0) revert NoShares(msg.sender);
+        (uint256 assets,) = CoreVaultLogic.recordValuation(_s, _wiring(), false);
+        uint256 price = ShareMath.sharePrice(assets, _totalShares());
+        // DEC-035 spirit, DEC-077 (final verification): a request below one share's price could never burn a share.
+        if (ShareMath.sharesToBurn(usdcAmount, price) == 0) revert PayoutBelowOneShare(usdcAmount, price);
         uint256 reserved;
         uint64 termEndsAt = uint64(block.timestamp);
         if (mode == PayoutMode.Standard) {
-            // DEC-072, DEC-095: Standard reserves min(amount, Free Idle) as USDC and starts the term (DEC-060).
-            reserved = Math.min(usdcAmount, freeIdle());
+            // DEC-072, DEC-095: Standard reserves USDC and starts the term (DEC-060). OPEN reading (final verification,
+            // docs/OPEN-QUESTIONS.md FV-OQ-1): the reserve is bounded by the requester's share value now (DEC-020: the
+            // most a request can pay is the whole balance), so a small holder cannot lock Free Idle (DEC-017).
+            reserved = Math.min(Math.min(usdcAmount, ShareMath.usdcFor(balance, price)), freeIdle());
             _s.payoutReserve += reserved;
             termEndsAt += standardPayoutTerm;
         }
@@ -151,7 +161,8 @@ contract CoreVault is CoreVaultTransit {
             // DEC-105: one Share Price for the whole request, read after the unwind.
             if (c.proceeds != 0) consolidation = _priceClaim(c, req);
         }
-        // A request whose outstanding amount is below one share's price closes with nothing burned (DEC-077).
+        // DEC-077: an outstanding amount below one share's price (after a Partial Payout, or a Share Price that rose
+        // since the request) closes the request with nothing burned; the receipt says so (`closedBelowOneShare`).
         c.shares = _sharesFor(c, req.usdcOutstanding);
         c.complete = true;
         if (c.wanted > c.available) {
@@ -217,6 +228,7 @@ contract CoreVault is CoreVaultTransit {
         r.shareAssets = c.shareAssets;
         r.totalShares = c.totalShares;
         r.unwindProceeds = c.proceeds;
+        r.closedBelowOneShare = c.complete && c.shares == 0;
         // DEC-084, DEC-105: recorded only, never used for the burn.
         if (c.proceeds != 0 && c.shares != 0) {
             r.payoutSettlementPrice = Math.mulDiv(c.proceeds, ShareMath.WHOLE_SHARE * ShareMath.PRICE_SCALE, c.shares);

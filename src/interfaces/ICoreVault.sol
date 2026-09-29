@@ -74,6 +74,9 @@ interface ICoreVault is IAcrossMessageHandler {
     /// @param unwindProceeds USDC realized by an automatic unwind in this claim; 0 when Idle paid.
     /// @param payoutSettlementPrice Realized unwind proceeds per whole share burned, same scale as Share Price;
     ///        event-only measure (DEC-084, DEC-105); 0 when nothing was unwound.
+    /// @param closedBelowOneShare True when the request closed with no share burned and nothing paid because its
+    ///        outstanding amount was below one share's price at this claim's Share Price (DEC-077 rounds the burn
+    ///        down; final verification: a zero-share close is explicit, never a silent zero receipt).
     struct PayoutReceipt {
         PayoutMode mode;
         uint256 usdcRequested;
@@ -88,6 +91,7 @@ interface ICoreVault is IAcrossMessageHandler {
         uint256 totalShares;
         uint256 unwindProceeds;
         uint256 payoutSettlementPrice;
+        bool closedBelowOneShare;
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -229,6 +233,10 @@ interface ICoreVault is IAcrossMessageHandler {
     error PayoutTermNotEnded(uint64 termEndsAt);
     error NoShares(address shareholder);
     error InsufficientFreeIdle(uint256 requested, uint256 available);
+
+    /// @notice A Payout Request below one share's price at the current Share Price, which could never burn a share
+    ///         (DEC-035 spirit, DEC-077; final verification).
+    error PayoutBelowOneShare(uint256 usdcAmount, uint256 sharePrice);
     error UnknownSpoke(uint256 spokeIndex);
     error SpokeCapExceeded(uint256 spokeIndex, uint256 used, uint256 amount, uint256 spokeCap);
     error BridgeFeeAboveMax(uint256 fee, uint256 maxFee);
@@ -276,8 +284,16 @@ interface ICoreVault is IAcrossMessageHandler {
     function deposit(uint256 usdcAmount, uint256 minShares) external returns (uint256 shares, uint256 usdcCharged);
 
     /// @notice Opens the caller's Payout Request for a gross USDC amount (DEC-020, DEC-023, DEC-024).
-    /// @dev Shares are neither locked nor burned (DEC-077). Standard: reserves `min(usdcAmount, freeIdle())` in the
-    ///      Payout Reserve and starts the term (DEC-060, DEC-072, DEC-095). Instant: no reserve (DEC-095).
+    /// @dev Shares are neither locked nor burned (DEC-077). The request is priced at the current Share Price as a
+    ///      claim would be (payout liveness: last known values on a failing dependency, never a revert on age). Reverts
+    ///      `PayoutBelowOneShare` when `usdcAmount` buys less than one whole share at that price (DEC-035 spirit,
+    ///      DEC-077; final verification). Standard: reserves
+    ///      `min(usdcAmount, ShareMath.usdcFor(balance, sharePrice), freeIdle())` in the Payout Reserve and starts the
+    ///      term (DEC-060, DEC-072, DEC-095); the bound by the requester's share value at request time is an OPEN
+    ///      reading (docs/OPEN-QUESTIONS.md FV-OQ-1, DEC-017, DEC-020, DEC-024): the most a request can ever pay is
+    ///      the holder's whole balance (DEC-020), so a holder cannot lock more Free Idle than its shares are worth.
+    ///      The requested amount itself is kept as asked (DEC-020: an insufficient balance burns all at the claim).
+    ///      Instant: no reserve (DEC-095).
     function requestPayout(uint256 usdcAmount, PayoutMode mode) external;
 
     /// @notice Executes the caller's Payout Request: burn and pay atomically (DEC-047, DEC-065, DEC-074). Only the
@@ -287,7 +303,9 @@ interface ICoreVault is IAcrossMessageHandler {
     ///      then a post-unwind report on the unwound spoke before burning (DEC-105). Burns
     ///      `ShareMath.sharesToBurn(outstanding, sharePrice)` capped at the balance (DEC-020, DEC-077). A full burn
     ///      pays all Attributed Income payable now in the same transaction (DEC-045). Partial Payout when not
-    ///      everything can be paid (DEC-068).
+    ///      everything can be paid (DEC-068). When the outstanding amount is below one share's price at the claim's
+    ///      Share Price, the request closes with nothing burned or paid, the reserve is released and the receipt
+    ///      carries `closedBelowOneShare = true` in `PayoutExecuted` (DEC-077; final verification).
     /// @param unwindHints Parameters forwarded to `ISpokeVault.unwindForPayout`; empty when Idle covers the request.
     function claimPayout(bytes calldata unwindHints) external returns (PayoutReceipt memory receipt);
 

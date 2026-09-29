@@ -223,12 +223,13 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         bobRequest = bound(bobRequest, 1e6, 20_000e6);
         _request(bob, bobRequest, ICoreVault.PayoutMode.Standard);
         uint256 reserve = vault.payoutReserve();
-        assertEq(reserve, bobRequest < 14_950e6 ? bobRequest : 14_950e6);
+        // FV-OQ-1 reading (final verification): bounded by Bob's 9,975 shares at 1.00, below Free Idle (14,950).
+        assertEq(reserve, bobRequest < 9975e6 ? bobRequest : 9975e6);
 
         // The hub position moves the Share Price anywhere between 0.5x and 2x before Alice claims.
         hubVault.setPosition(address(usdc), bound(positionPrincipal, 0, 20_000e6));
         hubVault.setUnwindMode(MockHubSpokeVault.UnwindMode.Reverts); // Idle only, DEC-068 partial if short
-        aliceRequest = bound(aliceRequest, 1e6, 20_000e6);
+        aliceRequest = bound(aliceRequest, 2e6, 20_000e6); // at least one share up to 1.75 (DEC-035 spirit)
         _request(alice, aliceRequest, ICoreVault.PayoutMode.Instant);
         vm.prank(alice);
         try vault.claimPayout("") returns (ICoreVault.PayoutReceipt memory r) {

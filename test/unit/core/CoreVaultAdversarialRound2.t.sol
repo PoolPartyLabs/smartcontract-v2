@@ -75,7 +75,8 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
         bobRequest = bound(bobRequest, 1e6, 20_000e6);
         _request(bob, bobRequest, ICoreVault.PayoutMode.Standard);
         uint256 bobReserve = vault.payoutRequest(bob).reserved;
-        assertEq(bobReserve, bobRequest < 14_950e6 ? bobRequest : 14_950e6);
+        // FV-OQ-1 reading (final verification): bounded by Bob's 9,975 shares at 1.00, below Free Idle (14,950).
+        assertEq(bobReserve, bobRequest < 9975e6 ? bobRequest : 9975e6);
         aliceRequest = bound(aliceRequest, 1e6, 20_000e6);
         _request(alice, aliceRequest, ICoreVault.PayoutMode.Standard);
         uint256 aliceReserve = vault.payoutRequest(alice).reserved;

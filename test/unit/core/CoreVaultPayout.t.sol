@@ -149,13 +149,17 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
     function test_DEC095_instantNeverTouchesThePayoutReserve() public {
         _deposit(bob, 1000e6);
         _deposit(alice, 1000e6);
-        _request(bob, 2000e6, STANDARD); // reserves all 1,995 of Idle
+        _request(bob, 2000e6, STANDARD); // reserves bob's 997 shares at 1.00 (FV-OQ-1 bound)
+        assertEq(vault.payoutReserve(), 997e6);
+        uint256 free = vault.freeIdle();
+        vm.prank(manager);
+        vault.allocateToHubSpokeVault(free); // the rest of Idle leaves, Free Idle is 0
         assertEq(vault.freeIdle(), 0);
         _request(alice, 500e6, INSTANT);
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(ICoreVault.InsufficientFreeIdle.selector, 500e6, 0));
         vault.claimPayout("");
-        assertEq(vault.payoutReserve(), 1994e6);
+        assertEq(vault.payoutReserve(), 997e6);
     }
 
     function test_DEC095_standardUsesItsReserveThenFreeIdle() public {
@@ -321,19 +325,48 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         assertEq(usdc.balanceOf(alice) - balanceBefore, r.usdcPaid);
     }
 
-    function test_DEC077_outstandingBelowOneShareClosesWithoutBurn() public {
+    /// @dev DEC-035 spirit, DEC-077 (final verification): a request that could never burn a share is refused.
+    function test_DEC035_requestBelowOneSharePriceReverts() public {
         _deployFeeless();
         _deposit(alice, 1000e6);
         hubVault.setPosition(address(usdc), 100e6); // price 1.1
-        _request(alice, 1e6, INSTANT); // below one share's price
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.PayoutBelowOneShare.selector, 1e6, 1.1e24));
+        vault.requestPayout(1e6, INSTANT);
+        _request(alice, 1.1e6, STANDARD); // exactly one share is accepted
+        assertEq(vault.payoutRequest(alice).reserved, 1.1e6);
+    }
+
+    /// @dev DEC-077 (final verification): an outstanding amount below one share's price at the claim closes the
+    ///      request with nothing burned, visibly (`closedBelowOneShare`), and releases its reserve (DEC-072).
+    function test_DEC077_outstandingBelowOneShareClosesWithoutBurn() public {
+        _deployFeeless();
+        _deposit(alice, 1000e6);
+        _request(alice, 1e6, STANDARD); // one share at 1.00
+        assertEq(vault.payoutReserve(), 1e6);
+        hubVault.setPosition(address(usdc), 100e6); // price 1.1: the request is now below one share's price
+        vm.warp(block.timestamp + 72 hours);
+        vm.recordLogs();
         ICoreVault.PayoutReceipt memory r = _claim(alice);
         assertEq(r.sharesBurned, 0);
         assertEq(r.usdcPaid, 0);
+        assertTrue(r.closedBelowOneShare, "a zero-share close is explicit");
         assertFalse(vault.payoutRequest(alice).open);
+        assertEq(vault.payoutReserve(), 0);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bool found;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].topics[0] != ICoreVault.PayoutExecuted.selector) continue;
+            (ICoreVault.PayoutReceipt memory emitted,) =
+                abi.decode(logs[i].data, (ICoreVault.PayoutReceipt, ICoreVault.NavConsolidation));
+            assertTrue(emitted.closedBelowOneShare);
+            found = true;
+        }
+        assertTrue(found, "PayoutExecuted carries the reason");
     }
 
     function testFuzz_DEC077_payoutNeverExceedsRequest(uint256 amount, uint256 gain, bool standard) public {
-        amount = bound(amount, 1e6, 50_000e6);
+        amount = bound(amount, 2e6, 50_000e6); // price stays below 1.5, so every amount buys a share (DEC-035)
         gain = bound(gain, 0, 20_000e6);
         _deposit(alice, 20_000e6);
         _deposit(bob, 20_000e6);
@@ -346,6 +379,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         assertEq(r.sharesBurned % 1e18, 0);
         assertLe(r.sharesBurned, balanceBefore);
         assertEq(r.usdcPaid + r.payoutFee + r.flowFee, r.usdcGross);
+        assertFalse(r.closedBelowOneShare);
         assertLe(vault.payoutReserve(), vault.idle());
         // Rounding is down: one more share would exceed the request unless all shares were burned.
         if (r.sharesBurned < balanceBefore) assertGe(ShareMath.usdcFor(r.sharesBurned + 1e18, r.sharePrice), amount);

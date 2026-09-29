@@ -55,7 +55,8 @@ contract CoreVaultHandler is Test {
     function requestPayout(uint256 seed, uint256 amount, bool standard) external trackIndex {
         address who = actors[seed % 3];
         if (shares.balanceOf(who) == 0 || vault.payoutRequest(who).open) return;
-        amount = bound(amount, 1e6, 100_000e6);
+        // DEC-035 spirit (final verification): a request buys at least one share at the current Share Price.
+        amount = bound(amount, (vault.sharePrice() + 1e18 - 1) / 1e18, 100_000e6);
         vm.prank(who);
         vault.requestPayout(amount, standard ? ICoreVault.PayoutMode.Standard : ICoreVault.PayoutMode.Instant);
     }
