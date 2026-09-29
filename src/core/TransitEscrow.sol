@@ -21,8 +21,11 @@ contract TransitEscrow is ITransitEscrow {
     }
 
     /// @inheritdoc ITransitEscrow
+    /// @dev DEC-066: a zero `vault_` would leave `vault` unset, so anyone could initialize the clone again and become
+    ///      the only address able to release a refund (Across verifier finding); a zero token cannot hold one.
     function initialize(address vault_, address token_) external {
         if (vault != address(0)) revert AlreadyInitialized();
+        if (vault_ == address(0) || token_ == address(0)) revert ZeroAddress();
         vault = vault_;
         token = token_;
     }
