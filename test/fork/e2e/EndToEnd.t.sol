@@ -62,6 +62,7 @@ contract EndToEndForkTest is EndToEndBase {
         _phase6DeliverReport();
         _phase7IncomeAndBrunoDeposit();
         _phase8AnaStandardPayout();
+        _phase9BrunoInstantPayoutWithUnwind();
     }
 
     // -----------------------------------------------------------------------------------------------------------------
@@ -604,5 +605,134 @@ contract EndToEndForkTest is EndToEndBase {
         assertEq(core.idle(), idleBefore - gross);
         assertEq(core.payoutReserve(), 0, "DEC-072: reserve released");
         assertFalse(core.payoutRequest(ana).open, "DEC-024: request closed");
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // Phase 9: Bruno's Instant Payout above Free Idle, with an automatic unwind
+    // -----------------------------------------------------------------------------------------------------------------
+
+    /// @notice Values read before Bruno's claim.
+    struct InstantPlan {
+        uint256 request;
+        uint256 balance;
+        uint256 target;
+        uint256 supply;
+        uint256 operatingCash;
+        uint256 aavePrincipal;
+        uint256 brunoUsdc;
+    }
+
+    /// @dev DEC-068: Partial Payout when the unwind falls short. DEC-069: Mandate order, hub V4 first. DEC-059: the Aave
+    ///      Exact-Value Position is read, not exited, when V4 covers the target. DEC-081: shortfall plus 2%. DEC-097:
+    ///      the margin's Market Costs are the fund's. DEC-102: 2% Payout Fee into Operating Cash. DEC-105: the burn at
+    ///      the Share Price read after the unwind; the Settlement Price is recorded only.
+    function _phase9BrunoInstantPayoutWithUnwind() internal {
+        _onArbitrum();
+        InstantPlan memory plan = _planInstant();
+        vm.prank(bruno);
+        core.requestPayout(plan.request, ICoreVault.PayoutMode.Instant);
+        assertEq(core.payoutRequest(bruno).reserved, 0, "DEC-095: no reserve for an Instant Payout");
+
+        bytes memory hints = _unwindHints();
+        vm.recordLogs();
+        vm.prank(bruno);
+        ICoreVault.PayoutReceipt memory receipt = core.claimPayout(hints);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        (uint256 target, uint256 proceeds) = _unwound(logs);
+        assertEq(target, plan.target, "DEC-081: the shortfall plus 2%");
+        assertEq(proceeds, receipt.unwindProceeds, "DEC-080: proceeds reached Idle through returnToIdle");
+        assertGt(proceeds, 0);
+        assertEq(hubSpoke.positions().length, 1, "DEC-069: the hub V4 position was unwound first");
+        assertEq(hubSpoke.positions()[0].adapter, hubAave);
+        assertEq(
+            IAdapter(hubAave).positionValue(hubAavePosition).principal0,
+            plan.aavePrincipal,
+            "DEC-059: Aave read, not exited"
+        );
+
+        assertEq(receipt.totalShares, plan.supply);
+        assertEq(receipt.sharePrice, ShareMath.sharePrice(receipt.shareAssets, receipt.totalShares), "DEC-105");
+        assertEq(receipt.usdcGross, ShareMath.usdcFor(receipt.sharesBurned, receipt.sharePrice));
+        assertEq(receipt.payoutFee, ShareMath.bpsOf(receipt.usdcGross, 200), "DEC-102: 2% Payout Fee");
+        assertEq(core.operatingCash() - plan.operatingCash, receipt.payoutFee, "DEC-102: into Operating Cash");
+        assertEq(receipt.flowFee, ShareMath.flowFee(receipt.usdcGross, FLOW_FEE_BPS), "DEC-106");
+        assertEq(receipt.usdcPaid, receipt.usdcGross - receipt.payoutFee - receipt.flowFee);
+        assertEq(IERC20(ARB_USDC).balanceOf(bruno) - plan.brunoUsdc, receipt.usdcPaid);
+        assertEq(
+            receipt.payoutSettlementPrice,
+            Math.mulDiv(proceeds, 1e36, receipt.sharesBurned),
+            "DEC-084, DEC-105: Settlement Price recorded only"
+        );
+        assertEq(IERC20(shareToken).balanceOf(bruno), plan.balance - receipt.sharesBurned);
+        _assertPayoutOutcome(plan, receipt);
+        emit log_named_decimal_uint("Instant Payout unwind target (USDC)", target, 6);
+        emit log_named_decimal_uint("Instant Payout outstanding after the claim (USDC)", receipt.usdcOutstanding, 6);
+    }
+
+    /// @dev Bruno asks 1,000 USDC more than Free Idle; the expected unwind target is read at the pre-claim price.
+    function _planInstant() internal view returns (InstantPlan memory plan) {
+        uint256 free = core.freeIdle();
+        uint256 price = core.sharePrice();
+        plan.request = free + BRUNO_ABOVE_FREE_IDLE;
+        plan.balance = IERC20(shareToken).balanceOf(bruno);
+        assertGt(ShareMath.usdcFor(plan.balance, price), plan.request, "Bruno holds more than he asks");
+        uint256 wanted = ShareMath.usdcFor(Math.min(ShareMath.sharesToBurn(plan.request, price), plan.balance), price);
+        uint256 shortfall = wanted - free;
+        plan.target = shortfall + shortfall * 200 / 10_000;
+        plan.supply = IERC20(shareToken).totalSupply();
+        plan.operatingCash = core.operatingCash();
+        plan.aavePrincipal = IAdapter(hubAave).positionValue(hubAavePosition).principal0;
+        plan.brunoUsdc = IERC20(ARB_USDC).balanceOf(bruno);
+    }
+
+    /// @dev One hint per position the unwind may visit, in Mandate order (DEC-069): close the V4 position and swap its
+    ///      WETH to USDC in the Mandate pool with a Chainlink-based minimum; then Aave, used only if V4 falls short.
+    function _unwindHints() internal view returns (bytes memory) {
+        IAdapter.PositionValue memory v4 = IAdapter(hubUniswap).positionValue(hubUniswapPosition);
+        SpokeVaultTypes.UnwindSwap[] memory swaps = new SpokeVaultTypes.UnwindSwap[](1);
+        swaps[0] = SpokeVaultTypes.UnwindSwap({
+            adapter: hubUniswap,
+            poolKey: ARB_WETH_USDC_POOL_ID,
+            tokenIn: ARB_WETH,
+            minAmountOut: _usdcValue(ARB_WETH, v4.principal0) * (10_000 - SWAP_TOLERANCE_BPS) / 10_000,
+            params: _swapParams()
+        });
+        SpokeVaultTypes.UnwindHint[] memory hints = new SpokeVaultTypes.UnwindHint[](2);
+        hints[0] = SpokeVaultTypes.UnwindHint({close: true, exitParams: _closeParams(), swaps: swaps});
+        hints[1] = SpokeVaultTypes.UnwindHint({
+            close: false, exitParams: abi.encode(type(uint256).max), swaps: new SpokeVaultTypes.UnwindSwap[](0)
+        });
+        return abi.encode(hints);
+    }
+
+    function _unwound(Vm.Log[] memory logs) internal view returns (uint256 target, uint256 proceeds) {
+        uint256 seen;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(hubSpoke) || logs[i].topics[0] != ISpokeVault.UnwoundForPayout.selector) {
+                continue;
+            }
+            ++seen;
+            (target, proceeds) = abi.decode(logs[i].data, (uint256, uint256));
+        }
+        assertEq(seen, 1, "one automatic unwind");
+    }
+
+    /// @dev DEC-068: a full Payout closes the request; a Partial Payout burns only what was paid and leaves the rest of
+    ///      the request open.
+    function _assertPayoutOutcome(InstantPlan memory plan, ICoreVault.PayoutReceipt memory receipt) internal view {
+        ICoreVault.PayoutRequest memory req = core.payoutRequest(bruno);
+        if (receipt.usdcOutstanding == 0) {
+            assertFalse(req.open, "DEC-074: the Payout closed the request");
+            assertEq(
+                receipt.sharesBurned,
+                Math.min(ShareMath.sharesToBurn(plan.request, receipt.sharePrice), plan.balance),
+                "DEC-077: rounded down at the consolidated price"
+            );
+        } else {
+            assertTrue(req.open, "DEC-068: Partial Payout leaves the request open");
+            assertEq(req.usdcOutstanding, plan.request - receipt.usdcGross, "DEC-068: the rest stays open");
+            assertEq(receipt.usdcOutstanding, req.usdcOutstanding);
+        }
     }
 }
