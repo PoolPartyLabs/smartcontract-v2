@@ -128,15 +128,21 @@ Protocol-level constants live in the core, not the Mandate: flow fee 25 bps defa
   inFlightToHub, spokeCap)`: the pending return leg the spoke reports (Principal and Income) is its own line and
   counts toward the cap (DEC-066 B1).
 - Arrival: the Robinhood Spoke Vault's `handleV3AcrossMessage` (callable only by the Across SpokePool, only for
-  USDG) credits Unallocated Balance, records the deposit id as arrived and runs the Operating Cash top-up (DEC-096);
-  the next report carries the arrived ids; the Core Vault moves those transits to `ArrivalConfirmed` and drops them
-  from In-flight (DEC-090).
-- Arrival window (OQ-09 stance: the window serves liveness; value rests on the hub's ledger): the report lists the
+  USDG) credits Unallocated Balance, adds the amount to the transit id's credited total (Principal arrivals only;
+  the hub never sends Income) and runs the Operating Cash top-up (DEC-096); the next report carries the arrived ids
+  with their credited totals; the Core Vault moves a transit to `ArrivalConfirmed` and drops it from In-flight only
+  when the listed total reaches the `amountToArrive` it expects (DEC-090, OQ-01, OQ-09). Across passes no depositor
+  and transit ids are public (`SentToSpoke`), so a stranger's listing below that amount confirms nothing and, in a
+  report built after the fill deadline, proves non-arrival; a stranger who lists an id at or above it has made the
+  fund whole, and the excess is deducted as unknown-origin value (consolidation verifier round 2).
+- Arrival window (OQ-09 stance: the window serves liveness; value rests on the hub's ledger, which confirms an id
+  only at or above the amount it expects to arrive): the report lists the
   last 256 arrival ids (`ReportCodec.ARRIVAL_WINDOW`), and an id is listed only once its credited total reaches 1e6
   base units (1 USDG); smaller arrivals are still credited to the ledger and to `cumulativeReceived`. Across passes
   no depositor, so a stranger can reach the callback; flushing the window costs 256 USDG donated to the fund. A
   hub-to-spoke transit evicted before an accepted report lists it (or sent below the listing minimum, CS-OQ-6) is
-  never confirmed: it stays in In-flight Value for good and keeps its Spoke Cap (the liveness cost), while the hub
+  never confirmed: it stays in In-flight Value for good and holds its Spoke Cap until its expiry is attested through
+  the deadline plus report lifetime path (the liveness cost), while the hub
   deducts `cumulativeReceived` above what it confirmed as unknown-origin value (DEC-080). The two cancel because
   that deduction is taken from the fund total: the part a spoke's principal no longer covers (the value was sent
   home, or lost in a position) is subtracted from the total, not clamped per spoke, so the same USDC is never counted
