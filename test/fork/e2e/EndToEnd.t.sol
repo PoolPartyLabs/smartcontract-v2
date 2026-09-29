@@ -55,6 +55,7 @@ contract EndToEndForkTest is EndToEndBase {
     function test_DEC054_forkEndToEndOneFundAcrossArbitrumAndRobinhood() public {
         _createForks();
         _phase1CreateFund();
+        _phase2AnaDeposits();
     }
 
     // -----------------------------------------------------------------------------------------------------------------
@@ -145,5 +146,36 @@ contract EndToEndForkTest is EndToEndBase {
         assertEq(spokeVault.coreVault(), address(core));
         assertEq(spokeVault.fundId(), fundId);
         assertEq(spokeVault.baseToken(), RH_USDG);
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // Phase 2: Ana deposits 10,000 USDC
+    // -----------------------------------------------------------------------------------------------------------------
+
+    /// @dev DEC-061: first deposit at least the Mandate minimum, first price 1.00. DEC-106: 25 bps flow fee to the
+    ///      Protocol Recipient, taken before pricing. DEC-035: whole shares only.
+    function _phase2AnaDeposits() internal {
+        _onArbitrum();
+        deal(ARB_USDC, ana, ANA_DEPOSIT);
+        vm.startPrank(ana);
+        IERC20(ARB_USDC).approve(address(core), ANA_DEPOSIT);
+        vm.expectRevert(
+            abi.encodeWithSelector(ICoreVault.BelowMinFirstDeposit.selector, ANA_BELOW_MINIMUM, MIN_FIRST_DEPOSIT)
+        );
+        core.deposit(ANA_BELOW_MINIMUM, 0);
+        uint256 recipientBefore = IERC20(ARB_USDC).balanceOf(recipient);
+        (uint256 shares, uint256 charged) = core.deposit(ANA_DEPOSIT, 0);
+        vm.stopPrank();
+
+        uint256 fee = ANA_DEPOSIT * FLOW_FEE_BPS / 10_000;
+        assertEq(fee, 25e6);
+        assertEq(IERC20(ARB_USDC).balanceOf(recipient) - recipientBefore, fee, "DEC-106: flow fee to the protocol");
+        assertEq(shares, 9975e18, "DEC-061: 9,975 whole shares at 1.00");
+        assertEq(shares % 1e18, 0, "DEC-035: whole shares");
+        assertEq(charged, ANA_DEPOSIT, "DEC-035: nothing left over at 1.00");
+        assertEq(IERC20(shareToken).balanceOf(ana), shares);
+        assertEq(core.idle(), ANA_DEPOSIT - fee);
+        assertEq(core.shareAssets(), ANA_DEPOSIT - fee);
+        assertEq(core.sharePrice(), ShareMath.INITIAL_SHARE_PRICE, "DEC-061: 1 share = 1.00 USDC");
     }
 }
