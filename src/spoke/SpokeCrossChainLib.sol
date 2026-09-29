@@ -155,14 +155,17 @@ library SpokeCrossChainLib {
             r.arrivedTransits[i] = ReportCodec.TransitAmount(id, s.arrivals[id]);
         }
 
-        // DEC-085: every hub-bound transit still in flight, at the amount that will arrive.
+        // DEC-085: every hub-bound transit still in flight, at the amount that will arrive, with its kind (CV-OQ-1,
+        // DEC-092: the hub keeps Income in flight out of Share Assets).
         n = s.inFlightIds.length;
-        ReportCodec.TransitAmount[] memory inFlight = new ReportCodec.TransitAmount[](n);
+        ReportCodec.HubBoundAmount[] memory inFlight = new ReportCodec.HubBoundAmount[](n);
         uint256 found;
         for (uint256 i; i < n; ++i) {
             bytes32 id = s.inFlightIds[i];
             Transit storage t = s.hubBoundTransits[id];
-            if (_stillInFlight(t, c.maxReportAge)) inFlight[found++] = ReportCodec.TransitAmount(id, t.amountToArrive);
+            if (_stillInFlight(t, c.maxReportAge)) {
+                inFlight[found++] = ReportCodec.HubBoundAmount(id, t.amountToArrive, t.kind);
+            }
         }
         assembly ("memory-safe") {
             mstore(inFlight, found)

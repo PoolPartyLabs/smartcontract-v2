@@ -201,9 +201,9 @@ contract ValueReportReceiverAdversarialTest is Test {
     function test_DEC093_malformedPayloadIsRejected() public {
         bytes[] memory payloads = new bytes[](4);
         payloads[0] = ""; // empty
-        payloads[1] = abi.encode(uint256(1)); // version only
-        payloads[2] = abi.encodePacked(uint256(1), keccak256("garbage")); // version + one junk word
-        payloads[3] = abi.encodePacked(uint256(1), uint256(0x40), type(uint256).max); // offset to a huge array
+        payloads[1] = abi.encode(ReportCodec.VERSION); // version only
+        payloads[2] = abi.encodePacked(ReportCodec.VERSION, keccak256("garbage")); // version + one junk word
+        payloads[3] = abi.encodePacked(ReportCodec.VERSION, uint256(0x40), type(uint256).max); // offset to a huge array
         for (uint256 i; i < payloads.length; ++i) {
             bytes memory vaa = _vaa(WH_ROBINHOOD, SPOKE_VAULT, 0, 1, payloads[i]);
             vm.expectRevert();

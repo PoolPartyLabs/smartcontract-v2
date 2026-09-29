@@ -210,26 +210,26 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // OQ-01 / DEC-092: the kind of a hub-bound arrival comes from the Across message, not from the report (a
-    // ReportCodec.TransitAmount carries no TransferKind). A stranger who front-runs a listed Income transfer with
-    // Principal dust can relabel exactly its own dust into Idle and strand the same amount of the fund's income in the
-    // held-apart bucket; the bases never receive more than the listed amount and no value leaves the ledger.
+    // OQ-01 / DEC-092 / CV-OQ-1: a hub-bound arrival is credited by the kind the report listed, never by the kind the
+    // Across message claims. A stranger who front-runs a listed Income transfer with dust labelled Principal cannot
+    // move anything into Idle: its dust is credited as income and the same amount of the real fill is held apart; the
+    // bases never receive more than the listed amount and no value leaves the ledger.
     // ---------------------------------------------------------------------------------------------------------------
-    function test_OQ01_kindRelabellingByStrangerIsBoundedByItsOwnDust() public {
+    function test_OQ01_reportedKindWinsOverTheMessageKind() public {
         _deposit(alice, 10_000e6);
         bytes32 id = keccak256("spoke income transfer 9");
-        _deliver(_inFlightToHub(_spokeReport(0, 0), id, 400e6)); // the spoke reports 400 in flight
+        _deliver(_inFlightToHub(_spokeReport(0, 0), id, 400e6, TransferKind.Income)); // 400 of income in flight
         uint256 idle0 = vault.idle();
+        uint256 protocol0 = usdc.balanceOf(protocol);
 
         pool.fill(address(vault), address(usdc), 5, _homeMessage(id, TransferKind.Principal)); // stranger's dust
-        assertEq(vault.idle(), idle0 + 5, "the dust is credited as what its message claims");
-        uint256 protocol0 = usdc.balanceOf(protocol);
+        assertEq(vault.idle(), idle0, "the message cannot relabel income into Idle");
         pool.fill(address(vault), address(usdc), 400e6, _homeMessage(id, TransferKind.Income)); // the real fill
         // Ruling 2026-09-29: the income credited is split at once; fees leave to the protocol and the fee vault.
         uint256 feesOut = usdc.balanceOf(protocol) - protocol0 + usdc.balanceOf(vault.managerFeeVault());
-        assertEq(vault.collectedIncome(address(usdc)) + feesOut, 400e6 - 5, "the income is short by the dust");
+        assertEq(vault.collectedIncome(address(usdc)) + feesOut, 400e6, "exactly the listed amount, as income");
         assertEq(vault.unmatchedArrivals(), 5, "the same amount is held apart for good");
-        assertEq((vault.idle() - idle0) + vault.collectedIncome(address(usdc)) + feesOut, 400e6, "listed amount");
+        assertEq(vault.idle(), idle0, "Idle never moved");
         assertEq(usdc.balanceOf(address(vault)), _ledgerUsdc());
         assertEq(vault.sweepExcess(address(usdc)), 0, "nothing sweepable: the ledger covers the balance exactly");
     }

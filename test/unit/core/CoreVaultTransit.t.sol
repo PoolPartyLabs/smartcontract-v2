@@ -375,7 +375,7 @@ contract CoreVaultTransitTest is CoreVaultFixture {
 
     function test_DEC107_incomeArrivalIsSplitAtCollection() public {
         bytes32 homeId = keccak256("income-1");
-        _deliver(_inFlightToHub(_spokeReport(0, 0), homeId, 100e6));
+        _deliver(_inFlightToHub(_spokeReport(0, 0), homeId, 100e6, TransferKind.Income));
         uint256 protocol0 = usdc.balanceOf(protocol);
         pool.fill(address(vault), address(usdc), 100e6, _homeMessage(homeId, TransferKind.Income));
         assertEq(vault.collectedIncome(address(usdc)), 80e6);

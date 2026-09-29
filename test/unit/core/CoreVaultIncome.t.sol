@@ -152,7 +152,9 @@ contract CoreVaultIncomeTest is CoreVaultFixture {
 
     function test_DEC107_spokeIncomeArrivalSplitAtCollection() public {
         bytes32 homeId = keccak256("income-home");
-        _deliver(_inFlightToHub(_spokeIncome(_spokeReport(0, 0), address(usdg), 100e6), homeId, 100e6));
+        _deliver(
+            _inFlightToHub(_spokeIncome(_spokeReport(0, 0), address(usdg), 100e6), homeId, 100e6, TransferKind.Income)
+        );
         assertEq(vault.incomeState(address(usdc)).distributed, 0, "the report alone attributes nothing");
         vm.expectEmit(address(vault));
         emit ICoreVault.CollectedIncomeReceived(address(usdc), 100e6, 10e6, 10e6, 5000);

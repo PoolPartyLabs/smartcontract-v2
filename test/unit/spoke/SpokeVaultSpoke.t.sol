@@ -578,6 +578,7 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         assertEq(r.inFlightToHub.length, 1);
         assertEq(r.inFlightToHub[0].transitId, id);
         assertEq(r.inFlightToHub[0].amount, 499e6);
+        assertEq(uint8(r.inFlightToHub[0].kind), uint8(TransferKind.Principal), "CV-OQ-1: the kind is reported");
         assertEq(r.cumulativeSentHome, 500e6);
     }
 
@@ -674,6 +675,8 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         (,,, TransferKind kind) = TransitMessage.decode(spokePool.deposit(0).message);
         assertEq(uint8(kind), uint8(TransferKind.Income));
         assertEq(uint8(vault.hubBoundTransit(id).kind), uint8(TransferKind.Income));
+        // CV-OQ-1: the report tells the hub it is income, so the hub keeps it out of Share Assets (DEC-092).
+        assertEq(uint8(vault.buildReport().inFlightToHub[0].kind), uint8(TransferKind.Income));
     }
 
     function test_CVOQ2_wethIncomeSwappedIntoBaseTokenThenSentHomeAsIncome() public {

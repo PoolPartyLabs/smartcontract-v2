@@ -83,8 +83,8 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
 
     // ---------------------------------------------------------------------------------------------------------------
     // Return leg. DEC-085 / DEC-104: a Principal transfer home counts in Share Assets while in flight, so Share Price
-    // holds through the send and the fill. DEC-092 (OPEN, interface change reported): ReportCodec.TransitAmount has no
-    // TransferKind, so an Income transfer home is counted too until it arrives; the test pins that stance and its bound.
+    // holds through the send and the fill. DEC-092: an Income transfer home stays out of Share Assets while in flight
+    // (the report carries the kind since ReportCodec version 2, CV-OQ-1) and both kinds count toward the Spoke Cap.
     // ---------------------------------------------------------------------------------------------------------------
 
     function test_DEC104_principalReturnLegKeepsSharePriceThroughTheFill() public {
@@ -105,18 +105,21 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         assertEq(vault.shareAssets(), _bucketSum());
     }
 
-    function test_DEC092_OPEN_incomeReturnLegCountsUntilTheReportCarriesItsKind() public {
+    function test_DEC092_incomeReturnLegStaysOutOfShareAssetsWhileInFlight() public {
         _deposit(alice, 10_000e6); // 9,975 shares
         uint256 priceBefore = vault.sharePrice();
         bytes32 id = keccak256("spoke income transfer 1");
-        _deliver(_inFlightToHub(_spokeReport(0, 0), id, 400e6)); // 400 USDC of collected income sent home
-        // OPEN stance: counted like a Principal leg while in flight (bounded by the income in flight).
-        assertEq(vault.shareAssets(), 9975e6 + 400e6);
-        assertGt(vault.sharePrice(), priceBefore);
+        // 400 USDC of collected income sent home, reported as Income.
+        _deliver(_inFlightToHub(_spokeReport(0, 0), id, 400e6, TransferKind.Income));
+        assertEq(vault.shareAssets(), 9975e6, "income in flight is outside Share Assets (DEC-092)");
+        assertEq(vault.inFlightValue(), 0);
+        assertEq(vault.sharePrice(), priceBefore);
+        (, uint256 capInFlight,) = vault.spokeCapUsage(0);
+        assertEq(capInFlight, 400e6, "but it counts toward the Spoke Cap (DEC-066 B1)");
         pool.fill(address(vault), address(usdc), 400e6, _homeMessage(id, TransferKind.Income));
         // Split at collection (ruling 2026-09-29): 80 of fees leave, 320 net stays for holders; never Idle.
         assertEq(vault.collectedIncome(address(usdc)), 320e6, "credited to collected income, never Idle");
-        assertEq(vault.sharePrice(), priceBefore, "back to the price without the income once it arrives");
+        assertEq(vault.sharePrice(), priceBefore, "the arrival does not move the Share Price either");
     }
 
     // ---------------------------------------------------------------------------------------------------------------

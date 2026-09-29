@@ -7,7 +7,7 @@ import {CoreVaultConfig} from "../../../src/core/CoreVaultTypes.sol";
 import {ShareToken} from "../../../src/core/ShareToken.sol";
 import {TransitEscrow} from "../../../src/core/TransitEscrow.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
-import {BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
+import {BridgeQuote, TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {
     Mandate,
     AdapterConfig,
@@ -217,13 +217,22 @@ abstract contract CoreVaultFixture is Test {
         return r;
     }
 
+    /// @dev A Principal transfer home in flight.
     function _inFlightToHub(ReportCodec.Report memory r, bytes32 transitId, uint256 amount)
         internal
         pure
         returns (ReportCodec.Report memory)
     {
-        r.inFlightToHub = new ReportCodec.TransitAmount[](1);
-        r.inFlightToHub[0] = ReportCodec.TransitAmount(transitId, amount);
+        return _inFlightToHub(r, transitId, amount, TransferKind.Principal);
+    }
+
+    function _inFlightToHub(ReportCodec.Report memory r, bytes32 transitId, uint256 amount, TransferKind kind)
+        internal
+        pure
+        returns (ReportCodec.Report memory)
+    {
+        r.inFlightToHub = new ReportCodec.HubBoundAmount[](1);
+        r.inFlightToHub[0] = ReportCodec.HubBoundAmount(transitId, amount, kind);
         return r;
     }
 

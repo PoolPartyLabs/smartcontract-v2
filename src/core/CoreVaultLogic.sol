@@ -101,7 +101,7 @@ library CoreVaultLogic {
         if (receiver.hasReport(spokeIndex)) {
             (ReportCodec.Report memory r,,) = receiver.latestReport(spokeIndex);
             spokeValue = _spokePrincipal(s, w, spokeIndex, r, false);
-            inFlightSent += _returnLeg(s, spoke.chainId, r);
+            inFlightSent += _returnLeg(s, spoke.chainId, r, false);
         }
         spokeCap = spoke.spokeCap;
     }
@@ -132,7 +132,7 @@ library CoreVaultLogic {
             if (mint && !receiver.isReportFresh(i)) revert ICoreVault.StaleSpokeReport(i);
             (ReportCodec.Report memory r,,) = receiver.latestReport(i);
             assets += _spokePrincipal(s, w, i, r, mint);
-            inFlight += _returnLeg(s, spoke.chainId, r);
+            inFlight += _returnLeg(s, spoke.chainId, r, true);
             ++consolidation.chainsSummed;
             consolidation.reportBlockNumbers[i] = r.blockNumber;
             consolidation.reportSequences[i] = r.sequence;
@@ -189,19 +189,16 @@ library CoreVaultLogic {
     /// @notice The pending return leg of a spoke: `inFlightToHub` entries of its last report not yet credited on the
     ///         hub, at the amount that will arrive in hub USDC (DEC-066 B1, DEC-085).
     /// @dev DEC-085, DEC-104: a Principal transfer home has left the spoke's Unallocated Balance and has not reached
-    ///      Idle, so it must count here or it would sit outside every base. OPEN (raised in the module report as an
-    ///      interface change): a ReportCodec.TransitAmount entry carries no TransferKind, so an Income transfer home is
-    ///      counted here too until it arrives, against DEC-092 (collected income is outside Share Assets); the Share
-    ///      Price is overstated by that amount during the transit and falls back at the fill. Counting every entry keeps
-    ///      the Principal flow exact (the dominant one) and bounds the error to income in flight; once the report
-    ///      carries the kind, only Principal entries count here while both keep counting toward the Spoke Cap (DEC-066
-    ///      B1).
-    function _returnLeg(CoreVaultState storage s, uint256 spokeChainId, ReportCodec.Report memory r)
+    ///      Idle, so it counts in Share Assets while in flight. DEC-092: an Income transfer home is collected income,
+    ///      outside Share Assets, so with `principalOnly` (Share Assets) it is left out; without it (Spoke Cap, DEC-066
+    ///      B1) both kinds count. The kind comes from the report (ReportCodec version 2, CV-OQ-1).
+    function _returnLeg(CoreVaultState storage s, uint256 spokeChainId, ReportCodec.Report memory r, bool principalOnly)
         private
         view
         returns (uint256 value)
     {
         for (uint256 i; i < r.inFlightToHub.length; ++i) {
+            if (principalOnly && r.inFlightToHub[i].kind != TransferKind.Principal) continue;
             uint256 amount = r.inFlightToHub[i].amount;
             uint256 credited = s.hubBound[hubBoundKey(spokeChainId, r.inFlightToHub[i].transitId)].credited;
             if (amount > credited) value += amount - credited;
@@ -308,31 +305,35 @@ library CoreVaultLogic {
         }
     }
 
-    /// @notice OQ-01, DEC-080: records the report's hub-bound transfers and credits whatever already arrived for them,
-    ///         up to the listed amount; anything above is held apart for good.
+    /// @notice OQ-01, DEC-080: records the report's hub-bound transfers (amount and kind, first listing kept) and
+    ///         credits whatever already arrived for them, up to the listed amount; anything above is held apart for
+    ///         good.
     function _matchReturnLeg(
         CoreVaultState storage s,
         CoreVaultWiring memory w,
         uint256 originChainId,
-        ReportCodec.TransitAmount[] memory list
+        ReportCodec.HubBoundAmount[] memory list
     ) private {
         for (uint256 i; i < list.length; ++i) {
             bytes32 id = list[i].transitId;
             HubBoundTransfer storage h = s.hubBound[hubBoundKey(originChainId, id)];
-            if (h.listed == 0) h.listed = list[i].amount;
-            uint256 principal = h.pendingPrincipal;
-            uint256 income = h.pendingIncome;
-            if (principal == 0 && income == 0) continue;
-            h.pendingPrincipal = 0;
-            h.pendingIncome = 0;
-            s.unmatchedArrivals -= principal + income;
-            _creditHubBound(s, w, h, id, originChainId, TransferKind.Principal, principal);
-            _creditHubBound(s, w, h, id, originChainId, TransferKind.Income, income);
+            if (h.listed == 0) {
+                h.listed = list[i].amount;
+                h.kind = list[i].kind;
+            }
+            uint256 pending = h.pending;
+            if (pending == 0) continue;
+            h.pending = 0;
+            s.unmatchedArrivals -= pending;
+            _creditHubBound(s, w, h, id, originChainId, pending);
         }
     }
 
     /// @notice ICoreVault.handleV3AcrossMessage after the caller, token, amount and fund checks: holds the amount apart
     ///         until a report lists the transfer, else credits it against what the report listed (DEC-080, OQ-01).
+    /// @dev `kind` is the Across message's claim; it is only logged for an unmatched arrival. Once listed, an arrival
+    ///      is credited by the kind the report carries (CV-OQ-1), so a stranger's message cannot relabel income as
+    ///      principal or the reverse.
     function receiveHubBound(
         CoreVaultState storage s,
         CoreVaultWiring memory w,
@@ -343,28 +344,26 @@ library CoreVaultLogic {
     ) public {
         HubBoundTransfer storage h = s.hubBound[hubBoundKey(originChainId, transitId)];
         if (h.listed == 0) {
-            if (kind == TransferKind.Principal) h.pendingPrincipal += amount;
-            else h.pendingIncome += amount;
+            h.pending += amount;
             s.unmatchedArrivals += amount;
             emit ICoreVault.TransitReceived(transitId, originChainId, kind, amount, false);
             return;
         }
-        _creditHubBound(s, w, h, transitId, originChainId, kind, amount);
+        _creditHubBound(s, w, h, transitId, originChainId, amount);
     }
 
-    /// @notice Credits up to the listed amount not yet credited: Principal to Idle; Income is collected income that
-    ///         reached the Core Vault, split at once (ruling 2026-09-29, `collectIncome`); the rest is held apart for
-    ///         good (DEC-080).
+    /// @notice Credits up to the listed amount not yet credited, by the listed kind: Principal to Idle; Income is
+    ///         collected income that reached the Core Vault, split at once (ruling 2026-09-29, `collectIncome`); the
+    ///         rest is held apart for good (DEC-080).
     function _creditHubBound(
         CoreVaultState storage s,
         CoreVaultWiring memory w,
         HubBoundTransfer storage h,
         bytes32 transitId,
         uint256 originChainId,
-        TransferKind kind,
         uint256 amount
     ) private {
-        if (amount == 0) return;
+        TransferKind kind = h.kind;
         uint256 room = h.listed - h.credited;
         uint256 credit = amount < room ? amount : room;
         if (credit != 0) {

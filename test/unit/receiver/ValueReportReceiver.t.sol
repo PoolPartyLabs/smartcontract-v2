@@ -215,8 +215,8 @@ contract ValueReportReceiverTest is Test {
     }
 
     function test_DEC093_rejectsUnknownPayloadVersion() public {
-        bytes memory payload = abi.encode(uint256(2), _report(0, uint64(block.timestamp)));
-        vm.expectRevert(abi.encodeWithSelector(ReportCodec.UnsupportedReportVersion.selector, 2));
+        bytes memory payload = abi.encode(ReportCodec.VERSION + 1, _report(0, uint64(block.timestamp)));
+        vm.expectRevert(abi.encodeWithSelector(ReportCodec.UnsupportedReportVersion.selector, ReportCodec.VERSION + 1));
         receiver.deliver(_vaa(WH_ROBINHOOD, SPOKE_VAULT, 0, 1, payload));
     }
 

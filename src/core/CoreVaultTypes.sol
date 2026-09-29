@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
-import {Transit} from "../interfaces/FundTypes.sol";
+import {Transit, TransferKind} from "../interfaces/FundTypes.sol";
 import {Mandate} from "../mandate/Mandate.sol";
 import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 
@@ -71,15 +71,15 @@ struct SpokeBook {
 }
 
 /// @notice A spoke-to-hub transfer, keyed by `keccak256(originChainId, transitId)`.
-/// @param listed Amount an accepted report listed in `inFlightToHub` (0 until listed).
+/// @param listed Amount an accepted report listed in `inFlightToHub` (0 until listed); the first listing is kept.
 /// @param credited Amount credited to Idle or collected income against `listed`.
-/// @param pendingPrincipal Arrived as Principal before any report listed it; held apart (DEC-080, OQ-01).
-/// @param pendingIncome Arrived as Income before any report listed it; held apart (DEC-080, OQ-01).
+/// @param pending Arrived before any report listed it; held apart (DEC-080, OQ-01).
+/// @param kind Kind the report listed (CV-OQ-1): an arrival is credited by it, never by the Across message's claim.
 struct HubBoundTransfer {
     uint256 listed;
     uint256 credited;
-    uint256 pendingPrincipal;
-    uint256 pendingIncome;
+    uint256 pending;
+    TransferKind kind;
 }
 
 /// @notice All mutable state of a Core Vault, in one struct so the external library can work on it by reference.
