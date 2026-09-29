@@ -134,7 +134,11 @@ contract ValueReportReceiver is IValueReportReceiver, ReentrancyGuard {
     ///         EVM chain id (`ReportMismatch`), DEC-070, DEC-086;
     ///      6. the report sequence is strictly greater than the last accepted one (`ReportSequenceNotIncreasing`),
     ///         DEC-093;
-    ///      7. `block.timestamp - report.timestamp <= maxReportAge` (`ReportTooOld`), DEC-094, DEC-099.
+    ///      7. `block.timestamp - report.timestamp <= maxReportAge` (`ReportTooOld`), DEC-094, DEC-099;
+    ///      8. `report.timestamp <= block.timestamp + maxReportAge` (`ReportFromFuture`): a timestamp ahead of the hub
+    ///         clock counts as age 0, so without a bound it would extend the report's life by the skew (report-receiver
+    ///         verifier finding). Assumption under DEC-099, no decision covers skew: tolerated up to one lifetime, so a
+    ///         report is never fresh for more than twice `maxReportAge`.
     ///      Then stores the report and notifies the Core Vault (checks-effects-interactions). The first report of a
     ///      spoke accepts any sequence, since a Wormhole emitter's first sequence is 0.
     function deliver(bytes calldata vaa) external nonReentrant returns (uint256 spokeIndex, uint64 reportSequence) {
@@ -172,6 +176,9 @@ contract ValueReportReceiver is IValueReportReceiver, ReentrancyGuard {
         // DEC-094, DEC-099: age at delivery measured from the spoke block timestamp the report was built at.
         uint256 age = _age(report.timestamp);
         if (age > config.maxReportAge) revert ReportTooOld(age, config.maxReportAge);
+        if (report.timestamp > block.timestamp + config.maxReportAge) {
+            revert ReportFromFuture(report.timestamp, block.timestamp);
+        }
 
         _state[spokeIndex] = SpokeState({
             lastWormholeSequence: vm.sequence,
@@ -267,7 +274,8 @@ contract ValueReportReceiver is IValueReportReceiver, ReentrancyGuard {
         return _spokes[spokeIndex];
     }
 
-    /// @dev A report timestamp ahead of the hub clock (cross-chain clock skew) counts as age 0 rather than reverting.
+    /// @dev A report timestamp ahead of the hub clock (cross-chain clock skew) counts as age 0 rather than reverting;
+    ///      `deliver` bounds the skew to one report lifetime.
     function _age(uint64 timestamp) internal view returns (uint256) {
         return block.timestamp > timestamp ? block.timestamp - timestamp : 0;
     }
