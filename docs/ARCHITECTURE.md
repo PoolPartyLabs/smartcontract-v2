@@ -28,7 +28,7 @@ Wormhole (finalized consistency) for value reports. Addresses in `docs/INTEGRATI
 | `SpokeVault` (+ linked library `SpokeCrossChainLib`) | every chain, hub included | The fund's account on a chain: internal ledger per token (never `balanceOf`), position registry per adapter, Unallocated Balance, Operating Cash bucket; drives adapters within the Mandate's closed lists; receives Across fills; builds and publishes value reports (spoke chains) or exposes the same data to the Core Vault (hub) | DEC-054, DEC-069, DEC-070, DEC-079, DEC-080, DEC-093, DEC-096 |
 | `ValueReportReceiver` | hub | Accepts a spoke's report only if the guardian quorum signed it, the emitter is the fund's Spoke Vault on that chain, the sequence is strictly greater than the last accepted, and the report is within the max age; stores the latest accepted report per spoke | DEC-086, DEC-093, DEC-094, DEC-099 |
 | `UniswapV4Adapter` | both | Opens, increases, decreases, closes and collects V4 positions (PositionManager, pools identified by `PoolId`, closed list in the Mandate, hookless pools only in the MVP; pools whose hooks charge on withdrawal are OPEN, DEC-079); reports principal (liquidity at current price) and income (`feesAccrued`, tracked as a monotonic cumulative counter per token) **separately** from the PoolManager's own accounting; price-dependent (`isExactValue() == false`); immutable, one instance per fund per chain | DEC-018, DEC-053, DEC-058, DEC-079 |
-| `AaveV3Adapter` | hub only | Supplies USDC to the Aave V3 Pool and withdraws it; never borrows; Exact-Value Position (DEC-059): ledger keeps scaled units and the `liquidityIndex` at the last measurement, interest since then is income (DEC-068); read, not unwound, while the reserve has liquidity; `isExactValue() == true` | DEC-018, DEC-028, DEC-059, DEC-068 |
+| `AaveV3Adapter` | hub only | Supplies USDC to the Aave V3 Pool and withdraws it; never borrows; Exact-Value Position (DEC-059): ledger keeps scaled units and the `liquidityIndex` at the last measurement, interest since then is income (DEC-068); read, not unwound, while the reserve has liquidity; `isExactValue() == true`; every exit withdraws the principal asked first and the pending income only up to the reserve's available liquidity (the rest stays pending; a close the reserve cannot finish keeps the key holding only that income); entry verbs take an explicit amount (final verification) | DEC-018, DEC-028, DEC-059, DEC-068 |
 | `AcrossBridgeAdapter` | both | Builds the Across `depositV3` call for the vault; the **vault**, not the adapter, fixes the recipient (the fund's own vault on the destination chain) and the token pair; 6-hour fill deadline as an adapter constant | DEC-031, DEC-066, DEC-087, DEC-088, DEC-090 |
 | `TransitEscrow` | both | Minimal per-send depositor (EIP-1167 clone, no EIP-1271 so nobody can sign a `fillRelayWithUpdatedDeposit` that delivers less, DEC-066) so an Across refund lands in a dedicated address and is recognized as a refund rather than mistaken for a donation | DEC-066 (keyless depositor); the escrow itself implements research proposal QA6, **OPEN** |
 | `ManagerFeeVault` | hub | One per fund, deployed by the Core Vault constructor next to the `ShareToken` (immutable `fund` and `manager`): receives the manager's portion of every performance fee at collection by plain ERC-20 push (ruling 2026-09-29), multi-token, `withdraw(token, to, amount)` by the manager only, `balanceOf(token)` view, no other verb; outside every value base | DEC-107, DEC-109 |
@@ -154,6 +154,9 @@ Protocol-level constants live in the core, not the Mandate: flow fee 25 bps defa
   or the deadline plus the report lifetime to have passed; the Spoke Cap is released then; the amount stays in Share
   Assets until `recognizeRefund(transitId)` pulls the refund from the escrow back to Idle (DEC-066; the window
   between the two is OPEN, QB11/QB10).
+- Refunds (QA6, both directions): a refund is recognized only once the transit's escrow holds at least `amountSent`,
+  because Across refunds the full input amount (DEC-063); less is a donation, changes nothing and waits in the escrow
+  until the real refund releases everything together; exactly `amountSent` is credited, the rest is swept (DEC-080).
 - Return leg: a spoke sends home with `sendToHub(amount, kind, ...)` in its base token; it lands on the hub as USDC.
   The report lists it in `inFlightToHub` with its kind (ReportCodec version 2): Principal in flight counts in Share
   Assets (DEC-085, DEC-104), Income in flight does not (DEC-092). The hub credits an arrival up to the listed amount
@@ -215,8 +218,9 @@ entrant (DEC-014 tension).
 
 ### 4.6 Payout (DEC-020, DEC-024, DEC-060, DEC-065, DEC-067, DEC-074, DEC-075, DEC-077, DEC-081, DEC-095, DEC-102, DEC-105)
 - `requestPayout(uint256 usdcAmount, PayoutMode mode)`: one open request per holder, not cancellable, shares
-  are not locked or burned at request time. Standard: reserve `min(usdcAmount, Free Idle)` in the Payout
-  Reserve as USDC and start the term. Instant: no reserve.
+  are not locked or burned at request time; priced like a claim; a request below one share's price reverts
+  (FV-OQ-2). Standard: reserve `min(usdcAmount, usdcFor(balance, sharePrice), Free Idle)` in the Payout Reserve as
+  USDC, bounded by the requester's share value (**OPEN** reading FV-OQ-1), and start the term. Instant: no reserve.
 - `claimPayout(bytes unwindHints)`: only the requester (DEC-065, DEC-074). Events `PayoutExecuted` and
   `PartialPayoutExecuted` carry the Settlement Price, the payer of every Operating Expense (DEC-041) and the
   consolidation fields of DEC-083 (number of chains summed, block and sequence of each spoke report, age of the
@@ -227,7 +231,15 @@ entrant (DEC-014 tension).
   order only what is missing plus 2% (fund bears the margin's market cost, DEC-097), proceeds go to Idle (only what
   the hub Spoke Vault credits through `returnToIdle`, DEC-080), then require a report from every spoke with sequence
   after the unwind (DEC-105) before burning at the resulting Share Price. Partial Payout burns only what was paid and
-  leaves the USDC remainder open (DEC-068).
+  leaves the USDC remainder open (DEC-068). An outstanding amount below one share's price closes the request with
+  nothing burned, flagged `closedBelowOneShare` in the receipt (FV-OQ-2).
+- Unwind sizing (final verification, QA3 **OPEN**): the hub Spoke Vault, not the claimant, sizes every step. Per
+  position in Mandate order it values the principal at the pool's spot price (`IAdapter.positionValue`, non-USDC legs
+  through `IAdapter.spotQuote`), takes the shortfall still needed and exits only that share
+  (`IAdapter.unwindExitParams`), closing a position only when its whole value is needed; the stop condition is
+  re-evaluated before every position. Non-USDC proceeds are swapped in the position's own pool when it pairs the
+  token with USDC (else in the Mandate route the hint names) with a minimum of at least the spot quote less
+  `MAX_UNWIND_SLIPPAGE_BPS` (500, an OPEN parameter). Hints can only raise that minimum or restrict the swap.
 - Payout liveness (DEC-021, DEC-056, OQ-10): a claim never reverts because a valuation dependency fails. In the payout
   valuation the hub Spoke Vault's report read and every `IPriceSource` read are wrapped; a failure falls back to the
   last successfully computed value kept in storage (`lastHubValue`; `lastPrice` per token), with
