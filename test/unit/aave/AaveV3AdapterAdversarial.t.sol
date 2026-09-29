@@ -72,16 +72,15 @@ contract AaveV3AdapterAdversarialTest is AaveV3AdapterFixture {
         _assertAdapterHoldsNothing();
     }
 
-    /// DEC-080 (finding, round 1): with empty params the adapter reads its own `balanceOf` to size the supply, so a
-    /// stranger's 1-unit donation is reported as principal and `used0` exceeds what the vault sent. Documented here so
-    /// the vault side never relies on the empty-params path; see the verifier's finding on `_supply`.
-    function test_DEC080_openWithEmptyParamsReportsDonatedAssetAsPrincipal() public {
+    /// DEC-080 (finding, round 1, fixed in the final verification): empty params used to size the supply from the
+    /// adapter's own `balanceOf`, so a stranger's 1-unit donation was reported as principal. Empty params now revert.
+    function test_DEC080_openWithEmptyParamsReverts() public {
         asset.mint(address(adapter), 1);
         _fund(1000e6);
         vm.prank(vault);
-        (, uint256 used0,) = adapter.openPosition(key, "");
-        assertEq(used0, 1000e6 + 1, "used0 above the amount the vault transferred");
-        assertEq(adapter.ledger(address(asset)).principal, 1000e6 + 1);
+        vm.expectRevert(AaveV3Adapter.AmountRequired.selector);
+        adapter.openPosition(key, "");
+        assertFalse(adapter.ledger(address(asset)).open);
     }
 
     /// DEC-080: aTokens donated while a position is open never leak into a partial decrease, its ledger, or the

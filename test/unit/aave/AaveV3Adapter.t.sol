@@ -243,13 +243,20 @@ contract AaveV3AdapterTest is AaveV3AdapterFixture {
         _assertAdapterHoldsNothing();
     }
 
-    function test_DEC068_openWithEmptyParamsSuppliesWholeTransfer() public {
+    /// DEC-080 (final verification): the supply is never sized from the adapter's own balance; empty params revert on
+    /// both entry verbs.
+    function test_DEC080_emptyParamsRevertOnOpenAndIncrease() public {
         _fund(500e6);
         vm.prank(vault);
-        (, uint256 used0,) = adapter.openPosition(key, "");
-        assertEq(used0, 500e6);
+        vm.expectRevert(AaveV3Adapter.AmountRequired.selector);
+        adapter.openPosition(key, "");
+        vm.prank(vault);
+        adapter.openPosition(key, abi.encode(uint256(500e6)));
+        _fund(100e6);
+        vm.prank(vault);
+        vm.expectRevert(AaveV3Adapter.AmountRequired.selector);
+        adapter.increasePosition(key, "");
         assertEq(adapter.ledger(address(asset)).principal, 500e6);
-        _assertAdapterHoldsNothing();
     }
 
     function test_DEC068_openReturnsUnusedToVault() public {
@@ -269,9 +276,9 @@ contract AaveV3AdapterTest is AaveV3AdapterFixture {
         adapter.openPosition(key, abi.encode(uint256(101e6)));
         vm.expectRevert(AaveV3Adapter.ZeroAmount.selector);
         adapter.openPosition(key, abi.encode(uint256(0)));
-        adapter.openPosition(key, "");
+        adapter.openPosition(key, abi.encode(uint256(100e6)));
         vm.expectRevert(abi.encodeWithSelector(AaveV3Adapter.PositionAlreadyOpen.selector, key));
-        adapter.openPosition(key, "");
+        adapter.openPosition(key, abi.encode(uint256(1)));
         vm.stopPrank();
     }
 

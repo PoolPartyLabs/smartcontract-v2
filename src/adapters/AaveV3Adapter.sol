@@ -107,6 +107,10 @@ contract AaveV3Adapter is IAdapter, AdapterGuard, ReentrancyGuard {
     /// @notice Aave burned more scaled units than the ledger holds (DEC-080: broken accounting surfaces, never silent).
     error LedgerUnderflow(uint256 burned, uint256 scaledBalance);
 
+    /// @notice `openPosition`/`increasePosition` got empty `params`; the vault always passes `abi.encode(amount)`
+    ///         (DEC-080: the supply is never sized from the adapter's own balance).
+    error AmountRequired();
+
     modifier onlyVault() {
         if (msg.sender != vault) revert NotVault(msg.sender);
         _;
@@ -154,8 +158,8 @@ contract AaveV3Adapter is IAdapter, AdapterGuard, ReentrancyGuard {
     // ---------------------------------------------------------------------------------------------------------------
 
     /// @inheritdoc IAdapter
-    /// @param params `abi.encode(uint256 amount)` to supply, or empty to supply the whole amount transferred in. Any
-    ///        asset above `amount` is returned to the vault.
+    /// @param params `abi.encode(uint256 amount)` to supply; empty params revert `AmountRequired` (DEC-080, final
+    ///        verification). Any asset above `amount` is returned to the vault.
     /// @dev positionKey = poolKey (one position per asset). DEC-068: records principal = amount supplied and the index.
     function openPosition(bytes32 poolKey, bytes calldata params)
         external
@@ -179,7 +183,7 @@ contract AaveV3Adapter is IAdapter, AdapterGuard, ReentrancyGuard {
     }
 
     /// @inheritdoc IAdapter
-    /// @param params `abi.encode(uint256 amount)` to supply, or empty to supply the whole amount transferred in.
+    /// @param params `abi.encode(uint256 amount)` to supply; empty params revert `AmountRequired` (DEC-080).
     /// @dev DEC-068: the principal is re-based to `principal + amount` at the current index and the income measured at
     ///      this block is paid to the vault as income, best effort up to the reserve's available liquidity (what it
     ///      cannot pay stays pending). The supply runs before the income withdrawal so the new liquidity helps serve it.
@@ -426,12 +430,14 @@ contract AaveV3Adapter is IAdapter, AdapterGuard, ReentrancyGuard {
         }
     }
 
-    /// @dev Supplies `params` amount (or everything transferred in) on the adapter's behalf and returns any excess to
-    ///      the vault. DEC-080: the ledger is credited with the scaled delta Aave minted for this call only.
+    /// @dev Supplies the `params` amount on the adapter's behalf and returns any excess to the vault. DEC-080: the
+    ///      amount is always explicit (empty params revert `AmountRequired`, final verification), `balanceOf` is only
+    ///      a sufficiency check, and the ledger is credited with the scaled delta Aave minted for this call only.
     function _supply(address asset, Ledger storage l, bytes calldata params) internal returns (uint256 amount) {
+        if (params.length == 0) revert AmountRequired();
         // The adapter holds no underlying between calls, so its balance is what the vault just transferred in.
         uint256 transferred = IERC20(asset).balanceOf(address(this));
-        amount = params.length == 0 ? transferred : abi.decode(params, (uint256));
+        amount = abi.decode(params, (uint256));
         if (amount == 0) revert ZeroAmount();
         if (amount > transferred) revert AmountAboveTransferred(amount, transferred);
 
