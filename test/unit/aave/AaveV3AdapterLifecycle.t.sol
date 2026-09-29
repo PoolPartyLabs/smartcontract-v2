@@ -21,6 +21,21 @@ contract AaveV3AdapterLifecycleTest is AaveV3AdapterFixture {
         return MockAaveV3Pool.Rounding.Directional;
     }
 
+    /// @dev The mock aToken holds only what this test supplies, while a live reserve also holds other suppliers'
+    ///      liquidity. Under half-up rounding a withdrawal can pay 1 unit above the adapter's own funding per
+    ///      operation, which the live pool covers from that liquidity; the buffer stands for it (the fuzzer found
+    ///      seed 9091 draining the mock by 1 unit). The adapter's accounting asserts are unaffected: they compare the
+    ///      vault's balance moves with what the adapter reported.
+    function setUp() public virtual override {
+        super.setUp();
+        asset.mint(address(aToken), 1e6);
+    }
+
+    /// @dev DEC-068, Q60: replay of the fuzzer's counterexample under half-up rounding (seed 9091, first amount 13075).
+    function test_DEC068_Q60_lifecycleConservesValueReplaySeed9091() public {
+        testFuzz_DEC068_Q60_lifecycleConservesValue(9091, 13_075);
+    }
+
     function _checkStep() internal {
         _assertAdapterHoldsNothing();
         assertEq(adapter.ledger(address(asset)).scaledBalance, aToken.scaledBalanceOf(address(adapter)), "ledger");
