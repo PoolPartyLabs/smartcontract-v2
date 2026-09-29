@@ -13,14 +13,13 @@ import {ShareToken} from "./ShareToken.sol";
 import {ManagerFeeVault} from "./ManagerFeeVault.sol";
 import {CoreVaultConfig, CoreVaultWiring, CoreVaultState} from "./CoreVaultTypes.sol";
 import {CoreVaultLogic} from "./CoreVaultLogic.sol";
-import {ICoreVaultExtensions} from "./ICoreVaultExtensions.sol";
 
 /// @title CoreVaultBase
 /// @notice Wiring, storage, value-base views and Operating Cash of the Core Vault. See ICoreVault.
 /// @dev Split out of CoreVault only to keep each source file reviewable; the abstract layers compile into one
-///      contract, and the heavy report logic lives in the linked external library CoreVaultLogic. Events and errors
-///      beyond the frozen ICoreVault (including the library's) are declared in ICoreVaultExtensions.
-abstract contract CoreVaultBase is ICoreVault, ICoreVaultExtensions, ReentrancyGuardTransient {
+///      contract, and the heavy report logic lives in the linked external library CoreVaultLogic. Every event and
+///      error, the library's included, is declared in ICoreVault.
+abstract contract CoreVaultBase is ICoreVault, ReentrancyGuardTransient {
     using IncomeAccumulator for IncomeAccumulator.State;
 
     /// @dev Kind tag of the Operating Cash top-up expense (DEC-041, DEC-096).

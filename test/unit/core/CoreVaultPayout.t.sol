@@ -6,7 +6,6 @@ import {ShareMath} from "../../../src/libraries/ShareMath.sol";
 import {MockHubSpokeVault} from "../../mocks/core/MockHubSpokeVault.sol";
 import {CoreVaultFixture} from "./CoreVaultFixture.sol";
 import {Vm} from "forge-std/Vm.sol";
-import {ICoreVaultExtensions} from "../../../src/core/ICoreVaultExtensions.sol";
 
 contract CoreVaultPayoutTest is CoreVaultFixture {
     ICoreVault.PayoutMode internal constant INSTANT = ICoreVault.PayoutMode.Instant;
@@ -219,7 +218,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         _allocateToPosition(600e6);
         _request(alice, 800e6, INSTANT);
         vm.expectEmit(address(vault));
-        emit ICoreVaultExtensions.UnwindForPayoutFailed(408e6);
+        emit ICoreVault.UnwindForPayoutFailed(408e6);
         ICoreVault.PayoutReceipt memory r = _claim(alice);
         assertEq(r.sharesBurned, 400e18);
         assertEq(r.usdcGross, 400e6);

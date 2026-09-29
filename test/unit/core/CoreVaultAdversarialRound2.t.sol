@@ -6,7 +6,6 @@ import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {IPriceSource} from "../../../src/interfaces/IPriceSource.sol";
 import {TransitState, TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {CoreVaultConfig} from "../../../src/core/CoreVaultTypes.sol";
-import {ICoreVaultExtensions} from "../../../src/core/ICoreVaultExtensions.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {MockHubSpokeVault} from "../../mocks/core/MockHubSpokeVault.sol";
 import {MockBridgeAdapter} from "../../mocks/core/MockBridgeAdapter.sol";
@@ -203,7 +202,7 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
         prices.setReverts(address(weth), true);
 
         vm.expectEmit(address(vault));
-        emit ICoreVaultExtensions.PriceFallback(address(weth), 2.5e9);
+        emit ICoreVault.PriceFallback(address(weth), 2.5e9);
         ICoreVault.PayoutReceipt memory r = _claim(alice);
         assertEq(r.shareAssets, assetsBefore, "valued at the last known WETH price");
         assertGt(r.usdcPaid, 0);
@@ -223,7 +222,7 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
         hubVault.setBuildReverts(true);
 
         vm.expectEmit(address(vault));
-        emit ICoreVaultExtensions.HubValuationFallback(2500e6);
+        emit ICoreVault.HubValuationFallback(2500e6);
         ICoreVault.PayoutReceipt memory r = _claim(alice);
         assertEq(r.shareAssets, assetsBefore, "the hub Spoke Vault at its last known value");
         assertEq(r.unwindProceeds, 0);
@@ -244,7 +243,7 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
         prices.setReverts(address(weth), true);
         _request(bob, 10e6, ICoreVault.PayoutMode.Instant);
         vm.expectEmit(address(vault));
-        emit ICoreVaultExtensions.PriceFallback(address(weth), 3e9);
+        emit ICoreVault.PriceFallback(address(weth), 3e9);
         _claim(bob);
     }
 

@@ -188,6 +188,27 @@ interface ICoreVault is IAcrossMessageHandler {
     /// @notice Balance above the ledger was swept (DEC-080, DEC-096, DEC-101).
     event ExcessSwept(address indexed token, address indexed recipient, uint256 amount);
 
+    /// @notice DEC-041: Operating Cash was below its floor, so the expense that restores it falls through to Share
+    ///         Assets (the explicit "insufficient cash" state). `toppedUp` is below the configured top-up when Free Idle
+    ///         is short.
+    event OperatingCashInsufficient(uint256 balance, uint256 floor, uint256 toppedUp);
+
+    /// @notice An automatic unwind reverted; the claim continues with the Idle available (DEC-056: exits stay open;
+    ///         DEC-068: Partial Payout).
+    event UnwindForPayoutFailed(uint256 usdcTarget);
+
+    /// @notice A payout could not read the hub Spoke Vault's report and used its last known value (payout liveness,
+    ///         DEC-021, DEC-056).
+    event HubValuationFallback(uint256 lastHubValue);
+
+    /// @notice A payout could not read `token`'s price and used its last known price (payout liveness, DEC-021, DEC-056;
+    ///         0 when the token was never priced).
+    event PriceFallback(address indexed token, uint256 lastPrice1e18);
+
+    /// @notice A spoke-to-hub arrival or its remainder was held apart because no report listed it or the listed amount
+    ///         was already credited (DEC-080, OQ-01).
+    event ArrivalHeldApart(bytes32 indexed transitId, uint256 indexed originChainId, TransferKind kind, uint256 amount);
+
     // ---------------------------------------------------------------------------------------------------------------
     // Errors
     // ---------------------------------------------------------------------------------------------------------------
@@ -221,6 +242,23 @@ interface ICoreVault is IAcrossMessageHandler {
     error ManagerFeeNotDecreasing();
     error ManagementFeeNotSupported(uint16 bps);
     error UnknownIncomeToken(address token);
+    error ZeroAddress();
+    error UsdcMismatch(address configured, address mandateUsdc);
+    error NotOnHubChain(uint256 chainId, uint256 hubChainId);
+    error FlowFeeAboveCap(uint16 bps);
+    error BridgeTargetUnset(address bridgeAdapter);
+
+    /// @notice DEC-080: a credit call is not backed by tokens above the ledger.
+    error UnbackedCredit(address token, uint256 amount, uint256 unledgered);
+
+    /// @notice The adapter's call does not match what the vault fixed (target, amount to arrive or fill deadline).
+    error BridgeCallMismatch(address bridgeAdapter);
+
+    /// @notice A token movement did not match the expected amount (IBridgeAdapter custody rule 3, escrow release).
+    error BalanceChangeMismatch(uint256 expected, uint256 actual);
+
+    /// @notice The bridge adapter's runtime code changed since creation (Q17-4 reading O2).
+    error BridgeAdapterCodehashMismatch(address bridgeAdapter);
 
     // ---------------------------------------------------------------------------------------------------------------
     // Shareholder verbs

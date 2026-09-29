@@ -10,7 +10,6 @@ import {ShareMath} from "../../../src/libraries/ShareMath.sol";
 import {Mandate, MandateLib, OperatingCashConfig} from "../../../src/mandate/Mandate.sol";
 import {MockBridgeAdapter} from "../../mocks/core/MockBridgeAdapter.sol";
 import {CoreVaultFixture} from "./CoreVaultFixture.sol";
-import {ICoreVaultExtensions} from "../../../src/core/ICoreVaultExtensions.sol";
 
 /// @notice Deploys a Core Vault at a CREATE2 address, as the Fund Factory will (DEC-053, DEC-054). The init code
 ///         comes in calldata: a factory that embeds CoreVault's creation code (`new CoreVault{salt: ...}`) would itself
@@ -78,28 +77,26 @@ contract CoreVaultSetupTest is CoreVaultFixture {
 
     function test_DEC011_onlyOnHubChain() public {
         vm.chainId(SPOKE);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVaultExtensions.NotOnHubChain.selector, SPOKE, HUB));
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.NotOnHubChain.selector, SPOKE, HUB));
         new CoreVault(_mandate(2000), _config(25));
     }
 
     function test_DEC110_flowFeeCapInConstructor() public {
-        vm.expectRevert(abi.encodeWithSelector(ICoreVaultExtensions.FlowFeeAboveCap.selector, 101));
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.FlowFeeAboveCap.selector, 101));
         new CoreVault(_mandate(2000), _config(101));
     }
 
     function test_DEC011_usdcMustMatchMandate() public {
         CoreVaultConfig memory c = _config(25);
         c.usdc = address(weth);
-        vm.expectRevert(
-            abi.encodeWithSelector(ICoreVaultExtensions.UsdcMismatch.selector, address(weth), address(usdc))
-        );
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.UsdcMismatch.selector, address(weth), address(usdc)));
         new CoreVault(_mandate(2000), c);
     }
 
     function test_DEC053_zeroWiringRefused() public {
         CoreVaultConfig memory c = _config(25);
         c.excessRecipient = address(0);
-        vm.expectRevert(ICoreVaultExtensions.ZeroAddress.selector);
+        vm.expectRevert(ICoreVault.ZeroAddress.selector);
         new CoreVault(_mandate(2000), c);
     }
 
@@ -114,7 +111,7 @@ contract CoreVaultSetupTest is CoreVaultFixture {
         MockBridgeAdapter unset = new MockBridgeAdapter(address(0));
         Mandate memory m = _mandate(2000);
         m.bridgeAdapters[0].adapter = address(unset);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVaultExtensions.BridgeTargetUnset.selector, address(unset)));
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.BridgeTargetUnset.selector, address(unset)));
         new CoreVault(m, _config(25));
     }
 
@@ -149,7 +146,7 @@ contract CoreVaultSetupTest is CoreVaultFixture {
         vm.startPrank(bob);
         usdc.approve(address(vault), 100e6);
         vm.expectEmit(address(vault));
-        emit ICoreVaultExtensions.OperatingCashInsufficient(0, 1e6, 3e6);
+        emit ICoreVault.OperatingCashInsufficient(0, 1e6, 3e6);
         vm.expectEmit(address(vault));
         emit ICoreVault.OperatingCashToppedUp(3e6, 3e6);
         vm.expectEmit(address(vault));
@@ -213,7 +210,7 @@ contract CoreVaultSetupTest is CoreVaultFixture {
 
     function test_DEC080_returnToIdleMustBeBacked() public {
         vm.prank(address(hubVault));
-        vm.expectRevert(abi.encodeWithSelector(ICoreVaultExtensions.UnbackedCredit.selector, address(usdc), 1e6, 0));
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.UnbackedCredit.selector, address(usdc), 1e6, 0));
         vault.returnToIdle(1e6);
         vm.expectRevert(abi.encodeWithSelector(ICoreVault.NotHubSpokeVault.selector, address(this)));
         vault.returnToIdle(1e6);

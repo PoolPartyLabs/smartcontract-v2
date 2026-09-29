@@ -9,7 +9,6 @@ import {IncomeAccumulator} from "../../../src/libraries/IncomeAccumulator.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {CoreVaultFixture} from "./CoreVaultFixture.sol";
-import {ICoreVaultExtensions} from "../../../src/core/ICoreVaultExtensions.sol";
 
 /// @notice Ruling 2026-09-29: the income index advances only when collected income reaches the Core Vault, and the
 ///         performance fee is split right there (protocol slice to the Protocol Recipient, the rest to the fund's
@@ -176,7 +175,7 @@ contract CoreVaultIncomeTest is CoreVaultFixture {
 
     function test_DEC080_unbackedCollectedIncomeRefused() public {
         vm.prank(address(hubVault));
-        vm.expectRevert(abi.encodeWithSelector(ICoreVaultExtensions.UnbackedCredit.selector, address(usdc), 1e6, 0));
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.UnbackedCredit.selector, address(usdc), 1e6, 0));
         vault.receiveCollectedIncome(address(usdc), 1e6);
         vm.expectRevert(abi.encodeWithSelector(ICoreVault.NotHubSpokeVault.selector, address(this)));
         vault.receiveCollectedIncome(address(usdc), 1e6);

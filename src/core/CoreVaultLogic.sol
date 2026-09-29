@@ -18,7 +18,6 @@ import {ReportCodec} from "../libraries/ReportCodec.sol";
 import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 import {TransitMessage} from "../libraries/TransitMessage.sol";
 import {CoreVaultState, CoreVaultWiring, SpokeBook, HubBoundTransfer} from "./CoreVaultTypes.sol";
-import {ICoreVaultExtensions as X} from "./ICoreVaultExtensions.sol";
 
 /// @title CoreVaultLogic
 /// @notice Value bases, collected income, report application, sends to spokes and transit outcomes of the Core
@@ -27,7 +26,7 @@ import {ICoreVaultExtensions as X} from "./ICoreVaultExtensions.sol";
 /// @dev Exists only to keep the Core Vault's runtime bytecode under the 24,576-byte limit without changing compiler
 ///      settings. The Core Vault applies access control, the reentrancy guard and the Operating Cash top-up before
 ///      calling in. Events are emitted with the Core Vault as their address; the library's own events and errors are
-///      declared in ICoreVaultExtensions, which the Core Vault inherits, so they are in the Core Vault's ABI.
+///      declared in ICoreVault, which the Core Vault implements, so they are in the Core Vault's ABI.
 /// @dev Deployment (reported as an assumption): the factory deploys this library once per chain and links its
 ///      address into the Core Vault's creation code, so the library address is part of every CREATE2 init code hash
 ///      and of each fund's trust surface (immutable: no proxy, no upgrade path, DEC-022, DEC-058). ARCHITECTURE §6
@@ -92,10 +91,10 @@ library CoreVaultLogic {
         uint256 hubValue;
         bool hubRead;
         (assets, consolidation, hubValue, hubRead) = _valuation(s, w, p);
-        if (!hubRead) emit X.HubValuationFallback(hubValue);
+        if (!hubRead) emit ICoreVault.HubValuationFallback(hubValue);
         else if (!p.anyFallback) s.lastHubValue = hubValue;
         for (uint256 i; i < p.n; ++i) {
-            if (p.fellBack[i]) emit X.PriceFallback(p.tokens[i], p.values[i]);
+            if (p.fellBack[i]) emit ICoreVault.PriceFallback(p.tokens[i], p.values[i]);
             else s.lastPrice[p.tokens[i]] = p.values[i];
         }
     }
@@ -496,7 +495,7 @@ library CoreVaultLogic {
         }
         if (amount > credit) {
             s.unmatchedArrivals += amount - credit;
-            emit X.ArrivalHeldApart(transitId, originChainId, kind, amount - credit);
+            emit ICoreVault.ArrivalHeldApart(transitId, originChainId, kind, amount - credit);
         }
     }
 
@@ -557,7 +556,7 @@ library CoreVaultLogic {
         if (
             call.target != s.bridgeTarget[adapter] || call.amountToArrive != quote.outputAmount
                 || call.fillDeadline <= block.timestamp
-        ) revert X.BridgeCallMismatch(adapter);
+        ) revert ICoreVault.BridgeCallMismatch(adapter);
 
         // Effects: DEC-066 state Sent; Spoke Cap at the amount sent (C1); Share Assets at the amount to arrive (DEC-085).
         s.idle -= usdcAmount;
@@ -593,7 +592,7 @@ library CoreVaultLogic {
             }
         }
         uint256 debited = before - token.balanceOf(address(this));
-        if (debited != usdcAmount) revert X.BalanceChangeMismatch(usdcAmount, debited);
+        if (debited != usdcAmount) revert ICoreVault.BalanceChangeMismatch(usdcAmount, debited);
         token.forceApprove(call.target, 0);
     }
 
@@ -617,7 +616,7 @@ library CoreVaultLogic {
         if (IBridgeAdapter(adapter).paused() || IBridgeAdapter(adapter).deprecated()) {
             revert ICoreVault.BridgeAdapterUnavailable(adapter);
         }
-        if (adapter.codehash != s.bridgeCodehash[adapter]) revert X.BridgeAdapterCodehashMismatch(adapter);
+        if (adapter.codehash != s.bridgeCodehash[adapter]) revert ICoreVault.BridgeAdapterCodehashMismatch(adapter);
 
         // QA19: the quote's fee is at most maxBridgeFeeBps of the amount sent.
         uint256 maxFee = usdcAmount * w.maxBridgeFeeBps / BPS;
@@ -715,7 +714,7 @@ library CoreVaultLogic {
         uint256 before = token.balanceOf(address(this));
         ITransitEscrow(escrow).release(address(this));
         uint256 received = token.balanceOf(address(this)) - before;
-        if (received != held) revert X.BalanceChangeMismatch(held, received);
+        if (received != held) revert ICoreVault.BalanceChangeMismatch(held, received);
     }
 
     function _knownTransit(CoreVaultState storage s, bytes32 transitId) private view returns (Transit storage t) {

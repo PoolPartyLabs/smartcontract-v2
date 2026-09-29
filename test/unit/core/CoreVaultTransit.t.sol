@@ -4,7 +4,6 @@ pragma solidity 0.8.28;
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {ITransitEscrow} from "../../../src/interfaces/ITransitEscrow.sol";
 import {Transit, TransitState, TransferKind} from "../../../src/interfaces/FundTypes.sol";
-import {ICoreVaultExtensions} from "../../../src/core/ICoreVaultExtensions.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {MockAcrossSpokePool} from "../../mocks/core/MockAcrossSpokePool.sol";
@@ -119,21 +118,21 @@ contract CoreVaultTransitTest is CoreVaultFixture {
     function test_DEC087_bridgeCallWithOtherTargetRefused() public {
         bridge.setBadTarget(makeAddr("attacker"));
         vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVaultExtensions.BridgeCallMismatch.selector, address(bridge)));
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.BridgeCallMismatch.selector, address(bridge)));
         vault.sendToSpoke(0, SENT, 0, _quote(ARRIVES));
     }
 
     function test_DEC085_bridgeCallWithOtherAmountToArriveRefused() public {
         bridge.setArriveDelta(1);
         vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVaultExtensions.BridgeCallMismatch.selector, address(bridge)));
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.BridgeCallMismatch.selector, address(bridge)));
         vault.sendToSpoke(0, SENT, 0, _quote(ARRIVES));
     }
 
     function test_DEC087_inexactDebitRefused() public {
         pool.setShortPull(1e6);
         vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVaultExtensions.BalanceChangeMismatch.selector, SENT, SENT - 1e6));
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.BalanceChangeMismatch.selector, SENT, SENT - 1e6));
         vault.sendToSpoke(0, SENT, 0, _quote(ARRIVES));
     }
 
