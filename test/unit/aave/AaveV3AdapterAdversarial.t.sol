@@ -250,6 +250,35 @@ contract AaveV3AdapterAdversarialTest is AaveV3AdapterFixture {
 
     /// DEC-068: with a frozen index no sequence of verbs manufactures income out of rounding; the principal comes
     /// back within the per-operation rounding loss.
+    /// @dev DEC-080 (Aave verifier finding): a pool that burns more scaled units than the ledger holds surfaces as
+    ///      `LedgerUnderflow`, never as a silently zeroed ledger with principal still positive.
+    function test_DEC080_overBurnBeyondTheLedgerReverts() public {
+        _open(1000e6);
+        // A stranger supplies on the adapter's behalf, so the aToken balance exceeds the ledger.
+        address donor = makeAddr("donor");
+        asset.mint(donor, 1000e6);
+        vm.startPrank(donor);
+        asset.approve(address(pool), 1000e6);
+        pool.supply(address(asset), 1000e6, address(adapter), 0);
+        vm.stopPrank();
+        uint256 ledgerScaled = adapter.ledger(address(asset)).scaledBalance;
+        pool.setExtraBurn(ledgerScaled);
+        vm.prank(vault);
+        vm.expectRevert(
+            abi.encodeWithSelector(AaveV3Adapter.LedgerUnderflow.selector, 500e6 + ledgerScaled, ledgerScaled)
+        );
+        adapter.decreasePosition(key, abi.encode(uint256(500e6)));
+    }
+
+    /// @dev Checks-effects-interactions (Aave verifier finding): `closePosition` clears `open` before calling Aave.
+    function test_DEC056_closeClearsOpenBeforeTheExit() public {
+        _open(1000e6);
+        vm.prank(vault);
+        adapter.closePosition(key, "");
+        assertFalse(adapter.ledger(address(asset)).open);
+        assertEq(adapter.positionKeys().length, 0);
+    }
+
     function test_DEC068_frozenIndexNeverManufacturesIncome() public {
         _grow(RAY * 137 / 100);
         _open(1_234_567_891);

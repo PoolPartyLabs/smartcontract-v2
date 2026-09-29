@@ -45,7 +45,9 @@ contract AaveV3Adapter is IAdapter, AdapterGuard, ReentrancyGuard {
     /// @param scaledBalance Scaled units this adapter's own supplies minted minus those its withdrawals burned
     ///        (DEC-068, DEC-080).
     /// @param principal Asset amount supplied and not yet withdrawn (DEC-068).
-    /// @param lastIndex Reserve normalized income index at the last measurement, in ray (DEC-068).
+    /// @param lastIndex Reserve normalized income index at the last measurement, in ray (DEC-068). Informational, for
+    ///        off-chain reconciliation only: income is `value - principal` (`_split`), not
+    ///        `scaledBalance * (indexNow - lastIndex)`, so this field is never read by the income arithmetic.
     /// @param realizedIncome Income ever paid to the vault, including closed positions (Q60, DEC-092).
     struct Ledger {
         address aToken;
@@ -97,6 +99,9 @@ contract AaveV3Adapter is IAdapter, AdapterGuard, ReentrancyGuard {
 
     /// @notice Aave paid a different amount than asked (DEC-068: never accept a silent partial withdrawal).
     error UnexpectedWithdrawnAmount(uint256 expected, uint256 withdrawn);
+
+    /// @notice Aave burned more scaled units than the ledger holds (DEC-080: broken accounting surfaces, never silent).
+    error LedgerUnderflow(uint256 burned, uint256 scaledBalance);
 
     modifier onlyVault() {
         if (msg.sender != vault) revert NotVault(msg.sender);
@@ -224,6 +229,10 @@ contract AaveV3Adapter is IAdapter, AdapterGuard, ReentrancyGuard {
     /// @dev Takes no parameters; any `params` are ignored.
     /// @dev DEC-068, DEC-079: withdraws everything and splits it into the principal and the income measured at this
     ///      block; the key leaves `positionKeys()`. `realizedIncome` keeps counting (Q60).
+    /// @dev Checks-effects-interactions: `open` is cleared before Aave is called. The ledger writes that follow the
+    ///      Aave calls in `_supply`, `_withdraw` and `_exit` are inherent (they record the scaled delta Aave produced)
+    ///      and accepted (Slither reentrancy-no-eth): every entry is `onlyVault` and `nonReentrant` against the fixed
+    ///      Aave Pool (Aave verifier finding).
     function closePosition(bytes32 positionKey, bytes calldata)
         external
         onlyVault
@@ -232,8 +241,8 @@ contract AaveV3Adapter is IAdapter, AdapterGuard, ReentrancyGuard {
     {
         address asset = _openAsset(positionKey);
         Ledger storage l = _ledgers[asset];
-        amounts = _exit(asset, l, type(uint256).max);
         l.open = false;
+        amounts = _exit(asset, l, type(uint256).max);
         emit PositionClosed(positionKey, amounts);
     }
 
@@ -281,7 +290,11 @@ contract AaveV3Adapter is IAdapter, AdapterGuard, ReentrancyGuard {
 
     /// @inheritdoc IAdapter
     /// @dev Q60, DEC-068: income ever paid to the vault plus the income of the open position measured now. Zero for a
-    ///      token that is not a reserve asset of this adapter.
+    ///      token that is not a reserve asset of this adapter. Income is measured as `value - principal` (`_split`),
+    ///      so Aave's scaled rounding loss (up to ceil(index / 1e27) units per supply or withdrawal) is borne by
+    ///      principal (AAVE-3): the first interest after an operation restores principal before it counts as income.
+    ///      The counter is therefore at most the IAdapter formula `scaledBalance * (indexNow - indexLast)` summed over
+    ///      time, and still monotonic.
     function cumulativeIncome(address token) external view returns (uint256) {
         Ledger storage l = _ledgers[token];
         if (!l.open) return l.realizedIncome;
@@ -384,7 +397,9 @@ contract AaveV3Adapter is IAdapter, AdapterGuard, ReentrancyGuard {
         uint256 withdrawn = pool.withdraw(asset, amount, vault);
         if (withdrawn != amount) revert UnexpectedWithdrawnAmount(amount, withdrawn);
         uint256 burned = scaledBefore - aToken.scaledBalanceOf(address(this));
-        l.scaledBalance = burned >= l.scaledBalance ? 0 : l.scaledBalance - burned;
+        uint256 scaledBalance = l.scaledBalance;
+        if (burned > scaledBalance) revert LedgerUnderflow(burned, scaledBalance);
+        l.scaledBalance = scaledBalance - burned;
     }
 
     /// @dev DEC-068: `value = scaledBalance * index / 1e27` rounded down; principal now is `min(principal, value)` and
