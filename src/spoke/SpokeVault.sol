@@ -417,9 +417,11 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
 
     /// @inheritdoc ISpokeVault
     /// @dev DEC-080, OQ-01, OQ-09: only the Across SpokePool, only the base token, only this fund's messages from the
-    ///      Hub Chain. The arrival is a claim: the id and amount travel in the next reports (last 64 ids plus
-    ///      `cumulativeReceived`) so the hub confirms what it sent and excludes what it did not. A repeated id adds to
-    ///      the same entry and is listed once.
+    ///      Hub Chain. The arrival is a claim: the id and amount travel in the next reports (the last
+    ///      `ARRIVAL_WINDOW` listed ids plus `cumulativeReceived`) so the hub confirms what it sent and excludes what it
+    ///      did not. A repeated id adds to the same entry and is listed once, when its credited total first reaches
+    ///      `MIN_LISTED_ARRIVAL`; below it the arrival is credited but never listed (liveness only, never value: see
+    ///      SpokeVaultTypes.MIN_LISTED_ARRIVAL).
     function handleV3AcrossMessage(address tokenSent, uint256 amount, address, bytes memory message)
         external
         nonReentrant
@@ -439,11 +441,12 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         } else {
             _s.collectedIncome[tokenSent] += amount;
         }
-        if (_s.arrivals[transitId] == 0) {
+        uint256 before = _s.arrivals[transitId];
+        _s.arrivals[transitId] = before + amount;
+        if (before < SpokeVaultTypes.MIN_LISTED_ARRIVAL && before + amount >= SpokeVaultTypes.MIN_LISTED_ARRIVAL) {
             _s.recentArrivals[_s.arrivalCount % SpokeVaultTypes.ARRIVAL_WINDOW] = transitId;
             ++_s.arrivalCount;
         }
-        _s.arrivals[transitId] += amount;
         _requireBacked(tokenSent);
         emit TransitArrived(transitId, originChainId, tokenSent, amount, kind);
     }

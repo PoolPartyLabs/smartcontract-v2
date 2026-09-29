@@ -501,6 +501,10 @@ library CoreVaultLogic {
 
     /// @notice DEC-066: non-arrival is proven by a spoke report built after the fill deadline that does not list the
     ///         transit, or by the deadline plus the spoke's report lifetime having passed.
+    /// @dev OQ-09 (Spoke Vault and Core Vault verifier findings): the report lists only the last
+    ///      `ReportCodec.ARRIVAL_WINDOW` arrivals, so its silence proves non-arrival only while it lists fewer than
+    ///      that; a full window may have evicted the id (dust spam), and then only the deadline plus report lifetime
+    ///      path applies.
     function nonArrivalProvable(
         CoreVaultState storage s,
         CoreVaultWiring memory w,
@@ -514,7 +518,7 @@ library CoreVaultLogic {
         IValueReportReceiver receiver = IValueReportReceiver(w.reportReceiver);
         if (!receiver.hasReport(spokeIndex)) return false;
         (ReportCodec.Report memory r,,) = receiver.latestReport(spokeIndex);
-        if (r.timestamp <= deadline) return false;
+        if (r.timestamp <= deadline || r.arrivedTransits.length >= ReportCodec.ARRIVAL_WINDOW) return false;
         for (uint256 i; i < r.arrivedTransits.length; ++i) {
             if (r.arrivedTransits[i].transitId == transitId) return false;
         }

@@ -213,6 +213,43 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         vault.attestExpiry(id);
     }
 
+    function test_OQ09_fullArrivalWindowCannotProveNonArrival() public {
+        bytes32 id = _sendDefault();
+        vm.warp(vault.transit(id).fillDeadline + 1);
+        // A report built after the deadline whose window is full (possibly flushed by spam): silence proves nothing.
+        ReportCodec.Report memory r = _spokeReport(0, 0);
+        r.arrivedTransits = new ReportCodec.TransitAmount[](ReportCodec.ARRIVAL_WINDOW);
+        for (uint256 i; i < r.arrivedTransits.length; ++i) {
+            r.arrivedTransits[i] = ReportCodec.TransitAmount(keccak256(abi.encode("spam", i)), 1e6);
+        }
+        _deliver(r);
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.ExpiryNotProvable.selector, id));
+        vault.attestExpiry(id);
+        // One entry fewer than the window: the report's silence is proof again.
+        r = _spokeReport(0, 0);
+        r.arrivedTransits = new ReportCodec.TransitAmount[](ReportCodec.ARRIVAL_WINDOW - 1);
+        for (uint256 i; i < r.arrivedTransits.length; ++i) {
+            r.arrivedTransits[i] = ReportCodec.TransitAmount(keccak256(abi.encode("spam", i)), 1e6);
+        }
+        _deliver(r);
+        vault.attestExpiry(id);
+        assertEq(uint8(vault.transit(id).state), uint8(TransitState.ExpiryAttested));
+    }
+
+    function test_OQ09_fullArrivalWindowFallsBackToTheReportLifetime() public {
+        bytes32 id = _sendDefault();
+        vm.warp(vault.transit(id).fillDeadline + 1);
+        ReportCodec.Report memory r = _spokeReport(0, 0);
+        r.arrivedTransits = new ReportCodec.TransitAmount[](ReportCodec.ARRIVAL_WINDOW);
+        for (uint256 i; i < r.arrivedTransits.length; ++i) {
+            r.arrivedTransits[i] = ReportCodec.TransitAmount(keccak256(abi.encode("spam", i)), 1e6);
+        }
+        _deliver(r);
+        vm.warp(uint256(vault.transit(id).fillDeadline) + MAX_REPORT_AGE + 1);
+        vault.attestExpiry(id);
+        assertEq(uint8(vault.transit(id).state), uint8(TransitState.ExpiryAttested));
+    }
+
     function test_DEC066_attestExpiryByReportLifetime() public {
         bytes32 id = _sendDefault();
         vm.warp(uint256(vault.transit(id).fillDeadline) + MAX_REPORT_AGE + 1);

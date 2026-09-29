@@ -517,16 +517,32 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         assertEq(r.arrivedTransits[0].amount, 3e6);
     }
 
-    function test_OQ09_reportCarriesLast64ArrivalsAndCumulativeReceived() public {
-        for (uint256 i; i < 70; ++i) {
+    function test_OQ09_reportCarriesLast256ArrivalsAndCumulativeReceived() public {
+        for (uint256 i; i < 262; ++i) {
             _arrive(1e6, bytes32(i + 1), TransferKind.Principal);
         }
         ReportCodec.Report memory r = vault.buildReport();
-        assertEq(r.arrivedTransits.length, 64);
+        assertEq(r.arrivedTransits.length, 256);
         assertEq(r.arrivedTransits[0].transitId, bytes32(uint256(7)));
-        assertEq(r.arrivedTransits[63].transitId, bytes32(uint256(70)));
-        assertEq(r.cumulativeReceived, 70e6);
+        assertEq(r.arrivedTransits[255].transitId, bytes32(uint256(262)));
+        assertEq(r.cumulativeReceived, 262e6);
         assertTrue(vault.hasArrived(bytes32(uint256(1))));
+    }
+
+    function test_OQ09_spokeWindowEqualsTheWindowTheHubReads() public pure {
+        assertEq(SpokeVaultTypes.ARRIVAL_WINDOW, ReportCodec.ARRIVAL_WINDOW);
+    }
+
+    function test_OQ09_idIsListedOnceItsCreditedTotalReachesTheMinimum() public {
+        _arrive(0.4e6, ARRIVAL, TransferKind.Principal);
+        assertEq(vault.buildReport().arrivedTransits.length, 0, "below 1 USDG: credited, not listed");
+        assertEq(vault.unallocatedBalance(address(usdg)), 0.4e6);
+        _arrive(0.6e6, ARRIVAL, TransferKind.Principal);
+        ReportCodec.Report memory r = vault.buildReport();
+        assertEq(r.arrivedTransits.length, 1, "listed when the total reaches 1 USDG");
+        assertEq(r.arrivedTransits[0].amount, 1e6);
+        _arrive(5e6, ARRIVAL, TransferKind.Principal);
+        assertEq(vault.buildReport().arrivedTransits.length, 1, "and only once");
     }
 
     // ---------------------------------------------------------------------------------------------------------------

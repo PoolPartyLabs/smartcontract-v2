@@ -301,7 +301,8 @@ interface ICoreVault is IAcrossMessageHandler {
 
     /// @notice Attests that a hub-to-spoke transit expired without arriving (DEC-066). Permissionless.
     /// @dev Requires the fill deadline to have passed and proof of non-arrival: a spoke report built after the
-    ///      deadline that does not list the transit, or the deadline plus the report lifetime having passed. Releases
+    ///      deadline that does not list the transit and lists fewer than `ReportCodec.ARRIVAL_WINDOW` arrivals (a full
+    ///      window cannot prove absence, OQ-09), or the deadline plus the report lifetime having passed. Releases
     ///      the Spoke Cap; Share Assets keep counting the transit until its refund is recognized (QB11, QB10 OPEN).
     function attestExpiry(bytes32 transitId) external;
 

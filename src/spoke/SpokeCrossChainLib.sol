@@ -146,7 +146,8 @@ library SpokeCrossChainLib {
         r.cumulativeReceived = s.cumulativeReceived;
         r.cumulativeSentHome = s.cumulativeSentHome;
 
-        // OQ-09 stance: the last ARRIVAL_WINDOW distinct arrival ids, oldest first, with the amount credited.
+        // OQ-09 stance: the last ARRIVAL_WINDOW listed arrival ids (credited total at least MIN_LISTED_ARRIVAL), oldest
+        // first, with the amount credited.
         uint256 count = s.arrivalCount;
         n = Math.min(count, SpokeVaultTypes.ARRIVAL_WINDOW);
         r.arrivedTransits = new ReportCodec.TransitAmount[](n);

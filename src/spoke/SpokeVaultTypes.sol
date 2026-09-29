@@ -9,8 +9,20 @@ import {UnwindStep} from "../mandate/Mandate.sol";
 /// @notice Storage layout, wiring and caller-encoded types of the Spoke Vault, shared by `SpokeVault` and
 ///         `SpokeCrossChainLib`, plus the errors the Spoke Vault raises beyond ISpokeVault.
 library SpokeVaultTypes {
-    /// @notice OQ-09 stance: the report carries the ids of the last 64 hub-to-spoke arrivals.
-    uint256 internal constant ARRIVAL_WINDOW = 64;
+    /// @notice OQ-09 stance: the report carries the ids of the last 256 listed hub-to-spoke arrivals.
+    /// @dev Must equal `ReportCodec.ARRIVAL_WINDOW`, which the hub reads (a literal here because it sizes a storage
+    ///      array); a unit test pins the equality.
+    uint256 internal constant ARRIVAL_WINDOW = 256;
+
+    /// @notice Smallest credited total, in base token units, for which an arrival id is listed in the report: 1e6
+    ///         (1 USDG on Robinhood Chain).
+    /// @dev Spoke Vault verifier finding (dust eviction of the window). OQ-09 stance: the window serves liveness only,
+    ///      never value. Across passes no depositor, so anyone can reach `handleV3AcrossMessage`; a smaller arrival is
+    ///      still credited to the ledger and to `cumulativeReceived`, but not listed, so flushing the window costs at
+    ///      least `ARRIVAL_WINDOW` of these units instead of gas only. Value is never at stake: the hub confirms only
+    ///      ids it sent and deducts `cumulativeReceived` above what it confirmed as value of unknown origin (DEC-080,
+    ///      OQ-01), and it refuses a full window as proof of non-arrival (`CoreVaultLogic.nonArrivalProvable`).
+    uint256 internal constant MIN_LISTED_ARRIVAL = 1e6;
 
     /// @notice Tokens of a Mandate pool on this chain, as the adapter's `poolTokens` returned them at creation
     ///         (OQ-12: a hooked Uniswap V4 pool makes that call revert, so it can never be listed).

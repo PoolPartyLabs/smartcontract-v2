@@ -16,6 +16,12 @@ library ReportCodec {
     /// @notice Current payload version.
     uint256 internal constant VERSION = 2;
 
+    /// @notice Most arrivals a report lists in `arrivedTransits` (OQ-09 stance; Spoke Vault verifier finding).
+    /// @dev Shared by the Spoke Vault, which keeps a ring of this size, and the Core Vault, which accepts a report's
+    ///      silence about a transit as proof of non-arrival only while the report lists fewer entries than this (a full
+    ///      window may have evicted the id).
+    uint256 internal constant ARRIVAL_WINDOW = 256;
+
     /// @notice A token and an amount in that token's base units.
     struct TokenAmount {
         address token;
@@ -66,9 +72,9 @@ library ReportCodec {
     /// @param cumulativeIncome Monotonic income-since-inception counter per income token (Q60, DEC-092).
     /// @param cumulativeReceived Total principal ever credited from hub transfers, in the spoke's base token units.
     /// @param cumulativeSentHome Total ever sent to the hub, in the spoke's base token units (Q66, DEC-105).
-    /// @param arrivedTransits Hub-to-spoke transits the spoke credited, with the amount credited (DEC-090). The hub
-    ///        confirms only ids it sent; the Spoke Vault chooses the retention window, and a repeated id is a no-op
-    ///        on the hub.
+    /// @param arrivedTransits Hub-to-spoke transits the spoke credited, with the amount credited (DEC-090): the last
+    ///        `ARRIVAL_WINDOW` ids whose credited total reached the Spoke Vault's listing minimum, oldest first. The hub
+    ///        confirms only ids it sent, and a repeated id is a no-op on the hub.
     /// @param inFlightToHub Spoke-to-hub transits the spoke sent whose outcome it does not yet know, with the amount
     ///        that will arrive (DEC-085) and the kind (Principal or Income, DEC-092). A list rather than a scalar so the
     ///        hub can reconcile by transfer id and never count an arrival twice (DEC-104).
