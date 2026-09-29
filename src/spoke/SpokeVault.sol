@@ -25,7 +25,11 @@ import {SpokeCrossChainLib} from "./SpokeCrossChainLib.sol";
 ///      sends home and publishes value reports through the Wormhole Core Bridge.
 /// @dev DEC-022, DEC-058: no proxy, no upgrade path, no selfdestruct. The constructor takes everything it needs, so a
 ///      factory can deploy it at a CREATE2 address. The Spoke Chain half (send home, refunds, report) lives in the
-///      linked library `SpokeCrossChainLib`, which runs over this vault's storage and holds none of its own.
+///      linked external library `SpokeCrossChainLib`, which runs by DELEGATECALL over this vault's storage and holds
+///      none of its own: its address is part of this vault's creation code and trust surface (immutable, no upgrade
+///      path). The factory deploys it once per chain at a chain-independent address (so the vault's CREATE2 address
+///      is the same on every chain, DEC-054) and pins its codehash like an adapter's (Q17-4). This is the only
+///      DELEGATECALL the vault makes; adapters are always called with a plain CALL.
 /// @dev DEC-080: every value that reaches a base comes from the internal ledger (`unallocated`, `collectedIncome`,
 ///      `operatingCash`), never from `balanceOf`. `balanceOf` is read only to assert the ledger is backed, to verify
 ///      an exact bridge debit and to size the excess sweep.

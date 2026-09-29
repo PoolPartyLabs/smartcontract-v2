@@ -18,6 +18,10 @@ import {CoreVaultLogic} from "./CoreVaultLogic.sol";
 /// @notice Hub Chain contract of a fund: custody of Idle USDC, the Share ledger, Payout Requests and Payouts, the
 ///         Attributed Income bucket and Income Withdrawal, sends to spokes and the transit state machine.
 /// @dev See ICoreVault for the rules of every verb. DEC-022, DEC-058: no proxy, no upgrade path, no selfdestruct.
+///      The value bases, report application, sends and transit outcomes live in the linked external library
+///      `CoreVaultLogic`, called by DELEGATECALL over this vault's storage: its address is part of the creation code
+///      and trust surface; the factory deploys it once per chain and pins it. It is the only DELEGATECALL the vault
+///      makes; the Core Vault never calls an adapter.
 ///      DEC-054: never calls an adapter; reads the hub Spoke Vault and the ValueReportReceiver. Every value-moving
 ///      external entry is `nonReentrant` (the two hub Spoke Vault callbacks are guarded as described in the base).
 contract CoreVault is CoreVaultTransit {
