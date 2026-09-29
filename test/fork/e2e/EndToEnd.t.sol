@@ -32,7 +32,9 @@ import {EndToEndBase} from "./EndToEndBase.sol";
 ///         Robinhood Chain forks against the live protocols (Across SpokePools, Uniswap V4 pools, the Aave V3 Pool, the
 ///         Wormhole Cores, the Chainlink ETH / USD feed) and the Fund Factory deployed through the deterministic
 ///         deployer on both chains. Each phase asserts its rules and cites the decision that governs them.
-contract EndToEndForkTest is EndToEndBase {
+/// @dev The phases are `internal` so an adversarial variant (`EndToEndAdversarial.t.sol`) can replay a prefix of the
+///      scenario and branch from it; `EndToEndForkTest` below runs the ten phases in order.
+abstract contract EndToEndScenario is EndToEndBase {
     using AdvancedWormholeOverride for ICoreBridge;
 
     uint256 internal constant ANA_BELOW_MINIMUM = MIN_FIRST_DEPOSIT - 1;
@@ -49,22 +51,6 @@ contract EndToEndForkTest is EndToEndBase {
     uint256 internal spokeSwapMinWeth;
     VaaEnvelope internal publishedEnvelope;
     bytes internal publishedPayload;
-
-    /// @notice DEC-054 end to end: create, deposit, allocate, bridge, fill, report, deliver, deposit again, collect,
-    ///         pay out (Standard, then Instant with an unwind) and the value-base invariants at the end.
-    function test_DEC054_forkEndToEndOneFundAcrossArbitrumAndRobinhood() public {
-        _createForks();
-        _phase1CreateFund();
-        _phase2AnaDeposits();
-        _phase3HubAllocationAndIncome();
-        _phase4SendToRobinhood();
-        _phase5FillPositionAndReport();
-        _phase6DeliverReport();
-        _phase7IncomeAndBrunoDeposit();
-        _phase8AnaStandardPayout();
-        _phase9BrunoInstantPayoutWithUnwind();
-        _phase10Invariants();
-    }
 
     // -----------------------------------------------------------------------------------------------------------------
     // Phase 1: factories on both forks, predicted addresses, the Mandate, createFund and createSpoke
@@ -761,5 +747,24 @@ contract EndToEndForkTest is EndToEndBase {
         assertEq(IERC20(ARB_USDC).balanceOf(recipient) - recipientBefore, DONATION);
         assertEq(core.sharePrice(), price);
         assertEq(core.shareAssets(), _sumOfBuckets());
+    }
+}
+
+/// @notice The ten phases in order, one fund from creation to the value-base invariants.
+contract EndToEndForkTest is EndToEndScenario {
+    /// @notice DEC-054 end to end: create, deposit, allocate, bridge, fill, report, deliver, deposit again, collect,
+    ///         pay out (Standard, then Instant with an unwind) and the value-base invariants at the end.
+    function test_DEC054_forkEndToEndOneFundAcrossArbitrumAndRobinhood() public {
+        _createForks();
+        _phase1CreateFund();
+        _phase2AnaDeposits();
+        _phase3HubAllocationAndIncome();
+        _phase4SendToRobinhood();
+        _phase5FillPositionAndReport();
+        _phase6DeliverReport();
+        _phase7IncomeAndBrunoDeposit();
+        _phase8AnaStandardPayout();
+        _phase9BrunoInstantPayoutWithUnwind();
+        _phase10Invariants();
     }
 }
