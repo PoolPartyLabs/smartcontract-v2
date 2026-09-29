@@ -1,0 +1,23 @@
+# Foundry
+cache/
+out/
+broadcast/*/31337/
+broadcast/**/dry-run/
+lcov.info
+coverage/
+snapshots/
+corpus/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Local worktrees for parallel sessions
+.claude/worktrees/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+node_modules/

@@ -1,0 +1,7 @@
+forge-std/=lib/forge-std/src/
+@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/
+@uniswap/v3-core/contracts/=lib/v3-core/contracts/
+@uniswap/v3-periphery/contracts/=lib/v3-periphery/contracts/
+wormhole-sdk/=lib/wormhole-solidity-sdk/src/
+IERC20/=lib/wormhole-solidity-sdk/src/interfaces/token/
+SafeERC20/=lib/wormhole-solidity-sdk/src/libraries/
