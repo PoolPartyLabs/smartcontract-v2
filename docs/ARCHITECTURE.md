@@ -18,7 +18,7 @@ Wormhole (finalized consistency) for value reports. Addresses in `docs/INTEGRATI
   Anyone ──────deliver VAA───────────────────────────────▶ ValueReportReceiver ◀── Wormhole VAA ◀── SpokeVault(robinhood).report()
                                                            AcrossBridgeAdapter ══ Across ══▶ SpokeVault(robinhood).handleV3AcrossMessage
                                                                                               SpokeVault(robinhood) ──▶ UniswapV4Adapter
-  FundFactory (CREATE2, same salt on both chains) deploys everything from the Mandate.
+  FundFactory (same address on both chains, CREATE3 per fund contract) deploys everything from the Mandate.
 ```
 
 | Contract | Chain | Responsibility | Decisions |
@@ -33,7 +33,7 @@ Wormhole (finalized consistency) for value reports. Addresses in `docs/INTEGRATI
 | `TransitEscrow` | both | Minimal per-send depositor (EIP-1167 clone, no EIP-1271 so nobody can sign a `fillRelayWithUpdatedDeposit` that delivers less, DEC-066) so an Across refund lands in a dedicated address and is recognized as a refund rather than mistaken for a donation | DEC-066 (keyless depositor); the escrow itself implements research proposal QA6, **OPEN** |
 | `ManagerFeeVault` | hub | One per fund, deployed by the Core Vault constructor next to the `ShareToken` (immutable `fund` and `manager`): receives the manager's portion of every performance fee at collection by plain ERC-20 push (ruling 2026-09-29), multi-token, `withdraw(token, to, amount)` by the manager only, `balanceOf(token)` view, no other verb; outside every value base | DEC-107, DEC-109 |
 | `ManagerRegistry` | hub | One record per manager: protocol slice of the manager's fee (default 50%), adjustable per manager by the protocol; outside the Mandate | DEC-106, DEC-110 |
-| `FundFactory` | both | Deploys a fund's contracts from its Mandate with CREATE2 and a fund-id salt so hub and spoke addresses are known to each other at creation; links the two external libraries (§1.1). Not written yet | DEC-053, DEC-054 |
+| `FundFactory` (+ `Create3`, `CodeStore`, `Create3Deployer`) | both | Deploys a fund's contracts from its Mandate, each at a CREATE3 address that depends only on the factory address and `keccak256(fundId, role, chainId)`, so hub and spoke addresses are known to each other before either exists; every Mandate address must be the prediction; `createFund` on the hub, `createSpoke` on each spoke; one factory per chain at the same address through `Create3Deployer` (docs/DEPLOYMENT.md); Share `PP-{n}` / `Pool Party Fund {n}` (Q59 stance) | DEC-001, DEC-053, DEC-054, Q59 |
 | `IPriceSource` + `ChainlinkPriceSource` | hub | Prices non-USDC tokens carried in reports and hub positions into USDC for Share Assets; pluggable because the pricing rule is **OPEN** | see §5 |
 
 ### 1.1 Linked external libraries (what the factory must link)
@@ -48,19 +48,20 @@ of 2026-09-29 (Core Vault and Spoke Vault verifier majors) instead of a restruct
 | `CoreVaultLogic` | `CoreVault` | Value bases and the payout fallback valuation, collected income and the fee split, report application, sends to spokes, transit outcomes | ~19.0 KB (Core Vault ~19.7 KB) |
 | `SpokeCrossChainLib` | `SpokeVault` | Send home, refund recognition, the hub-bound in-flight list, report building and encoding | ~10.2 KB (Spoke Vault ~21.7 KB) |
 
-What the factory must do:
-- Deploy each library once per chain, immutable (no proxy, DEC-022, DEC-058), and link its address into the fund
-  contract's creation code; the address is therefore part of every fund's CREATE2 init code hash and trust surface.
-- Deploy `SpokeCrossChainLib` at a **chain-independent address** (CREATE2 from the same deployer and salt), so a
-  Spoke Vault has the same init code, hence the same address, on every chain (DEC-054). Pin its codehash the way
-  adapters are pinned (Q17-4 reading O2).
-- Pass the Core Vault's creation code in calldata: its initcode (about 34 KB, the `ShareToken` and `ManagerFeeVault`
-  creation code included) exceeds what a factory can embed next to its own (see `CoreVaultCreate2Deployer` in
-  `test/unit/core/CoreVaultSetup.t.sol`).
-- Surface `FillDeadlineBufferTooShort` from the Across adapter constructor as a deployment-time revert reason (the
-  adapter refuses a SpokePool whose fill deadline buffer is below 6 h, DEC-066).
-- Pass the fund id to the `ValueReportReceiver` constructor (`IValueReportReceiver.fundId()` exposes it) and the hub
-  income tokens (read from the hub adapters' `poolTokens`) to the Core Vault (CV-OQ-3).
+What the factory does (`src/factory/FundFactory.sol`, docs/DEPLOYMENT.md):
+- The operator deploys each library once per chain through the deterministic deployer, immutable (no proxy, DEC-022,
+  DEC-058), at a **chain-independent address**, so the linked creation code and its hash are the same on every chain;
+  the library address is part of each fund's trust surface. Fund addresses do not depend on creation code at all
+  (CREATE3), and the Spoke Vault address differs per chain because the salt carries the chain id.
+- The Core Vault's creation code (about 34 KB, the `ShareToken` and `ManagerFeeVault` creation code included) comes in
+  calldata and must hash to `coreVaultCreationCodeHash`, the code linked to `CoreVaultLogic`, a factory immutable. The
+  Spoke Vault creation code (about 31 KB, linked to `SpokeCrossChainLib`), the adapters' and the receiver's are read
+  from immutable code stores (`CodeStore`) whose hashes the factory records at construction.
+- Surfaces `FillDeadlineBufferTooShort` from the Across adapter constructor as the creation's revert reason (the
+  CREATE3 proxy bubbles constructor reverts; DEC-066).
+- Passes the fund id to the `ValueReportReceiver` constructor and the hub income tokens (read from the hub adapters'
+  `poolTokens`) to the Core Vault (CV-OQ-3). The hub Across adapter's vault is the Core Vault (it sends to spokes);
+  the Uniswap V4 and Aave adapters' vault is the chain's Spoke Vault; a spoke Across adapter's vault is its Spoke Vault.
 
 ## 2. Mandate
 
