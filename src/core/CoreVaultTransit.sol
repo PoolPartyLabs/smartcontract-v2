@@ -21,12 +21,15 @@ abstract contract CoreVaultTransit is CoreVaultIncome {
     // ---------------------------------------------------------------------------------------------------------------
 
     /// @inheritdoc ICoreVault
+    /// @dev Payout liveness (DEC-021, DEC-056; consolidation verifier finding): the amount is an exact USDC leg of the
+    ///      hub value, so the last known hub value follows it; a payout falling back to it then counts the USDC once.
     function allocateToHubSpokeVault(uint256 usdcAmount) external onlyManager nonReentrant {
         if (usdcAmount == 0) revert ZeroAmount();
         _topUpOperatingCash();
         uint256 free = freeIdle();
         if (usdcAmount > free) revert InsufficientFreeIdle(usdcAmount, free);
         _s.idle -= usdcAmount;
+        _s.lastHubValue += usdcAmount;
         emit AllocatedToHubSpokeVault(usdcAmount);
         IERC20(usdc).safeTransfer(hubSpokeVault, usdcAmount);
         ISpokeVault(hubSpokeVault).receiveFromCoreVault(usdcAmount);
@@ -34,11 +37,15 @@ abstract contract CoreVaultTransit is CoreVaultIncome {
 
     /// @inheritdoc ICoreVault
     /// @dev DEC-080: credited only when the USDC is already above the ledger. Callable while a payout's automatic
-    ///      unwind is in progress (`ISpokeVault.unwindForPayout`).
+    ///      unwind is in progress (`ISpokeVault.unwindForPayout`). Payout liveness (DEC-021, DEC-056; consolidation
+    ///      verifier finding): the USDC leaves the hub value, so the last known hub value drops by it (floored at 0: a
+    ///      market gain since the last valuation can return more than it holds).
     function returnToIdle(uint256 usdcAmount) external onlyHubSpokeVaultCallback {
         if (usdcAmount == 0) revert ZeroAmount();
         _requireUnledgered(usdc, usdcAmount);
         _s.idle += usdcAmount;
+        uint256 lastHub = _s.lastHubValue;
+        _s.lastHubValue = lastHub > usdcAmount ? lastHub - usdcAmount : 0;
         emit ReturnedToIdle(usdcAmount);
     }
 

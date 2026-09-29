@@ -48,12 +48,12 @@ contract CoreVaultConsolidateVerifyTest is CoreVaultFixture {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // Payout liveness fallback (DEC-021, DEC-056; OQ-10): `lastHubValue` is refreshed only by a successful deposit or
-    // payout, but `allocateToHubSpokeVault` and `returnToIdle` move USDC between Idle and the hub Spoke Vault without
-    // touching it. When `buildReport` then fails, the fallback adds the stale hub value on top of the Idle it already
-    // came back to, so the leaver is paid on Share Assets that count the same USDC twice (the reverse move undercounts).
+    // Payout liveness fallback (DEC-021, DEC-056; OQ-10): `lastHubValue` is refreshed by a successful deposit or
+    // payout and follows the exact USDC legs between Idle and the hub Spoke Vault since (`allocateToHubSpokeVault`
+    // adds, `returnToIdle` subtracts). Regression of the verifier finding: before, the fallback added the stale hub
+    // value on top of the Idle the USDC had already come back to (overcount) or missed a later allocation (undercount).
     // ---------------------------------------------------------------------------------------------------------------
-    function test_DEC021_BUG_hubValueFallbackIgnoresIdleMovesSinceTheLastValuation() public {
+    function test_DEC021_hubValueFallbackFollowsAReturnToIdleSinceTheLastValuation() public {
         vm.prank(manager);
         vault.allocateToHubSpokeVault(1000e6); // Idle 8,975; hub Unallocated 1,000
         _deposit(bob, 1000e6); // last successful valuation: lastHubValue = 1,000
@@ -65,6 +65,21 @@ contract CoreVaultConsolidateVerifyTest is CoreVaultFixture {
         _request(alice, 100e6, ICoreVault.PayoutMode.Instant);
         ICoreVault.PayoutReceipt memory r = _claim(alice);
         assertEq(r.shareAssets, truth, "the fallback must not count the returned 1,000 a second time");
+    }
+
+    function test_DEC021_hubValueFallbackFollowsAnAllocationSinceTheLastValuation() public {
+        _deposit(bob, 1000e6); // last successful valuation: lastHubValue = 0
+        vm.prank(manager);
+        vault.allocateToHubSpokeVault(1000e6); // Idle -1,000; hub Unallocated 1,000
+        uint256 truth = vault.shareAssets();
+        assertEq(truth, vault.idle() + 1000e6, "the 1,000 moved to the hub Spoke Vault");
+
+        hubVault.setBuildReverts(true);
+        _request(alice, 100e6, ICoreVault.PayoutMode.Instant);
+        vm.expectEmit(address(vault));
+        emit ICoreVault.HubValuationFallback(1000e6);
+        ICoreVault.PayoutReceipt memory r = _claim(alice);
+        assertEq(r.shareAssets, truth, "the fallback must count the allocated 1,000");
     }
 
     // ---------------------------------------------------------------------------------------------------------------

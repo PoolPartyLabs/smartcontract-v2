@@ -81,7 +81,10 @@ library CoreVaultLogic {
     ///      claim never reverts because a valuation dependency fails. A token never priced before falls back to 0
     ///      (only reachable for a token that appeared after the last deposit or payout). The last known values are
     ///      refreshed on every successful deposit or payout: prices that answered, and the hub value when the hub read
-    ///      and all its prices answered. Remote spokes need no value fallback: their last accepted report is kept by
+    ///      and all its prices answered. Between two valuations the last hub value follows the exact USDC moves between
+    ///      Idle and the hub Spoke Vault (`allocateToHubSpokeVault` adds, `returnToIdle` subtracts, floored at 0), so
+    ///      the fallback is the last read adjusted by those moves and never counts a returned amount in Idle and in
+    ///      the hub value at once (consolidation verifier finding); market moves since the last read are not seen. Remote spokes need no value fallback: their last accepted report is kept by
     ///      the fund's own ValueReportReceiver and only their prices can fail.
     function recordValuation(CoreVaultState storage s, CoreVaultWiring memory w, bool mint)
         public

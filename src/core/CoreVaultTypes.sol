@@ -105,7 +105,8 @@ struct HubBoundTransfer {
 /// @param bridgeTarget Protocol target pinned per hub-side bridge adapter at creation (IBridgeAdapter).
 /// @param bridgeCodehash Codehash pinned per hub-side bridge adapter at creation (Q17-4 reading O2).
 /// @param lastHubValue Last known USDC value of the hub Spoke Vault (Unallocated Balance plus principal), refreshed on
-///        every successful deposit or payout; a payout falls back to it when the hub report read fails (payout
+///        every successful deposit or payout and moved by the exact USDC legs between Idle and the hub Spoke Vault
+///        (allocation adds, `returnToIdle` subtracts); a payout falls back to it when the hub report read fails (payout
 ///        liveness, DEC-021, DEC-056).
 /// @param lastPrice Last known price1e18 per token (IPriceSource scale), refreshed likewise; a payout falls back to it
 ///        when the price source reverts.
