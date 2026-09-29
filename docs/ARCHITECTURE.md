@@ -296,5 +296,12 @@ WETH, 1:1 for USDG). The MVP therefore:
 - Fork tests on Arbitrum One and Robinhood Chain (never testnets): real Uniswap V4 pools and the real Aave V3 Pool, real Across
   SpokePools (fills simulated by dealing the output token and calling `handleV3AcrossMessage` from the SpokePool
   address), real Wormhole Core with `WormholeOverride` signing VAAs.
-- End-to-end fork scenario: deposit on Arbitrum, send to Robinhood, fill, open a WETH/USDG V4 position, report,
-  deliver VAA, deposit again at the new price, request and claim a payout.
+- End-to-end fork scenario (`test/fork/e2e/EndToEnd.t.sol`, helpers in `test/fork/e2e/EndToEndBase.sol`): one fund
+  across both forks in one test contract (`vm.createFork` for each chain, one scenario clock so a spoke report is judged
+  on the hub clock): factories through the deterministic deployer, `createFund` and `createSpoke` at the predicted
+  addresses; a deposit on Arbitrum; Aave supply and a V4 position on the hub with income; a send to Robinhood through
+  the live Across SpokePool; the fill, a WETH/USDG V4 position and `report()` on the real Robinhood Core; the VAA signed
+  with `WormholeOverride` and delivered on the real Arbitrum Core; income collected and split before a second deposit
+  at the new price (CS-OQ-1 stance); a Standard Payout from Idle; an Instant Payout that unwinds the hub V4 position
+  first; the value-base invariants and a swept donation. The ETH / USD answer is re-posted with the current time after a
+  warp, as the next Chainlink round would (a mint reverts on a stale price, OQ-10).
