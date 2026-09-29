@@ -182,22 +182,15 @@ contract CoreVault is CoreVaultTransit {
     }
 
     /// @notice Runs the hub Spoke Vault's automatic unwind and credits what reached the Core Vault to Idle.
-    /// @dev The vault may credit through `returnToIdle` during the call, or transfer and report `usdcProceeds`; any part
-    ///      reported but not credited is credited only up to the USDC actually above the ledger (DEC-080). A reverting
-    ///      unwind never blocks the claim (DEC-056): the payout continues with Idle and may be partial (DEC-068).
+    /// @dev DEC-080 (Core Vault verifier finding): only what the hub Spoke Vault credits through `returnToIdle` during
+    ///      the call (itself backed by USDC above the ledger) reaches Idle; the amount it reports is informational, so
+    ///      no `balanceOf`-derived amount can reach a value base. A reverting unwind never blocks the claim (DEC-056):
+    ///      the payout continues with Idle and may be partial (DEC-068).
     function _unwindForPayout(uint256 target, bytes calldata hints) private returns (uint256 proceeds) {
         uint256 idleBefore = _s.idle;
         _unwinding = true;
-        try ISpokeVault(hubSpokeVault).unwindForPayout(target, hints) returns (uint256 reported) {
+        try ISpokeVault(hubSpokeVault).unwindForPayout(target, hints) {
             _unwinding = false;
-            uint256 credited = _s.idle - idleBefore;
-            if (reported > credited) {
-                uint256 extra = Math.min(reported - credited, _unledgered(usdc));
-                if (extra != 0) {
-                    _s.idle += extra;
-                    emit ReturnedToIdle(extra);
-                }
-            }
         } catch {
             _unwinding = false;
             emit UnwindForPayoutFailed(target);

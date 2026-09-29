@@ -184,16 +184,20 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         assertEq(vault.idle(), 8e6);
     }
 
-    function test_DEC081_unwindPlainReturnIsCreditedOnlyWhenBacked() public {
+    function test_DEC080_unwindCreditsOnlyWhatReturnToIdleCredited() public {
         _deployFeeless();
         hubVault.setUnwindMode(MockHubSpokeVault.UnwindMode.OverReports);
         _deposit(alice, 1000e6);
         _allocateToPosition(600e6);
         _request(alice, 800e6, INSTANT);
         ICoreVault.PayoutReceipt memory r = _claim(alice);
-        // The hub Spoke Vault reported twice what it transferred; only the backed 408 reach Idle (DEC-080).
-        assertEq(r.unwindProceeds, 408e6);
-        assertEq(usdc.balanceOf(address(vault)), _ledgerUsdc());
+        // The hub Spoke Vault transferred 408 without `returnToIdle` and reported twice that: nothing reaches Idle
+        // (DEC-080: no balance-derived credit), the claim is a Partial Payout of the Idle it had (DEC-068) and the
+        // 408 stay above the ledger for the garbage collector.
+        assertEq(r.unwindProceeds, 0);
+        assertEq(r.usdcGross, 400e6);
+        assertEq(usdc.balanceOf(address(vault)), _ledgerUsdc() + 408e6);
+        assertEq(vault.sweepExcess(address(usdc)), 408e6);
     }
 
     function test_DEC097_fundBearsUnwindMarketCost() public {
