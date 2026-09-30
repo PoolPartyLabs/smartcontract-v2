@@ -236,6 +236,11 @@
             "internalType": "bytes32"
           },
           {
+            "name": "mandateHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
             "name": "sequence",
             "type": "uint64",
             "internalType": "uint64"

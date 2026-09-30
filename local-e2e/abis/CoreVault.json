@@ -354,6 +354,30 @@
   },
   {
     "type": "function",
+    "name": "claimOwedFees",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "recipient",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "claimPayout",
     "inputs": [
       {
@@ -1039,6 +1063,30 @@
   },
   {
     "type": "function",
+    "name": "owedFees",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "recipient",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "ownerlessIncome",
     "inputs": [
       {
@@ -1216,6 +1264,43 @@
   },
   {
     "type": "function",
+    "name": "recoverUnlistedArrival",
+    "inputs": [
+      {
+        "name": "spokeIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "transitId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "releaseOperatingCash",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "reportReceiver",
     "inputs": [],
     "outputs": [
@@ -1367,6 +1452,25 @@
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "spokeCapHeld",
+    "inputs": [
+      {
+        "name": "transitId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "stateMutability": "view"
@@ -1753,6 +1857,31 @@
   },
   {
     "type": "event",
+    "name": "FeeAccrued",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "recipient",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "HubValuationFallback",
     "inputs": [
       {
@@ -1879,6 +2008,25 @@
   },
   {
     "type": "event",
+    "name": "OperatingCashReleased",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "balance",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "OperatingCashToppedUp",
     "inputs": [
       {
@@ -1929,6 +2077,31 @@
         "type": "uint8",
         "indexed": false,
         "internalType": "enum ExpensePayer"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OwedFeePaid",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "recipient",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -2500,6 +2673,31 @@
   },
   {
     "type": "event",
+    "name": "UnlistedArrivalRecovered",
+    "inputs": [
+      {
+        "name": "transitId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "originChainId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "UnwindForPayoutFailed",
     "inputs": [
       {
@@ -2764,6 +2962,17 @@
   },
   {
     "type": "error",
+    "name": "ExclusiveRelayerNotAllowed",
+    "inputs": [
+      {
+        "name": "exclusiveRelayer",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "ExpiryNotProvable",
     "inputs": [
       {
@@ -3014,6 +3223,33 @@
   },
   {
     "type": "error",
+    "name": "NothingToRecover",
+    "inputs": [
+      {
+        "name": "transitId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "OperatingCashNotReleasable",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "releasable",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "PayoutBelowOneShare",
     "inputs": [
       {
@@ -3063,6 +3299,22 @@
         "name": "adapter",
         "type": "address",
         "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "RecoveryNotReady",
+    "inputs": [
+      {
+        "name": "transitId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "readyAt",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ]
   },
@@ -3130,6 +3382,17 @@
     "inputs": [
       {
         "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SpokeNotReporting",
+    "inputs": [
+      {
+        "name": "spokeIndex",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -3308,6 +3571,17 @@
     "inputs": [
       {
         "name": "fundId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "WrongMandate",
+    "inputs": [
+      {
+        "name": "mandateHash",
         "type": "bytes32",
         "internalType": "bytes32"
       }
