@@ -1,7 +1,8 @@
 // `pnpm run up`: builds the contracts, starts both forks, deploys the protocol and a fund through the real Foundry
 // scripts, funds the actors, puts the Wormhole guardian set under the harness's key, re-stamps Chainlink, writes
-// local-e2e/.state/deployment.json, and warms the fork caches by running the scenario inside a snapshot that is then
-// reverted (public RPCs serve fork state for minutes only; see README "Troubleshooting").
+// local-e2e/.state/deployment.json, and warms the fork caches: the scenario runs inside a snapshot, the snapshot is
+// reverted, and everything it touched is read again while the upstream still serves the fork block (public RPCs serve
+// fork state for minutes only; see README "Troubleshooting").
 //
 // Usage: pnpm run up [--warm-up scenario|none]
 // (`pnpm up` is pnpm's own `update` command; the script needs `pnpm run up`.)
@@ -9,7 +10,7 @@ import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { encodeDeployData, encodeFunctionData, type Address, type Hex } from "viem";
 import { acrossSpokePoolAbi, v4SwapRouterAbi, v4SwapRouterBytecode, wormholeCoreAbi } from "./abis.ts";
-import { anvil, deploy, explain, nodes, nodesUp, type Side } from "./chain.ts";
+import { anvil, deploy, explain, nodes, nodesUp, rpc, type Side } from "./chain.ts";
 import { ARBITRUM, HARNESS_DIR, ROBINHOOD, actors, guardian, isMain } from "./config.ts";
 import { createFund, deployFactory, forgeBuild, protocolRoles } from "./deploy.ts";
 import { discoverLayouts, discoverMappingSlot, fundAccounts, mappingSlot, storageRead } from "./fund-accounts.ts";
@@ -146,11 +147,51 @@ export async function up(warmUp: "scenario" | "none"): Promise<DeploymentState> 
   return state;
 }
 
-/** Runs the whole scenario inside a snapshot of both nodes and reverts it: every storage slot the fund's flows touch
- *  is fetched from the upstream now, while it still serves the fork block, and stays in anvil's fork cache. */
+/** Accounts and storage slots the transactions of blocks `from..to` read or wrote, from anvil's prestate tracer.
+ *  Accounts the run created are kept too: a later CREATE at the same address (a TransitEscrow clone, for instance)
+ *  needs the upstream's "no account here" as much as a call needs an existing contract's code. */
+async function touchedState(side: Side, from: bigint, to: bigint): Promise<Map<Address, Set<Hex>>> {
+  const touched = new Map<Address, Set<Hex>>();
+  for (let n = from; n <= to; n++) {
+    const traces = await rpc<{ result: Record<string, { storage?: Record<Hex, Hex> }> }[]>(side, "debug_traceBlockByNumber", [
+      `0x${n.toString(16)}`,
+      { tracer: "prestateTracer" },
+    ]);
+    for (const { result } of traces) {
+      for (const [address, account] of Object.entries(result)) {
+        const key = address.toLowerCase() as Address;
+        const slots = touched.get(key) ?? new Set<Hex>();
+        for (const slot of Object.keys(account.storage ?? {})) slots.add(slot as Hex);
+        touched.set(key, slots);
+      }
+    }
+  }
+  return touched;
+}
+
+/** Reads every touched account and slot again, so anvil fetches what the revert dropped from its fork cache. */
+async function reread(side: Side, touched: Map<Address, Set<Hex>>): Promise<number> {
+  const reads: (() => Promise<unknown>)[] = [];
+  for (const [address, slots] of touched) {
+    reads.push(() => nodes[side].client.getCode({ address }));
+    for (const slot of slots) reads.push(() => nodes[side].client.getStorageAt({ address, slot }));
+  }
+  for (let i = 0; i < reads.length; i += 16) await Promise.all(reads.slice(i, i + 16).map((read) => read()));
+  return reads.length;
+}
+
+/** Warms anvil's fork cache for the default fund. anvil fetches upstream state lazily at the fork block, and a public
+ *  RPC stops serving that block within minutes (see README "Troubleshooting"). So right after the deployment the whole
+ *  scenario runs inside a snapshot of both nodes; the state its transactions touched is collected with the prestate
+ *  tracer; both nodes revert to the fresh deployment (a revert also drops what the snapshot fetched); and every touched
+ *  account and slot is read again while the upstream still serves the fork block, which caches it for the session. */
 async function warmUpCaches(log: Logger): Promise<void> {
   const started = Date.now();
-  log.info("warm-up: running the scenario inside a snapshot (reverted afterwards)");
+  log.info("warm-up: running the scenario inside a snapshot of both nodes");
+  const first = {
+    arbitrum: (await nodes.arbitrum.client.getBlockNumber()) + 1n,
+    robinhood: (await nodes.robinhood.client.getBlockNumber()) + 1n,
+  };
   const snapshots = { arbitrum: await anvil.snapshot("arbitrum"), robinhood: await anvil.snapshot("robinhood") };
   let failure: unknown;
   try {
@@ -164,8 +205,16 @@ async function warmUpCaches(log: Logger): Promise<void> {
   } catch (err) {
     failure = err;
   }
+  const touched: Record<Side, Map<Address, Set<Hex>>> = {
+    arbitrum: await touchedState("arbitrum", first.arbitrum, await nodes.arbitrum.client.getBlockNumber()),
+    robinhood: await touchedState("robinhood", first.robinhood, await nodes.robinhood.client.getBlockNumber()),
+  };
   for (const side of ["arbitrum", "robinhood"] as const) {
     if (!(await anvil.revert(side, snapshots[side]))) throw new Error(`could not revert the ${side} snapshot`);
+  }
+  for (const side of ["arbitrum", "robinhood"] as const) {
+    const reads = await reread(side, touched[side]);
+    log.info("fork cache re-filled", { chain: nodes[side].chain.id, contracts: touched[side].size, reads });
   }
   // The revert took the clocks back to the snapshot: re-stamp Chainlink for the current block.
   await restampFeed(logger("chainlink", true));
