@@ -21,24 +21,19 @@ contract StaticReviewFindingsTest is CoreVaultFixture {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // SA-02: the fund's own transfer home is locked for good when no accepted report ever listed it
+    // SA-02 (security review S-4): the fund's own transfer home is no longer locked when no report listed it
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @dev OQ-01 stance: the hub credits a spoke-to-hub arrival only up to what an accepted report listed for its id;
-    ///      anything else stays in `unmatchedArrivals`, outside every base and never swept. OQ-09 stance: the spoke
-    ///      lists a send home only until `fillDeadline + maxReportAge` (SpokeCrossChainLib._stillInFlight), then presumes
-    ///      it filled. If no report built in that window is accepted on the hub (keeper down, or Wormhole finality on
-    ///      the spoke slower than the report lifetime for the whole window), the filled transfer is never listed again:
-    ///      the USDC sits in the Core Vault, Share Assets lose it, and no verb can recover it.
-    function test_POC_SA02_transferHomeNoAcceptedReportListedIsLockedForGood() public {
-        // The spoke holds 999.4 USDG the hub sent and confirmed.
+    /// @dev Was PoC `test_POC_SA02_transferHomeNoAcceptedReportListedIsLockedForGood`: an arrival no accepted report
+    ///      ever listed stayed in `unmatchedArrivals` for good once the spoke stopped listing it. Fix (S-4):
+    ///      `recoverUnlistedArrival` credits it to Idle as Principal once no acceptable report can list it any more
+    ///      (`UNLISTED_ARRIVAL_DELAY` plus twice the report lifetime after the first unlisted arrival).
+    function test_SEC_S4_SA02_transferHomeNoAcceptedReportListedIsRecovered() public {
         bytes32 id = _send(SENT, ARRIVES);
         _deliver(_arrived(_spokeReport(ARRIVES, ARRIVES), id, ARRIVES));
         uint256 assetsBefore = vault.shareAssets();
         uint256 idleBefore = vault.idle();
 
-        // The manager sends 500 USDG home. Across fills it on the hub; every report built while the spoke still listed
-        // the transfer was rejected as too old or never delivered (nothing is delivered here during the window).
         bytes32 homeId = keccak256("home-1");
         pool.fill(
             address(vault),
@@ -46,19 +41,51 @@ contract StaticReviewFindingsTest is CoreVaultFixture {
             HOME_ARRIVES,
             TransitMessage.encode(FUND_ID, SPOKE, homeId, TransferKind.Principal)
         );
+        uint256 arrivedAt = block.timestamp;
         assertEq(vault.unmatchedArrivals(), HOME_ARRIVES, "held apart until a report lists it");
 
-        // After fillDeadline + maxReportAge the spoke presumes the transfer filled and stops listing it: its next
-        // report shows the lower Unallocated Balance and an empty inFlightToHub.
-        vm.warp(block.timestamp + 6 hours + MAX_REPORT_AGE + 1);
+        // The spoke stopped listing it (past fillDeadline + HUB_BOUND_RETENTION): its report shows the lower
+        // Unallocated Balance and an empty inFlightToHub.
+        vm.warp(block.timestamp + 6 hours + 3 days + 1);
         _deliver(_spokeReport(ARRIVES - HOME, ARRIVES));
+        assertEq(vault.unmatchedArrivals(), HOME_ARRIVES);
 
-        assertEq(vault.unmatchedArrivals(), HOME_ARRIVES, "still held apart: no report will ever list the id again");
-        assertEq(vault.idle(), idleBefore, "the USDC never reached Idle");
-        assertEq(vault.inFlightValue(), 0, "and it is not in flight either");
-        assertEq(vault.shareAssets(), assetsBefore - HOME, "Share Assets lost the whole transfer");
-        assertEq(vault.sweepExcess(address(usdc)), 0, "not even the garbage collector can move it");
-        assertGe(usdc.balanceOf(address(vault)), idleBefore + HOME_ARRIVES, "the USDC is in the Core Vault");
+        uint256 readyAt = arrivedAt + 6 hours + 3 days + 2 * uint256(MAX_REPORT_AGE);
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.RecoveryNotReady.selector, homeId, readyAt));
+        vault.recoverUnlistedArrival(0, homeId);
+
+        vm.warp(readyAt);
+        assertEq(vault.recoverUnlistedArrival(0, homeId), HOME_ARRIVES, "S-4: recovered, permissionless");
+        assertEq(vault.unmatchedArrivals(), 0);
+        assertEq(vault.idle(), idleBefore + HOME_ARRIVES, "S-4: in Idle");
+        assertEq(vault.shareAssets(), assetsBefore - HOME + HOME_ARRIVES, "S-4: only the bridge fee is lost");
+        assertEq(vault.sweepExcess(address(usdc)), 0);
+
+        // A later listing of the same id (were one ever accepted) nets the recovered amount out: nothing twice.
+        _deliver(_inFlightToHub(_spokeReport(ARRIVES - HOME, ARRIVES), homeId, HOME_ARRIVES));
+        assertEq(vault.inFlightValue(), 0, "S-4: the listing counts nothing beyond what was credited");
+        assertEq(vault.idle(), idleBefore + HOME_ARRIVES);
+    }
+
+    /// @dev S-4: only an arrival no accepted report listed can be recovered; a listed one is credited by the report.
+    function test_SEC_S4_listedOrUnknownArrivalCannotBeRecovered() public {
+        bytes32 homeId = keccak256("home-2");
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.NothingToRecover.selector, homeId));
+        vault.recoverUnlistedArrival(0, homeId);
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.UnknownSpoke.selector, 1));
+        vault.recoverUnlistedArrival(1, homeId);
+
+        _deliver(_inFlightToHub(_spokeReport(0, 0), homeId, HOME_ARRIVES));
+        pool.fill(
+            address(vault),
+            address(usdc),
+            HOME_ARRIVES,
+            TransitMessage.encode(FUND_ID, SPOKE, homeId, TransferKind.Principal)
+        );
+        assertEq(vault.unmatchedArrivals(), 0, "listed first: credited at arrival");
+        vm.warp(block.timestamp + 30 days);
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.NothingToRecover.selector, homeId));
+        vault.recoverUnlistedArrival(0, homeId);
     }
 
     // ---------------------------------------------------------------------------------------------------------------

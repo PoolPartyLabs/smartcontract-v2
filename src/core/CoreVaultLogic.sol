@@ -42,6 +42,14 @@ library CoreVaultLogic {
 
     uint256 private constant BPS = 10_000;
 
+    /// @notice Longest fill window of a send: `AcrossBridgeAdapter.FILL_DEADLINE_SECONDS` (DEC-066), the only
+    ///         Transport Route of the MVP.
+    uint256 internal constant FILL_WINDOW = 6 hours;
+
+    /// @notice Security review S-4: the part of the recovery delay of an unlisted arrival that does not depend on the
+    ///         spoke's report lifetime: the fill window plus the spoke's listing retention.
+    uint256 internal constant UNLISTED_ARRIVAL_DELAY = FILL_WINDOW + ReportCodec.HUB_BOUND_RETENTION;
+
     // ---------------------------------------------------------------------------------------------------------------
     // Value bases (DEC-042, DEC-083, DEC-084, DEC-085, DEC-098, DEC-104)
     // ---------------------------------------------------------------------------------------------------------------
@@ -550,6 +558,7 @@ library CoreVaultLogic {
     ) public {
         HubBoundTransfer storage h = s.hubBound[hubBoundKey(originChainId, transitId)];
         if (h.listed == 0) {
+            if (h.pending == 0) h.pendingSince = uint64(block.timestamp);
             h.pending += amount;
             s.unmatchedArrivals += amount;
             emit ICoreVault.TransitReceived(transitId, originChainId, kind, amount, false);
@@ -570,7 +579,8 @@ library CoreVaultLogic {
         uint256 amount
     ) private {
         TransferKind kind = h.kind;
-        uint256 room = h.listed - h.credited;
+        // A recovered unlisted arrival (S-4) may have credited more than a later listing.
+        uint256 room = h.listed > h.credited ? h.listed - h.credited : 0;
         uint256 credit = amount < room ? amount : room;
         if (credit != 0) {
             h.credited += credit;
@@ -582,6 +592,33 @@ library CoreVaultLogic {
             s.unmatchedArrivals += amount - credit;
             emit ICoreVault.ArrivalHeldApart(transitId, originChainId, kind, amount - credit);
         }
+    }
+
+    /// @notice ICoreVault.recoverUnlistedArrival (security review S-4).
+    /// @dev Delay: the spoke lists a send home at most until its fill deadline (at most `FILL_WINDOW` after the send,
+    ///      so after any fill) plus `ReportCodec.HUB_BOUND_RETENTION`, and the receiver accepts a report at most one
+    ///      report lifetime after it was built and tolerates one lifetime of clock skew (CS-OQ-5). Past
+    ///      `pendingSince + UNLISTED_ARRIVAL_DELAY + 2 * maxReportAge` no accepted report can list the id. The
+    ///      recovered amount joins `credited`, so the netting of `_returnLeg` and `_creditHubBound` keeps it counted
+    ///      once even if the delay were ever too short; a stranger who bridged dust under a real id gains nothing, the
+    ///      dust becomes a donation to Idle.
+    function recoverUnlistedArrival(CoreVaultState storage s, uint256 spokeIndex, bytes32 transitId)
+        public
+        returns (uint256 amount)
+    {
+        if (spokeIndex >= s.mandate.spokes.length) revert ICoreVault.UnknownSpoke(spokeIndex);
+        SpokeConfig storage spoke = s.mandate.spokes[spokeIndex];
+        uint256 originChainId = spoke.chainId;
+        HubBoundTransfer storage h = s.hubBound[hubBoundKey(originChainId, transitId)];
+        amount = h.pending;
+        if (h.listed != 0 || amount == 0) revert ICoreVault.NothingToRecover(transitId);
+        uint256 readyAt = uint256(h.pendingSince) + UNLISTED_ARRIVAL_DELAY + 2 * uint256(spoke.maxReportAge);
+        if (block.timestamp < readyAt) revert ICoreVault.RecoveryNotReady(transitId, readyAt);
+        h.pending = 0;
+        h.credited += amount;
+        s.unmatchedArrivals -= amount;
+        s.idle += amount;
+        emit ICoreVault.UnlistedArrivalRecovered(transitId, originChainId, amount);
     }
 
     /// @notice DEC-066: non-arrival is proven by a spoke report built after the fill deadline that does not list the

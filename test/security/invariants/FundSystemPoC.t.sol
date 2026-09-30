@@ -102,17 +102,15 @@ contract FundSystemPoCTest is FundSystemFixture {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // Finding DYN-02: a send home that no report lists in time is held apart for good
+    // Finding DYN-02 (security review S-4): a send home that no report lists in time is no longer held apart for good
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// OQ-01 ("an arrival is credited only up to what an accepted report listed; anything else is held apart for good,
-    /// never swept") together with the OQ-09 drop above: a send home is filled within minutes, long before a report
-    /// can list it (finalized consistency), so it waits in `unmatchedArrivals`. If no report built while the transfer
-    /// is still listed reaches the hub (nobody publishes or delivers for `fillDeadline + maxReportAge`, about 6.5
-    /// hours: a keeper outage, a guardian pause for the spoke chain, a hub or spoke sequencer outage, or reports that
-    /// keep ageing out at delivery), the spoke stops listing it and no later report ever will. The fund's own USDC
-    /// then stays in the Core Vault outside every base, with no verb that credits or sweeps it.
-    function test_POC_sendHomeFilledButNeverListedIsLostToTheFund() public {
+    /// Was PoC `test_POC_sendHomeFilledButNeverListedIsLostToTheFund`: a send home filled within minutes waited in
+    /// `unmatchedArrivals` for a listing report, and if none was accepted before the spoke stopped listing it
+    /// (`fillDeadline + maxReportAge`) the fund's own USDC stayed there with no verb to credit it. Fix: the spoke lists
+    /// it for `ReportCodec.HUB_BOUND_RETENTION` past its deadline (S-3) and, past that, `recoverUnlistedArrival` (S-4)
+    /// credits it once no acceptable report can list it. The same outage now costs time, not principal.
+    function test_SEC_S4_sendHomeFilledButNeverListedReachesIdle() public {
         _fundWithSpokeBalance(50_000e6);
         uint256 assetsBefore = sys.core.shareAssets();
 
@@ -120,31 +118,29 @@ contract FundSystemPoCTest is FundSystemFixture {
         vm.prank(manager);
         bytes32 transitId = sys.spokeVault.sendToHub(50_000e6, TransferKind.Principal, 0, _quote(49_900e6));
 
-        // The relayer fills on the hub within seconds; no report lists the transfer yet.
         MockAcrossSpokePool.Deposit memory d = sys.spokePool.deposit(depositIndex);
         sys.hubPool.fill(address(sys.core), address(sys.usdc), d.outputAmount, d.message);
+        uint256 filledAt = block.timestamp;
         assertEq(sys.core.unmatchedArrivals(), 49_900e6, "held apart until a report lists it");
 
-        // No report is delivered for fillDeadline + maxReportAge.
+        // No report is delivered for fillDeadline + maxReportAge: the next one still lists it and the hub credits it.
         Transit memory t = sys.spokeVault.hubBoundTransit(transitId);
+        uint256 snapshot = vm.snapshotState();
         _warp(uint256(t.fillDeadline) + MAX_REPORT_AGE + 1 - block.timestamp);
         _report();
+        assertEq(sys.core.unmatchedArrivals(), 0, "S-4: credited after the old window");
+        assertEq(sys.core.shareAssets(), assetsBefore - 100e6, "S-4: only the bridge fee is lost");
+        vm.revertToState(snapshot);
 
-        // The spoke no longer lists the transfer, so the hub never credits it.
-        assertEq(sys.spokeVault.inFlightTransitIds().length, 0);
-        assertEq(sys.core.unmatchedArrivals(), 49_900e6);
-        assertEq(sys.core.idle(), assetsBefore - 50_000e6);
-        assertEq(sys.core.shareAssets(), assetsBefore - 50_000e6, "half of the fund is in no base");
-        assertGe(sys.usdc.balanceOf(address(sys.core)), sys.core.idle() + 49_900e6, "the USDC is in the Core Vault");
-
-        // Nothing recovers it: it is ledger value for the sweep, no refund exists, later reports do not list it.
-        assertEq(sys.core.sweepExcess(address(sys.usdc)), 0);
-        vm.expectRevert();
-        sys.spokeVault.recognizeRefund(transitId);
-        _warp(30 days);
+        // No report is delivered for the whole retention either: the recovery credits it.
+        _warp(uint256(t.fillDeadline) + ReportCodec.HUB_BOUND_RETENTION + 1 - block.timestamp);
         _report();
-        assertEq(sys.core.unmatchedArrivals(), 49_900e6);
-        assertEq(sys.core.shareAssets(), assetsBefore - 50_000e6);
+        assertEq(sys.core.unmatchedArrivals(), 49_900e6, "no report lists it any more");
+        _warp(filledAt + 6 hours + ReportCodec.HUB_BOUND_RETENTION + 2 * uint256(MAX_REPORT_AGE) - block.timestamp);
+        assertEq(sys.core.recoverUnlistedArrival(0, transitId), 49_900e6, "S-4: recovered");
+        assertEq(sys.core.unmatchedArrivals(), 0);
+        _report();
+        assertEq(sys.core.shareAssets(), assetsBefore - 100e6, "S-4: only the bridge fee is lost");
     }
 
     // ---------------------------------------------------------------------------------------------------------------

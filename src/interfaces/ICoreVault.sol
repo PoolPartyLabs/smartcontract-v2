@@ -214,6 +214,10 @@ interface ICoreVault is IAcrossMessageHandler {
     ///         was already credited (DEC-080, OQ-01).
     event ArrivalHeldApart(bytes32 indexed transitId, uint256 indexed originChainId, TransferKind kind, uint256 amount);
 
+    /// @notice An arrival no accepted report ever listed was credited to Idle as Principal once no report could list
+    ///         it any more (security review S-4).
+    event UnlistedArrivalRecovered(bytes32 indexed transitId, uint256 indexed originChainId, uint256 amount);
+
     // ---------------------------------------------------------------------------------------------------------------
     // Errors
     // ---------------------------------------------------------------------------------------------------------------
@@ -246,6 +250,10 @@ interface ICoreVault is IAcrossMessageHandler {
     error FillDeadlineNotReached(bytes32 transitId, uint32 fillDeadline);
     error ExpiryNotProvable(bytes32 transitId);
     error NoRefund(bytes32 transitId);
+    /// @notice No arrival of that transit is held apart without a listing (security review S-4).
+    error NothingToRecover(bytes32 transitId);
+    /// @notice A report could still list the transit; recovery opens at `readyAt` (security review S-4).
+    error RecoveryNotReady(bytes32 transitId, uint256 readyAt);
     error WrongFund(bytes32 fundId);
     error UnexpectedToken(address token);
     error ManagerFeeNotDecreasing();
@@ -331,6 +339,18 @@ interface ICoreVault is IAcrossMessageHandler {
     ///      `InvalidTransitState` or `NoRefund` otherwise. Exactly `amountSent` is credited to Idle; any surplus in the
     ///      escrow reaches the Core Vault unledgered and is swept as excess (DEC-080).
     function recognizeRefund(bytes32 transitId) external returns (uint256 amount);
+
+    /// @notice Credits to Idle, as Principal, what arrived from spoke `spokeIndex` for `transitId` while no accepted
+    ///         report of that spoke ever listed it, once no report can list it any more. Permissionless.
+    /// @dev Security review S-4 (DEC-080, DEC-104, OQ-01): a send home is filled within minutes and credited only
+    ///      against a listing, but a spoke lists it only until `fillDeadline + ReportCodec.HUB_BOUND_RETENTION`; if no
+    ///      report built in that window is accepted (keeper, guardian or sequencer outage) the fund's own USDC would
+    ///      stay in `unmatchedArrivals` for good. Recovery opens `UNLISTED_ARRIVAL_DELAY` plus twice the spoke's
+    ///      report lifetime after the first unlisted arrival for that id, when no acceptable report can list it. The
+    ///      amount is added to the transit's credited total, so a later listing of the same id nets it out and nothing
+    ///      is counted twice; an Income transfer recovered this way reaches holders as Principal (no fee split).
+    ///      Reverts `UnknownSpoke`, `NothingToRecover` or `RecoveryNotReady`.
+    function recoverUnlistedArrival(uint256 spokeIndex, bytes32 transitId) external returns (uint256 amount);
 
     /// @notice Sends `balanceOf(token)` minus every ledger amount of `token` to the excess recipient. Permissionless.
     /// @dev DEC-080, DEC-096, DEC-101. Never sweeps ledger value (Idle, Operating Cash, collected income, owed fees).

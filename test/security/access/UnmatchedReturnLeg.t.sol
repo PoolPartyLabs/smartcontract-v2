@@ -11,28 +11,14 @@ import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {Mandate, MandateLib} from "../../../src/mandate/Mandate.sol";
 import {AccessFundFixture} from "./AccessFundFixture.sol";
 
-/// @title PoC: a send home the hub never saw listed within about 6.5 hours is frozen in `unmatchedArrivals` for good
-/// @notice TRUST BOUNDARY. `CoreVault.handleV3AcrossMessage` cannot trust the Across message, so it credits a
-///         spoke-to-hub arrival only against what an ACCEPTED report of the origin spoke listed in `inFlightToHub`
-///         (CoreVaultLogic.sol:489-531, OQ-01). The Spoke Vault lists a send home only while it is "still in flight":
-///         until `fillDeadline + maxReportAge` (SpokeCrossChainLib.sol:300-302), about 6 h 26 min after the send;
-///         after that the id is pruned and never listed again (`nextReport`, SpokeCrossChainLib.sol:103-106). If the
-///         hub accepts no report built inside that window, the arrival is never matched: it stays `pending` in
-///         `unmatchedArrivals`, which is outside every value base, never swept and has no recovery verb
-///         (CoreVaultTypes.sol:94; CV-OQ-5 discusses only fabricated ids).
-/// @notice TRIGGER. No attacker is needed: a report outage longer than the window, right after a send home. Reports
-///         are permissionless but in practice one keeper relays them, a report is only deliverable for about 26
-///         minutes after it is built, and Wormhole finality alone takes 15 to 20 of those. A keeper out of gas on
-///         one chain, a Wormhole guardian pause or a sequencer outage of 6.5 hours is enough (Arbitrum had a 7 hour
-///         one). The manager keeps operating meanwhile: the manager is a different key from the keeper.
-/// @notice IMPACT. The whole transfer (here 298,700 USDC, 60% of the fund) is lost to the shareholders permanently:
-///         the USDC sits in the Core Vault, the spoke no longer counts it, the hub never will. The control shows the
-///         same arrival is credited to Idle when one report from inside the window is accepted.
-/// @notice FIX. Decouple "listed so the hub can match it" from "counted as in flight": keep every send home listed
-///         (id, amount, kind) until the spoke has evidence the hub saw it, or for a long retention such as 30 days,
-///         while only `_stillInFlight` entries count in Share Assets and the Spoke Cap. And give `unmatchedArrivals`
-///         a recovery path (for example a time-locked sweep to the excess recipient, DEC-101), so nothing the fund
-///         owns can be stranded by an infrastructure outage.
+/// @title Regression (security review S-4): a send home the hub did not see listed within about 6.5 hours is no longer
+///        frozen in `unmatchedArrivals`
+/// @notice Was PoC `test_POC_sendHomeNeverListedInTimeIsFrozenForGood` (high, access lens): the Spoke Vault stopped
+///         listing a send home at `fillDeadline + maxReportAge`, so if no report built in that window was accepted the
+///         filled arrival (298,700 USDC, 60% of the fund) stayed held apart for good.
+/// @notice FIX: the spoke lists the send home for `ReportCodec.HUB_BOUND_RETENTION` past its deadline (S-3), so the
+///         report built after the old window still lists it and the hub credits the arrival; past the retention,
+///         `CoreVault.recoverUnlistedArrival` (S-4) credits it (test/security/crosschain/SendHomeStranded.t.sol).
 contract UnmatchedReturnLegPoC is AccessFundFixture {
     uint256 internal constant T0 = 1_800_000_000;
     uint256 internal constant SENT = 300_000e6;
@@ -50,7 +36,7 @@ contract UnmatchedReturnLegPoC is AccessFundFixture {
         uint256 afterWindow;
     }
 
-    function test_POC_sendHomeNeverListedInTimeIsFrozenForGood() public {
+    function test_SEC_S4_sendHomeNotListedInTheOldWindowIsStillCredited() public {
         // ---------------------------------------------------------------- Spoke Chain (its own state, run first)
         SpokeSide memory s = _spokeSide();
 
@@ -61,16 +47,12 @@ contract UnmatchedReturnLegPoC is AccessFundFixture {
         _deposit(core, alice, 500_000e6);
         vm.prank(manager);
         assertEq(core.sendToSpoke(0, SENT, 0, _quote(ARRIVES, address(0))), _hubTransitId(a.coreVault));
-        assertEq(core.idle(), 198_750e6);
 
-        // The first report (the arrival on the spoke) is relayed normally.
         vm.warp(T0 + 900);
         _deliverReport(a.valueReportReceiver, s.spokeVault, 0, s.reportAfterArrival);
         assertEq(core.inFlightValue(), 0, "arrival confirmed");
-        assertEq(core.shareAssets(), 198_750e6 + 299_690e6);
 
-        // The manager's send home is filled on the hub: real USDC reaches the Core Vault, held apart until a report
-        // lists the transfer.
+        // The manager's send home is filled on the hub: held apart until a report lists the transfer.
         usdc.mint(address(core), ARRIVES_HOME);
         vm.prank(address(hubAcross));
         core.handleV3AcrossMessage(
@@ -81,29 +63,18 @@ contract UnmatchedReturnLegPoC is AccessFundFixture {
         );
         assertEq(core.unmatchedArrivals(), ARRIVES_HOME);
 
-        // Control: had ONE report from inside the window been accepted, the arrival would be in Idle.
-        uint256 snapshot = vm.snapshotState();
-        _deliverReport(a.valueReportReceiver, s.spokeVault, 1, s.reportInsideWindow);
-        assertEq(core.unmatchedArrivals(), 0);
-        assertEq(core.idle(), 198_750e6 + ARRIVES_HOME);
-        vm.revertToState(snapshot);
-
         // The outage: no report built in the 6 h 26 min after the send is accepted. The next one the hub accepts was
-        // built after the window and no longer lists the transfer.
+        // built after that window and still lists the transfer, so the arrival is credited.
         vm.warp(s.afterWindow + 900);
         _deliverReport(a.valueReportReceiver, s.spokeVault, 2, s.reportAfterWindow);
 
-        assertEq(core.unmatchedArrivals(), ARRIVES_HOME, "still held apart, and no later report will ever list it");
-        assertEq(core.idle(), 198_750e6, "never credited");
-        assertEq(core.sweepExcess(address(usdc)), 0, "not even the garbage collector reaches it");
-        assertGe(_balance(usdc, address(core)), 198_750e6 + ARRIVES_HOME, "the USDC is in the Core Vault");
-        // The spoke stopped counting it when it sent it; the hub never will.
-        assertEq(core.shareAssets(), 198_750e6 + 690e6, "Share Assets: 199,440 USDC for 498,750 shares");
-        assertLt(core.sharePrice(), 0.4e24, "Share Price fell from 1.00 to under 0.40 with no market loss");
+        assertEq(core.unmatchedArrivals(), 0, "S-4: credited on the report after the outage");
+        assertEq(core.idle(), 198_750e6 + ARRIVES_HOME, "S-4: in Idle");
+        assertEq(core.shareAssets(), 198_750e6 + 690e6 + ARRIVES_HOME, "S-4: Share Assets whole but for the fees");
     }
 
     /// @dev Runs the spoke's half on the spoke chain: the hub's send arrives, the manager sends most of it home, and
-    ///      three reports are built: after the arrival, inside the listing window, and after it.
+    ///      three reports are built: after the arrival, inside the old listing window, and after it.
     function _spokeSide() internal returns (SpokeSide memory s) {
         FundFactory spokeFactory = _spokeFactory();
         bytes32 fundId = spokeFactory.fundIdOf(HUB, 1, manager);
@@ -130,13 +101,12 @@ contract UnmatchedReturnLegPoC is AccessFundFixture {
         s.reportInsideWindow = spokeWormhole.published(1).payload;
         assertEq(spoke.buildReport().inFlightToHub.length, 1);
 
-        // Past the fill deadline plus the report lifetime the spoke presumes it filled and drops it for good.
+        // Past the fill deadline plus the report lifetime the spoke still lists it (security review S-3).
         vm.warp(block.timestamp + 21_600 + MAX_REPORT_AGE + 1);
         spoke.report();
         s.reportAfterWindow = spokeWormhole.published(2).payload;
         s.afterWindow = block.timestamp;
-        assertEq(spoke.buildReport().inFlightToHub.length, 0);
-        assertEq(spoke.inFlightTransitIds().length, 0);
+        assertEq(spoke.buildReport().inFlightToHub.length, 1);
     }
 
     function _hubTransitId(address coreVault) internal pure returns (bytes32) {

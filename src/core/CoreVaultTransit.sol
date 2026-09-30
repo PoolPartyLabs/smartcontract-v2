@@ -85,6 +85,16 @@ abstract contract CoreVaultTransit is CoreVaultIncome {
         return CoreVaultLogic.recognizeRefund(_s, _wiring(), transitId);
     }
 
+    /// @inheritdoc ICoreVault
+    /// @dev Security review S-4: see CoreVaultLogic.recoverUnlistedArrival.
+    function recoverUnlistedArrival(uint256 spokeIndex, bytes32 transitId)
+        external
+        nonReentrant
+        returns (uint256 amount)
+    {
+        return CoreVaultLogic.recoverUnlistedArrival(_s, spokeIndex, transitId);
+    }
+
     // ---------------------------------------------------------------------------------------------------------------
     // Reports (DEC-066, DEC-080, DEC-090, Q60)
     // ---------------------------------------------------------------------------------------------------------------
