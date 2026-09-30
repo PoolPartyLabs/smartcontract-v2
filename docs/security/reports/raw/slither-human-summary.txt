@@ -1,0 +1,56 @@
+'forge clean' running (wd: <worktree>)
+'forge config --json' running
+'forge build --build-info --deny never --skip ./test/** ./script/** --force' running (wd: <worktree>)
+INFO:Printers:
+Compiled with Foundry
+Total number of contracts in source files: 43
+Number of contracts in dependencies: 71
+Source lines of code (SLOC) in source files: 5246
+Source lines of code (SLOC) in dependencies: 4609
+Number of  assembly lines: 0
+Number of optimization issues: 2
+Number of informational issues: 19
+Number of low issues: 77
+Number of medium issues: 68
+Number of high issues: 1
+ERCs: ERC165, ERC20, ERC1363
+
++------------------------+-------------+-------+--------------------+--------------+--------------------+
+| Name                   | # functions | ERCS  | ERC20 info         | Complex code | Features           |
++------------------------+-------------+-------+--------------------+--------------+--------------------+
+| AaveV3Adapter          | 55          |       |                    | Yes          | Tokens interaction |
+| AcrossBridgeAdapter    | 20          |       |                    | No           |                    |
+| UniswapV4Adapter       | 63          |       |                    | Yes          | Tokens interaction |
+| CoreVault              | 115         |       |                    | Yes          | Tokens interaction |
+| CoreVaultLogic         | 34          |       |                    | No           | Tokens interaction |
+|                        |             |       |                    |              | Assembly           |
+| ManagerFeeVault        | 13          |       |                    | No           | Tokens interaction |
+| ManagerRegistry        | 26          |       |                    | No           |                    |
+| ShareToken             | 37          | ERC20 | ∞ Minting          | No           |                    |
+|                        |             |       | Approve Race Cond. |              |                    |
+|                        |             |       |                    |              |                    |
+| TransitEscrow          | 7           |       |                    | No           | Tokens interaction |
+| CodeStore              | 3           |       |                    | No           | Assembly           |
+| Create3                | 6           |       |                    | No           | Assembly           |
+| Create3Deployer        | 3           |       |                    | No           |                    |
+| FundFactory            | 43          |       |                    | No           | Assembly           |
+| IAToken                | 2           |       |                    | No           |                    |
+| IAaveV3Pool            | 4           |       |                    | No           |                    |
+| IAcrossSpokePool       | 5           |       |                    | No           | Receive ETH        |
+| IChainlinkAggregatorV3 | 3           |       |                    | No           |                    |
+| IncomeAccumulator      | 12          |       |                    | No           |                    |
+| ReportCodec            | 4           |       |                    | No           |                    |
+| ShareMath              | 10          |       |                    | No           |                    |
+| TransitMessage         | 3           |       |                    | No           |                    |
+| MandateLib             | 17          |       |                    | Yes          |                    |
+| ChainlinkPriceSource   | 10          |       |                    | Yes          |                    |
+| ValueReportReceiver    | 31          |       |                    | Yes          |                    |
+| SpokeCrossChainLib     | 16          |       |                    | No           | Tokens interaction |
+|                        |             |       |                    |              | Assembly           |
+| SpokeVault             | 120         |       |                    | Yes          | Receive ETH        |
+|                        |             |       |                    |              | Send ETH           |
+|                        |             |       |                    |              | Tokens interaction |
+|                        |             |       |                    |              | Assembly           |
+| SpokeVaultTypes        | 2           |       |                    | No           |                    |
++------------------------+-------------+-------+--------------------+--------------+--------------------+
+INFO:Slither:. analyzed (114 contracts)

@@ -1,0 +1,1573 @@
+{
+ "slither_version": "0.11.6",
+ "command": "slither . --filter-paths \"lib|test|script\" --json slither-full.json",
+ "results": [
+  {
+   "id": "4930fae71398",
+   "check": "encode-packed-collision",
+   "impact": "High",
+   "confidence": "High",
+   "location": "src/factory/FundFactory.sol:460",
+   "first_markdown_element": "src/factory/FundFactory.sol#L460-L479",
+   "description": "FundFactory._deployCoreVault(Mandate,IFundFactory.FundAddresses,bytes) (src/factory/FundFactory.sol#460-479) calls abi.encodePacked() with multiple dynamic arguments:\n\t- Create3.deploy(saltOf(a.fundId,ROLE_CORE_VAULT,chainId),abi.encodePacked(creationCode,abi.encode(m,c))) (src/factory/FundFactory.sol#478)\n"
+  },
+  {
+   "id": "096b9dd08620",
+   "check": "reentrancy-balance",
+   "impact": "High",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:735",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L735-L756",
+   "description": "Reentrancy in CoreVaultLogic.recognizeRefund(CoreVaultState,CoreVaultWiring,bytes32) (src/core/CoreVaultLogic.sol#735-756):\n\tExternal call allowing reentrancy:\n\t- ITransitEscrow(escrow).release(address(this)) (src/core/CoreVaultLogic.sol#753)\n\tBalance read before the call:\n\t- held = token.balanceOf(escrow) (src/core/CoreVaultLogic.sol#743)\n\tPossible stale balance used after the call in a condition:\n\t- received != held (src/core/CoreVaultLogic.sol#755)\n\t\t- stale variable `held`\n"
+  },
+  {
+   "id": "25adca46b5b3",
+   "check": "reentrancy-balance",
+   "impact": "High",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:735",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L735-L756",
+   "description": "Reentrancy in CoreVaultLogic.recognizeRefund(CoreVaultState,CoreVaultWiring,bytes32) (src/core/CoreVaultLogic.sol#735-756):\n\tExternal call allowing reentrancy:\n\t- ITransitEscrow(escrow).release(address(this)) (src/core/CoreVaultLogic.sol#753)\n\tBalance read before the call:\n\t- before = token.balanceOf(address(this)) (src/core/CoreVaultLogic.sol#752)\n\tPossible stale balance used after the call in a condition:\n\t- received != held (src/core/CoreVaultLogic.sol#755)\n\t\t- stale variable `received`\n"
+  },
+  {
+   "id": "31b3aae75af7",
+   "check": "reentrancy-balance",
+   "impact": "High",
+   "confidence": "Medium",
+   "location": "src/core/CoreVault.sol:144",
+   "first_markdown_element": "src/core/CoreVault.sol#L144-L177",
+   "description": "Reentrancy in CoreVault.claimPayout(bytes) (src/core/CoreVault.sol#144-177):\n\tExternal call allowing reentrancy:\n\t- c.proceeds = _unwindForPayout(shortfall + shortfall * UNWIND_MARGIN_BPS / 10_000,unwindHints) (src/core/CoreVault.sol#160)\n\t\t- ISpokeVault(hubSpokeVault).unwindForPayout(target,hints) (src/core/CoreVault.sol#207-212)\n\tBalance read before the call:\n\t- c.balance = _sharesOf(msg.sender) (src/core/CoreVault.sol#151)\n\tPossible stale balance used after the call in a condition:\n\t- c.shares == 0 (src/core/CoreVault.sol#172)\n\t\t- stale variable `REF_1211`\n"
+  },
+  {
+   "id": "3ae2b1ccab04",
+   "check": "reentrancy-balance",
+   "impact": "High",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeCrossChainLib.sol:337",
+   "first_markdown_element": "src/spoke/SpokeCrossChainLib.sol#L337-L351",
+   "description": "Reentrancy in SpokeCrossChainLib._executeBridgeCall(address,address,bytes,uint256) (src/spoke/SpokeCrossChainLib.sol#337-351):\n\tExternal call allowing reentrancy:\n\t- (ok,returned) = target.call(data) (src/spoke/SpokeCrossChainLib.sol#341)\n\tBalance read before the call:\n\t- balanceBefore = token.balanceOf(address(this)) (src/spoke/SpokeCrossChainLib.sol#339)\n\tPossible stale balance used after the call in a condition:\n\t- debited != amount (src/spoke/SpokeCrossChainLib.sol#349)\n\t\t- stale variable `debited`\n"
+  },
+  {
+   "id": "990d1c585889",
+   "check": "reentrancy-balance",
+   "impact": "High",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeCrossChainLib.sol:70",
+   "first_markdown_element": "src/spoke/SpokeCrossChainLib.sol#L70-L91",
+   "description": "Reentrancy in SpokeCrossChainLib.recognizeRefund(SpokeVaultTypes.State,address,bytes32) (src/spoke/SpokeCrossChainLib.sol#70-91):\n\tExternal call allowing reentrancy:\n\t- ITransitEscrow(escrow).release(address(this)) (src/spoke/SpokeCrossChainLib.sol#88)\n\tBalance read before the call:\n\t- before = token.balanceOf(address(this)) (src/spoke/SpokeCrossChainLib.sol#87)\n\tPossible stale balance used after the call in a condition:\n\t- received != held (src/spoke/SpokeCrossChainLib.sol#90)\n\t\t- stale variable `received`\n"
+  },
+  {
+   "id": "df125a7f5023",
+   "check": "reentrancy-balance",
+   "impact": "High",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeCrossChainLib.sol:70",
+   "first_markdown_element": "src/spoke/SpokeCrossChainLib.sol#L70-L91",
+   "description": "Reentrancy in SpokeCrossChainLib.recognizeRefund(SpokeVaultTypes.State,address,bytes32) (src/spoke/SpokeCrossChainLib.sol#70-91):\n\tExternal call allowing reentrancy:\n\t- ITransitEscrow(escrow).release(address(this)) (src/spoke/SpokeCrossChainLib.sol#88)\n\tBalance read before the call:\n\t- held = token.balanceOf(escrow) (src/spoke/SpokeCrossChainLib.sol#79)\n\tPossible stale balance used after the call in a condition:\n\t- received != held (src/spoke/SpokeCrossChainLib.sol#90)\n\t\t- stale variable `held`\n"
+  },
+  {
+   "id": "fded98fa0833",
+   "check": "reentrancy-balance",
+   "impact": "High",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:576",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L576-L635",
+   "description": "Reentrancy in CoreVaultLogic.sendToSpoke(CoreVaultState,CoreVaultWiring,uint256,uint256,uint256,BridgeQuote) (src/core/CoreVaultLogic.sol#576-635):\n\tExternal call allowing reentrancy:\n\t- (ok,ret) = call.target.call(call.data) (src/core/CoreVaultLogic.sol#626)\n\tBalance read before the call:\n\t- before = token.balanceOf(address(this)) (src/core/CoreVaultLogic.sol#624)\n\tPossible stale balance used after the call in a condition:\n\t- debited != usdcAmount (src/core/CoreVaultLogic.sol#633)\n\t\t- stale variable `debited`\n"
+  },
+  {
+   "id": "76b7f3253e77",
+   "check": "divide-before-multiply",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:386",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L386-L397",
+   "description": "CoreVaultLogic._collectIncome(CoreVaultState,CoreVaultWiring,address,uint256) (src/core/CoreVaultLogic.sol#386-397) performs a multiplication on the result of a division:\n\t- managerFee = amount * s.performanceFeeBps / BPS (src/core/CoreVaultLogic.sol#388)\n\t- slice = managerFee * sliceBps / BPS (src/core/CoreVaultLogic.sol#389)\n"
+  },
+  {
+   "id": "08181fcb084b",
+   "check": "incorrect-equality",
+   "impact": "Medium",
+   "confidence": "High",
+   "location": "src/report/ValueReportReceiver.sol:214",
+   "first_markdown_element": "src/report/ValueReportReceiver.sol#L214-L223",
+   "description": "ValueReportReceiver.latestReport(uint256) (src/report/ValueReportReceiver.sol#214-223) uses a dangerous strict equality:\n\t- state.acceptedAt == 0 (src/report/ValueReportReceiver.sol#220)\n"
+  },
+  {
+   "id": "22ec84a7cc6c",
+   "check": "incorrect-equality",
+   "impact": "Medium",
+   "confidence": "High",
+   "location": "src/core/CoreVault.sol:217",
+   "first_markdown_element": "src/core/CoreVault.sol#L217-L262",
+   "description": "CoreVault._executePayout(CoreVault.Claim,ICoreVault.PayoutRequest) (src/core/CoreVault.sol#217-262) uses a dangerous strict equality:\n\t- c.shares == c.balance (src/core/CoreVault.sol#261)\n"
+  },
+  {
+   "id": "31f9c4bed16d",
+   "check": "incorrect-equality",
+   "impact": "Medium",
+   "confidence": "High",
+   "location": "src/core/CoreVaultTransit.sol:129",
+   "first_markdown_element": "src/core/CoreVaultTransit.sol#L129-L134",
+   "description": "CoreVaultTransit.sweepExcess(address) (src/core/CoreVaultTransit.sol#129-134) uses a dangerous strict equality:\n\t- amount == 0 (src/core/CoreVaultTransit.sol#131)\n"
+  },
+  {
+   "id": "3a574466a92d",
+   "check": "incorrect-equality",
+   "impact": "Medium",
+   "confidence": "High",
+   "location": "src/core/CoreVault.sol:144",
+   "first_markdown_element": "src/core/CoreVault.sol#L144-L177",
+   "description": "CoreVault.claimPayout(bytes) (src/core/CoreVault.sol#144-177) uses a dangerous strict equality:\n\t- c.shares == 0 (src/core/CoreVault.sol#172)\n"
+  },
+  {
+   "id": "46bb06b73408",
+   "check": "incorrect-equality",
+   "impact": "Medium",
+   "confidence": "High",
+   "location": "src/core/CoreVault.sol:98",
+   "first_markdown_element": "src/core/CoreVault.sol#L98-L130",
+   "description": "CoreVault.requestPayout(uint256,ICoreVault.PayoutMode) (src/core/CoreVault.sol#98-130) uses a dangerous strict equality:\n\t- balance == 0 (src/core/CoreVault.sol#104)\n"
+  },
+  {
+   "id": "47f156161a39",
+   "check": "incorrect-equality",
+   "impact": "Medium",
+   "confidence": "High",
+   "location": "src/core/CoreVaultIncome.sol:53",
+   "first_markdown_element": "src/core/CoreVaultIncome.sol#L53-L59",
+   "description": "CoreVaultIncome._takeIncome(address,address) (src/core/CoreVaultIncome.sol#53-59) uses a dangerous strict equality:\n\t- amount == 0 (src/core/CoreVaultIncome.sol#55)\n"
+  },
+  {
+   "id": "4c54a8a43ef0",
+   "check": "incorrect-equality",
+   "impact": "Medium",
+   "confidence": "High",
+   "location": "src/core/CoreVaultBase.sol:283",
+   "first_markdown_element": "src/core/CoreVaultBase.sol#L283-L296",
+   "description": "CoreVaultBase._topUpOperatingCash() (src/core/CoreVaultBase.sol#283-296) uses a dangerous strict equality:\n\t- amount == 0 (src/core/CoreVaultBase.sol#291)\n"
+  },
+  {
+   "id": "924ef8af5388",
+   "check": "incorrect-equality",
+   "impact": "Medium",
+   "confidence": "High",
+   "location": "src/core/CoreVault.sol:144",
+   "first_markdown_element": "src/core/CoreVault.sol#L144-L177",
+   "description": "CoreVault.claimPayout(bytes) (src/core/CoreVault.sol#144-177) uses a dangerous strict equality:\n\t- c.balance == 0 (src/core/CoreVault.sol#152)\n"
+  },
+  {
+   "id": "cc4d7f28e44a",
+   "check": "incorrect-equality",
+   "impact": "Medium",
+   "confidence": "High",
+   "location": "src/core/CoreVault.sol:217",
+   "first_markdown_element": "src/core/CoreVault.sol#L217-L262",
+   "description": "CoreVault._executePayout(CoreVault.Claim,ICoreVault.PayoutRequest) (src/core/CoreVault.sol#217-262) uses a dangerous strict equality:\n\t- r.closedBelowOneShare = c.complete && c.shares == 0 (src/core/CoreVault.sol#231)\n"
+  },
+  {
+   "id": "d654b931503f",
+   "check": "incorrect-equality",
+   "impact": "Medium",
+   "confidence": "High",
+   "location": "src/adapters/UniswapV4Adapter.sol:516",
+   "first_markdown_element": "src/adapters/UniswapV4Adapter.sol#L516-L543",
+   "description": "UniswapV4Adapter.swapExactInput(bytes32,address,uint256,uint256,bytes) (src/adapters/UniswapV4Adapter.sol#516-543) uses a dangerous strict equality:\n\t- limit == 0 (src/adapters/UniswapV4Adapter.sol#533)\n"
+  },
+  {
+   "id": "019bb31c2cbd",
+   "check": "reentrancy-no-eth",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/adapters/AaveV3Adapter.sol:382",
+   "first_markdown_element": "src/adapters/AaveV3Adapter.sol#L382-L430",
+   "description": "Reentrancy in AaveV3Adapter._exit(address,AaveV3Adapter.Ledger,uint256) (src/adapters/AaveV3Adapter.sol#382-430):\n\tExternal calls:\n\t- withdrawn = pool.withdraw(asset,type()(uint256).max,vault) (src/adapters/AaveV3Adapter.sol#399-416)\n\t- _withdraw(asset,l,principalAmount,false) (src/adapters/AaveV3Adapter.sol#424)\n\t\t- paid = pool.withdraw(asset,amount,vault) (src/adapters/AaveV3Adapter.sol#483-487)\n\t\t- withdrawn = pool.withdraw(asset,amount,vault) (src/adapters/AaveV3Adapter.sol#489)\n\t- amounts.income0 = _takeIncome(asset,l,index,income,valueLeft) (src/adapters/AaveV3Adapter.sol#427)\n\t\t- paid = pool.withdraw(asset,amount,vault) (src/adapters/AaveV3Adapter.sol#483-487)\n\t\t- withdrawn = pool.withdraw(asset,amount,vault) (src/adapters/AaveV3Adapter.sol#489)\n\tState variables written after the call(s):\n\t- amounts.income0 = _takeIncome(asset,l,index,income,valueLeft) (src/adapters/AaveV3Adapter.sol#427)\n\t\t- l.realizedIncome += take (src/adapters/AaveV3Adapter.sol#446)\n\t\t- l.principal -= Math.min(l.principal,expected - valueAfter) (src/adapters/AaveV3Adapter.sol#450)\n\t\t- l.scaledBalance = scaledBalance - burned (src/adapters/AaveV3Adapter.sol#495)\n\tAaveV3Adapter._ledgers (src/adapters/AaveV3Adapter.sol#75) can be used in cross function reentrancies:\n\t- AaveV3Adapter._listedAsset(bytes32) (src/adapters/AaveV3Adapter.sol#513-517)\n\t- AaveV3Adapter._openAsset(bytes32) (src/adapters/AaveV3Adapter.sol#520-523)\n\t- AaveV3Adapter.constructor(address,address,address,address[]) (src/adapters/AaveV3Adapter.sol#123-138)\n\t- AaveV3Adapter.cumulativeIncome(address) (src/adapters/AaveV3Adapter.sol#317-322)\n\t- AaveV3Adapter.ledger(address) (src/adapters/AaveV3Adapter.sol#359-361)\n\t- AaveV3Adapter.positionKeys() (src/adapters/AaveV3Adapter.sol#325-335)\n\t- AaveV3Adapter.positionValue(bytes32) (src/adapters/AaveV3Adapter.sol#298-308)\n\t- AaveV3Adapter.unwindExitParams(bytes32,uint256,uint256) (src/adapters/AaveV3Adapter.sol#340-350)\n"
+  },
+  {
+   "id": "0833cd96e5ef",
+   "check": "reentrancy-no-eth",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/adapters/AaveV3Adapter.sol:478",
+   "first_markdown_element": "src/adapters/AaveV3Adapter.sol#L478-L497",
+   "description": "Reentrancy in AaveV3Adapter._withdraw(address,AaveV3Adapter.Ledger,uint256,bool) (src/adapters/AaveV3Adapter.sol#478-497):\n\tExternal calls:\n\t- paid = pool.withdraw(asset,amount,vault) (src/adapters/AaveV3Adapter.sol#483-487)\n\t- withdrawn = pool.withdraw(asset,amount,vault) (src/adapters/AaveV3Adapter.sol#489)\n\tState variables written after the call(s):\n\t- l.scaledBalance = scaledBalance - burned (src/adapters/AaveV3Adapter.sol#495)\n\tAaveV3Adapter._ledgers (src/adapters/AaveV3Adapter.sol#75) can be used in cross function reentrancies:\n\t- AaveV3Adapter._listedAsset(bytes32) (src/adapters/AaveV3Adapter.sol#513-517)\n\t- AaveV3Adapter._openAsset(bytes32) (src/adapters/AaveV3Adapter.sol#520-523)\n\t- AaveV3Adapter.constructor(address,address,address,address[]) (src/adapters/AaveV3Adapter.sol#123-138)\n\t- AaveV3Adapter.cumulativeIncome(address) (src/adapters/AaveV3Adapter.sol#317-322)\n\t- AaveV3Adapter.ledger(address) (src/adapters/AaveV3Adapter.sol#359-361)\n\t- AaveV3Adapter.positionKeys() (src/adapters/AaveV3Adapter.sol#325-335)\n\t- AaveV3Adapter.positionValue(bytes32) (src/adapters/AaveV3Adapter.sol#298-308)\n\t- AaveV3Adapter.unwindExitParams(bytes32,uint256,uint256) (src/adapters/AaveV3Adapter.sol#340-350)\n"
+  },
+  {
+   "id": "3038149a9623",
+   "check": "reentrancy-no-eth",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/adapters/AaveV3Adapter.sol:164",
+   "first_markdown_element": "src/adapters/AaveV3Adapter.sol#L164-L183",
+   "description": "Reentrancy in AaveV3Adapter.openPosition(bytes32,bytes) (src/adapters/AaveV3Adapter.sol#164-183):\n\tExternal calls:\n\t- used0 = _supply(asset,l,params) (src/adapters/AaveV3Adapter.sol#178)\n\t\t- pool.supply(asset,amount,address(this),0) (src/adapters/AaveV3Adapter.sol#468)\n\tState variables written after the call(s):\n\t- l.principal = used0 (src/adapters/AaveV3Adapter.sol#179)\n\tAaveV3Adapter._ledgers (src/adapters/AaveV3Adapter.sol#75) can be used in cross function reentrancies:\n\t- AaveV3Adapter._listedAsset(bytes32) (src/adapters/AaveV3Adapter.sol#513-517)\n\t- AaveV3Adapter._openAsset(bytes32) (src/adapters/AaveV3Adapter.sol#520-523)\n\t- AaveV3Adapter.constructor(address,address,address,address[]) (src/adapters/AaveV3Adapter.sol#123-138)\n\t- AaveV3Adapter.cumulativeIncome(address) (src/adapters/AaveV3Adapter.sol#317-322)\n\t- AaveV3Adapter.ledger(address) (src/adapters/AaveV3Adapter.sol#359-361)\n\t- AaveV3Adapter.positionKeys() (src/adapters/AaveV3Adapter.sol#325-335)\n\t- AaveV3Adapter.positionValue(bytes32) (src/adapters/AaveV3Adapter.sol#298-308)\n\t- AaveV3Adapter.unwindExitParams(bytes32,uint256,uint256) (src/adapters/AaveV3Adapter.sol#340-350)\n"
+  },
+  {
+   "id": "4646ddf45ce8",
+   "check": "reentrancy-no-eth",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeVault.sol:779",
+   "first_markdown_element": "src/spoke/SpokeVault.sol#L779-L809",
+   "description": "Reentrancy in SpokeVault._swap(IAdapter,SpokeVaultTypes.PoolTokens,bytes32,address,uint256,uint256,bytes,bool) (src/spoke/SpokeVault.sol#779-809):\n\tExternal calls:\n\t- amountOut = a.swapExactInput(poolKey,tokenIn,amountIn,minAmountOut,params) (src/spoke/SpokeVault.sol#799)\n\tState variables written after the call(s):\n\t- _s.collectedIncome[tokenOut] += amountOut (src/spoke/SpokeVault.sol#802)\n\tSpokeVault._s (src/spoke/SpokeVault.sol#93) can be used in cross function reentrancies:\n\t- SpokeVault._copyUnwindOrder(Mandate,uint256) (src/spoke/SpokeVault.sol#211-215)\n\t- SpokeVault._pinAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#188-196)\n\t- SpokeVault._pinBridgeAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#219-229)\n\t- SpokeVault._pinPools(Mandate,uint256) (src/spoke/SpokeVault.sol#199-208)\n\t- SpokeVault._pool(address,bytes32) (src/spoke/SpokeVault.sol#703-706)\n\t- SpokeVault._registerToken(address) (src/spoke/SpokeVault.sol#236-240)\n\t- SpokeVault.adapterCodehash(address) (src/spoke/SpokeVault.sol#586-588)\n\t- SpokeVault.adapters() (src/spoke/SpokeVault.sol#570-572)\n\t- SpokeVault.arrivals(bytes32) (src/spoke/SpokeVault.sol#666-668)\n\t- SpokeVault.bridgeAdapters() (src/spoke/SpokeVault.sol#575-577)\n\t- SpokeVault.bridgeTarget(address) (src/spoke/SpokeVault.sol#580-582)\n\t- SpokeVault.buildReport() (src/spoke/SpokeVault.sol#421-428)\n\t- SpokeVault.collectedIncome(address) (src/spoke/SpokeVault.sol#608-610)\n\t- SpokeVault.constructor(Mandate,bytes32,uint256,address,address,address,address,address,address) (src/spoke/SpokeVault.sol#132-185)\n\t- SpokeVault.cumulativeIncome(address) (src/spoke/SpokeVault.sol#615-617)\n\t- SpokeVault.cumulativeReceived() (src/spoke/SpokeVault.sol#640-642)\n\t- SpokeVault.cumulativeSentHome() (src/spoke/SpokeVault.sol#645-647)\n\t- SpokeVault.hasArrived(bytes32) (src/spoke/SpokeVault.sol#660-662)\n\t- SpokeVault.hubBoundTransit(bytes32) (src/spoke/SpokeVault.sol#655-657)\n\t- SpokeVault.inFlightTransitIds() (src/spoke/SpokeVault.sol#671-673)\n\t- SpokeVault.ledgerTokens() (src/spoke/SpokeVault.sol#603-605)\n\t- SpokeVault.operatingCash() (src/spoke/SpokeVault.sol#625-627)\n\t- SpokeVault.operatingCashFloor() (src/spoke/SpokeVault.sol#630-632)\n\t- SpokeVault.operatingCashTopUp() (src/spoke/SpokeVault.sol#635-637)\n\t- SpokeVault.positions() (src/spoke/SpokeVault.sol#620-622)\n\t- SpokeVault.reportSequence() (src/spoke/SpokeVault.sol#650-652)\n\t- SpokeVault.setOperatingCashParameters(uint256,uint256) (src/spoke/SpokeVault.sol#368-372)\n\t- SpokeVault.unallocatedBalance(address) (src/spoke/SpokeVault.sol#597-599)\n\t- _s.unallocated[tokenOut] += amountOut (src/spoke/SpokeVault.sol#805)\n\tSpokeVault._s (src/spoke/SpokeVault.sol#93) can be used in cross function reentrancies:\n\t- SpokeVault._copyUnwindOrder(Mandate,uint256) (src/spoke/SpokeVault.sol#211-215)\n\t- SpokeVault._pinAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#188-196)\n\t- SpokeVault._pinBridgeAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#219-229)\n\t- SpokeVault._pinPools(Mandate,uint256) (src/spoke/SpokeVault.sol#199-208)\n\t- SpokeVault._pool(address,bytes32) (src/spoke/SpokeVault.sol#703-706)\n\t- SpokeVault._registerToken(address) (src/spoke/SpokeVault.sol#236-240)\n\t- SpokeVault.adapterCodehash(address) (src/spoke/SpokeVault.sol#586-588)\n\t- SpokeVault.adapters() (src/spoke/SpokeVault.sol#570-572)\n\t- SpokeVault.arrivals(bytes32) (src/spoke/SpokeVault.sol#666-668)\n\t- SpokeVault.bridgeAdapters() (src/spoke/SpokeVault.sol#575-577)\n\t- SpokeVault.bridgeTarget(address) (src/spoke/SpokeVault.sol#580-582)\n\t- SpokeVault.buildReport() (src/spoke/SpokeVault.sol#421-428)\n\t- SpokeVault.collectedIncome(address) (src/spoke/SpokeVault.sol#608-610)\n\t- SpokeVault.constructor(Mandate,bytes32,uint256,address,address,address,address,address,address) (src/spoke/SpokeVault.sol#132-185)\n\t- SpokeVault.cumulativeIncome(address) (src/spoke/SpokeVault.sol#615-617)\n\t- SpokeVault.cumulativeReceived() (src/spoke/SpokeVault.sol#640-642)\n\t- SpokeVault.cumulativeSentHome() (src/spoke/SpokeVault.sol#645-647)\n\t- SpokeVault.hasArrived(bytes32) (src/spoke/SpokeVault.sol#660-662)\n\t- SpokeVault.hubBoundTransit(bytes32) (src/spoke/SpokeVault.sol#655-657)\n\t- SpokeVault.inFlightTransitIds() (src/spoke/SpokeVault.sol#671-673)\n\t- SpokeVault.ledgerTokens() (src/spoke/SpokeVault.sol#603-605)\n\t- SpokeVault.operatingCash() (src/spoke/SpokeVault.sol#625-627)\n\t- SpokeVault.operatingCashFloor() (src/spoke/SpokeVault.sol#630-632)\n\t- SpokeVault.operatingCashTopUp() (src/spoke/SpokeVault.sol#635-637)\n\t- SpokeVault.positions() (src/spoke/SpokeVault.sol#620-622)\n\t- SpokeVault.reportSequence() (src/spoke/SpokeVault.sol#650-652)\n\t- SpokeVault.setOperatingCashParameters(uint256,uint256) (src/spoke/SpokeVault.sol#368-372)\n\t- SpokeVault.unallocatedBalance(address) (src/spoke/SpokeVault.sol#597-599)\n"
+  },
+  {
+   "id": "6e286522b77c",
+   "check": "reentrancy-no-eth",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/adapters/AaveV3Adapter.sol:439",
+   "first_markdown_element": "src/adapters/AaveV3Adapter.sol#L439-L452",
+   "description": "Reentrancy in AaveV3Adapter._takeIncome(address,AaveV3Adapter.Ledger,uint256,uint256,uint256) (src/adapters/AaveV3Adapter.sol#439-452):\n\tExternal calls:\n\t- take != 0 && ! _withdraw(asset,l,take,true) (src/adapters/AaveV3Adapter.sol#445)\n\t\t- paid = pool.withdraw(asset,amount,vault) (src/adapters/AaveV3Adapter.sol#483-487)\n\t\t- withdrawn = pool.withdraw(asset,amount,vault) (src/adapters/AaveV3Adapter.sol#489)\n\tState variables written after the call(s):\n\t- l.realizedIncome += take (src/adapters/AaveV3Adapter.sol#446)\n\tAaveV3Adapter._ledgers (src/adapters/AaveV3Adapter.sol#75) can be used in cross function reentrancies:\n\t- AaveV3Adapter._listedAsset(bytes32) (src/adapters/AaveV3Adapter.sol#513-517)\n\t- AaveV3Adapter._openAsset(bytes32) (src/adapters/AaveV3Adapter.sol#520-523)\n\t- AaveV3Adapter.constructor(address,address,address,address[]) (src/adapters/AaveV3Adapter.sol#123-138)\n\t- AaveV3Adapter.cumulativeIncome(address) (src/adapters/AaveV3Adapter.sol#317-322)\n\t- AaveV3Adapter.ledger(address) (src/adapters/AaveV3Adapter.sol#359-361)\n\t- AaveV3Adapter.positionKeys() (src/adapters/AaveV3Adapter.sol#325-335)\n\t- AaveV3Adapter.positionValue(bytes32) (src/adapters/AaveV3Adapter.sol#298-308)\n\t- AaveV3Adapter.unwindExitParams(bytes32,uint256,uint256) (src/adapters/AaveV3Adapter.sol#340-350)\n\t- l.principal -= Math.min(l.principal,expected - valueAfter) (src/adapters/AaveV3Adapter.sol#450)\n\tAaveV3Adapter._ledgers (src/adapters/AaveV3Adapter.sol#75) can be used in cross function reentrancies:\n\t- AaveV3Adapter._listedAsset(bytes32) (src/adapters/AaveV3Adapter.sol#513-517)\n\t- AaveV3Adapter._openAsset(bytes32) (src/adapters/AaveV3Adapter.sol#520-523)\n\t- AaveV3Adapter.constructor(address,address,address,address[]) (src/adapters/AaveV3Adapter.sol#123-138)\n\t- AaveV3Adapter.cumulativeIncome(address) (src/adapters/AaveV3Adapter.sol#317-322)\n\t- AaveV3Adapter.ledger(address) (src/adapters/AaveV3Adapter.sol#359-361)\n\t- AaveV3Adapter.positionKeys() (src/adapters/AaveV3Adapter.sol#325-335)\n\t- AaveV3Adapter.positionValue(bytes32) (src/adapters/AaveV3Adapter.sol#298-308)\n\t- AaveV3Adapter.unwindExitParams(bytes32,uint256,uint256) (src/adapters/AaveV3Adapter.sol#340-350)\n"
+  },
+  {
+   "id": "86ae48738aca",
+   "check": "reentrancy-no-eth",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/core/CoreVault.sol:144",
+   "first_markdown_element": "src/core/CoreVault.sol#L144-L177",
+   "description": "Reentrancy in CoreVault.claimPayout(bytes) (src/core/CoreVault.sol#144-177):\n\tExternal calls:\n\t- c.proceeds = _unwindForPayout(shortfall + shortfall * UNWIND_MARGIN_BPS / 10_000,unwindHints) (src/core/CoreVault.sol#160)\n\t\t- ISpokeVault(hubSpokeVault).unwindForPayout(target,hints) (src/core/CoreVault.sol#207-212)\n\t- receipt = _executePayout(c,req) (src/core/CoreVault.sol#174)\n\t\t- ShareToken(shareToken).burn(msg.sender,c.shares) (src/core/CoreVault.sol#258)\n\tState variables written after the call(s):\n\t- receipt = _executePayout(c,req) (src/core/CoreVault.sol#174)\n\t\t- _s.collectedIncome[token] -= amount (src/core/CoreVaultIncome.sol#56)\n\t\t- _s.idle -= r.usdcGross (src/core/CoreVault.sol#239)\n\t\t- _s.operatingCash += r.payoutFee (src/core/CoreVault.sol#243)\n\t\t- req.open = false (src/core/CoreVault.sol#246)\n\t\t- req.usdcOutstanding = 0 (src/core/CoreVault.sol#247)\n\t\t- req.reserved = 0 (src/core/CoreVault.sol#248)\n\t\t- _s.payoutReserve -= used + reserved (src/core/CoreVault.sol#249)\n\t\t- req.usdcOutstanding -= r.usdcGross (src/core/CoreVault.sol#251)\n\t\t- req.reserved = reserved (src/core/CoreVault.sol#253)\n\t\t- _s.payoutReserve -= used (src/core/CoreVault.sol#254)\n\tCoreVaultBase._s (src/core/CoreVaultBase.sol#56) can be used in cross function reentrancies:\n\t- CoreVaultBase._copyMandate(Mandate) (src/core/CoreVaultBase.sol#119-148)\n\t- CoreVaultBase._ledger(address) (src/core/CoreVaultBase.sol#324-327)\n\t- CoreVaultBase._pinBridgeAdapters(Mandate) (src/core/CoreVaultBase.sol#152-161)\n\t- CoreVaultIncome.attributedIncome(address,address) (src/core/CoreVaultIncome.sol#86-89)\n\t- CoreVaultIncome.collectedIncome(address) (src/core/CoreVaultIncome.sol#92-94)\n\t- CoreVaultBase.constructor(Mandate,CoreVaultConfig) (src/core/CoreVaultBase.sol#68-116)\n\t- CoreVaultBase.freeIdle() (src/core/CoreVaultBase.sol#200-202)\n\t- CoreVaultBase.grossAssets() (src/core/CoreVaultBase.sol#250-252)\n\t- CoreVaultBase.idle() (src/core/CoreVaultBase.sol#190-192)\n\t- CoreVaultBase.inFlightValue() (src/core/CoreVaultBase.sol#245-247)\n\t- CoreVaultIncome.incomeState(address) (src/core/CoreVaultIncome.sol#102-104)\n\t- CoreVaultIncome.incomeTokens() (src/core/CoreVaultIncome.sol#81-83)\n\t- CoreVaultIncome.managementFeeBps() (src/core/CoreVaultIncome.sol#112-114)\n\t- CoreVaultBase.mandate() (src/core/CoreVaultBase.sol#185-187)\n\t- CoreVaultBase.operatingCash() (src/core/CoreVaultBase.sol#205-207)\n\t- CoreVaultBase.operatingCashFloor() (src/core/CoreVaultBase.sol#210-212)\n\t- CoreVaultBase.operatingCashTopUp() (src/core/CoreVaultBase.sol#215-217)\n\t- CoreVaultIncome.ownerlessIncome(address) (src/core/CoreVaultIncome.sol#97-99)\n\t- CoreVaultBase.payoutRequest(address) (src/core/CoreVaultBase.sol#230-232)\n\t- CoreVaultBase.payoutReserve() (src/core/CoreVaultBase.sol#195-197)\n\t- CoreVaultIncome.performanceFeeBps() (src/core/CoreVaultIncome.sol#107-109)\n\t- CoreVaultTransit.returnToIdle(uint256) (src/core/CoreVaultTransit.sol#43-50)\n\t- CoreVaultBase.setOperatingCashParameters(uint256,uint256) (src/core/CoreVaultBase.sol#269-273)\n\t- CoreVaultBase.shareAssets() (src/core/CoreVaultBase.sol#235-237)\n\t- CoreVaultBase.spokeCapUsage(uint256) (src/core/CoreVaultBase.sol#255-261)\n\t- CoreVaultBase.transit(bytes32) (src/core/CoreVaultBase.sol#225-227)\n\t- CoreVaultBase.unmatchedArrivals() (src/core/CoreVaultBase.sol#220-222)\n"
+  },
+  {
+   "id": "8ba212c96734",
+   "check": "reentrancy-no-eth",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeVault.sol:274",
+   "first_markdown_element": "src/spoke/SpokeVault.sol#L274-L292",
+   "description": "Reentrancy in SpokeVault.increasePosition(address,bytes32,uint256,uint256,bytes) (src/spoke/SpokeVault.sol#274-292):\n\tExternal calls:\n\t- (used0,used1,income0,income1) = a.increasePosition(positionKey,params) (src/spoke/SpokeVault.sol#287)\n\tState variables written after the call(s):\n\t- _creditUnused(adapter,p,amount0,used0,amount1,used1) (src/spoke/SpokeVault.sol#288)\n\t\t- _s.unallocated[p.token0] += sent0 - used0 (src/spoke/SpokeVault.sol#944)\n\t\t- _s.unallocated[p.token1] += sent1 - used1 (src/spoke/SpokeVault.sol#945)\n\tSpokeVault._s (src/spoke/SpokeVault.sol#93) can be used in cross function reentrancies:\n\t- SpokeVault._copyUnwindOrder(Mandate,uint256) (src/spoke/SpokeVault.sol#211-215)\n\t- SpokeVault._pinAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#188-196)\n\t- SpokeVault._pinBridgeAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#219-229)\n\t- SpokeVault._pinPools(Mandate,uint256) (src/spoke/SpokeVault.sol#199-208)\n\t- SpokeVault._pool(address,bytes32) (src/spoke/SpokeVault.sol#703-706)\n\t- SpokeVault._registerToken(address) (src/spoke/SpokeVault.sol#236-240)\n\t- SpokeVault.adapterCodehash(address) (src/spoke/SpokeVault.sol#586-588)\n\t- SpokeVault.adapters() (src/spoke/SpokeVault.sol#570-572)\n\t- SpokeVault.arrivals(bytes32) (src/spoke/SpokeVault.sol#666-668)\n\t- SpokeVault.bridgeAdapters() (src/spoke/SpokeVault.sol#575-577)\n\t- SpokeVault.bridgeTarget(address) (src/spoke/SpokeVault.sol#580-582)\n\t- SpokeVault.buildReport() (src/spoke/SpokeVault.sol#421-428)\n\t- SpokeVault.collectedIncome(address) (src/spoke/SpokeVault.sol#608-610)\n\t- SpokeVault.constructor(Mandate,bytes32,uint256,address,address,address,address,address,address) (src/spoke/SpokeVault.sol#132-185)\n\t- SpokeVault.cumulativeIncome(address) (src/spoke/SpokeVault.sol#615-617)\n\t- SpokeVault.cumulativeReceived() (src/spoke/SpokeVault.sol#640-642)\n\t- SpokeVault.cumulativeSentHome() (src/spoke/SpokeVault.sol#645-647)\n\t- SpokeVault.hasArrived(bytes32) (src/spoke/SpokeVault.sol#660-662)\n\t- SpokeVault.hubBoundTransit(bytes32) (src/spoke/SpokeVault.sol#655-657)\n\t- SpokeVault.inFlightTransitIds() (src/spoke/SpokeVault.sol#671-673)\n\t- SpokeVault.ledgerTokens() (src/spoke/SpokeVault.sol#603-605)\n\t- SpokeVault.operatingCash() (src/spoke/SpokeVault.sol#625-627)\n\t- SpokeVault.operatingCashFloor() (src/spoke/SpokeVault.sol#630-632)\n\t- SpokeVault.operatingCashTopUp() (src/spoke/SpokeVault.sol#635-637)\n\t- SpokeVault.positions() (src/spoke/SpokeVault.sol#620-622)\n\t- SpokeVault.reportSequence() (src/spoke/SpokeVault.sol#650-652)\n\t- SpokeVault.setOperatingCashParameters(uint256,uint256) (src/spoke/SpokeVault.sol#368-372)\n\t- SpokeVault.unallocatedBalance(address) (src/spoke/SpokeVault.sol#597-599)\n\t- _credit(p,IAdapter.Amounts(0,0,income0,income1)) (src/spoke/SpokeVault.sol#289)\n\t\t- _s.unallocated[p.token0] += a.principal0 (src/spoke/SpokeVault.sol#951)\n\t\t- _s.collectedIncome[p.token0] += a.income0 (src/spoke/SpokeVault.sol#952)\n\t\t- _s.unallocated[p.token1] += a.principal1 (src/spoke/SpokeVault.sol#954)\n\t\t- _s.collectedIncome[p.token1] += a.income1 (src/spoke/SpokeVault.sol#955)\n\tSpokeVault._s (src/spoke/SpokeVault.sol#93) can be used in cross function reentrancies:\n\t- SpokeVault._copyUnwindOrder(Mandate,uint256) (src/spoke/SpokeVault.sol#211-215)\n\t- SpokeVault._pinAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#188-196)\n\t- SpokeVault._pinBridgeAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#219-229)\n\t- SpokeVault._pinPools(Mandate,uint256) (src/spoke/SpokeVault.sol#199-208)\n\t- SpokeVault._pool(address,bytes32) (src/spoke/SpokeVault.sol#703-706)\n\t- SpokeVault._registerToken(address) (src/spoke/SpokeVault.sol#236-240)\n\t- SpokeVault.adapterCodehash(address) (src/spoke/SpokeVault.sol#586-588)\n\t- SpokeVault.adapters() (src/spoke/SpokeVault.sol#570-572)\n\t- SpokeVault.arrivals(bytes32) (src/spoke/SpokeVault.sol#666-668)\n\t- SpokeVault.bridgeAdapters() (src/spoke/SpokeVault.sol#575-577)\n\t- SpokeVault.bridgeTarget(address) (src/spoke/SpokeVault.sol#580-582)\n\t- SpokeVault.buildReport() (src/spoke/SpokeVault.sol#421-428)\n\t- SpokeVault.collectedIncome(address) (src/spoke/SpokeVault.sol#608-610)\n\t- SpokeVault.constructor(Mandate,bytes32,uint256,address,address,address,address,address,address) (src/spoke/SpokeVault.sol#132-185)\n\t- SpokeVault.cumulativeIncome(address) (src/spoke/SpokeVault.sol#615-617)\n\t- SpokeVault.cumulativeReceived() (src/spoke/SpokeVault.sol#640-642)\n\t- SpokeVault.cumulativeSentHome() (src/spoke/SpokeVault.sol#645-647)\n\t- SpokeVault.hasArrived(bytes32) (src/spoke/SpokeVault.sol#660-662)\n\t- SpokeVault.hubBoundTransit(bytes32) (src/spoke/SpokeVault.sol#655-657)\n\t- SpokeVault.inFlightTransitIds() (src/spoke/SpokeVault.sol#671-673)\n\t- SpokeVault.ledgerTokens() (src/spoke/SpokeVault.sol#603-605)\n\t- SpokeVault.operatingCash() (src/spoke/SpokeVault.sol#625-627)\n\t- SpokeVault.operatingCashFloor() (src/spoke/SpokeVault.sol#630-632)\n\t- SpokeVault.operatingCashTopUp() (src/spoke/SpokeVault.sol#635-637)\n\t- SpokeVault.positions() (src/spoke/SpokeVault.sol#620-622)\n\t- SpokeVault.reportSequence() (src/spoke/SpokeVault.sol#650-652)\n\t- SpokeVault.setOperatingCashParameters(uint256,uint256) (src/spoke/SpokeVault.sol#368-372)\n\t- SpokeVault.unallocatedBalance(address) (src/spoke/SpokeVault.sol#597-599)\n"
+  },
+  {
+   "id": "96c739f6aae9",
+   "check": "reentrancy-no-eth",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/adapters/AaveV3Adapter.sol:382",
+   "first_markdown_element": "src/adapters/AaveV3Adapter.sol#L382-L430",
+   "description": "Reentrancy in AaveV3Adapter._exit(address,AaveV3Adapter.Ledger,uint256) (src/adapters/AaveV3Adapter.sol#382-430):\n\tExternal calls:\n\t- withdrawn = pool.withdraw(asset,type()(uint256).max,vault) (src/adapters/AaveV3Adapter.sol#399-416)\n\t- _withdraw(asset,l,principalAmount,false) (src/adapters/AaveV3Adapter.sol#424)\n\t\t- paid = pool.withdraw(asset,amount,vault) (src/adapters/AaveV3Adapter.sol#483-487)\n\t\t- withdrawn = pool.withdraw(asset,amount,vault) (src/adapters/AaveV3Adapter.sol#489)\n\tState variables written after the call(s):\n\t- _withdraw(asset,l,principalAmount,false) (src/adapters/AaveV3Adapter.sol#424)\n\t\t- l.scaledBalance = scaledBalance - burned (src/adapters/AaveV3Adapter.sol#495)\n\tAaveV3Adapter._ledgers (src/adapters/AaveV3Adapter.sol#75) can be used in cross function reentrancies:\n\t- AaveV3Adapter._listedAsset(bytes32) (src/adapters/AaveV3Adapter.sol#513-517)\n\t- AaveV3Adapter._openAsset(bytes32) (src/adapters/AaveV3Adapter.sol#520-523)\n\t- AaveV3Adapter.constructor(address,address,address,address[]) (src/adapters/AaveV3Adapter.sol#123-138)\n\t- AaveV3Adapter.cumulativeIncome(address) (src/adapters/AaveV3Adapter.sol#317-322)\n\t- AaveV3Adapter.ledger(address) (src/adapters/AaveV3Adapter.sol#359-361)\n\t- AaveV3Adapter.positionKeys() (src/adapters/AaveV3Adapter.sol#325-335)\n\t- AaveV3Adapter.positionValue(bytes32) (src/adapters/AaveV3Adapter.sol#298-308)\n\t- AaveV3Adapter.unwindExitParams(bytes32,uint256,uint256) (src/adapters/AaveV3Adapter.sol#340-350)\n"
+  },
+  {
+   "id": "9d0a7a3431f2",
+   "check": "reentrancy-no-eth",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/adapters/AaveV3Adapter.sol:190",
+   "first_markdown_element": "src/adapters/AaveV3Adapter.sol#L190-L209",
+   "description": "Reentrancy in AaveV3Adapter.increasePosition(bytes32,bytes) (src/adapters/AaveV3Adapter.sol#190-209):\n\tExternal calls:\n\t- used0 = _supply(asset,l,params) (src/adapters/AaveV3Adapter.sol#203)\n\t\t- pool.supply(asset,amount,address(this),0) (src/adapters/AaveV3Adapter.sol#468)\n\tState variables written after the call(s):\n\t- l.principal += used0 (src/adapters/AaveV3Adapter.sol#204)\n\tAaveV3Adapter._ledgers (src/adapters/AaveV3Adapter.sol#75) can be used in cross function reentrancies:\n\t- AaveV3Adapter._listedAsset(bytes32) (src/adapters/AaveV3Adapter.sol#513-517)\n\t- AaveV3Adapter._openAsset(bytes32) (src/adapters/AaveV3Adapter.sol#520-523)\n\t- AaveV3Adapter.constructor(address,address,address,address[]) (src/adapters/AaveV3Adapter.sol#123-138)\n\t- AaveV3Adapter.cumulativeIncome(address) (src/adapters/AaveV3Adapter.sol#317-322)\n\t- AaveV3Adapter.ledger(address) (src/adapters/AaveV3Adapter.sol#359-361)\n\t- AaveV3Adapter.positionKeys() (src/adapters/AaveV3Adapter.sol#325-335)\n\t- AaveV3Adapter.positionValue(bytes32) (src/adapters/AaveV3Adapter.sol#298-308)\n\t- AaveV3Adapter.unwindExitParams(bytes32,uint256,uint256) (src/adapters/AaveV3Adapter.sol#340-350)\n"
+  },
+  {
+   "id": "ae94b3228c6c",
+   "check": "reentrancy-no-eth",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeVault.sol:752",
+   "first_markdown_element": "src/spoke/SpokeVault.sol#L752-L775",
+   "description": "Reentrancy in SpokeVault._exit(address,bytes32,SpokeVaultTypes.ExitKind,bytes) (src/spoke/SpokeVault.sol#752-775):\n\tExternal calls:\n\t- amounts = a.closePosition(positionKey,params) (src/spoke/SpokeVault.sol#762)\n\tState variables written after the call(s):\n\t- _removePosition(adapter,positionKey) (src/spoke/SpokeVault.sol#766)\n\t\t- _s.positions[slot - 1] = moved (src/spoke/SpokeVault.sol#719)\n\t\t- _s.positionSlot[moved.adapter][moved.positionKey] = slot (src/spoke/SpokeVault.sol#720)\n\t\t- _s.positions.pop() (src/spoke/SpokeVault.sol#722)\n\t\t- delete _s.positionSlot[adapter][positionKey] (src/spoke/SpokeVault.sol#723)\n\tSpokeVault._s (src/spoke/SpokeVault.sol#93) can be used in cross function reentrancies:\n\t- SpokeVault._copyUnwindOrder(Mandate,uint256) (src/spoke/SpokeVault.sol#211-215)\n\t- SpokeVault._pinAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#188-196)\n\t- SpokeVault._pinBridgeAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#219-229)\n\t- SpokeVault._pinPools(Mandate,uint256) (src/spoke/SpokeVault.sol#199-208)\n\t- SpokeVault._pool(address,bytes32) (src/spoke/SpokeVault.sol#703-706)\n\t- SpokeVault._registerToken(address) (src/spoke/SpokeVault.sol#236-240)\n\t- SpokeVault.adapterCodehash(address) (src/spoke/SpokeVault.sol#586-588)\n\t- SpokeVault.adapters() (src/spoke/SpokeVault.sol#570-572)\n\t- SpokeVault.arrivals(bytes32) (src/spoke/SpokeVault.sol#666-668)\n\t- SpokeVault.bridgeAdapters() (src/spoke/SpokeVault.sol#575-577)\n\t- SpokeVault.bridgeTarget(address) (src/spoke/SpokeVault.sol#580-582)\n\t- SpokeVault.buildReport() (src/spoke/SpokeVault.sol#421-428)\n\t- SpokeVault.collectedIncome(address) (src/spoke/SpokeVault.sol#608-610)\n\t- SpokeVault.constructor(Mandate,bytes32,uint256,address,address,address,address,address,address) (src/spoke/SpokeVault.sol#132-185)\n\t- SpokeVault.cumulativeIncome(address) (src/spoke/SpokeVault.sol#615-617)\n\t- SpokeVault.cumulativeReceived() (src/spoke/SpokeVault.sol#640-642)\n\t- SpokeVault.cumulativeSentHome() (src/spoke/SpokeVault.sol#645-647)\n\t- SpokeVault.hasArrived(bytes32) (src/spoke/SpokeVault.sol#660-662)\n\t- SpokeVault.hubBoundTransit(bytes32) (src/spoke/SpokeVault.sol#655-657)\n\t- SpokeVault.inFlightTransitIds() (src/spoke/SpokeVault.sol#671-673)\n\t- SpokeVault.ledgerTokens() (src/spoke/SpokeVault.sol#603-605)\n\t- SpokeVault.operatingCash() (src/spoke/SpokeVault.sol#625-627)\n\t- SpokeVault.operatingCashFloor() (src/spoke/SpokeVault.sol#630-632)\n\t- SpokeVault.operatingCashTopUp() (src/spoke/SpokeVault.sol#635-637)\n\t- SpokeVault.positions() (src/spoke/SpokeVault.sol#620-622)\n\t- SpokeVault.reportSequence() (src/spoke/SpokeVault.sol#650-652)\n\t- SpokeVault.setOperatingCashParameters(uint256,uint256) (src/spoke/SpokeVault.sol#368-372)\n\t- SpokeVault.unallocatedBalance(address) (src/spoke/SpokeVault.sol#597-599)\n"
+  },
+  {
+   "id": "c8c34b30b100",
+   "check": "reentrancy-no-eth",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeVault.sol:842",
+   "first_markdown_element": "src/spoke/SpokeVault.sol#L842-L865",
+   "description": "Reentrancy in SpokeVault._unwindPosition(address,bytes32,bytes32,uint256,SpokeVaultTypes.UnwindSwap[]) (src/spoke/SpokeVault.sol#842-865):\n\tExternal calls:\n\t- _unwindSwap(r0,amounts.principal0) (src/spoke/SpokeVault.sol#863)\n\t\t- amountOut = a.swapExactInput(poolKey,tokenIn,amountIn,minAmountOut,params) (src/spoke/SpokeVault.sol#799)\n\t- _unwindSwap(r1,amounts.principal1) (src/spoke/SpokeVault.sol#864)\n\t\t- amountOut = a.swapExactInput(poolKey,tokenIn,amountIn,minAmountOut,params) (src/spoke/SpokeVault.sol#799)\n\t- (amounts,None) = _exit(adapter,positionKey,SpokeVaultTypes.ExitKind.Close,params) (src/spoke/SpokeVault.sol#860-862)\n\t\t- amounts = a.decreasePosition(positionKey,params) (src/spoke/SpokeVault.sol#759)\n\t\t- amounts = a.closePosition(positionKey,params) (src/spoke/SpokeVault.sol#762)\n\t\t- amounts = a.collectIncome(positionKey) (src/spoke/SpokeVault.sol#770)\n\t- (amounts,None) = _exit(adapter,positionKey,SpokeVaultTypes.ExitKind.Decrease,params) (src/spoke/SpokeVault.sol#860-862)\n\t\t- amounts = a.decreasePosition(positionKey,params) (src/spoke/SpokeVault.sol#759)\n\t\t- amounts = a.closePosition(positionKey,params) (src/spoke/SpokeVault.sol#762)\n\t\t- amounts = a.collectIncome(positionKey) (src/spoke/SpokeVault.sol#770)\n\tState variables written after the call(s):\n\t- _unwindSwap(r1,amounts.principal1) (src/spoke/SpokeVault.sol#864)\n\t\t- _s.unallocated[token] = available - amount (src/spoke/SpokeVault.sol#962)\n\t\t- _s.collectedIncome[tokenIn] = available - amountIn (src/spoke/SpokeVault.sol#794)\n\t\t- _s.collectedIncome[tokenOut] += amountOut (src/spoke/SpokeVault.sol#802)\n\t\t- _s.unallocated[tokenOut] += amountOut (src/spoke/SpokeVault.sol#805)\n\tSpokeVault._s (src/spoke/SpokeVault.sol#93) can be used in cross function reentrancies:\n\t- SpokeVault._copyUnwindOrder(Mandate,uint256) (src/spoke/SpokeVault.sol#211-215)\n\t- SpokeVault._pinAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#188-196)\n\t- SpokeVault._pinBridgeAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#219-229)\n\t- SpokeVault._pinPools(Mandate,uint256) (src/spoke/SpokeVault.sol#199-208)\n\t- SpokeVault._pool(address,bytes32) (src/spoke/SpokeVault.sol#703-706)\n\t- SpokeVault._registerToken(address) (src/spoke/SpokeVault.sol#236-240)\n\t- SpokeVault.adapterCodehash(address) (src/spoke/SpokeVault.sol#586-588)\n\t- SpokeVault.adapters() (src/spoke/SpokeVault.sol#570-572)\n\t- SpokeVault.arrivals(bytes32) (src/spoke/SpokeVault.sol#666-668)\n\t- SpokeVault.bridgeAdapters() (src/spoke/SpokeVault.sol#575-577)\n\t- SpokeVault.bridgeTarget(address) (src/spoke/SpokeVault.sol#580-582)\n\t- SpokeVault.buildReport() (src/spoke/SpokeVault.sol#421-428)\n\t- SpokeVault.collectedIncome(address) (src/spoke/SpokeVault.sol#608-610)\n\t- SpokeVault.constructor(Mandate,bytes32,uint256,address,address,address,address,address,address) (src/spoke/SpokeVault.sol#132-185)\n\t- SpokeVault.cumulativeIncome(address) (src/spoke/SpokeVault.sol#615-617)\n\t- SpokeVault.cumulativeReceived() (src/spoke/SpokeVault.sol#640-642)\n\t- SpokeVault.cumulativeSentHome() (src/spoke/SpokeVault.sol#645-647)\n\t- SpokeVault.hasArrived(bytes32) (src/spoke/SpokeVault.sol#660-662)\n\t- SpokeVault.hubBoundTransit(bytes32) (src/spoke/SpokeVault.sol#655-657)\n\t- SpokeVault.inFlightTransitIds() (src/spoke/SpokeVault.sol#671-673)\n\t- SpokeVault.ledgerTokens() (src/spoke/SpokeVault.sol#603-605)\n\t- SpokeVault.operatingCash() (src/spoke/SpokeVault.sol#625-627)\n\t- SpokeVault.operatingCashFloor() (src/spoke/SpokeVault.sol#630-632)\n\t- SpokeVault.operatingCashTopUp() (src/spoke/SpokeVault.sol#635-637)\n\t- SpokeVault.positions() (src/spoke/SpokeVault.sol#620-622)\n\t- SpokeVault.reportSequence() (src/spoke/SpokeVault.sol#650-652)\n\t- SpokeVault.setOperatingCashParameters(uint256,uint256) (src/spoke/SpokeVault.sol#368-372)\n\t- SpokeVault.unallocatedBalance(address) (src/spoke/SpokeVault.sol#597-599)\n"
+  },
+  {
+   "id": "cdbf82b5c641",
+   "check": "reentrancy-no-eth",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeVault.sol:249",
+   "first_markdown_element": "src/spoke/SpokeVault.sol#L249-L270",
+   "description": "Reentrancy in SpokeVault.openPosition(address,bytes32,uint256,uint256,bytes) (src/spoke/SpokeVault.sol#249-270):\n\tExternal calls:\n\t- (positionKey,used0,used1) = a.openPosition(poolKey,params) (src/spoke/SpokeVault.sol#261)\n\tState variables written after the call(s):\n\t- _creditUnused(adapter,p,amount0,used0,amount1,used1) (src/spoke/SpokeVault.sol#262)\n\t\t- _s.unallocated[p.token0] += sent0 - used0 (src/spoke/SpokeVault.sol#944)\n\t\t- _s.unallocated[p.token1] += sent1 - used1 (src/spoke/SpokeVault.sol#945)\n\tSpokeVault._s (src/spoke/SpokeVault.sol#93) can be used in cross function reentrancies:\n\t- SpokeVault._copyUnwindOrder(Mandate,uint256) (src/spoke/SpokeVault.sol#211-215)\n\t- SpokeVault._pinAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#188-196)\n\t- SpokeVault._pinBridgeAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#219-229)\n\t- SpokeVault._pinPools(Mandate,uint256) (src/spoke/SpokeVault.sol#199-208)\n\t- SpokeVault._pool(address,bytes32) (src/spoke/SpokeVault.sol#703-706)\n\t- SpokeVault._registerToken(address) (src/spoke/SpokeVault.sol#236-240)\n\t- SpokeVault.adapterCodehash(address) (src/spoke/SpokeVault.sol#586-588)\n\t- SpokeVault.adapters() (src/spoke/SpokeVault.sol#570-572)\n\t- SpokeVault.arrivals(bytes32) (src/spoke/SpokeVault.sol#666-668)\n\t- SpokeVault.bridgeAdapters() (src/spoke/SpokeVault.sol#575-577)\n\t- SpokeVault.bridgeTarget(address) (src/spoke/SpokeVault.sol#580-582)\n\t- SpokeVault.buildReport() (src/spoke/SpokeVault.sol#421-428)\n\t- SpokeVault.collectedIncome(address) (src/spoke/SpokeVault.sol#608-610)\n\t- SpokeVault.constructor(Mandate,bytes32,uint256,address,address,address,address,address,address) (src/spoke/SpokeVault.sol#132-185)\n\t- SpokeVault.cumulativeIncome(address) (src/spoke/SpokeVault.sol#615-617)\n\t- SpokeVault.cumulativeReceived() (src/spoke/SpokeVault.sol#640-642)\n\t- SpokeVault.cumulativeSentHome() (src/spoke/SpokeVault.sol#645-647)\n\t- SpokeVault.hasArrived(bytes32) (src/spoke/SpokeVault.sol#660-662)\n\t- SpokeVault.hubBoundTransit(bytes32) (src/spoke/SpokeVault.sol#655-657)\n\t- SpokeVault.inFlightTransitIds() (src/spoke/SpokeVault.sol#671-673)\n\t- SpokeVault.ledgerTokens() (src/spoke/SpokeVault.sol#603-605)\n\t- SpokeVault.operatingCash() (src/spoke/SpokeVault.sol#625-627)\n\t- SpokeVault.operatingCashFloor() (src/spoke/SpokeVault.sol#630-632)\n\t- SpokeVault.operatingCashTopUp() (src/spoke/SpokeVault.sol#635-637)\n\t- SpokeVault.positions() (src/spoke/SpokeVault.sol#620-622)\n\t- SpokeVault.reportSequence() (src/spoke/SpokeVault.sol#650-652)\n\t- SpokeVault.setOperatingCashParameters(uint256,uint256) (src/spoke/SpokeVault.sol#368-372)\n\t- SpokeVault.unallocatedBalance(address) (src/spoke/SpokeVault.sol#597-599)\n\t- _s.positions.push(PositionRef(adapter,positionKey,poolKey)) (src/spoke/SpokeVault.sol#266)\n\tSpokeVault._s (src/spoke/SpokeVault.sol#93) can be used in cross function reentrancies:\n\t- SpokeVault._copyUnwindOrder(Mandate,uint256) (src/spoke/SpokeVault.sol#211-215)\n\t- SpokeVault._pinAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#188-196)\n\t- SpokeVault._pinBridgeAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#219-229)\n\t- SpokeVault._pinPools(Mandate,uint256) (src/spoke/SpokeVault.sol#199-208)\n\t- SpokeVault._pool(address,bytes32) (src/spoke/SpokeVault.sol#703-706)\n\t- SpokeVault._registerToken(address) (src/spoke/SpokeVault.sol#236-240)\n\t- SpokeVault.adapterCodehash(address) (src/spoke/SpokeVault.sol#586-588)\n\t- SpokeVault.adapters() (src/spoke/SpokeVault.sol#570-572)\n\t- SpokeVault.arrivals(bytes32) (src/spoke/SpokeVault.sol#666-668)\n\t- SpokeVault.bridgeAdapters() (src/spoke/SpokeVault.sol#575-577)\n\t- SpokeVault.bridgeTarget(address) (src/spoke/SpokeVault.sol#580-582)\n\t- SpokeVault.buildReport() (src/spoke/SpokeVault.sol#421-428)\n\t- SpokeVault.collectedIncome(address) (src/spoke/SpokeVault.sol#608-610)\n\t- SpokeVault.constructor(Mandate,bytes32,uint256,address,address,address,address,address,address) (src/spoke/SpokeVault.sol#132-185)\n\t- SpokeVault.cumulativeIncome(address) (src/spoke/SpokeVault.sol#615-617)\n\t- SpokeVault.cumulativeReceived() (src/spoke/SpokeVault.sol#640-642)\n\t- SpokeVault.cumulativeSentHome() (src/spoke/SpokeVault.sol#645-647)\n\t- SpokeVault.hasArrived(bytes32) (src/spoke/SpokeVault.sol#660-662)\n\t- SpokeVault.hubBoundTransit(bytes32) (src/spoke/SpokeVault.sol#655-657)\n\t- SpokeVault.inFlightTransitIds() (src/spoke/SpokeVault.sol#671-673)\n\t- SpokeVault.ledgerTokens() (src/spoke/SpokeVault.sol#603-605)\n\t- SpokeVault.operatingCash() (src/spoke/SpokeVault.sol#625-627)\n\t- SpokeVault.operatingCashFloor() (src/spoke/SpokeVault.sol#630-632)\n\t- SpokeVault.operatingCashTopUp() (src/spoke/SpokeVault.sol#635-637)\n\t- SpokeVault.positions() (src/spoke/SpokeVault.sol#620-622)\n\t- SpokeVault.reportSequence() (src/spoke/SpokeVault.sol#650-652)\n\t- SpokeVault.setOperatingCashParameters(uint256,uint256) (src/spoke/SpokeVault.sol#368-372)\n\t- SpokeVault.unallocatedBalance(address) (src/spoke/SpokeVault.sol#597-599)\n\t- _s.positionSlot[adapter][positionKey] = _s.positions.length (src/spoke/SpokeVault.sol#267)\n\tSpokeVault._s (src/spoke/SpokeVault.sol#93) can be used in cross function reentrancies:\n\t- SpokeVault._copyUnwindOrder(Mandate,uint256) (src/spoke/SpokeVault.sol#211-215)\n\t- SpokeVault._pinAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#188-196)\n\t- SpokeVault._pinBridgeAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#219-229)\n\t- SpokeVault._pinPools(Mandate,uint256) (src/spoke/SpokeVault.sol#199-208)\n\t- SpokeVault._pool(address,bytes32) (src/spoke/SpokeVault.sol#703-706)\n\t- SpokeVault._registerToken(address) (src/spoke/SpokeVault.sol#236-240)\n\t- SpokeVault.adapterCodehash(address) (src/spoke/SpokeVault.sol#586-588)\n\t- SpokeVault.adapters() (src/spoke/SpokeVault.sol#570-572)\n\t- SpokeVault.arrivals(bytes32) (src/spoke/SpokeVault.sol#666-668)\n\t- SpokeVault.bridgeAdapters() (src/spoke/SpokeVault.sol#575-577)\n\t- SpokeVault.bridgeTarget(address) (src/spoke/SpokeVault.sol#580-582)\n\t- SpokeVault.buildReport() (src/spoke/SpokeVault.sol#421-428)\n\t- SpokeVault.collectedIncome(address) (src/spoke/SpokeVault.sol#608-610)\n\t- SpokeVault.constructor(Mandate,bytes32,uint256,address,address,address,address,address,address) (src/spoke/SpokeVault.sol#132-185)\n\t- SpokeVault.cumulativeIncome(address) (src/spoke/SpokeVault.sol#615-617)\n\t- SpokeVault.cumulativeReceived() (src/spoke/SpokeVault.sol#640-642)\n\t- SpokeVault.cumulativeSentHome() (src/spoke/SpokeVault.sol#645-647)\n\t- SpokeVault.hasArrived(bytes32) (src/spoke/SpokeVault.sol#660-662)\n\t- SpokeVault.hubBoundTransit(bytes32) (src/spoke/SpokeVault.sol#655-657)\n\t- SpokeVault.inFlightTransitIds() (src/spoke/SpokeVault.sol#671-673)\n\t- SpokeVault.ledgerTokens() (src/spoke/SpokeVault.sol#603-605)\n\t- SpokeVault.operatingCash() (src/spoke/SpokeVault.sol#625-627)\n\t- SpokeVault.operatingCashFloor() (src/spoke/SpokeVault.sol#630-632)\n\t- SpokeVault.operatingCashTopUp() (src/spoke/SpokeVault.sol#635-637)\n\t- SpokeVault.positions() (src/spoke/SpokeVault.sol#620-622)\n\t- SpokeVault.reportSequence() (src/spoke/SpokeVault.sol#650-652)\n\t- SpokeVault.setOperatingCashParameters(uint256,uint256) (src/spoke/SpokeVault.sol#368-372)\n\t- SpokeVault.unallocatedBalance(address) (src/spoke/SpokeVault.sol#597-599)\n"
+  },
+  {
+   "id": "ce1e77c42d98",
+   "check": "reentrancy-no-eth",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/adapters/AaveV3Adapter.sol:190",
+   "first_markdown_element": "src/adapters/AaveV3Adapter.sol#L190-L209",
+   "description": "Reentrancy in AaveV3Adapter.increasePosition(bytes32,bytes) (src/adapters/AaveV3Adapter.sol#190-209):\n\tExternal calls:\n\t- used0 = _supply(asset,l,params) (src/adapters/AaveV3Adapter.sol#203)\n\t\t- pool.supply(asset,amount,address(this),0) (src/adapters/AaveV3Adapter.sol#468)\n\t- income0 = _takeIncome(asset,l,index,income,_value(l,index)) (src/adapters/AaveV3Adapter.sol#205)\n\t\t- paid = pool.withdraw(asset,amount,vault) (src/adapters/AaveV3Adapter.sol#483-487)\n\t\t- withdrawn = pool.withdraw(asset,amount,vault) (src/adapters/AaveV3Adapter.sol#489)\n\tState variables written after the call(s):\n\t- income0 = _takeIncome(asset,l,index,income,_value(l,index)) (src/adapters/AaveV3Adapter.sol#205)\n\t\t- l.realizedIncome += take (src/adapters/AaveV3Adapter.sol#446)\n\t\t- l.principal -= Math.min(l.principal,expected - valueAfter) (src/adapters/AaveV3Adapter.sol#450)\n\t\t- l.scaledBalance = scaledBalance - burned (src/adapters/AaveV3Adapter.sol#495)\n\tAaveV3Adapter._ledgers (src/adapters/AaveV3Adapter.sol#75) can be used in cross function reentrancies:\n\t- AaveV3Adapter._listedAsset(bytes32) (src/adapters/AaveV3Adapter.sol#513-517)\n\t- AaveV3Adapter._openAsset(bytes32) (src/adapters/AaveV3Adapter.sol#520-523)\n\t- AaveV3Adapter.constructor(address,address,address,address[]) (src/adapters/AaveV3Adapter.sol#123-138)\n\t- AaveV3Adapter.cumulativeIncome(address) (src/adapters/AaveV3Adapter.sol#317-322)\n\t- AaveV3Adapter.ledger(address) (src/adapters/AaveV3Adapter.sol#359-361)\n\t- AaveV3Adapter.positionKeys() (src/adapters/AaveV3Adapter.sol#325-335)\n\t- AaveV3Adapter.positionValue(bytes32) (src/adapters/AaveV3Adapter.sol#298-308)\n\t- AaveV3Adapter.unwindExitParams(bytes32,uint256,uint256) (src/adapters/AaveV3Adapter.sol#340-350)\n"
+  },
+  {
+   "id": "de3aa90e3062",
+   "check": "reentrancy-no-eth",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/adapters/AaveV3Adapter.sol:457",
+   "first_markdown_element": "src/adapters/AaveV3Adapter.sol#L457-L473",
+   "description": "Reentrancy in AaveV3Adapter._supply(address,AaveV3Adapter.Ledger,bytes) (src/adapters/AaveV3Adapter.sol#457-473):\n\tExternal calls:\n\t- pool.supply(asset,amount,address(this),0) (src/adapters/AaveV3Adapter.sol#468)\n\tState variables written after the call(s):\n\t- l.scaledBalance += aToken.scaledBalanceOf(address(this)) - scaledBefore (src/adapters/AaveV3Adapter.sol#470)\n\tAaveV3Adapter._ledgers (src/adapters/AaveV3Adapter.sol#75) can be used in cross function reentrancies:\n\t- AaveV3Adapter._listedAsset(bytes32) (src/adapters/AaveV3Adapter.sol#513-517)\n\t- AaveV3Adapter._openAsset(bytes32) (src/adapters/AaveV3Adapter.sol#520-523)\n\t- AaveV3Adapter.constructor(address,address,address,address[]) (src/adapters/AaveV3Adapter.sol#123-138)\n\t- AaveV3Adapter.cumulativeIncome(address) (src/adapters/AaveV3Adapter.sol#317-322)\n\t- AaveV3Adapter.ledger(address) (src/adapters/AaveV3Adapter.sol#359-361)\n\t- AaveV3Adapter.positionKeys() (src/adapters/AaveV3Adapter.sol#325-335)\n\t- AaveV3Adapter.positionValue(bytes32) (src/adapters/AaveV3Adapter.sol#298-308)\n\t- AaveV3Adapter.unwindExitParams(bytes32,uint256,uint256) (src/adapters/AaveV3Adapter.sol#340-350)\n"
+  },
+  {
+   "id": "e9a841ab7116",
+   "check": "reentrancy-no-eth",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeVault.sol:524",
+   "first_markdown_element": "src/spoke/SpokeVault.sol#L524-L547",
+   "description": "Reentrancy in SpokeVault.unwindForPayout(uint256,bytes) (src/spoke/SpokeVault.sol#524-547):\n\tExternal calls:\n\t- visited = _unwindStep(_s.unwindOrder[s],hints,visited,usdcTarget) (src/spoke/SpokeVault.sol#538)\n\t\t- amounts = a.decreasePosition(positionKey,params) (src/spoke/SpokeVault.sol#759)\n\t\t- amounts = a.closePosition(positionKey,params) (src/spoke/SpokeVault.sol#762)\n\t\t- amounts = a.collectIncome(positionKey) (src/spoke/SpokeVault.sol#770)\n\t\t- amountOut = a.swapExactInput(poolKey,tokenIn,amountIn,minAmountOut,params) (src/spoke/SpokeVault.sol#799)\n\tState variables written after the call(s):\n\t- _s.unallocated[baseToken] -= usdcProceeds (src/spoke/SpokeVault.sol#543)\n\tSpokeVault._s (src/spoke/SpokeVault.sol#93) can be used in cross function reentrancies:\n\t- SpokeVault._copyUnwindOrder(Mandate,uint256) (src/spoke/SpokeVault.sol#211-215)\n\t- SpokeVault._pinAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#188-196)\n\t- SpokeVault._pinBridgeAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#219-229)\n\t- SpokeVault._pinPools(Mandate,uint256) (src/spoke/SpokeVault.sol#199-208)\n\t- SpokeVault._pool(address,bytes32) (src/spoke/SpokeVault.sol#703-706)\n\t- SpokeVault._registerToken(address) (src/spoke/SpokeVault.sol#236-240)\n\t- SpokeVault.adapterCodehash(address) (src/spoke/SpokeVault.sol#586-588)\n\t- SpokeVault.adapters() (src/spoke/SpokeVault.sol#570-572)\n\t- SpokeVault.arrivals(bytes32) (src/spoke/SpokeVault.sol#666-668)\n\t- SpokeVault.bridgeAdapters() (src/spoke/SpokeVault.sol#575-577)\n\t- SpokeVault.bridgeTarget(address) (src/spoke/SpokeVault.sol#580-582)\n\t- SpokeVault.buildReport() (src/spoke/SpokeVault.sol#421-428)\n\t- SpokeVault.collectedIncome(address) (src/spoke/SpokeVault.sol#608-610)\n\t- SpokeVault.constructor(Mandate,bytes32,uint256,address,address,address,address,address,address) (src/spoke/SpokeVault.sol#132-185)\n\t- SpokeVault.cumulativeIncome(address) (src/spoke/SpokeVault.sol#615-617)\n\t- SpokeVault.cumulativeReceived() (src/spoke/SpokeVault.sol#640-642)\n\t- SpokeVault.cumulativeSentHome() (src/spoke/SpokeVault.sol#645-647)\n\t- SpokeVault.hasArrived(bytes32) (src/spoke/SpokeVault.sol#660-662)\n\t- SpokeVault.hubBoundTransit(bytes32) (src/spoke/SpokeVault.sol#655-657)\n\t- SpokeVault.inFlightTransitIds() (src/spoke/SpokeVault.sol#671-673)\n\t- SpokeVault.ledgerTokens() (src/spoke/SpokeVault.sol#603-605)\n\t- SpokeVault.operatingCash() (src/spoke/SpokeVault.sol#625-627)\n\t- SpokeVault.operatingCashFloor() (src/spoke/SpokeVault.sol#630-632)\n\t- SpokeVault.operatingCashTopUp() (src/spoke/SpokeVault.sol#635-637)\n\t- SpokeVault.positions() (src/spoke/SpokeVault.sol#620-622)\n\t- SpokeVault.reportSequence() (src/spoke/SpokeVault.sol#650-652)\n\t- SpokeVault.setOperatingCashParameters(uint256,uint256) (src/spoke/SpokeVault.sol#368-372)\n\t- SpokeVault.unallocatedBalance(address) (src/spoke/SpokeVault.sol#597-599)\n"
+  },
+  {
+   "id": "ed1161ef909f",
+   "check": "reentrancy-no-eth",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/adapters/AaveV3Adapter.sol:382",
+   "first_markdown_element": "src/adapters/AaveV3Adapter.sol#L382-L430",
+   "description": "Reentrancy in AaveV3Adapter._exit(address,AaveV3Adapter.Ledger,uint256) (src/adapters/AaveV3Adapter.sol#382-430):\n\tExternal calls:\n\t- withdrawn = pool.withdraw(asset,type()(uint256).max,vault) (src/adapters/AaveV3Adapter.sol#399-416)\n\tState variables written after the call(s):\n\t- l.realizedIncome += amounts.income0 (src/adapters/AaveV3Adapter.sol#411)\n\tAaveV3Adapter._ledgers (src/adapters/AaveV3Adapter.sol#75) can be used in cross function reentrancies:\n\t- AaveV3Adapter._listedAsset(bytes32) (src/adapters/AaveV3Adapter.sol#513-517)\n\t- AaveV3Adapter._openAsset(bytes32) (src/adapters/AaveV3Adapter.sol#520-523)\n\t- AaveV3Adapter.constructor(address,address,address,address[]) (src/adapters/AaveV3Adapter.sol#123-138)\n\t- AaveV3Adapter.cumulativeIncome(address) (src/adapters/AaveV3Adapter.sol#317-322)\n\t- AaveV3Adapter.ledger(address) (src/adapters/AaveV3Adapter.sol#359-361)\n\t- AaveV3Adapter.positionKeys() (src/adapters/AaveV3Adapter.sol#325-335)\n\t- AaveV3Adapter.positionValue(bytes32) (src/adapters/AaveV3Adapter.sol#298-308)\n\t- AaveV3Adapter.unwindExitParams(bytes32,uint256,uint256) (src/adapters/AaveV3Adapter.sol#340-350)\n\t- l.scaledBalance = ledgerScaled (src/adapters/AaveV3Adapter.sol#414)\n\tAaveV3Adapter._ledgers (src/adapters/AaveV3Adapter.sol#75) can be used in cross function reentrancies:\n\t- AaveV3Adapter._listedAsset(bytes32) (src/adapters/AaveV3Adapter.sol#513-517)\n\t- AaveV3Adapter._openAsset(bytes32) (src/adapters/AaveV3Adapter.sol#520-523)\n\t- AaveV3Adapter.constructor(address,address,address,address[]) (src/adapters/AaveV3Adapter.sol#123-138)\n\t- AaveV3Adapter.cumulativeIncome(address) (src/adapters/AaveV3Adapter.sol#317-322)\n\t- AaveV3Adapter.ledger(address) (src/adapters/AaveV3Adapter.sol#359-361)\n\t- AaveV3Adapter.positionKeys() (src/adapters/AaveV3Adapter.sol#325-335)\n\t- AaveV3Adapter.positionValue(bytes32) (src/adapters/AaveV3Adapter.sol#298-308)\n\t- AaveV3Adapter.unwindExitParams(bytes32,uint256,uint256) (src/adapters/AaveV3Adapter.sol#340-350)\n\t- l.principal = ledgerPrincipal (src/adapters/AaveV3Adapter.sol#415)\n\tAaveV3Adapter._ledgers (src/adapters/AaveV3Adapter.sol#75) can be used in cross function reentrancies:\n\t- AaveV3Adapter._listedAsset(bytes32) (src/adapters/AaveV3Adapter.sol#513-517)\n\t- AaveV3Adapter._openAsset(bytes32) (src/adapters/AaveV3Adapter.sol#520-523)\n\t- AaveV3Adapter.constructor(address,address,address,address[]) (src/adapters/AaveV3Adapter.sol#123-138)\n\t- AaveV3Adapter.cumulativeIncome(address) (src/adapters/AaveV3Adapter.sol#317-322)\n\t- AaveV3Adapter.ledger(address) (src/adapters/AaveV3Adapter.sol#359-361)\n\t- AaveV3Adapter.positionKeys() (src/adapters/AaveV3Adapter.sol#325-335)\n\t- AaveV3Adapter.positionValue(bytes32) (src/adapters/AaveV3Adapter.sol#298-308)\n\t- AaveV3Adapter.unwindExitParams(bytes32,uint256,uint256) (src/adapters/AaveV3Adapter.sol#340-350)\n\t- l.principal = 0 (src/adapters/AaveV3Adapter.sol#423)\n\tAaveV3Adapter._ledgers (src/adapters/AaveV3Adapter.sol#75) can be used in cross function reentrancies:\n\t- AaveV3Adapter._listedAsset(bytes32) (src/adapters/AaveV3Adapter.sol#513-517)\n\t- AaveV3Adapter._openAsset(bytes32) (src/adapters/AaveV3Adapter.sol#520-523)\n\t- AaveV3Adapter.constructor(address,address,address,address[]) (src/adapters/AaveV3Adapter.sol#123-138)\n\t- AaveV3Adapter.cumulativeIncome(address) (src/adapters/AaveV3Adapter.sol#317-322)\n\t- AaveV3Adapter.ledger(address) (src/adapters/AaveV3Adapter.sol#359-361)\n\t- AaveV3Adapter.positionKeys() (src/adapters/AaveV3Adapter.sol#325-335)\n\t- AaveV3Adapter.positionValue(bytes32) (src/adapters/AaveV3Adapter.sol#298-308)\n\t- AaveV3Adapter.unwindExitParams(bytes32,uint256,uint256) (src/adapters/AaveV3Adapter.sol#340-350)\n\t- l.principal = l.principal - principalAmount (src/adapters/AaveV3Adapter.sol#423)\n\tAaveV3Adapter._ledgers (src/adapters/AaveV3Adapter.sol#75) can be used in cross function reentrancies:\n\t- AaveV3Adapter._listedAsset(bytes32) (src/adapters/AaveV3Adapter.sol#513-517)\n\t- AaveV3Adapter._openAsset(bytes32) (src/adapters/AaveV3Adapter.sol#520-523)\n\t- AaveV3Adapter.constructor(address,address,address,address[]) (src/adapters/AaveV3Adapter.sol#123-138)\n\t- AaveV3Adapter.cumulativeIncome(address) (src/adapters/AaveV3Adapter.sol#317-322)\n\t- AaveV3Adapter.ledger(address) (src/adapters/AaveV3Adapter.sol#359-361)\n\t- AaveV3Adapter.positionKeys() (src/adapters/AaveV3Adapter.sol#325-335)\n\t- AaveV3Adapter.positionValue(bytes32) (src/adapters/AaveV3Adapter.sol#298-308)\n\t- AaveV3Adapter.unwindExitParams(bytes32,uint256,uint256) (src/adapters/AaveV3Adapter.sol#340-350)\n"
+  },
+  {
+   "id": "ed58748562ae",
+   "check": "reentrancy-no-eth",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/core/CoreVault.sol:217",
+   "first_markdown_element": "src/core/CoreVault.sol#L217-L262",
+   "description": "Reentrancy in CoreVault._executePayout(CoreVault.Claim,ICoreVault.PayoutRequest) (src/core/CoreVault.sol#217-262):\n\tExternal calls:\n\t- ShareToken(shareToken).burn(msg.sender,c.shares) (src/core/CoreVault.sol#258)\n\tState variables written after the call(s):\n\t- _payAllIncome(msg.sender) (src/core/CoreVault.sol#261)\n\t\t- _s.collectedIncome[token] -= amount (src/core/CoreVaultIncome.sol#56)\n\tCoreVaultBase._s (src/core/CoreVaultBase.sol#56) can be used in cross function reentrancies:\n\t- CoreVaultBase._copyMandate(Mandate) (src/core/CoreVaultBase.sol#119-148)\n\t- CoreVaultBase._ledger(address) (src/core/CoreVaultBase.sol#324-327)\n\t- CoreVaultBase._pinBridgeAdapters(Mandate) (src/core/CoreVaultBase.sol#152-161)\n\t- CoreVaultIncome.attributedIncome(address,address) (src/core/CoreVaultIncome.sol#86-89)\n\t- CoreVaultIncome.collectedIncome(address) (src/core/CoreVaultIncome.sol#92-94)\n\t- CoreVaultBase.constructor(Mandate,CoreVaultConfig) (src/core/CoreVaultBase.sol#68-116)\n\t- CoreVaultBase.freeIdle() (src/core/CoreVaultBase.sol#200-202)\n\t- CoreVaultBase.grossAssets() (src/core/CoreVaultBase.sol#250-252)\n\t- CoreVaultBase.idle() (src/core/CoreVaultBase.sol#190-192)\n\t- CoreVaultBase.inFlightValue() (src/core/CoreVaultBase.sol#245-247)\n\t- CoreVaultIncome.incomeState(address) (src/core/CoreVaultIncome.sol#102-104)\n\t- CoreVaultIncome.incomeTokens() (src/core/CoreVaultIncome.sol#81-83)\n\t- CoreVaultIncome.managementFeeBps() (src/core/CoreVaultIncome.sol#112-114)\n\t- CoreVaultBase.mandate() (src/core/CoreVaultBase.sol#185-187)\n\t- CoreVaultBase.operatingCash() (src/core/CoreVaultBase.sol#205-207)\n\t- CoreVaultBase.operatingCashFloor() (src/core/CoreVaultBase.sol#210-212)\n\t- CoreVaultBase.operatingCashTopUp() (src/core/CoreVaultBase.sol#215-217)\n\t- CoreVaultIncome.ownerlessIncome(address) (src/core/CoreVaultIncome.sol#97-99)\n\t- CoreVaultBase.payoutRequest(address) (src/core/CoreVaultBase.sol#230-232)\n\t- CoreVaultBase.payoutReserve() (src/core/CoreVaultBase.sol#195-197)\n\t- CoreVaultIncome.performanceFeeBps() (src/core/CoreVaultIncome.sol#107-109)\n\t- CoreVaultTransit.returnToIdle(uint256) (src/core/CoreVaultTransit.sol#43-50)\n\t- CoreVaultBase.setOperatingCashParameters(uint256,uint256) (src/core/CoreVaultBase.sol#269-273)\n\t- CoreVaultBase.shareAssets() (src/core/CoreVaultBase.sol#235-237)\n\t- CoreVaultBase.spokeCapUsage(uint256) (src/core/CoreVaultBase.sol#255-261)\n\t- CoreVaultBase.transit(bytes32) (src/core/CoreVaultBase.sol#225-227)\n\t- CoreVaultBase.unmatchedArrivals() (src/core/CoreVaultBase.sol#220-222)\n"
+  },
+  {
+   "id": "f3de30a52616",
+   "check": "reentrancy-no-eth",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeVault.sol:752",
+   "first_markdown_element": "src/spoke/SpokeVault.sol#L752-L775",
+   "description": "Reentrancy in SpokeVault._exit(address,bytes32,SpokeVaultTypes.ExitKind,bytes) (src/spoke/SpokeVault.sol#752-775):\n\tExternal calls:\n\t- amounts = a.decreasePosition(positionKey,params) (src/spoke/SpokeVault.sol#759)\n\t- amounts = a.closePosition(positionKey,params) (src/spoke/SpokeVault.sol#762)\n\t- amounts = a.collectIncome(positionKey) (src/spoke/SpokeVault.sol#770)\n\tState variables written after the call(s):\n\t- _credit(p,amounts) (src/spoke/SpokeVault.sol#773)\n\t\t- _s.unallocated[p.token0] += a.principal0 (src/spoke/SpokeVault.sol#951)\n\t\t- _s.collectedIncome[p.token0] += a.income0 (src/spoke/SpokeVault.sol#952)\n\t\t- _s.unallocated[p.token1] += a.principal1 (src/spoke/SpokeVault.sol#954)\n\t\t- _s.collectedIncome[p.token1] += a.income1 (src/spoke/SpokeVault.sol#955)\n\tSpokeVault._s (src/spoke/SpokeVault.sol#93) can be used in cross function reentrancies:\n\t- SpokeVault._copyUnwindOrder(Mandate,uint256) (src/spoke/SpokeVault.sol#211-215)\n\t- SpokeVault._pinAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#188-196)\n\t- SpokeVault._pinBridgeAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#219-229)\n\t- SpokeVault._pinPools(Mandate,uint256) (src/spoke/SpokeVault.sol#199-208)\n\t- SpokeVault._pool(address,bytes32) (src/spoke/SpokeVault.sol#703-706)\n\t- SpokeVault._registerToken(address) (src/spoke/SpokeVault.sol#236-240)\n\t- SpokeVault.adapterCodehash(address) (src/spoke/SpokeVault.sol#586-588)\n\t- SpokeVault.adapters() (src/spoke/SpokeVault.sol#570-572)\n\t- SpokeVault.arrivals(bytes32) (src/spoke/SpokeVault.sol#666-668)\n\t- SpokeVault.bridgeAdapters() (src/spoke/SpokeVault.sol#575-577)\n\t- SpokeVault.bridgeTarget(address) (src/spoke/SpokeVault.sol#580-582)\n\t- SpokeVault.buildReport() (src/spoke/SpokeVault.sol#421-428)\n\t- SpokeVault.collectedIncome(address) (src/spoke/SpokeVault.sol#608-610)\n\t- SpokeVault.constructor(Mandate,bytes32,uint256,address,address,address,address,address,address) (src/spoke/SpokeVault.sol#132-185)\n\t- SpokeVault.cumulativeIncome(address) (src/spoke/SpokeVault.sol#615-617)\n\t- SpokeVault.cumulativeReceived() (src/spoke/SpokeVault.sol#640-642)\n\t- SpokeVault.cumulativeSentHome() (src/spoke/SpokeVault.sol#645-647)\n\t- SpokeVault.hasArrived(bytes32) (src/spoke/SpokeVault.sol#660-662)\n\t- SpokeVault.hubBoundTransit(bytes32) (src/spoke/SpokeVault.sol#655-657)\n\t- SpokeVault.inFlightTransitIds() (src/spoke/SpokeVault.sol#671-673)\n\t- SpokeVault.ledgerTokens() (src/spoke/SpokeVault.sol#603-605)\n\t- SpokeVault.operatingCash() (src/spoke/SpokeVault.sol#625-627)\n\t- SpokeVault.operatingCashFloor() (src/spoke/SpokeVault.sol#630-632)\n\t- SpokeVault.operatingCashTopUp() (src/spoke/SpokeVault.sol#635-637)\n\t- SpokeVault.positions() (src/spoke/SpokeVault.sol#620-622)\n\t- SpokeVault.reportSequence() (src/spoke/SpokeVault.sol#650-652)\n\t- SpokeVault.setOperatingCashParameters(uint256,uint256) (src/spoke/SpokeVault.sol#368-372)\n\t- SpokeVault.unallocatedBalance(address) (src/spoke/SpokeVault.sol#597-599)\n"
+  },
+  {
+   "id": "f42ed92eea48",
+   "check": "reentrancy-no-eth",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/adapters/AaveV3Adapter.sol:250",
+   "first_markdown_element": "src/adapters/AaveV3Adapter.sol#L250-L267",
+   "description": "Reentrancy in AaveV3Adapter.closePosition(bytes32,bytes) (src/adapters/AaveV3Adapter.sol#250-267):\n\tExternal calls:\n\t- (amounts,emptied) = _exit(asset,l,type()(uint256).max) (src/adapters/AaveV3Adapter.sol#260)\n\t\t- paid = pool.withdraw(asset,amount,vault) (src/adapters/AaveV3Adapter.sol#483-487)\n\t\t- withdrawn = pool.withdraw(asset,amount,vault) (src/adapters/AaveV3Adapter.sol#489)\n\t\t- withdrawn = pool.withdraw(asset,type()(uint256).max,vault) (src/adapters/AaveV3Adapter.sol#399-416)\n\tState variables written after the call(s):\n\t- l.open = true (src/adapters/AaveV3Adapter.sol#264)\n\tAaveV3Adapter._ledgers (src/adapters/AaveV3Adapter.sol#75) can be used in cross function reentrancies:\n\t- AaveV3Adapter._listedAsset(bytes32) (src/adapters/AaveV3Adapter.sol#513-517)\n\t- AaveV3Adapter._openAsset(bytes32) (src/adapters/AaveV3Adapter.sol#520-523)\n\t- AaveV3Adapter.constructor(address,address,address,address[]) (src/adapters/AaveV3Adapter.sol#123-138)\n\t- AaveV3Adapter.cumulativeIncome(address) (src/adapters/AaveV3Adapter.sol#317-322)\n\t- AaveV3Adapter.ledger(address) (src/adapters/AaveV3Adapter.sol#359-361)\n\t- AaveV3Adapter.positionKeys() (src/adapters/AaveV3Adapter.sol#325-335)\n\t- AaveV3Adapter.positionValue(bytes32) (src/adapters/AaveV3Adapter.sol#298-308)\n\t- AaveV3Adapter.unwindExitParams(bytes32,uint256,uint256) (src/adapters/AaveV3Adapter.sol#340-350)\n"
+  },
+  {
+   "id": "f66eb37db90f",
+   "check": "reentrancy-no-eth",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeVault.sol:842",
+   "first_markdown_element": "src/spoke/SpokeVault.sol#L842-L865",
+   "description": "Reentrancy in SpokeVault._unwindPosition(address,bytes32,bytes32,uint256,SpokeVaultTypes.UnwindSwap[]) (src/spoke/SpokeVault.sol#842-865):\n\tExternal calls:\n\t- _unwindSwap(r0,amounts.principal0) (src/spoke/SpokeVault.sol#863)\n\t\t- amountOut = a.swapExactInput(poolKey,tokenIn,amountIn,minAmountOut,params) (src/spoke/SpokeVault.sol#799)\n\t- (amounts,None) = _exit(adapter,positionKey,SpokeVaultTypes.ExitKind.Close,params) (src/spoke/SpokeVault.sol#860-862)\n\t\t- amounts = a.decreasePosition(positionKey,params) (src/spoke/SpokeVault.sol#759)\n\t\t- amounts = a.closePosition(positionKey,params) (src/spoke/SpokeVault.sol#762)\n\t\t- amounts = a.collectIncome(positionKey) (src/spoke/SpokeVault.sol#770)\n\t- (amounts,None) = _exit(adapter,positionKey,SpokeVaultTypes.ExitKind.Decrease,params) (src/spoke/SpokeVault.sol#860-862)\n\t\t- amounts = a.decreasePosition(positionKey,params) (src/spoke/SpokeVault.sol#759)\n\t\t- amounts = a.closePosition(positionKey,params) (src/spoke/SpokeVault.sol#762)\n\t\t- amounts = a.collectIncome(positionKey) (src/spoke/SpokeVault.sol#770)\n\tState variables written after the call(s):\n\t- _unwindSwap(r0,amounts.principal0) (src/spoke/SpokeVault.sol#863)\n\t\t- _s.unallocated[token] = available - amount (src/spoke/SpokeVault.sol#962)\n\t\t- _s.collectedIncome[tokenIn] = available - amountIn (src/spoke/SpokeVault.sol#794)\n\t\t- _s.collectedIncome[tokenOut] += amountOut (src/spoke/SpokeVault.sol#802)\n\t\t- _s.unallocated[tokenOut] += amountOut (src/spoke/SpokeVault.sol#805)\n\tSpokeVault._s (src/spoke/SpokeVault.sol#93) can be used in cross function reentrancies:\n\t- SpokeVault._copyUnwindOrder(Mandate,uint256) (src/spoke/SpokeVault.sol#211-215)\n\t- SpokeVault._pinAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#188-196)\n\t- SpokeVault._pinBridgeAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#219-229)\n\t- SpokeVault._pinPools(Mandate,uint256) (src/spoke/SpokeVault.sol#199-208)\n\t- SpokeVault._pool(address,bytes32) (src/spoke/SpokeVault.sol#703-706)\n\t- SpokeVault._registerToken(address) (src/spoke/SpokeVault.sol#236-240)\n\t- SpokeVault.adapterCodehash(address) (src/spoke/SpokeVault.sol#586-588)\n\t- SpokeVault.adapters() (src/spoke/SpokeVault.sol#570-572)\n\t- SpokeVault.arrivals(bytes32) (src/spoke/SpokeVault.sol#666-668)\n\t- SpokeVault.bridgeAdapters() (src/spoke/SpokeVault.sol#575-577)\n\t- SpokeVault.bridgeTarget(address) (src/spoke/SpokeVault.sol#580-582)\n\t- SpokeVault.buildReport() (src/spoke/SpokeVault.sol#421-428)\n\t- SpokeVault.collectedIncome(address) (src/spoke/SpokeVault.sol#608-610)\n\t- SpokeVault.constructor(Mandate,bytes32,uint256,address,address,address,address,address,address) (src/spoke/SpokeVault.sol#132-185)\n\t- SpokeVault.cumulativeIncome(address) (src/spoke/SpokeVault.sol#615-617)\n\t- SpokeVault.cumulativeReceived() (src/spoke/SpokeVault.sol#640-642)\n\t- SpokeVault.cumulativeSentHome() (src/spoke/SpokeVault.sol#645-647)\n\t- SpokeVault.hasArrived(bytes32) (src/spoke/SpokeVault.sol#660-662)\n\t- SpokeVault.hubBoundTransit(bytes32) (src/spoke/SpokeVault.sol#655-657)\n\t- SpokeVault.inFlightTransitIds() (src/spoke/SpokeVault.sol#671-673)\n\t- SpokeVault.ledgerTokens() (src/spoke/SpokeVault.sol#603-605)\n\t- SpokeVault.operatingCash() (src/spoke/SpokeVault.sol#625-627)\n\t- SpokeVault.operatingCashFloor() (src/spoke/SpokeVault.sol#630-632)\n\t- SpokeVault.operatingCashTopUp() (src/spoke/SpokeVault.sol#635-637)\n\t- SpokeVault.positions() (src/spoke/SpokeVault.sol#620-622)\n\t- SpokeVault.reportSequence() (src/spoke/SpokeVault.sol#650-652)\n\t- SpokeVault.setOperatingCashParameters(uint256,uint256) (src/spoke/SpokeVault.sol#368-372)\n\t- SpokeVault.unallocatedBalance(address) (src/spoke/SpokeVault.sol#597-599)\n"
+  },
+  {
+   "id": "0be1dc4f1206",
+   "check": "uninitialized-local",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeVault.sol:536",
+   "first_markdown_element": "src/spoke/SpokeVault.sol#L536",
+   "description": "SpokeVault.unwindForPayout(uint256,bytes).visited (src/spoke/SpokeVault.sol#536) is a local variable never initialized\n"
+  },
+  {
+   "id": "1e69e08ae8f1",
+   "check": "uninitialized-local",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/core/CoreVault.sol:109",
+   "first_markdown_element": "src/core/CoreVault.sol#L109",
+   "description": "CoreVault.requestPayout(uint256,ICoreVault.PayoutMode).reserved (src/core/CoreVault.sol#109) is a local variable never initialized\n"
+  },
+  {
+   "id": "3e8648651e29",
+   "check": "uninitialized-local",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeCrossChainLib.sol:250",
+   "first_markdown_element": "src/spoke/SpokeCrossChainLib.sol#L250",
+   "description": "SpokeCrossChainLib._buildCall(SpokeVaultTypes.State,SpokeVaultTypes.Config,address,address,uint256,TransferKind,bytes32,BridgeQuote).req (src/spoke/SpokeCrossChainLib.sol#250) is a local variable never initialized\n"
+  },
+  {
+   "id": "59ec1f5fa303",
+   "check": "uninitialized-local",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/factory/FundFactory.sol:386",
+   "first_markdown_element": "src/factory/FundFactory.sol#L386",
+   "description": "FundFactory._deployUniswapV4Adapter(Mandate,bytes32,uint256,IFundFactory.ChainAddresses,PoolKey[]).matched (src/factory/FundFactory.sol#386) is a local variable never initialized\n"
+  },
+  {
+   "id": "69b7d6868aeb",
+   "check": "uninitialized-local",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:331",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L331",
+   "description": "CoreVaultLogic._price(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address).fellBack (src/core/CoreVaultLogic.sol#331) is a local variable never initialized\n"
+  },
+  {
+   "id": "6b7372ed7b9e",
+   "check": "uninitialized-local",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/core/CoreVault.sol:150",
+   "first_markdown_element": "src/core/CoreVault.sol#L150",
+   "description": "CoreVault.claimPayout(bytes).c (src/core/CoreVault.sol#150) is a local variable never initialized\n"
+  },
+  {
+   "id": "8420279b7748",
+   "check": "uninitialized-local",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/adapters/AaveV3Adapter.sol:481",
+   "first_markdown_element": "src/adapters/AaveV3Adapter.sol#L481",
+   "description": "AaveV3Adapter._withdraw(address,AaveV3Adapter.Ledger,uint256,bool).withdrawn (src/adapters/AaveV3Adapter.sol#481) is a local variable never initialized\n"
+  },
+  {
+   "id": "8cdda92e6874",
+   "check": "uninitialized-local",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:698",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L698",
+   "description": "CoreVaultLogic._hubBridgeAdapter(CoreVaultState,uint256,uint256,uint256).seen (src/core/CoreVaultLogic.sol#698) is a local variable never initialized\n"
+  },
+  {
+   "id": "9d19190715d3",
+   "check": "uninitialized-local",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/factory/FundFactory.sol:462",
+   "first_markdown_element": "src/factory/FundFactory.sol#L462",
+   "description": "FundFactory._deployCoreVault(Mandate,IFundFactory.FundAddresses,bytes).c (src/factory/FundFactory.sol#462) is a local variable never initialized\n"
+  },
+  {
+   "id": "cdd354ccf476",
+   "check": "uninitialized-local",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/adapters/AaveV3Adapter.sol:326",
+   "first_markdown_element": "src/adapters/AaveV3Adapter.sol#L326",
+   "description": "AaveV3Adapter.positionKeys().count (src/adapters/AaveV3Adapter.sol#326) is a local variable never initialized\n"
+  },
+  {
+   "id": "d251a1db44bb",
+   "check": "uninitialized-local",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeVault.sol:831",
+   "first_markdown_element": "src/spoke/SpokeVault.sol#L831",
+   "description": "SpokeVault._unwindStep(UnwindStep,SpokeVaultTypes.UnwindHint[],uint256,uint256).swaps (src/spoke/SpokeVault.sol#831) is a local variable never initialized\n"
+  },
+  {
+   "id": "d9c965ed3c2d",
+   "check": "uninitialized-local",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/mandate/Mandate.sol:246",
+   "first_markdown_element": "src/mandate/Mandate.sol#L246",
+   "description": "MandateLib.bridgeAdapterFor(Mandate,uint256,uint256,uint256).seen (src/mandate/Mandate.sol#246) is a local variable never initialized\n"
+  },
+  {
+   "id": "e85a704d018b",
+   "check": "uninitialized-local",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:181",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L181",
+   "description": "CoreVaultLogic._valuation(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices).shortfall (src/core/CoreVaultLogic.sol#181) is a local variable never initialized\n"
+  },
+  {
+   "id": "0f399b544581",
+   "check": "unused-return",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:386",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L386-L397",
+   "description": "CoreVaultLogic._collectIncome(CoreVaultState,CoreVaultWiring,address,uint256) (src/core/CoreVaultLogic.sol#386-397) ignores return value by s.income.distribute(token,net,IERC20(w.shareToken).totalSupply()) (src/core/CoreVaultLogic.sol#393)\n"
+  },
+  {
+   "id": "0f8fbc289fa6",
+   "check": "unused-return",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:735",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L735-L756",
+   "description": "CoreVaultLogic.recognizeRefund(CoreVaultState,CoreVaultWiring,bytes32) (src/core/CoreVaultLogic.sol#735-756) ignores return value by ITransitEscrow(escrow).release(address(this)) (src/core/CoreVaultLogic.sol#753)\n"
+  },
+  {
+   "id": "32e8e5a8d64b",
+   "check": "unused-return",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/adapters/UniswapV4Adapter.sol:621",
+   "first_markdown_element": "src/adapters/UniswapV4Adapter.sol#L621-L637",
+   "description": "UniswapV4Adapter._principal(UniswapV4Adapter.Position,uint128,bool) (src/adapters/UniswapV4Adapter.sol#621-637) ignores return value by (sqrtPriceX96,tick,None,None) = stateView.getSlot0(PoolId.wrap(position.poolId)) (src/adapters/UniswapV4Adapter.sol#626)\n"
+  },
+  {
+   "id": "4e2822416997",
+   "check": "unused-return",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultBase.sol:245",
+   "first_markdown_element": "src/core/CoreVaultBase.sol#L245-L247",
+   "description": "CoreVaultBase.inFlightValue() (src/core/CoreVaultBase.sol#245-247) ignores return value by (None,value) = CoreVaultLogic.shareAssets(_s,_wiring()) (src/core/CoreVaultBase.sol#246)\n"
+  },
+  {
+   "id": "531435a4de76",
+   "check": "unused-return",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/adapters/UniswapV4Adapter.sol:316",
+   "first_markdown_element": "src/adapters/UniswapV4Adapter.sol#L316-L328",
+   "description": "UniswapV4Adapter.unwindExitParams(bytes32,uint256,uint256) (src/adapters/UniswapV4Adapter.sol#316-328) ignores return value by (liquidity,None,None) = stateView.getPositionInfo(PoolId.wrap(position.poolId),address(positionManager),position.tickLower,position.tickUpper,positionKey) (src/adapters/UniswapV4Adapter.sol#322-324)\n"
+  },
+  {
+   "id": "6d3e3215e25c",
+   "check": "unused-return",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/adapters/UniswapV4Adapter.sol:333",
+   "first_markdown_element": "src/adapters/UniswapV4Adapter.sol#L333-L340",
+   "description": "UniswapV4Adapter.spotQuote(bytes32,address,uint256) (src/adapters/UniswapV4Adapter.sol#333-340) ignores return value by (sqrtPriceX96,None,None,None) = stateView.getSlot0(PoolId.wrap(poolKey)) (src/adapters/UniswapV4Adapter.sol#335)\n"
+  },
+  {
+   "id": "8b7bf081f982",
+   "check": "unused-return",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/factory/FundFactory.sol:184",
+   "first_markdown_element": "src/factory/FundFactory.sol#L184-L210",
+   "description": "FundFactory.createSpoke(uint256,Mandate,IFundFactory.SpokeParams) (src/factory/FundFactory.sol#184-210) ignores return value by (None,spoke) = m.spokeByChainId(chainId) (src/factory/FundFactory.sol#200)\n"
+  },
+  {
+   "id": "910cc8769207",
+   "check": "unused-return",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeVault.sol:132",
+   "first_markdown_element": "src/spoke/SpokeVault.sol#L132-L185",
+   "description": "SpokeVault.constructor(Mandate,bytes32,uint256,address,address,address,address,address,address) (src/spoke/SpokeVault.sol#132-185) ignores return value by (None,spoke) = mandate_.spokeByChainId(chainId_) (src/spoke/SpokeVault.sol#155)\n"
+  },
+  {
+   "id": "9d7424c9db68",
+   "check": "unused-return",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/factory/FundFactory.sol:460",
+   "first_markdown_element": "src/factory/FundFactory.sol#L460-L479",
+   "description": "FundFactory._deployCoreVault(Mandate,IFundFactory.FundAddresses,bytes) (src/factory/FundFactory.sol#460-479) ignores return value by Create3.deploy(saltOf(a.fundId,ROLE_CORE_VAULT,chainId),abi.encodePacked(creationCode,abi.encode(m,c))) (src/factory/FundFactory.sol#478)\n"
+  },
+  {
+   "id": "a74c839450cf",
+   "check": "unused-return",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:120",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L120-L138",
+   "description": "CoreVaultLogic.grossAssets(CoreVaultState,CoreVaultWiring) (src/core/CoreVaultLogic.sol#120-138) ignores return value by (r,None,None) = receiver.latestReport(i_scope_0) (src/core/CoreVaultLogic.sol#132)\n"
+  },
+  {
+   "id": "ac355119fa7b",
+   "check": "unused-return",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:323",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L323-L349",
+   "description": "CoreVaultLogic._price(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address) (src/core/CoreVaultLogic.sol#323-349) ignores return value by (value) = IPriceSource(w.priceSource).priceInUsdc(token) (src/core/CoreVaultLogic.sol#333-338)\n"
+  },
+  {
+   "id": "af260226eae8",
+   "check": "unused-return",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:194",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L194-L214",
+   "description": "CoreVaultLogic._spokeValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,uint256,ICoreVault.NavConsolidation) (src/core/CoreVaultLogic.sol#194-214) ignores return value by (r,None,None) = receiver.latestReport(spokeIndex) (src/core/CoreVaultLogic.sol#206)\n"
+  },
+  {
+   "id": "b189d04609ab",
+   "check": "unused-return",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultBase.sol:235",
+   "first_markdown_element": "src/core/CoreVaultBase.sol#L235-L237",
+   "description": "CoreVaultBase.shareAssets() (src/core/CoreVaultBase.sol#235-237) ignores return value by (assets,None) = CoreVaultLogic.shareAssets(_s,_wiring()) (src/core/CoreVaultBase.sol#236)\n"
+  },
+  {
+   "id": "b5ccfa544442",
+   "check": "unused-return",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/core/CoreVault.sol:98",
+   "first_markdown_element": "src/core/CoreVault.sol#L98-L130",
+   "description": "CoreVault.requestPayout(uint256,ICoreVault.PayoutMode) (src/core/CoreVault.sol#98-130) ignores return value by (assets,None) = CoreVaultLogic.recordValuation(_s,_wiring(),false) (src/core/CoreVault.sol#105)\n"
+  },
+  {
+   "id": "c8db3219d5ae",
+   "check": "unused-return",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/adapters/UniswapV4Adapter.sol:639",
+   "first_markdown_element": "src/adapters/UniswapV4Adapter.sol#L639-L652",
+   "description": "UniswapV4Adapter._liquidityForAmounts(UniswapV4Adapter.Position,uint256,uint256) (src/adapters/UniswapV4Adapter.sol#639-652) ignores return value by (sqrtPriceX96,None,None,None) = stateView.getSlot0(PoolId.wrap(position.poolId)) (src/adapters/UniswapV4Adapter.sol#644)\n"
+  },
+  {
+   "id": "d685c330c0ea",
+   "check": "unused-return",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:417",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L417-L424",
+   "description": "CoreVaultLogic.applyReport(CoreVaultState,CoreVaultWiring,uint256) (src/core/CoreVaultLogic.sol#417-424) ignores return value by (r,None,None) = IValueReportReceiver(w.reportReceiver).latestReport(spokeIndex) (src/core/CoreVaultLogic.sol#419)\n"
+  },
+  {
+   "id": "d980460c4cb7",
+   "check": "unused-return",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/core/CoreVault.sol:204",
+   "first_markdown_element": "src/core/CoreVault.sol#L204-L214",
+   "description": "CoreVault._unwindForPayout(uint256,bytes) (src/core/CoreVault.sol#204-214) ignores return value by ISpokeVault(hubSpokeVault).unwindForPayout(target,hints) (src/core/CoreVault.sol#207-212)\n"
+  },
+  {
+   "id": "dd20ebcf6c50",
+   "check": "unused-return",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/report/ChainlinkPriceSource.sol:118",
+   "first_markdown_element": "src/report/ChainlinkPriceSource.sol#L118-L130",
+   "description": "ChainlinkPriceSource.priceInUsdc(address) (src/report/ChainlinkPriceSource.sol#118-130) ignores return value by (None,answer,None,updatedAt,None) = IChainlinkAggregatorV3(p.aggregator).latestRoundData() (src/report/ChainlinkPriceSource.sol#124)\n"
+  },
+  {
+   "id": "decd66a61e72",
+   "check": "unused-return",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/adapters/UniswapV4Adapter.sol:350",
+   "first_markdown_element": "src/adapters/UniswapV4Adapter.sol#L350-L382",
+   "description": "UniswapV4Adapter.openPosition(bytes32,bytes) (src/adapters/UniswapV4Adapter.sol#350-382) ignores return value by _openPositions.add(positionKey) (src/adapters/UniswapV4Adapter.sol#369)\n"
+  },
+  {
+   "id": "e61c9271950f",
+   "check": "unused-return",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:541",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L541-L560",
+   "description": "CoreVaultLogic.nonArrivalProvable(CoreVaultState,CoreVaultWiring,uint256,bytes32,uint32) (src/core/CoreVaultLogic.sol#541-560) ignores return value by (r,None,None) = receiver.latestReport(spokeIndex) (src/core/CoreVaultLogic.sol#553)\n"
+  },
+  {
+   "id": "e7061f476060",
+   "check": "unused-return",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/factory/FundFactory.sol:507",
+   "first_markdown_element": "src/factory/FundFactory.sol#L507-L510",
+   "description": "FundFactory._deploy(bytes32,bytes32,uint256,bytes) (src/factory/FundFactory.sol#507-510) ignores return value by Create3.deploy(saltOf(fundId,role,chainId),abi.encodePacked(CodeStore.read(_codeStores[role]),args)) (src/factory/FundFactory.sol#509)\n"
+  },
+  {
+   "id": "e8905b0cdbe5",
+   "check": "unused-return",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/adapters/UniswapV4Adapter.sol:464",
+   "first_markdown_element": "src/adapters/UniswapV4Adapter.sol#L464-L490",
+   "description": "UniswapV4Adapter.closePosition(bytes32,bytes) (src/adapters/UniswapV4Adapter.sol#464-490) ignores return value by _openPositions.remove(positionKey) (src/adapters/UniswapV4Adapter.sol#480)\n"
+  },
+  {
+   "id": "ee3eb7080c67",
+   "check": "unused-return",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:143",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L143-L158",
+   "description": "CoreVaultLogic.spokeCapUsage(CoreVaultState,CoreVaultWiring,uint256) (src/core/CoreVaultLogic.sol#143-158) ignores return value by (r,None,None) = receiver.latestReport(spokeIndex) (src/core/CoreVaultLogic.sol#153)\n"
+  },
+  {
+   "id": "fb8662e328cd",
+   "check": "unused-return",
+   "impact": "Medium",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeCrossChainLib.sol:70",
+   "first_markdown_element": "src/spoke/SpokeCrossChainLib.sol#L70-L91",
+   "description": "SpokeCrossChainLib.recognizeRefund(SpokeVaultTypes.State,address,bytes32) (src/spoke/SpokeCrossChainLib.sol#70-91) ignores return value by ITransitEscrow(escrow).release(address(this)) (src/spoke/SpokeCrossChainLib.sol#88)\n"
+  },
+  {
+   "id": "63dc2cc5df5b",
+   "check": "shadowing-local",
+   "impact": "Low",
+   "confidence": "High",
+   "location": "src/interfaces/ISpokeVault.sol:273",
+   "first_markdown_element": "src/interfaces/ISpokeVault.sol#L273",
+   "description": "ISpokeVault.report().reportSequence (src/interfaces/ISpokeVault.sol#273) shadows:\n\t- ISpokeVault.reportSequence() (src/interfaces/ISpokeVault.sol#361) (function)\n"
+  },
+  {
+   "id": "0252eaddb3b7",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/adapters/UniswapV4Adapter.sol:598",
+   "first_markdown_element": "src/adapters/UniswapV4Adapter.sol#L598-L615",
+   "description": "UniswapV4Adapter._uncollectedIncome(bytes32,UniswapV4Adapter.Position) (src/adapters/UniswapV4Adapter.sol#598-615) has external calls inside a loop: (liquidity,last0,last1) = stateView.getPositionInfo(poolId,address(positionManager),position.tickLower,position.tickUpper,positionKey) (src/adapters/UniswapV4Adapter.sol#606-608)\n\tCalls stack containing the loop:\n\t\tUniswapV4Adapter.cumulativeIncome(address)\n"
+  },
+  {
+   "id": "032afb843dcf",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:120",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L120-L138",
+   "description": "CoreVaultLogic.grossAssets(CoreVaultState,CoreVaultWiring) (src/core/CoreVaultLogic.sol#120-138) has external calls inside a loop: (r,None,None) = receiver.latestReport(i_scope_0) (src/core/CoreVaultLogic.sol#132)\n"
+  },
+  {
+   "id": "03814b0dbc74",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:194",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L194-L214",
+   "description": "CoreVaultLogic._spokeValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,uint256,ICoreVault.NavConsolidation) (src/core/CoreVaultLogic.sol#194-214) has external calls inside a loop: ! receiver.hasReport(spokeIndex) (src/core/CoreVaultLogic.sol#204)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.valuation(CoreVaultState,CoreVaultWiring)\n\t\tCoreVaultLogic._valuation(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n"
+  },
+  {
+   "id": "0441298377a3",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:323",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L323-L349",
+   "description": "CoreVaultLogic._price(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address) (src/core/CoreVaultLogic.sol#323-349) has external calls inside a loop: (value) = IPriceSource(w.priceSource).priceInUsdc(token) (src/core/CoreVaultLogic.sol#333-338)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.sendToSpoke(CoreVaultState,CoreVaultWiring,uint256,uint256,uint256,BridgeQuote)\n\t\tCoreVaultLogic._checkSend(CoreVaultState,CoreVaultWiring,uint256,uint256,uint256,uint256,uint256)\n\t\tCoreVaultLogic.spokeCapUsage(CoreVaultState,CoreVaultWiring,uint256)\n\t\tCoreVaultLogic._spokePrincipal(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,uint256,ReportCodec.Report)\n\t\tCoreVaultLogic._positionsPrincipal(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,ReportCodec.Report)\n\t\tCoreVaultLogic._usdcValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address,uint256)\n"
+  },
+  {
+   "id": "04565225944e",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/adapters/AaveV3Adapter.sol:123",
+   "first_markdown_element": "src/adapters/AaveV3Adapter.sol#L123-L138",
+   "description": "AaveV3Adapter.constructor(address,address,address,address[]) (src/adapters/AaveV3Adapter.sol#123-138) has external calls inside a loop: aToken = IAaveV3Pool(pool_).getReserveData(asset).aTokenAddress (src/adapters/AaveV3Adapter.sol#133)\n"
+  },
+  {
+   "id": "0f82b11e3b78",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:323",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L323-L349",
+   "description": "CoreVaultLogic._price(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address) (src/core/CoreVaultLogic.sol#323-349) has external calls inside a loop: p.mode == MINT && updatedAt + IPriceSource(w.priceSource).maxPriceAge(token) < block.timestamp (src/core/CoreVaultLogic.sol#342)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.recordValuation(CoreVaultState,CoreVaultWiring,bool)\n\t\tCoreVaultLogic._valuation(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n\t\tCoreVaultLogic._hubValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n\t\tCoreVaultLogic._positionsPrincipal(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,ReportCodec.Report)\n\t\tCoreVaultLogic._usdcValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address,uint256)\n"
+  },
+  {
+   "id": "1301e54a13d0",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:323",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L323-L349",
+   "description": "CoreVaultLogic._price(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address) (src/core/CoreVaultLogic.sol#323-349) has external calls inside a loop: (price,updatedAt) = IPriceSource(w.priceSource).priceInUsdc(token) (src/core/CoreVaultLogic.sol#341)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.spokeCapUsage(CoreVaultState,CoreVaultWiring,uint256)\n\t\tCoreVaultLogic._spokePrincipal(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,uint256,ReportCodec.Report)\n\t\tCoreVaultLogic._positionsPrincipal(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,ReportCodec.Report)\n\t\tCoreVaultLogic._usdcValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address,uint256)\n"
+  },
+  {
+   "id": "14a1f5d3f646",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:323",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L323-L349",
+   "description": "CoreVaultLogic._price(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address) (src/core/CoreVaultLogic.sol#323-349) has external calls inside a loop: (price,updatedAt) = IPriceSource(w.priceSource).priceInUsdc(token) (src/core/CoreVaultLogic.sol#341)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.recordValuation(CoreVaultState,CoreVaultWiring,bool)\n\t\tCoreVaultLogic._valuation(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n\t\tCoreVaultLogic._hubValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n\t\tCoreVaultLogic._positionsPrincipal(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,ReportCodec.Report)\n\t\tCoreVaultLogic._usdcValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address,uint256)\n"
+  },
+  {
+   "id": "17a95e4f40e0",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:401",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L401-L408",
+   "description": "CoreVaultLogic.protocolSliceBps(CoreVaultWiring) (src/core/CoreVaultLogic.sol#401-408) has external calls inside a loop: value = IManagerRegistry(w.managerRegistry).protocolSliceBps(w.manager) (src/core/CoreVaultLogic.sol#402-407)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.applyReport(CoreVaultState,CoreVaultWiring,uint256)\n\t\tCoreVaultLogic._matchReturnLeg(CoreVaultState,CoreVaultWiring,uint256,ReportCodec.HubBoundAmount[])\n\t\tCoreVaultLogic._creditHubBound(CoreVaultState,CoreVaultWiring,HubBoundTransfer,bytes32,uint256,uint256)\n\t\tCoreVaultLogic._collectIncome(CoreVaultState,CoreVaultWiring,address,uint256)\n"
+  },
+  {
+   "id": "31c3afe81e76",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:323",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L323-L349",
+   "description": "CoreVaultLogic._price(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address) (src/core/CoreVaultLogic.sol#323-349) has external calls inside a loop: p.mode == MINT && updatedAt + IPriceSource(w.priceSource).maxPriceAge(token) < block.timestamp (src/core/CoreVaultLogic.sol#342)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.grossAssets(CoreVaultState,CoreVaultWiring)\n\t\tCoreVaultLogic._valuation(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n\t\tCoreVaultLogic._hubValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n\t\tCoreVaultLogic._positionsPrincipal(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,ReportCodec.Report)\n\t\tCoreVaultLogic._usdcValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address,uint256)\n"
+  },
+  {
+   "id": "395ed61c2a17",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:323",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L323-L349",
+   "description": "CoreVaultLogic._price(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address) (src/core/CoreVaultLogic.sol#323-349) has external calls inside a loop: (price,updatedAt) = IPriceSource(w.priceSource).priceInUsdc(token) (src/core/CoreVaultLogic.sol#341)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.sendToSpoke(CoreVaultState,CoreVaultWiring,uint256,uint256,uint256,BridgeQuote)\n\t\tCoreVaultLogic._checkSend(CoreVaultState,CoreVaultWiring,uint256,uint256,uint256,uint256,uint256)\n\t\tCoreVaultLogic.spokeCapUsage(CoreVaultState,CoreVaultWiring,uint256)\n\t\tCoreVaultLogic._spokePrincipal(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,uint256,ReportCodec.Report)\n\t\tCoreVaultLogic._positionsPrincipal(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,ReportCodec.Report)\n\t\tCoreVaultLogic._usdcValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address,uint256)\n"
+  },
+  {
+   "id": "3d0d32d2fccc",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:194",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L194-L214",
+   "description": "CoreVaultLogic._spokeValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,uint256,ICoreVault.NavConsolidation) (src/core/CoreVaultLogic.sol#194-214) has external calls inside a loop: p.mode == MINT && ! receiver.isReportFresh(spokeIndex) (src/core/CoreVaultLogic.sol#205)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.shareAssets(CoreVaultState,CoreVaultWiring)\n\t\tCoreVaultLogic._valuation(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n"
+  },
+  {
+   "id": "3d5a1c6b6845",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:323",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L323-L349",
+   "description": "CoreVaultLogic._price(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address) (src/core/CoreVaultLogic.sol#323-349) has external calls inside a loop: (price,updatedAt) = IPriceSource(w.priceSource).priceInUsdc(token) (src/core/CoreVaultLogic.sol#341)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.shareAssets(CoreVaultState,CoreVaultWiring)\n\t\tCoreVaultLogic._valuation(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n\t\tCoreVaultLogic._hubValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n\t\tCoreVaultLogic._positionsPrincipal(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,ReportCodec.Report)\n\t\tCoreVaultLogic._usdcValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address,uint256)\n"
+  },
+  {
+   "id": "4108eafecf75",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/report/ChainlinkPriceSource.sol:79",
+   "first_markdown_element": "src/report/ChainlinkPriceSource.sol#L79-L113",
+   "description": "ChainlinkPriceSource.constructor(ChainlinkPriceSource.FeedConfig[],ChainlinkPriceSource.FixedConfig[]) (src/report/ChainlinkPriceSource.sol#79-113) has external calls inside a loop: feedDecimals = IChainlinkAggregatorV3(f.aggregator).decimals() (src/report/ChainlinkPriceSource.sol#85)\n"
+  },
+  {
+   "id": "4dbef29eb1f8",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:120",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L120-L138",
+   "description": "CoreVaultLogic.grossAssets(CoreVaultState,CoreVaultWiring) (src/core/CoreVaultLogic.sol#120-138) has external calls inside a loop: held = s.collectedIncome[tokens[i]] + ISpokeVault(w.hubSpokeVault).collectedIncome(tokens[i]) (src/core/CoreVaultLogic.sol#126)\n"
+  },
+  {
+   "id": "501a5c71a817",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeVault.sol:972",
+   "first_markdown_element": "src/spoke/SpokeVault.sol#L972-L977",
+   "description": "SpokeVault._requireBacked(address) (src/spoke/SpokeVault.sol#972-977) has external calls inside a loop: balance = IERC20(token).balanceOf(address(this)) (src/spoke/SpokeVault.sol#974)\n\tCalls stack containing the loop:\n\t\tSpokeVault.unwindForPayout(uint256,bytes)\n\t\tSpokeVault._unwindStep(UnwindStep,SpokeVaultTypes.UnwindHint[],uint256,uint256)\n\t\tSpokeVault._unwindPosition(address,bytes32,bytes32,uint256,SpokeVaultTypes.UnwindSwap[])\n\t\tSpokeVault._exit(address,bytes32,SpokeVaultTypes.ExitKind,bytes)\n\t\tSpokeVault._requireBacked(SpokeVaultTypes.PoolTokens)\n"
+  },
+  {
+   "id": "527477007204",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:323",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L323-L349",
+   "description": "CoreVaultLogic._price(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address) (src/core/CoreVaultLogic.sol#323-349) has external calls inside a loop: p.mode == MINT && updatedAt + IPriceSource(w.priceSource).maxPriceAge(token) < block.timestamp (src/core/CoreVaultLogic.sol#342)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.valuation(CoreVaultState,CoreVaultWiring)\n\t\tCoreVaultLogic._valuation(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n\t\tCoreVaultLogic._hubValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n\t\tCoreVaultLogic._positionsPrincipal(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,ReportCodec.Report)\n\t\tCoreVaultLogic._usdcValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address,uint256)\n"
+  },
+  {
+   "id": "564162cbff05",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeCrossChainLib.sol:121",
+   "first_markdown_element": "src/spoke/SpokeCrossChainLib.sol#L121-L127",
+   "description": "SpokeCrossChainLib.cumulativeIncome(SpokeVaultTypes.State,address) (src/spoke/SpokeCrossChainLib.sol#121-127) has external calls inside a loop: total += IAdapter(adapter).cumulativeIncome(token) (src/spoke/SpokeCrossChainLib.sol#125)\n\tCalls stack containing the loop:\n\t\tSpokeCrossChainLib.nextReport(SpokeVaultTypes.State,SpokeVaultTypes.Config)\n\t\tSpokeCrossChainLib._build(SpokeVaultTypes.State,SpokeVaultTypes.Config,uint64)\n"
+  },
+  {
+   "id": "59dfc18210ed",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultBase.sol:152",
+   "first_markdown_element": "src/core/CoreVaultBase.sol#L152-L161",
+   "description": "CoreVaultBase._pinBridgeAdapters(Mandate) (src/core/CoreVaultBase.sol#152-161) has external calls inside a loop: target = IBridgeAdapter(b.adapter).target() (src/core/CoreVaultBase.sol#156)\n\tCalls stack containing the loop:\n\t\tCoreVault.constructor(Mandate,CoreVaultConfig)\n\t\tCoreVaultBase.constructor(Mandate,CoreVaultConfig)\n"
+  },
+  {
+   "id": "6271ca86d3ca",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:194",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L194-L214",
+   "description": "CoreVaultLogic._spokeValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,uint256,ICoreVault.NavConsolidation) (src/core/CoreVaultLogic.sol#194-214) has external calls inside a loop: p.mode == MINT && ! receiver.isReportFresh(spokeIndex) (src/core/CoreVaultLogic.sol#205)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.recordValuation(CoreVaultState,CoreVaultWiring,bool)\n\t\tCoreVaultLogic._valuation(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n"
+  },
+  {
+   "id": "6474be2dc904",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:194",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L194-L214",
+   "description": "CoreVaultLogic._spokeValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,uint256,ICoreVault.NavConsolidation) (src/core/CoreVaultLogic.sol#194-214) has external calls inside a loop: p.mode == MINT && ! receiver.isReportFresh(spokeIndex) (src/core/CoreVaultLogic.sol#205)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.valuation(CoreVaultState,CoreVaultWiring)\n\t\tCoreVaultLogic._valuation(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n"
+  },
+  {
+   "id": "69c3decb4bfa",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:194",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L194-L214",
+   "description": "CoreVaultLogic._spokeValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,uint256,ICoreVault.NavConsolidation) (src/core/CoreVaultLogic.sol#194-214) has external calls inside a loop: p.mode == MINT && ! receiver.isReportFresh(spokeIndex) (src/core/CoreVaultLogic.sol#205)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.grossAssets(CoreVaultState,CoreVaultWiring)\n\t\tCoreVaultLogic._valuation(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n"
+  },
+  {
+   "id": "7312eee1387b",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeCrossChainLib.sol:129",
+   "first_markdown_element": "src/spoke/SpokeCrossChainLib.sol#L129-L192",
+   "description": "SpokeCrossChainLib._build(SpokeVaultTypes.State,SpokeVaultTypes.Config,uint64) (src/spoke/SpokeCrossChainLib.sol#129-192) has external calls inside a loop: r.positions[i_scope_0] = _positionReport(ref.adapter,IAdapter(ref.adapter).positionValue(ref.positionKey)) (src/spoke/SpokeCrossChainLib.sol#160)\n\tCalls stack containing the loop:\n\t\tSpokeCrossChainLib.nextReport(SpokeVaultTypes.State,SpokeVaultTypes.Config)\n"
+  },
+  {
+   "id": "7b92be19dfe7",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeVault.sol:905",
+   "first_markdown_element": "src/spoke/SpokeVault.sol#L905-L921",
+   "description": "SpokeVault._unwindSwap(SpokeVaultTypes.UnwindSwap,uint256) (src/spoke/SpokeVault.sol#905-921) has external calls inside a loop: floor = Math.mulDiv(a.spotQuote(r.poolKey,r.tokenIn,amountIn),MandateLib.BPS - MAX_UNWIND_SLIPPAGE_BPS,MandateLib.BPS) (src/spoke/SpokeVault.sol#908-910)\n\tCalls stack containing the loop:\n\t\tSpokeVault.unwindForPayout(uint256,bytes)\n\t\tSpokeVault._unwindStep(UnwindStep,SpokeVaultTypes.UnwindHint[],uint256,uint256)\n\t\tSpokeVault._unwindPosition(address,bytes32,bytes32,uint256,SpokeVaultTypes.UnwindSwap[])\n"
+  },
+  {
+   "id": "7bfafe389801",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:323",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L323-L349",
+   "description": "CoreVaultLogic._price(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address) (src/core/CoreVaultLogic.sol#323-349) has external calls inside a loop: (price,updatedAt) = IPriceSource(w.priceSource).priceInUsdc(token) (src/core/CoreVaultLogic.sol#341)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.valuation(CoreVaultState,CoreVaultWiring)\n\t\tCoreVaultLogic._valuation(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n\t\tCoreVaultLogic._hubValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n\t\tCoreVaultLogic._positionsPrincipal(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,ReportCodec.Report)\n\t\tCoreVaultLogic._usdcValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address,uint256)\n"
+  },
+  {
+   "id": "81d8e7ae57b4",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:386",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L386-L397",
+   "description": "CoreVaultLogic._collectIncome(CoreVaultState,CoreVaultWiring,address,uint256) (src/core/CoreVaultLogic.sol#386-397) has external calls inside a loop: s.income.distribute(token,net,IERC20(w.shareToken).totalSupply()) (src/core/CoreVaultLogic.sol#393)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.applyReport(CoreVaultState,CoreVaultWiring,uint256)\n\t\tCoreVaultLogic._matchReturnLeg(CoreVaultState,CoreVaultWiring,uint256,ReportCodec.HubBoundAmount[])\n\t\tCoreVaultLogic._creditHubBound(CoreVaultState,CoreVaultWiring,HubBoundTransfer,bytes32,uint256,uint256)\n"
+  },
+  {
+   "id": "841a08b8a4c4",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeCrossChainLib.sol:129",
+   "first_markdown_element": "src/spoke/SpokeCrossChainLib.sol#L129-L192",
+   "description": "SpokeCrossChainLib._build(SpokeVaultTypes.State,SpokeVaultTypes.Config,uint64) (src/spoke/SpokeCrossChainLib.sol#129-192) has external calls inside a loop: r.positions[i_scope_0] = _positionReport(ref.adapter,IAdapter(ref.adapter).positionValue(ref.positionKey)) (src/spoke/SpokeCrossChainLib.sol#160)\n\tCalls stack containing the loop:\n\t\tSpokeCrossChainLib.encodedReport(SpokeVaultTypes.State,SpokeVaultTypes.Config,uint64)\n"
+  },
+  {
+   "id": "86389c30f4b2",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeVault.sol:898",
+   "first_markdown_element": "src/spoke/SpokeVault.sol#L898-L901",
+   "description": "SpokeVault._unwindValue(SpokeVaultTypes.UnwindSwap,uint256) (src/spoke/SpokeVault.sol#898-901) has external calls inside a loop: IAdapter(r.adapter).spotQuote(r.poolKey,r.tokenIn,amount) (src/spoke/SpokeVault.sol#900)\n\tCalls stack containing the loop:\n\t\tSpokeVault.unwindForPayout(uint256,bytes)\n\t\tSpokeVault._unwindStep(UnwindStep,SpokeVaultTypes.UnwindHint[],uint256,uint256)\n\t\tSpokeVault._unwindPosition(address,bytes32,bytes32,uint256,SpokeVaultTypes.UnwindSwap[])\n"
+  },
+  {
+   "id": "8ccc3bdd2ee9",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:194",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L194-L214",
+   "description": "CoreVaultLogic._spokeValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,uint256,ICoreVault.NavConsolidation) (src/core/CoreVaultLogic.sol#194-214) has external calls inside a loop: (r,None,None) = receiver.latestReport(spokeIndex) (src/core/CoreVaultLogic.sol#206)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.recordValuation(CoreVaultState,CoreVaultWiring,bool)\n\t\tCoreVaultLogic._valuation(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n"
+  },
+  {
+   "id": "94ab08615bf2",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:194",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L194-L214",
+   "description": "CoreVaultLogic._spokeValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,uint256,ICoreVault.NavConsolidation) (src/core/CoreVaultLogic.sol#194-214) has external calls inside a loop: ! receiver.hasReport(spokeIndex) (src/core/CoreVaultLogic.sol#204)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.recordValuation(CoreVaultState,CoreVaultWiring,bool)\n\t\tCoreVaultLogic._valuation(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n"
+  },
+  {
+   "id": "9766891a6734",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/adapters/UniswapV4Adapter.sol:598",
+   "first_markdown_element": "src/adapters/UniswapV4Adapter.sol#L598-L615",
+   "description": "UniswapV4Adapter._uncollectedIncome(bytes32,UniswapV4Adapter.Position) (src/adapters/UniswapV4Adapter.sol#598-615) has external calls inside a loop: (inside0,inside1) = stateView.getFeeGrowthInside(poolId,position.tickLower,position.tickUpper) (src/adapters/UniswapV4Adapter.sol#609-610)\n\tCalls stack containing the loop:\n\t\tUniswapV4Adapter.cumulativeIncome(address)\n"
+  },
+  {
+   "id": "9852f7ae8694",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/factory/FundFactory.sol:482",
+   "first_markdown_element": "src/factory/FundFactory.sol#L482-L495",
+   "description": "FundFactory._hubIncomeTokens(Mandate,uint256) (src/factory/FundFactory.sol#482-495) has external calls inside a loop: (token0,token1) = IAdapter(pc.adapter).poolTokens(pc.poolKey) (src/factory/FundFactory.sol#488)\n\tCalls stack containing the loop:\n\t\tFundFactory.createFund(Mandate,IFundFactory.HubParams)\n\t\tFundFactory._deployCoreVault(Mandate,IFundFactory.FundAddresses,bytes)\n"
+  },
+  {
+   "id": "9af0d314d532",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:194",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L194-L214",
+   "description": "CoreVaultLogic._spokeValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,uint256,ICoreVault.NavConsolidation) (src/core/CoreVaultLogic.sol#194-214) has external calls inside a loop: ! receiver.hasReport(spokeIndex) (src/core/CoreVaultLogic.sol#204)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.grossAssets(CoreVaultState,CoreVaultWiring)\n\t\tCoreVaultLogic._valuation(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n"
+  },
+  {
+   "id": "9c2a829d4123",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:323",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L323-L349",
+   "description": "CoreVaultLogic._price(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address) (src/core/CoreVaultLogic.sol#323-349) has external calls inside a loop: (value) = IPriceSource(w.priceSource).priceInUsdc(token) (src/core/CoreVaultLogic.sol#333-338)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.spokeCapUsage(CoreVaultState,CoreVaultWiring,uint256)\n\t\tCoreVaultLogic._spokePrincipal(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,uint256,ReportCodec.Report)\n\t\tCoreVaultLogic._positionsPrincipal(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,ReportCodec.Report)\n\t\tCoreVaultLogic._usdcValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address,uint256)\n"
+  },
+  {
+   "id": "9fdbfe3ce65f",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:323",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L323-L349",
+   "description": "CoreVaultLogic._price(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address) (src/core/CoreVaultLogic.sol#323-349) has external calls inside a loop: (value) = IPriceSource(w.priceSource).priceInUsdc(token) (src/core/CoreVaultLogic.sol#333-338)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.recordValuation(CoreVaultState,CoreVaultWiring,bool)\n\t\tCoreVaultLogic._valuation(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n\t\tCoreVaultLogic._hubValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n\t\tCoreVaultLogic._positionsPrincipal(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,ReportCodec.Report)\n\t\tCoreVaultLogic._usdcValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address,uint256)\n"
+  },
+  {
+   "id": "a0548fba298f",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:120",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L120-L138",
+   "description": "CoreVaultLogic.grossAssets(CoreVaultState,CoreVaultWiring) (src/core/CoreVaultLogic.sol#120-138) has external calls inside a loop: ! receiver.hasReport(i_scope_0) (src/core/CoreVaultLogic.sol#131)\n"
+  },
+  {
+   "id": "a1b04017be0a",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:323",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L323-L349",
+   "description": "CoreVaultLogic._price(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address) (src/core/CoreVaultLogic.sol#323-349) has external calls inside a loop: p.mode == MINT && updatedAt + IPriceSource(w.priceSource).maxPriceAge(token) < block.timestamp (src/core/CoreVaultLogic.sol#342)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.sendToSpoke(CoreVaultState,CoreVaultWiring,uint256,uint256,uint256,BridgeQuote)\n\t\tCoreVaultLogic._checkSend(CoreVaultState,CoreVaultWiring,uint256,uint256,uint256,uint256,uint256)\n\t\tCoreVaultLogic.spokeCapUsage(CoreVaultState,CoreVaultWiring,uint256)\n\t\tCoreVaultLogic._spokePrincipal(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,uint256,ReportCodec.Report)\n\t\tCoreVaultLogic._positionsPrincipal(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,ReportCodec.Report)\n\t\tCoreVaultLogic._usdcValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address,uint256)\n"
+  },
+  {
+   "id": "a648d5e5f88c",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:194",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L194-L214",
+   "description": "CoreVaultLogic._spokeValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,uint256,ICoreVault.NavConsolidation) (src/core/CoreVaultLogic.sol#194-214) has external calls inside a loop: (r,None,None) = receiver.latestReport(spokeIndex) (src/core/CoreVaultLogic.sol#206)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.grossAssets(CoreVaultState,CoreVaultWiring)\n\t\tCoreVaultLogic._valuation(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n"
+  },
+  {
+   "id": "ad7dbd3c4ecf",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeVault.sol:752",
+   "first_markdown_element": "src/spoke/SpokeVault.sol#L752-L775",
+   "description": "SpokeVault._exit(address,bytes32,SpokeVaultTypes.ExitKind,bytes) (src/spoke/SpokeVault.sol#752-775) has external calls inside a loop: amounts = a.collectIncome(positionKey) (src/spoke/SpokeVault.sol#770)\n\tCalls stack containing the loop:\n\t\tSpokeVault.unwindForPayout(uint256,bytes)\n\t\tSpokeVault._unwindStep(UnwindStep,SpokeVaultTypes.UnwindHint[],uint256,uint256)\n\t\tSpokeVault._unwindPosition(address,bytes32,bytes32,uint256,SpokeVaultTypes.UnwindSwap[])\n"
+  },
+  {
+   "id": "b2fe3f632244",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeVault.sol:779",
+   "first_markdown_element": "src/spoke/SpokeVault.sol#L779-L809",
+   "description": "SpokeVault._swap(IAdapter,SpokeVaultTypes.PoolTokens,bytes32,address,uint256,uint256,bytes,bool) (src/spoke/SpokeVault.sol#779-809) has external calls inside a loop: amountOut = a.swapExactInput(poolKey,tokenIn,amountIn,minAmountOut,params) (src/spoke/SpokeVault.sol#799)\n\tCalls stack containing the loop:\n\t\tSpokeVault.unwindForPayout(uint256,bytes)\n\t\tSpokeVault._unwindStep(UnwindStep,SpokeVaultTypes.UnwindHint[],uint256,uint256)\n\t\tSpokeVault._unwindPosition(address,bytes32,bytes32,uint256,SpokeVaultTypes.UnwindSwap[])\n\t\tSpokeVault._unwindSwap(SpokeVaultTypes.UnwindSwap,uint256)\n"
+  },
+  {
+   "id": "b894a8092d7a",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:323",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L323-L349",
+   "description": "CoreVaultLogic._price(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address) (src/core/CoreVaultLogic.sol#323-349) has external calls inside a loop: (value) = IPriceSource(w.priceSource).priceInUsdc(token) (src/core/CoreVaultLogic.sol#333-338)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.grossAssets(CoreVaultState,CoreVaultWiring)\n\t\tCoreVaultLogic._valuation(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n\t\tCoreVaultLogic._hubValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n\t\tCoreVaultLogic._positionsPrincipal(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,ReportCodec.Report)\n\t\tCoreVaultLogic._usdcValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address,uint256)\n"
+  },
+  {
+   "id": "b9b7712b08e4",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:194",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L194-L214",
+   "description": "CoreVaultLogic._spokeValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,uint256,ICoreVault.NavConsolidation) (src/core/CoreVaultLogic.sol#194-214) has external calls inside a loop: (r,None,None) = receiver.latestReport(spokeIndex) (src/core/CoreVaultLogic.sol#206)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.valuation(CoreVaultState,CoreVaultWiring)\n\t\tCoreVaultLogic._valuation(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n"
+  },
+  {
+   "id": "ba3e122af6d3",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:323",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L323-L349",
+   "description": "CoreVaultLogic._price(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address) (src/core/CoreVaultLogic.sol#323-349) has external calls inside a loop: (value) = IPriceSource(w.priceSource).priceInUsdc(token) (src/core/CoreVaultLogic.sol#333-338)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.shareAssets(CoreVaultState,CoreVaultWiring)\n\t\tCoreVaultLogic._valuation(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n\t\tCoreVaultLogic._hubValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n\t\tCoreVaultLogic._positionsPrincipal(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,ReportCodec.Report)\n\t\tCoreVaultLogic._usdcValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address,uint256)\n"
+  },
+  {
+   "id": "bb52ee92f316",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:194",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L194-L214",
+   "description": "CoreVaultLogic._spokeValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,uint256,ICoreVault.NavConsolidation) (src/core/CoreVaultLogic.sol#194-214) has external calls inside a loop: ! receiver.hasReport(spokeIndex) (src/core/CoreVaultLogic.sol#204)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.shareAssets(CoreVaultState,CoreVaultWiring)\n\t\tCoreVaultLogic._valuation(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n"
+  },
+  {
+   "id": "bc105658b92c",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:323",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L323-L349",
+   "description": "CoreVaultLogic._price(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address) (src/core/CoreVaultLogic.sol#323-349) has external calls inside a loop: p.mode == MINT && updatedAt + IPriceSource(w.priceSource).maxPriceAge(token) < block.timestamp (src/core/CoreVaultLogic.sol#342)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.spokeCapUsage(CoreVaultState,CoreVaultWiring,uint256)\n\t\tCoreVaultLogic._spokePrincipal(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,uint256,ReportCodec.Report)\n\t\tCoreVaultLogic._positionsPrincipal(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,ReportCodec.Report)\n\t\tCoreVaultLogic._usdcValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address,uint256)\n"
+  },
+  {
+   "id": "c0c07a666e33",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeVault.sol:842",
+   "first_markdown_element": "src/spoke/SpokeVault.sol#L842-L865",
+   "description": "SpokeVault._unwindPosition(address,bytes32,bytes32,uint256,SpokeVaultTypes.UnwindSwap[]) (src/spoke/SpokeVault.sol#842-865) has external calls inside a loop: v = a.positionValue(positionKey) (src/spoke/SpokeVault.sol#855)\n\tCalls stack containing the loop:\n\t\tSpokeVault.unwindForPayout(uint256,bytes)\n\t\tSpokeVault._unwindStep(UnwindStep,SpokeVaultTypes.UnwindHint[],uint256,uint256)\n"
+  },
+  {
+   "id": "c4a54f3cc712",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeCrossChainLib.sol:121",
+   "first_markdown_element": "src/spoke/SpokeCrossChainLib.sol#L121-L127",
+   "description": "SpokeCrossChainLib.cumulativeIncome(SpokeVaultTypes.State,address) (src/spoke/SpokeCrossChainLib.sol#121-127) has external calls inside a loop: total += IAdapter(adapter).cumulativeIncome(token) (src/spoke/SpokeCrossChainLib.sol#125)\n\tCalls stack containing the loop:\n\t\tSpokeCrossChainLib.encodedReport(SpokeVaultTypes.State,SpokeVaultTypes.Config,uint64)\n\t\tSpokeCrossChainLib._build(SpokeVaultTypes.State,SpokeVaultTypes.Config,uint64)\n"
+  },
+  {
+   "id": "c79d2b9c8dc2",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeVault.sol:199",
+   "first_markdown_element": "src/spoke/SpokeVault.sol#L199-L208",
+   "description": "SpokeVault._pinPools(Mandate,uint256) (src/spoke/SpokeVault.sol#199-208) has external calls inside a loop: (token0,token1) = IAdapter(p.adapter).poolTokens(p.poolKey) (src/spoke/SpokeVault.sol#203)\n\tCalls stack containing the loop:\n\t\tSpokeVault.constructor(Mandate,bytes32,uint256,address,address,address,address,address,address)\n"
+  },
+  {
+   "id": "c97e8354e902",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeVault.sol:752",
+   "first_markdown_element": "src/spoke/SpokeVault.sol#L752-L775",
+   "description": "SpokeVault._exit(address,bytes32,SpokeVaultTypes.ExitKind,bytes) (src/spoke/SpokeVault.sol#752-775) has external calls inside a loop: amounts = a.decreasePosition(positionKey,params) (src/spoke/SpokeVault.sol#759)\n\tCalls stack containing the loop:\n\t\tSpokeVault.unwindForPayout(uint256,bytes)\n\t\tSpokeVault._unwindStep(UnwindStep,SpokeVaultTypes.UnwindHint[],uint256,uint256)\n\t\tSpokeVault._unwindPosition(address,bytes32,bytes32,uint256,SpokeVaultTypes.UnwindSwap[])\n"
+  },
+  {
+   "id": "ce7fa9018d26",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeVault.sol:727",
+   "first_markdown_element": "src/spoke/SpokeVault.sol#L727-L733",
+   "description": "SpokeVault._adapterLists(IAdapter,bytes32) (src/spoke/SpokeVault.sol#727-733) has external calls inside a loop: keys = a.positionKeys() (src/spoke/SpokeVault.sol#728)\n\tCalls stack containing the loop:\n\t\tSpokeVault.unwindForPayout(uint256,bytes)\n\t\tSpokeVault._unwindStep(UnwindStep,SpokeVaultTypes.UnwindHint[],uint256,uint256)\n\t\tSpokeVault._unwindPosition(address,bytes32,bytes32,uint256,SpokeVaultTypes.UnwindSwap[])\n\t\tSpokeVault._exit(address,bytes32,SpokeVaultTypes.ExitKind,bytes)\n"
+  },
+  {
+   "id": "d18f2bf01f74",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeCrossChainLib.sol:121",
+   "first_markdown_element": "src/spoke/SpokeCrossChainLib.sol#L121-L127",
+   "description": "SpokeCrossChainLib.cumulativeIncome(SpokeVaultTypes.State,address) (src/spoke/SpokeCrossChainLib.sol#121-127) has external calls inside a loop: total += IAdapter(adapter).cumulativeIncome(token) (src/spoke/SpokeCrossChainLib.sol#125)\n"
+  },
+  {
+   "id": "d6e99b151ada",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeVault.sol:842",
+   "first_markdown_element": "src/spoke/SpokeVault.sol#L842-L865",
+   "description": "SpokeVault._unwindPosition(address,bytes32,bytes32,uint256,SpokeVaultTypes.UnwindSwap[]) (src/spoke/SpokeVault.sol#842-865) has external calls inside a loop: (close,params) = a.unwindExitParams(positionKey,Math.min(shortfall,value),value) (src/spoke/SpokeVault.sol#859)\n\tCalls stack containing the loop:\n\t\tSpokeVault.unwindForPayout(uint256,bytes)\n\t\tSpokeVault._unwindStep(UnwindStep,SpokeVaultTypes.UnwindHint[],uint256,uint256)\n"
+  },
+  {
+   "id": "e0e18259ebd2",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:323",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L323-L349",
+   "description": "CoreVaultLogic._price(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address) (src/core/CoreVaultLogic.sol#323-349) has external calls inside a loop: p.mode == MINT && updatedAt + IPriceSource(w.priceSource).maxPriceAge(token) < block.timestamp (src/core/CoreVaultLogic.sol#342)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.shareAssets(CoreVaultState,CoreVaultWiring)\n\t\tCoreVaultLogic._valuation(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n\t\tCoreVaultLogic._hubValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n\t\tCoreVaultLogic._positionsPrincipal(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,ReportCodec.Report)\n\t\tCoreVaultLogic._usdcValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address,uint256)\n"
+  },
+  {
+   "id": "e4b5dd23e2c9",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:323",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L323-L349",
+   "description": "CoreVaultLogic._price(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address) (src/core/CoreVaultLogic.sol#323-349) has external calls inside a loop: (value) = IPriceSource(w.priceSource).priceInUsdc(token) (src/core/CoreVaultLogic.sol#333-338)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.valuation(CoreVaultState,CoreVaultWiring)\n\t\tCoreVaultLogic._valuation(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n\t\tCoreVaultLogic._hubValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n\t\tCoreVaultLogic._positionsPrincipal(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,ReportCodec.Report)\n\t\tCoreVaultLogic._usdcValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address,uint256)\n"
+  },
+  {
+   "id": "e63e9b372193",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:194",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L194-L214",
+   "description": "CoreVaultLogic._spokeValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,uint256,ICoreVault.NavConsolidation) (src/core/CoreVaultLogic.sol#194-214) has external calls inside a loop: (r,None,None) = receiver.latestReport(spokeIndex) (src/core/CoreVaultLogic.sol#206)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.shareAssets(CoreVaultState,CoreVaultWiring)\n\t\tCoreVaultLogic._valuation(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n"
+  },
+  {
+   "id": "e7f846bc720b",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:323",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L323-L349",
+   "description": "CoreVaultLogic._price(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address) (src/core/CoreVaultLogic.sol#323-349) has external calls inside a loop: (price,updatedAt) = IPriceSource(w.priceSource).priceInUsdc(token) (src/core/CoreVaultLogic.sol#341)\n\tCalls stack containing the loop:\n\t\tCoreVaultLogic.grossAssets(CoreVaultState,CoreVaultWiring)\n\t\tCoreVaultLogic._valuation(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n\t\tCoreVaultLogic._hubValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices)\n\t\tCoreVaultLogic._positionsPrincipal(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,ReportCodec.Report)\n\t\tCoreVaultLogic._usdcValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address,uint256)\n"
+  },
+  {
+   "id": "eaffa52e519d",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeVault.sol:219",
+   "first_markdown_element": "src/spoke/SpokeVault.sol#L219-L229",
+   "description": "SpokeVault._pinBridgeAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#219-229) has external calls inside a loop: target = IBridgeAdapter(b.adapter).target() (src/spoke/SpokeVault.sol#224)\n\tCalls stack containing the loop:\n\t\tSpokeVault.constructor(Mandate,bytes32,uint256,address,address,address,address,address,address)\n"
+  },
+  {
+   "id": "efa2c00ff491",
+   "check": "calls-loop",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeVault.sol:752",
+   "first_markdown_element": "src/spoke/SpokeVault.sol#L752-L775",
+   "description": "SpokeVault._exit(address,bytes32,SpokeVaultTypes.ExitKind,bytes) (src/spoke/SpokeVault.sol#752-775) has external calls inside a loop: amounts = a.closePosition(positionKey,params) (src/spoke/SpokeVault.sol#762)\n\tCalls stack containing the loop:\n\t\tSpokeVault.unwindForPayout(uint256,bytes)\n\t\tSpokeVault._unwindStep(UnwindStep,SpokeVaultTypes.UnwindHint[],uint256,uint256)\n\t\tSpokeVault._unwindPosition(address,bytes32,bytes32,uint256,SpokeVaultTypes.UnwindSwap[])\n"
+  },
+  {
+   "id": "f0ca22fba346",
+   "check": "reentrancy-benign",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVault.sol:204",
+   "first_markdown_element": "src/core/CoreVault.sol#L204-L214",
+   "description": "Reentrancy in CoreVault._unwindForPayout(uint256,bytes) (src/core/CoreVault.sol#204-214):\n\tExternal calls:\n\t- ISpokeVault(hubSpokeVault).unwindForPayout(target,hints) (src/core/CoreVault.sol#207-212)\n\tState variables written after the call(s):\n\t- _unwinding = false (src/core/CoreVault.sol#208)\n\t- _unwinding = false (src/core/CoreVault.sol#210)\n"
+  },
+  {
+   "id": "59965669600c",
+   "check": "reentrancy-events",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:576",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L576-L635",
+   "description": "Reentrancy in CoreVaultLogic.sendToSpoke(CoreVaultState,CoreVaultWiring,uint256,uint256,uint256,BridgeQuote) (src/core/CoreVaultLogic.sol#576-635):\n\tExternal calls:\n\t- ITransitEscrow(escrow).initialize(address(this),w.usdc) (src/core/CoreVaultLogic.sol#590)\n\tEvent emitted after the call(s):\n\t- ICoreVault.SentToSpoke(transitId,spokeIndex,t,w.hubChainId) (src/core/CoreVaultLogic.sol#620)\n"
+  },
+  {
+   "id": "c251b25489de",
+   "check": "reentrancy-events",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeCrossChainLib.sol:38",
+   "first_markdown_element": "src/spoke/SpokeCrossChainLib.sol#L38-L58",
+   "description": "Reentrancy in SpokeCrossChainLib.sendToHub(SpokeVaultTypes.State,SpokeVaultTypes.Config,uint256,TransferKind,uint256,BridgeQuote) (src/spoke/SpokeCrossChainLib.sol#38-58):\n\tExternal calls:\n\t- ITransitEscrow(escrow).initialize(address(this),c.baseToken) (src/spoke/SpokeCrossChainLib.sol#52)\n\t- _executeBridgeCall(c.baseToken,call.target,call.data,amount) (src/spoke/SpokeCrossChainLib.sol#56)\n\t\t- (ok,returned) = target.call(data) (src/spoke/SpokeCrossChainLib.sol#341)\n\tEvent emitted after the call(s):\n\t- ISpokeVault.SentToHub(transitId,t,c.hubChainId,c.chainId) (src/spoke/SpokeCrossChainLib.sol#57)\n"
+  },
+  {
+   "id": "f712ad8104ec",
+   "check": "reentrancy-events",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/factory/Create3Deployer.sol:23",
+   "first_markdown_element": "src/factory/Create3Deployer.sol#L23-L26",
+   "description": "Reentrancy in Create3Deployer.deploy(bytes32,bytes) (src/factory/Create3Deployer.sol#23-26):\n\tExternal calls:\n\t- deployed = Create3.deploy(_saltOf(msg.sender,salt),initCode) (src/factory/Create3Deployer.sol#24)\n\tEvent emitted after the call(s):\n\t- Deployed(msg.sender,salt,deployed) (src/factory/Create3Deployer.sol#25)\n"
+  },
+  {
+   "id": "23939c68ef06",
+   "check": "timestamp",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeCrossChainLib.sol:300",
+   "first_markdown_element": "src/spoke/SpokeCrossChainLib.sol#L300-L302",
+   "description": "SpokeCrossChainLib._stillInFlight(Transit,uint32) (src/spoke/SpokeCrossChainLib.sol#300-302) uses timestamp for comparisons\n\tDangerous comparisons:\n\t- t.state == TransitState.Sent && block.timestamp <= uint256(t.fillDeadline) + maxReportAge (src/spoke/SpokeCrossChainLib.sol#301)\n"
+  },
+  {
+   "id": "23b826c9c80a",
+   "check": "timestamp",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:194",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L194-L214",
+   "description": "CoreVaultLogic._spokeValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,uint256,ICoreVault.NavConsolidation) (src/core/CoreVaultLogic.sol#194-214) uses timestamp for comparisons\n\tDangerous comparisons:\n\t- age > consolidation.oldestReportAge (src/core/CoreVaultLogic.sol#213)\n\t- block.timestamp > r.timestamp (src/core/CoreVaultLogic.sol#212)\n"
+  },
+  {
+   "id": "26f393b05adb",
+   "check": "timestamp",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:576",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L576-L635",
+   "description": "CoreVaultLogic.sendToSpoke(CoreVaultState,CoreVaultWiring,uint256,uint256,uint256,BridgeQuote) (src/core/CoreVaultLogic.sol#576-635) uses timestamp for comparisons\n\tDangerous comparisons:\n\t- call.target != s.bridgeTarget[adapter] || call.amountToArrive != quote.outputAmount || call.fillDeadline <= block.timestamp (src/core/CoreVaultLogic.sol#595-596)\n"
+  },
+  {
+   "id": "2d2c73f05308",
+   "check": "timestamp",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/report/ValueReportReceiver.sol:244",
+   "first_markdown_element": "src/report/ValueReportReceiver.sol#L244-L249",
+   "description": "ValueReportReceiver.isReportFresh(uint256) (src/report/ValueReportReceiver.sol#244-249) uses timestamp for comparisons\n\tDangerous comparisons:\n\t- _age(state.reportTimestamp) <= maxAge (src/report/ValueReportReceiver.sol#248)\n"
+  },
+  {
+   "id": "2d83cb769538",
+   "check": "timestamp",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/spoke/SpokeCrossChainLib.sol:70",
+   "first_markdown_element": "src/spoke/SpokeCrossChainLib.sol#L70-L91",
+   "description": "SpokeCrossChainLib.recognizeRefund(SpokeVaultTypes.State,address,bytes32) (src/spoke/SpokeCrossChainLib.sol#70-91) uses timestamp for comparisons\n\tDangerous comparisons:\n\t- block.timestamp <= t.fillDeadline (src/spoke/SpokeCrossChainLib.sol#76)\n"
+  },
+  {
+   "id": "3857893f1542",
+   "check": "timestamp",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/report/ValueReportReceiver.sol:214",
+   "first_markdown_element": "src/report/ValueReportReceiver.sol#L214-L223",
+   "description": "ValueReportReceiver.latestReport(uint256) (src/report/ValueReportReceiver.sol#214-223) uses timestamp for comparisons\n\tDangerous comparisons:\n\t- state.acceptedAt == 0 (src/report/ValueReportReceiver.sol#220)\n"
+  },
+  {
+   "id": "4146c6028f60",
+   "check": "timestamp",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVault.sol:144",
+   "first_markdown_element": "src/core/CoreVault.sol#L144-L177",
+   "description": "CoreVault.claimPayout(bytes) (src/core/CoreVault.sol#144-177) uses timestamp for comparisons\n\tDangerous comparisons:\n\t- req.mode == PayoutMode.Standard && block.timestamp < req.termEndsAt (src/core/CoreVault.sol#147)\n"
+  },
+  {
+   "id": "7338f33aed5c",
+   "check": "timestamp",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/adapters/UniswapV4Adapter.sol:516",
+   "first_markdown_element": "src/adapters/UniswapV4Adapter.sol#L516-L543",
+   "description": "UniswapV4Adapter.swapExactInput(bytes32,address,uint256,uint256,bytes) (src/adapters/UniswapV4Adapter.sol#516-543) uses timestamp for comparisons\n\tDangerous comparisons:\n\t- block.timestamp > p.deadline (src/adapters/UniswapV4Adapter.sol#531)\n\t- limit == 0 (src/adapters/UniswapV4Adapter.sol#533)\n"
+  },
+  {
+   "id": "7f86ae8b08d7",
+   "check": "timestamp",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/report/ValueReportReceiver.sol:279",
+   "first_markdown_element": "src/report/ValueReportReceiver.sol#L279-L281",
+   "description": "ValueReportReceiver._age(uint64) (src/report/ValueReportReceiver.sol#279-281) uses timestamp for comparisons\n\tDangerous comparisons:\n\t- block.timestamp > timestamp (src/report/ValueReportReceiver.sol#280)\n"
+  },
+  {
+   "id": "d378339a2bfc",
+   "check": "timestamp",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:541",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L541-L560",
+   "description": "CoreVaultLogic.nonArrivalProvable(CoreVaultState,CoreVaultWiring,uint256,bytes32,uint32) (src/core/CoreVaultLogic.sol#541-560) uses timestamp for comparisons\n\tDangerous comparisons:\n\t- block.timestamp > uint256(deadline) + s.mandate.spokes[spokeIndex].maxReportAge (src/core/CoreVaultLogic.sol#548)\n"
+  },
+  {
+   "id": "d43565c0c1e0",
+   "check": "timestamp",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/report/ValueReportReceiver.sol:144",
+   "first_markdown_element": "src/report/ValueReportReceiver.sol#L144-L202",
+   "description": "ValueReportReceiver.deliver(bytes) (src/report/ValueReportReceiver.sol#144-202) uses timestamp for comparisons\n\tDangerous comparisons:\n\t- age > config.maxReportAge (src/report/ValueReportReceiver.sol#178)\n\t- report.timestamp > block.timestamp + config.maxReportAge (src/report/ValueReportReceiver.sol#179)\n"
+  },
+  {
+   "id": "f106b52d4e60",
+   "check": "timestamp",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:714",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L714-L724",
+   "description": "CoreVaultLogic.attestExpiry(CoreVaultState,CoreVaultWiring,bytes32) (src/core/CoreVaultLogic.sol#714-724) uses timestamp for comparisons\n\tDangerous comparisons:\n\t- block.timestamp <= deadline (src/core/CoreVaultLogic.sol#718)\n"
+  },
+  {
+   "id": "f88231d6896a",
+   "check": "timestamp",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultLogic.sol:323",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L323-L349",
+   "description": "CoreVaultLogic._price(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address) (src/core/CoreVaultLogic.sol#323-349) uses timestamp for comparisons\n\tDangerous comparisons:\n\t- p.mode == MINT && updatedAt + IPriceSource(w.priceSource).maxPriceAge(token) < block.timestamp (src/core/CoreVaultLogic.sol#342)\n"
+  },
+  {
+   "id": "fc7302efc362",
+   "check": "timestamp",
+   "impact": "Low",
+   "confidence": "Medium",
+   "location": "src/report/ValueReportReceiver.sol:209",
+   "first_markdown_element": "src/report/ValueReportReceiver.sol#L209-L211",
+   "description": "ValueReportReceiver.hasReport(uint256) (src/report/ValueReportReceiver.sol#209-211) uses timestamp for comparisons\n\tDangerous comparisons:\n\t- _state[spokeIndex].acceptedAt != 0 (src/report/ValueReportReceiver.sol#210)\n"
+  },
+  {
+   "id": "02cc9323ab1e",
+   "check": "assembly",
+   "impact": "Informational",
+   "confidence": "High",
+   "location": "src/spoke/SpokeVault.sol:421",
+   "first_markdown_element": "src/spoke/SpokeVault.sol#L421-L428",
+   "description": "SpokeVault.buildReport() (src/spoke/SpokeVault.sol#421-428) uses assembly\n\t- INLINE ASM (src/spoke/SpokeVault.sol#423-427)\n"
+  },
+  {
+   "id": "3e273e891c01",
+   "check": "assembly",
+   "impact": "Informational",
+   "confidence": "High",
+   "location": "src/spoke/SpokeCrossChainLib.sol:196",
+   "first_markdown_element": "src/spoke/SpokeCrossChainLib.sol#L196-L207",
+   "description": "SpokeCrossChainLib._positionReport(address,IAdapter.PositionValue) (src/spoke/SpokeCrossChainLib.sol#196-207) uses assembly\n\t- INLINE ASM (src/spoke/SpokeCrossChainLib.sol#201-206)\n"
+  },
+  {
+   "id": "63587f09668d",
+   "check": "assembly",
+   "impact": "Informational",
+   "confidence": "High",
+   "location": "src/spoke/SpokeCrossChainLib.sol:129",
+   "first_markdown_element": "src/spoke/SpokeCrossChainLib.sol#L129-L192",
+   "description": "SpokeCrossChainLib._build(SpokeVaultTypes.State,SpokeVaultTypes.Config,uint64) (src/spoke/SpokeCrossChainLib.sol#129-192) uses assembly\n\t- INLINE ASM (src/spoke/SpokeCrossChainLib.sol#188-190)\n"
+  },
+  {
+   "id": "6dac9f3701b2",
+   "check": "assembly",
+   "impact": "Informational",
+   "confidence": "High",
+   "location": "src/spoke/SpokeCrossChainLib.sol:337",
+   "first_markdown_element": "src/spoke/SpokeCrossChainLib.sol#L337-L351",
+   "description": "SpokeCrossChainLib._executeBridgeCall(address,address,bytes,uint256) (src/spoke/SpokeCrossChainLib.sol#337-351) uses assembly\n\t- INLINE ASM (src/spoke/SpokeCrossChainLib.sol#343-345)\n"
+  },
+  {
+   "id": "71e294e4612b",
+   "check": "assembly",
+   "impact": "Informational",
+   "confidence": "High",
+   "location": "src/core/CoreVaultLogic.sol:576",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L576-L635",
+   "description": "CoreVaultLogic.sendToSpoke(CoreVaultState,CoreVaultWiring,uint256,uint256,uint256,BridgeQuote) (src/core/CoreVaultLogic.sol#576-635) uses assembly\n\t- INLINE ASM (src/core/CoreVaultLogic.sol#628-630)\n"
+  },
+  {
+   "id": "8032426ffc4d",
+   "check": "assembly",
+   "impact": "Informational",
+   "confidence": "High",
+   "location": "src/factory/CodeStore.sol:27",
+   "first_markdown_element": "src/factory/CodeStore.sol#L27-L50",
+   "description": "CodeStore.write(bytes) (src/factory/CodeStore.sol#27-50) uses assembly\n\t- INLINE ASM (src/factory/CodeStore.sol#36-38)\n\t- INLINE ASM (src/factory/CodeStore.sol#44-46)\n"
+  },
+  {
+   "id": "83f09f4a1194",
+   "check": "assembly",
+   "impact": "Informational",
+   "confidence": "High",
+   "location": "src/factory/FundFactory.sol:482",
+   "first_markdown_element": "src/factory/FundFactory.sol#L482-L495",
+   "description": "FundFactory._hubIncomeTokens(Mandate,uint256) (src/factory/FundFactory.sol#482-495) uses assembly\n\t- INLINE ASM (src/factory/FundFactory.sol#492-494)\n"
+  },
+  {
+   "id": "91d30ccfc7e2",
+   "check": "assembly",
+   "impact": "Informational",
+   "confidence": "High",
+   "location": "src/factory/Create3.sol:40",
+   "first_markdown_element": "src/factory/Create3.sol#L40-L56",
+   "description": "Create3.deploy(bytes32,bytes) (src/factory/Create3.sol#40-56) uses assembly\n\t- INLINE ASM (src/factory/Create3.sol#44-46)\n\t- INLINE ASM (src/factory/Create3.sol#50-52)\n"
+  },
+  {
+   "id": "baa98e654c63",
+   "check": "assembly",
+   "impact": "Informational",
+   "confidence": "High",
+   "location": "src/factory/CodeStore.sol:53",
+   "first_markdown_element": "src/factory/CodeStore.sol#L53-L70",
+   "description": "CodeStore.read(address[]) (src/factory/CodeStore.sol#53-70) uses assembly\n\t- INLINE ASM (src/factory/CodeStore.sol#65-67)\n"
+  },
+  {
+   "id": "c41fb754d7d6",
+   "check": "assembly",
+   "impact": "Informational",
+   "confidence": "High",
+   "location": "src/spoke/SpokeVault.sol:735",
+   "first_markdown_element": "src/spoke/SpokeVault.sol#L735-L746",
+   "description": "SpokeVault._positionKeysOf(address,bytes32) (src/spoke/SpokeVault.sol#735-746) uses assembly\n\t- INLINE ASM (src/spoke/SpokeVault.sol#743-745)\n"
+  },
+  {
+   "id": "f62e504e9ebc",
+   "check": "assembly",
+   "impact": "Informational",
+   "confidence": "High",
+   "location": "src/factory/FundFactory.sol:414",
+   "first_markdown_element": "src/factory/FundFactory.sol#L414-L428",
+   "description": "FundFactory._deployAaveV3Adapter(Mandate,bytes32,uint256,IFundFactory.ChainAddresses) (src/factory/FundFactory.sol#414-428) uses assembly\n\t- INLINE ASM (src/factory/FundFactory.sol#424-426)\n"
+  },
+  {
+   "id": "ebcf3dc7e859",
+   "check": "dead-code",
+   "impact": "Informational",
+   "confidence": "Medium",
+   "location": "src/core/CoreVaultBase.sol:350",
+   "first_markdown_element": "src/core/CoreVaultBase.sol#L350-L353",
+   "description": "CoreVaultBase._spoke(uint256) (src/core/CoreVaultBase.sol#350-353) is never used and should be removed\n"
+  },
+  {
+   "id": "73c850fe9f67",
+   "check": "low-level-calls",
+   "impact": "Informational",
+   "confidence": "High",
+   "location": "src/factory/Create3.sol:40",
+   "first_markdown_element": "src/factory/Create3.sol#L40-L56",
+   "description": "Low level call in Create3.deploy(bytes32,bytes) (src/factory/Create3.sol#40-56):\n\t- (ok,returned) = proxy.call(initCode) (src/factory/Create3.sol#48)\n"
+  },
+  {
+   "id": "e632b0fbc45d",
+   "check": "low-level-calls",
+   "impact": "Informational",
+   "confidence": "High",
+   "location": "src/spoke/SpokeCrossChainLib.sol:337",
+   "first_markdown_element": "src/spoke/SpokeCrossChainLib.sol#L337-L351",
+   "description": "Low level call in SpokeCrossChainLib._executeBridgeCall(address,address,bytes,uint256) (src/spoke/SpokeCrossChainLib.sol#337-351):\n\t- (ok,returned) = target.call(data) (src/spoke/SpokeCrossChainLib.sol#341)\n"
+  },
+  {
+   "id": "ecbf83ca438c",
+   "check": "low-level-calls",
+   "impact": "Informational",
+   "confidence": "High",
+   "location": "src/core/CoreVaultLogic.sol:576",
+   "first_markdown_element": "src/core/CoreVaultLogic.sol#L576-L635",
+   "description": "Low level call in CoreVaultLogic.sendToSpoke(CoreVaultState,CoreVaultWiring,uint256,uint256,uint256,BridgeQuote) (src/core/CoreVaultLogic.sol#576-635):\n\t- (ok,ret) = call.target.call(call.data) (src/core/CoreVaultLogic.sol#626)\n"
+  },
+  {
+   "id": "0046c10f1237",
+   "check": "naming-convention",
+   "impact": "Informational",
+   "confidence": "High",
+   "location": "src/interfaces/IFundFactory.sol:226",
+   "first_markdown_element": "src/interfaces/IFundFactory.sol#L226",
+   "description": "Function IFundFactory.NUMBER_OFFSET() (src/interfaces/IFundFactory.sol#226) is not in mixedCase\n"
+  },
+  {
+   "id": "2d1ec61e85fd",
+   "check": "naming-convention",
+   "impact": "Informational",
+   "confidence": "High",
+   "location": "src/interfaces/IManagerRegistry.sol:29",
+   "first_markdown_element": "src/interfaces/IManagerRegistry.sol#L29",
+   "description": "Function IManagerRegistry.MAX_PROTOCOL_SLICE_BPS() (src/interfaces/IManagerRegistry.sol#29) is not in mixedCase\n"
+  },
+  {
+   "id": "3cabe3f951f9",
+   "check": "naming-convention",
+   "impact": "Informational",
+   "confidence": "High",
+   "location": "src/interfaces/IManagerRegistry.sol:26",
+   "first_markdown_element": "src/interfaces/IManagerRegistry.sol#L26",
+   "description": "Function IManagerRegistry.DEFAULT_PROTOCOL_SLICE_BPS() (src/interfaces/IManagerRegistry.sol#26) is not in mixedCase\n"
+  },
+  {
+   "id": "53302fecc109",
+   "check": "naming-convention",
+   "impact": "Informational",
+   "confidence": "High",
+   "location": "src/factory/FundFactory.sol:47",
+   "first_markdown_element": "src/factory/FundFactory.sol#L47",
+   "description": "Variable FundFactory.NUMBER_OFFSET (src/factory/FundFactory.sol#47) is not in mixedCase\n"
+  },
+  {
+   "id": "3e8bc7d9ede6",
+   "check": "cache-array-length",
+   "impact": "Optimization",
+   "confidence": "High",
+   "location": "src/adapters/AaveV3Adapter.sol:332",
+   "first_markdown_element": "src/adapters/AaveV3Adapter.sol#L332",
+   "description": "Loop condition i_scope_0 < _assets.length (src/adapters/AaveV3Adapter.sol#332) should use cached array length instead of referencing `length` member of the storage array.\n "
+  },
+  {
+   "id": "df4103eaedac",
+   "check": "cache-array-length",
+   "impact": "Optimization",
+   "confidence": "High",
+   "location": "src/adapters/AaveV3Adapter.sol:327",
+   "first_markdown_element": "src/adapters/AaveV3Adapter.sol#L327",
+   "description": "Loop condition i < _assets.length (src/adapters/AaveV3Adapter.sol#327) should use cached array length instead of referencing `length` member of the storage array.\n "
+  }
+ ],
+ "note": "Compact form of Slither's --json output: one entry per result with the detector, impact, confidence, the first element's file:line and the full description. The full output (9.4 MB, source mappings of every element) is reproducible with the command above and is not committed."
+}
