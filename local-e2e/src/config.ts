@@ -150,12 +150,14 @@ export const guardian = privateKeyToAccount(GUARDIAN_PRIVATE_KEY);
 // Fund plan defaults (script/CreateFund.s.sol reads these from the environment)
 // ---------------------------------------------------------------------------------------------------------------------
 
-/** Mandate rule values passed to script/CreateFund.s.sol; overridable through the same environment variables. */
+/** Mandate rule values passed to script/CreateFund.s.sol, overridable through the same environment variables. The
+ *  defaults are the end-to-end fork scenario's (test/fork/e2e/EndToEndBase.sol): a Spoke Cap of 40% of Ana's first
+ *  deposit, and a maximum bridge fee derived from its Across quote (1.60 USDC on 4,000, 4 bps; QA19 OPEN). */
 export const FUND_PLAN = {
-  SPOKE_CAP: process.env.SPOKE_CAP ?? "10000000000", // 10,000 USDC (DEC-037, DEC-095)
+  SPOKE_CAP: process.env.SPOKE_CAP ?? "4000000000", // 4,000 USDC (DEC-037, DEC-095)
   MIN_FIRST_DEPOSIT: process.env.MIN_FIRST_DEPOSIT ?? "100000000", // 100 USDC (DEC-061)
   PERFORMANCE_FEE_BPS: process.env.PERFORMANCE_FEE_BPS ?? "2000", // 20% (DEC-107)
-  MAX_BRIDGE_FEE_BPS: process.env.MAX_BRIDGE_FEE_BPS ?? "50", // 0.50% (QA19 OPEN)
+  MAX_BRIDGE_FEE_BPS: process.env.MAX_BRIDGE_FEE_BPS ?? "4", // 0.04% (QA19 OPEN)
 } as const;
 
 /** Whether the module at `url` (`import.meta.url`) is the script node was started with. */
