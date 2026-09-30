@@ -73,7 +73,7 @@ abstract contract AccessFundFixture is Test, FactoryDeployment, FundMandate {
 
     function setUp() public virtual {
         vm.warp(1_800_000_000);
-        usdc = new MockToken("USDC", 6);
+        usdc = _newUsdc();
         weth = new MockToken("WETH", 18);
         usdg = new MockToken("USDG", 6);
         spokeWeth = new MockToken("WETH", 18);
@@ -95,6 +95,11 @@ abstract contract AccessFundFixture is Test, FactoryDeployment, FundMandate {
         weth.mint(address(v4), 1e15);
         cleanState = vm.snapshotState();
         _hubFactory();
+    }
+
+    /// @dev The hub USDC. A PoC that needs a token with the live USDC's behaviour (a blacklist) overrides it.
+    function _newUsdc() internal virtual returns (MockToken) {
+        return new MockToken("USDC", 6);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
