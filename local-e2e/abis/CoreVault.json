@@ -1,0 +1,3356 @@
+[
+  {
+    "type": "constructor",
+    "inputs": [
+      {
+        "name": "m",
+        "type": "tuple",
+        "internalType": "struct Mandate",
+        "components": [
+          {
+            "name": "manager",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "hubChainId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "usdc",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "adapters",
+            "type": "tuple[]",
+            "internalType": "struct AdapterConfig[]",
+            "components": [
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "adapter",
+                "type": "address",
+                "internalType": "address"
+              }
+            ]
+          },
+          {
+            "name": "pools",
+            "type": "tuple[]",
+            "internalType": "struct PoolConfig[]",
+            "components": [
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "adapter",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "poolKey",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          },
+          {
+            "name": "unwindOrder",
+            "type": "tuple[]",
+            "internalType": "struct UnwindStep[]",
+            "components": [
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "adapter",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "poolKey",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          },
+          {
+            "name": "spokes",
+            "type": "tuple[]",
+            "internalType": "struct SpokeConfig[]",
+            "components": [
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "wormholeChainId",
+                "type": "uint16",
+                "internalType": "uint16"
+              },
+              {
+                "name": "spokeVault",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "spokeToken",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "spokeCap",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "maxReportAge",
+                "type": "uint32",
+                "internalType": "uint32"
+              }
+            ]
+          },
+          {
+            "name": "bridgeAdapters",
+            "type": "tuple[]",
+            "internalType": "struct BridgeAdapterConfig[]",
+            "components": [
+              {
+                "name": "spokeChainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "adapter",
+                "type": "address",
+                "internalType": "address"
+              }
+            ]
+          },
+          {
+            "name": "operatingCash",
+            "type": "tuple[]",
+            "internalType": "struct OperatingCashConfig[]",
+            "components": [
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "floor",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "topUp",
+                "type": "uint256",
+                "internalType": "uint256"
+              }
+            ]
+          },
+          {
+            "name": "payoutFeeBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "standardPayoutTerm",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "minFirstDeposit",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "performanceFeeBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "managementFeeBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "maxBridgeFeeBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          }
+        ]
+      },
+      {
+        "name": "c",
+        "type": "tuple",
+        "internalType": "struct CoreVaultConfig",
+        "components": [
+          {
+            "name": "fundId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "usdc",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "hubSpokeVault",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "reportReceiver",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "managerRegistry",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "priceSource",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "acrossSpokePool",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "protocolRecipient",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "excessRecipient",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "escrowImplementation",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "flowFeeBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "incomeTokens",
+            "type": "address[]",
+            "internalType": "address[]"
+          },
+          {
+            "name": "shareName",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "shareSymbol",
+            "type": "string",
+            "internalType": "string"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "UNWIND_MARGIN_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "acrossSpokePool",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "allocateToHubSpokeVault",
+    "inputs": [
+      {
+        "name": "usdcAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "attestExpiry",
+    "inputs": [
+      {
+        "name": "transitId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "attributedIncome",
+    "inputs": [
+      {
+        "name": "shareholder",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "claimPayout",
+    "inputs": [
+      {
+        "name": "unwindHints",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "receipt",
+        "type": "tuple",
+        "internalType": "struct ICoreVault.PayoutReceipt",
+        "components": [
+          {
+            "name": "mode",
+            "type": "uint8",
+            "internalType": "enum ICoreVault.PayoutMode"
+          },
+          {
+            "name": "usdcRequested",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "sharesBurned",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "usdcGross",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "payoutFee",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "flowFee",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "usdcPaid",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "usdcOutstanding",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "sharePrice",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "shareAssets",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "totalShares",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "unwindProceeds",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "payoutSettlementPrice",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "closedBelowOneShare",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "collectedIncome",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "decreaseManagerFee",
+    "inputs": [
+      {
+        "name": "newPerformanceFeeBps",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "newManagementFeeBps",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "deposit",
+    "inputs": [
+      {
+        "name": "usdcAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minShares",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "shares",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "usdcCharged",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "escrowImplementation",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "excessRecipient",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "flowFeeBps",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "freeIdle",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "fundId",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "grossAssets",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "handleV3AcrossMessage",
+    "inputs": [
+      {
+        "name": "tokenSent",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "message",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "hubSpokeVault",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "idle",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "inFlightValue",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "value",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "incomeState",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct IncomeAccumulator.TokenIncome",
+        "components": [
+          {
+            "name": "registered",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "index",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "remainder",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "ownerless",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "distributed",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "taken",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "incomeTokens",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "managementFeeBps",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "manager",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "managerFeeVault",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "managerRegistry",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "mandate",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct Mandate",
+        "components": [
+          {
+            "name": "manager",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "hubChainId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "usdc",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "adapters",
+            "type": "tuple[]",
+            "internalType": "struct AdapterConfig[]",
+            "components": [
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "adapter",
+                "type": "address",
+                "internalType": "address"
+              }
+            ]
+          },
+          {
+            "name": "pools",
+            "type": "tuple[]",
+            "internalType": "struct PoolConfig[]",
+            "components": [
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "adapter",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "poolKey",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          },
+          {
+            "name": "unwindOrder",
+            "type": "tuple[]",
+            "internalType": "struct UnwindStep[]",
+            "components": [
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "adapter",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "poolKey",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          },
+          {
+            "name": "spokes",
+            "type": "tuple[]",
+            "internalType": "struct SpokeConfig[]",
+            "components": [
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "wormholeChainId",
+                "type": "uint16",
+                "internalType": "uint16"
+              },
+              {
+                "name": "spokeVault",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "spokeToken",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "spokeCap",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "maxReportAge",
+                "type": "uint32",
+                "internalType": "uint32"
+              }
+            ]
+          },
+          {
+            "name": "bridgeAdapters",
+            "type": "tuple[]",
+            "internalType": "struct BridgeAdapterConfig[]",
+            "components": [
+              {
+                "name": "spokeChainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "adapter",
+                "type": "address",
+                "internalType": "address"
+              }
+            ]
+          },
+          {
+            "name": "operatingCash",
+            "type": "tuple[]",
+            "internalType": "struct OperatingCashConfig[]",
+            "components": [
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "floor",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "topUp",
+                "type": "uint256",
+                "internalType": "uint256"
+              }
+            ]
+          },
+          {
+            "name": "payoutFeeBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "standardPayoutTerm",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "minFirstDeposit",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "performanceFeeBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "managementFeeBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "maxBridgeFeeBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "mandateHash",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "onReportAccepted",
+    "inputs": [
+      {
+        "name": "spokeIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "operatingCash",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "operatingCashFloor",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "operatingCashTopUp",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "ownerlessIncome",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "payoutFeeBps",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "payoutRequest",
+    "inputs": [
+      {
+        "name": "shareholder",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct ICoreVault.PayoutRequest",
+        "components": [
+          {
+            "name": "mode",
+            "type": "uint8",
+            "internalType": "enum ICoreVault.PayoutMode"
+          },
+          {
+            "name": "open",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "requestedAt",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "termEndsAt",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "usdcRequested",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "usdcOutstanding",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "reserved",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "payoutReserve",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "performanceFeeBps",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "priceSource",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "protocolRecipient",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "receiveCollectedIncome",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "recognizeRefund",
+    "inputs": [
+      {
+        "name": "transitId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "reportReceiver",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "requestPayout",
+    "inputs": [
+      {
+        "name": "usdcAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "mode",
+        "type": "uint8",
+        "internalType": "enum ICoreVault.PayoutMode"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "returnToIdle",
+    "inputs": [
+      {
+        "name": "usdcAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "sendToSpoke",
+    "inputs": [
+      {
+        "name": "spokeIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "usdcAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "bridgeRank",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "quote",
+        "type": "tuple",
+        "internalType": "struct BridgeQuote",
+        "components": [
+          {
+            "name": "outputAmount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "quoteTimestamp",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "exclusivityDeadline",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "exclusiveRelayer",
+            "type": "address",
+            "internalType": "address"
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "transitId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setOperatingCashParameters",
+    "inputs": [
+      {
+        "name": "floor",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "topUp",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "shareAssets",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "assets",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "sharePrice",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "shareToken",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "spokeCapUsage",
+    "inputs": [
+      {
+        "name": "spokeIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "spokeValue",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "inFlightSent",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "inFlightToHub",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "spokeCap",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "standardPayoutTerm",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "sweepExcess",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "transit",
+    "inputs": [
+      {
+        "name": "transitId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct Transit",
+        "components": [
+          {
+            "name": "destinationChainId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "bridgeAdapter",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "escrow",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "inputToken",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "outputToken",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "amountSent",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "amountToArrive",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "bridgeRef",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "sentAt",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "fillDeadline",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "kind",
+            "type": "uint8",
+            "internalType": "enum TransferKind"
+          },
+          {
+            "name": "state",
+            "type": "uint8",
+            "internalType": "enum TransitState"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "unmatchedArrivals",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "usdc",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "withdrawIncome",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "event",
+    "name": "AllocatedToHubSpokeVault",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ArrivalHeldApart",
+    "inputs": [
+      {
+        "name": "transitId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "originChainId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "kind",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "enum TransferKind"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "CollectedIncomeReceived",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "managerFee",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "protocolSlice",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "protocolSliceBps",
+        "type": "uint16",
+        "indexed": false,
+        "internalType": "uint16"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "Deposited",
+    "inputs": [
+      {
+        "name": "shareholder",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "usdcForShares",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "flowFee",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "shares",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "sharePrice",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "shareAssets",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "totalShares",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "consolidation",
+        "type": "tuple",
+        "indexed": false,
+        "internalType": "struct ICoreVault.NavConsolidation",
+        "components": [
+          {
+            "name": "chainsSummed",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "reportBlockNumbers",
+            "type": "uint64[]",
+            "internalType": "uint64[]"
+          },
+          {
+            "name": "reportSequences",
+            "type": "uint64[]",
+            "internalType": "uint64[]"
+          },
+          {
+            "name": "oldestReportAge",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "inFlightValue",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ExcessSwept",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "recipient",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "HubValuationFallback",
+    "inputs": [
+      {
+        "name": "lastHubValue",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "IncomeTokenRegistered",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "IncomeWithdrawn",
+    "inputs": [
+      {
+        "name": "shareholder",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ManagerFeeDecreased",
+    "inputs": [
+      {
+        "name": "previousPerformanceFeeBps",
+        "type": "uint16",
+        "indexed": false,
+        "internalType": "uint16"
+      },
+      {
+        "name": "newPerformanceFeeBps",
+        "type": "uint16",
+        "indexed": false,
+        "internalType": "uint16"
+      },
+      {
+        "name": "previousManagementFeeBps",
+        "type": "uint16",
+        "indexed": false,
+        "internalType": "uint16"
+      },
+      {
+        "name": "newManagementFeeBps",
+        "type": "uint16",
+        "indexed": false,
+        "internalType": "uint16"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OperatingCashInsufficient",
+    "inputs": [
+      {
+        "name": "balance",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "floor",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "toppedUp",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OperatingCashParametersSet",
+    "inputs": [
+      {
+        "name": "floor",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "topUp",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OperatingCashToppedUp",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "balance",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OperatingExpensePaid",
+    "inputs": [
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "shareholder",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "kind",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "payer",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "enum ExpensePayer"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "PartialPayoutExecuted",
+    "inputs": [
+      {
+        "name": "shareholder",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "receipt",
+        "type": "tuple",
+        "indexed": false,
+        "internalType": "struct ICoreVault.PayoutReceipt",
+        "components": [
+          {
+            "name": "mode",
+            "type": "uint8",
+            "internalType": "enum ICoreVault.PayoutMode"
+          },
+          {
+            "name": "usdcRequested",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "sharesBurned",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "usdcGross",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "payoutFee",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "flowFee",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "usdcPaid",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "usdcOutstanding",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "sharePrice",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "shareAssets",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "totalShares",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "unwindProceeds",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "payoutSettlementPrice",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "closedBelowOneShare",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ]
+      },
+      {
+        "name": "consolidation",
+        "type": "tuple",
+        "indexed": false,
+        "internalType": "struct ICoreVault.NavConsolidation",
+        "components": [
+          {
+            "name": "chainsSummed",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "reportBlockNumbers",
+            "type": "uint64[]",
+            "internalType": "uint64[]"
+          },
+          {
+            "name": "reportSequences",
+            "type": "uint64[]",
+            "internalType": "uint64[]"
+          },
+          {
+            "name": "oldestReportAge",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "inFlightValue",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "PayoutExecuted",
+    "inputs": [
+      {
+        "name": "shareholder",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "receipt",
+        "type": "tuple",
+        "indexed": false,
+        "internalType": "struct ICoreVault.PayoutReceipt",
+        "components": [
+          {
+            "name": "mode",
+            "type": "uint8",
+            "internalType": "enum ICoreVault.PayoutMode"
+          },
+          {
+            "name": "usdcRequested",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "sharesBurned",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "usdcGross",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "payoutFee",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "flowFee",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "usdcPaid",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "usdcOutstanding",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "sharePrice",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "shareAssets",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "totalShares",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "unwindProceeds",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "payoutSettlementPrice",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "closedBelowOneShare",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ]
+      },
+      {
+        "name": "consolidation",
+        "type": "tuple",
+        "indexed": false,
+        "internalType": "struct ICoreVault.NavConsolidation",
+        "components": [
+          {
+            "name": "chainsSummed",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "reportBlockNumbers",
+            "type": "uint64[]",
+            "internalType": "uint64[]"
+          },
+          {
+            "name": "reportSequences",
+            "type": "uint64[]",
+            "internalType": "uint64[]"
+          },
+          {
+            "name": "oldestReportAge",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "inFlightValue",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "PayoutRequested",
+    "inputs": [
+      {
+        "name": "shareholder",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "mode",
+        "type": "uint8",
+        "indexed": true,
+        "internalType": "enum ICoreVault.PayoutMode"
+      },
+      {
+        "name": "usdcRequested",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "reserved",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "termEndsAt",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "PriceFallback",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "lastPrice1e18",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ReportAccepted",
+    "inputs": [
+      {
+        "name": "spokeIndex",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "reportSequence",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "blockNumber",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "timestamp",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "transitsArrived",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ReturnedToIdle",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SentToSpoke",
+    "inputs": [
+      {
+        "name": "transitId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "spokeIndex",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "transit",
+        "type": "tuple",
+        "indexed": false,
+        "internalType": "struct Transit",
+        "components": [
+          {
+            "name": "destinationChainId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "bridgeAdapter",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "escrow",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "inputToken",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "outputToken",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "amountSent",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "amountToArrive",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "bridgeRef",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "sentAt",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "fillDeadline",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "kind",
+            "type": "uint8",
+            "internalType": "enum TransferKind"
+          },
+          {
+            "name": "state",
+            "type": "uint8",
+            "internalType": "enum TransitState"
+          }
+        ]
+      },
+      {
+        "name": "hubChainId",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "TransitArrived",
+    "inputs": [
+      {
+        "name": "transitId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "spokeIndex",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "amountArrived",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "reportSequence",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "TransitExpiryAttested",
+    "inputs": [
+      {
+        "name": "transitId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "spokeIndex",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "attester",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "TransitReceived",
+    "inputs": [
+      {
+        "name": "transitId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "originChainId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "kind",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "enum TransferKind"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "matched",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "TransitRefundRecognized",
+    "inputs": [
+      {
+        "name": "transitId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "spokeIndex",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "UnwindForPayoutFailed",
+    "inputs": [
+      {
+        "name": "usdcTarget",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "BalanceChangeMismatch",
+    "inputs": [
+      {
+        "name": "expected",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "actual",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "BelowMinFirstDeposit",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minFirstDeposit",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "BpsAboveMax",
+    "inputs": [
+      {
+        "name": "bps",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "BpsAboveMax",
+    "inputs": [
+      {
+        "name": "bps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maxBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "BridgeAdapterCodehashMismatch",
+    "inputs": [
+      {
+        "name": "bridgeAdapter",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "BridgeAdapterSideInvalid",
+    "inputs": [
+      {
+        "name": "spokeChainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "BridgeAdapterUnavailable",
+    "inputs": [
+      {
+        "name": "bridgeAdapter",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "BridgeCallMismatch",
+    "inputs": [
+      {
+        "name": "bridgeAdapter",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "BridgeFeeAboveMax",
+    "inputs": [
+      {
+        "name": "fee",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maxFee",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "BridgeTargetUnset",
+    "inputs": [
+      {
+        "name": "bridgeAdapter",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "DepositBelowOneShare",
+    "inputs": [
+      {
+        "name": "usdcNet",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "sharePrice",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "DuplicateAdapter",
+    "inputs": [
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "adapter",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "DuplicateOperatingCashChain",
+    "inputs": [
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "DuplicatePool",
+    "inputs": [
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "adapter",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "poolKey",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "DuplicateSpoke",
+    "inputs": [
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "wormholeChainId",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "DuplicateUnwindStep",
+    "inputs": [
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "adapter",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "poolKey",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "EmptyAdapters",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "EmptyPools",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "EmptyUnwindOrder",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ExpiryNotProvable",
+    "inputs": [
+      {
+        "name": "transitId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "FillDeadlineNotReached",
+    "inputs": [
+      {
+        "name": "transitId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "fillDeadline",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "FlowFeeAboveCap",
+    "inputs": [
+      {
+        "name": "bps",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "FlowFeeAboveCap",
+    "inputs": [
+      {
+        "name": "bps",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "IncomeTokenAlreadyRegistered",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InsufficientFreeIdle",
+    "inputs": [
+      {
+        "name": "requested",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "available",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InvalidSpoke",
+    "inputs": [
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InvalidTransitState",
+    "inputs": [
+      {
+        "name": "transitId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "state",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ManagementFeeNotSupported",
+    "inputs": [
+      {
+        "name": "bps",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ManagementFeeNotSupported",
+    "inputs": [
+      {
+        "name": "bps",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ManagerFeeNotDecreasing",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "MissingBridgeAdapter",
+    "inputs": [
+      {
+        "name": "spokeChainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "NoOpenPayoutRequest",
+    "inputs": [
+      {
+        "name": "shareholder",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "NoRefund",
+    "inputs": [
+      {
+        "name": "transitId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "NoShares",
+    "inputs": [
+      {
+        "name": "shareholder",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "NotAcrossSpokePool",
+    "inputs": [
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "NotHubSpokeVault",
+    "inputs": [
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "NotManager",
+    "inputs": [
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "NotOnHubChain",
+    "inputs": [
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "hubChainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "NotReportReceiver",
+    "inputs": [
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "NotWholeShares",
+    "inputs": [
+      {
+        "name": "shares",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "PayoutBelowOneShare",
+    "inputs": [
+      {
+        "name": "usdcAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "sharePrice",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "PayoutRequestAlreadyOpen",
+    "inputs": [
+      {
+        "name": "shareholder",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "PayoutTermNotEnded",
+    "inputs": [
+      {
+        "name": "termEndsAt",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "PoolAdapterNotListed",
+    "inputs": [
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "adapter",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ReentrancyGuardReentrantCall",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SafeERC20FailedOperation",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SharesBelowMinimum",
+    "inputs": [
+      {
+        "name": "shares",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minShares",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SpokeCapExceeded",
+    "inputs": [
+      {
+        "name": "spokeIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "used",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "spokeCap",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SpokeIsHubChain",
+    "inputs": [
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "StalePrice",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "updatedAt",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "StaleSpokeReport",
+    "inputs": [
+      {
+        "name": "spokeIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TooManyIncomeTokens",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "UnbackedCredit",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "unledgered",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnexpectedToken",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnknownChain",
+    "inputs": [
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnknownIncomeToken",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnknownSpoke",
+    "inputs": [
+      {
+        "name": "spokeIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnknownSpokeChain",
+    "inputs": [
+      {
+        "name": "spokeChainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnknownTransit",
+    "inputs": [
+      {
+        "name": "transitId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnsupportedTransitMessageVersion",
+    "inputs": [
+      {
+        "name": "version",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnwindStepNotInPools",
+    "inputs": [
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "adapter",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "poolKey",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UsdcMismatch",
+    "inputs": [
+      {
+        "name": "configured",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "mandateUsdc",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "WrongFund",
+    "inputs": [
+      {
+        "name": "fundId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ZeroAdapter",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroAddress",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroAmount",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroHubChainId",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroIncomeToken",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroManager",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroSharePrice",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroUsdc",
+    "inputs": []
+  }
+]

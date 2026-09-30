@@ -1,0 +1,1712 @@
+[
+  {
+    "type": "constructor",
+    "inputs": [
+      {
+        "name": "w",
+        "type": "tuple",
+        "internalType": "struct IFundFactory.ProtocolWiring",
+        "components": [
+          {
+            "name": "numberOffset",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "baseToken",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "acrossSpokePool",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "wormholeCore",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "uniswapV4PoolManager",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "uniswapV4PositionManager",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "uniswapV4StateView",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "permit2",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "aaveV3Pool",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "managerRegistry",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "priceSource",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "protocolRecipient",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "guardian",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "flowFeeBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "coreVaultLogic",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "coreVaultCreationCodeHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "spokeCrossChainLib",
+            "type": "address",
+            "internalType": "address"
+          }
+        ]
+      },
+      {
+        "name": "stores",
+        "type": "tuple",
+        "internalType": "struct IFundFactory.CreationCodeStores",
+        "components": [
+          {
+            "name": "spokeVault",
+            "type": "address[]",
+            "internalType": "address[]"
+          },
+          {
+            "name": "uniswapV4Adapter",
+            "type": "address[]",
+            "internalType": "address[]"
+          },
+          {
+            "name": "aaveV3Adapter",
+            "type": "address[]",
+            "internalType": "address[]"
+          },
+          {
+            "name": "acrossBridgeAdapter",
+            "type": "address[]",
+            "internalType": "address[]"
+          },
+          {
+            "name": "valueReportReceiver",
+            "type": "address[]",
+            "internalType": "address[]"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "NUMBER_OFFSET",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "ROLE_AAVE_V3_ADAPTER",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "ROLE_ACROSS_BRIDGE_ADAPTER",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "ROLE_CORE_VAULT",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "ROLE_SPOKE_VAULT",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "ROLE_UNISWAP_V4_ADAPTER",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "ROLE_VALUE_REPORT_RECEIVER",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "VARIATION_BAND_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "addressOf",
+    "inputs": [
+      {
+        "name": "fundId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "role",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "createFund",
+    "inputs": [
+      {
+        "name": "m",
+        "type": "tuple",
+        "internalType": "struct Mandate",
+        "components": [
+          {
+            "name": "manager",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "hubChainId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "usdc",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "adapters",
+            "type": "tuple[]",
+            "internalType": "struct AdapterConfig[]",
+            "components": [
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "adapter",
+                "type": "address",
+                "internalType": "address"
+              }
+            ]
+          },
+          {
+            "name": "pools",
+            "type": "tuple[]",
+            "internalType": "struct PoolConfig[]",
+            "components": [
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "adapter",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "poolKey",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          },
+          {
+            "name": "unwindOrder",
+            "type": "tuple[]",
+            "internalType": "struct UnwindStep[]",
+            "components": [
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "adapter",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "poolKey",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          },
+          {
+            "name": "spokes",
+            "type": "tuple[]",
+            "internalType": "struct SpokeConfig[]",
+            "components": [
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "wormholeChainId",
+                "type": "uint16",
+                "internalType": "uint16"
+              },
+              {
+                "name": "spokeVault",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "spokeToken",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "spokeCap",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "maxReportAge",
+                "type": "uint32",
+                "internalType": "uint32"
+              }
+            ]
+          },
+          {
+            "name": "bridgeAdapters",
+            "type": "tuple[]",
+            "internalType": "struct BridgeAdapterConfig[]",
+            "components": [
+              {
+                "name": "spokeChainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "adapter",
+                "type": "address",
+                "internalType": "address"
+              }
+            ]
+          },
+          {
+            "name": "operatingCash",
+            "type": "tuple[]",
+            "internalType": "struct OperatingCashConfig[]",
+            "components": [
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "floor",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "topUp",
+                "type": "uint256",
+                "internalType": "uint256"
+              }
+            ]
+          },
+          {
+            "name": "payoutFeeBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "standardPayoutTerm",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "minFirstDeposit",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "performanceFeeBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "managementFeeBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "maxBridgeFeeBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          }
+        ]
+      },
+      {
+        "name": "p",
+        "type": "tuple",
+        "internalType": "struct IFundFactory.HubParams",
+        "components": [
+          {
+            "name": "creationNumber",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "uniswapV4Pools",
+            "type": "tuple[]",
+            "internalType": "struct PoolKey[]",
+            "components": [
+              {
+                "name": "currency0",
+                "type": "address",
+                "internalType": "Currency"
+              },
+              {
+                "name": "currency1",
+                "type": "address",
+                "internalType": "Currency"
+              },
+              {
+                "name": "fee",
+                "type": "uint24",
+                "internalType": "uint24"
+              },
+              {
+                "name": "tickSpacing",
+                "type": "int24",
+                "internalType": "int24"
+              },
+              {
+                "name": "hooks",
+                "type": "address",
+                "internalType": "contract IHooks"
+              }
+            ]
+          },
+          {
+            "name": "coreVaultCreationCode",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "addresses",
+        "type": "tuple",
+        "internalType": "struct IFundFactory.FundAddresses",
+        "components": [
+          {
+            "name": "creationNumber",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "fundId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "coreVault",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "shareToken",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "managerFeeVault",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "valueReportReceiver",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "chains",
+            "type": "tuple[]",
+            "internalType": "struct IFundFactory.ChainAddresses[]",
+            "components": [
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "spokeVault",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "uniswapV4Adapter",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "aaveV3Adapter",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "acrossBridgeAdapter",
+                "type": "address",
+                "internalType": "address"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "createSpoke",
+    "inputs": [
+      {
+        "name": "creationNumber",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "m",
+        "type": "tuple",
+        "internalType": "struct Mandate",
+        "components": [
+          {
+            "name": "manager",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "hubChainId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "usdc",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "adapters",
+            "type": "tuple[]",
+            "internalType": "struct AdapterConfig[]",
+            "components": [
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "adapter",
+                "type": "address",
+                "internalType": "address"
+              }
+            ]
+          },
+          {
+            "name": "pools",
+            "type": "tuple[]",
+            "internalType": "struct PoolConfig[]",
+            "components": [
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "adapter",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "poolKey",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          },
+          {
+            "name": "unwindOrder",
+            "type": "tuple[]",
+            "internalType": "struct UnwindStep[]",
+            "components": [
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "adapter",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "poolKey",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          },
+          {
+            "name": "spokes",
+            "type": "tuple[]",
+            "internalType": "struct SpokeConfig[]",
+            "components": [
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "wormholeChainId",
+                "type": "uint16",
+                "internalType": "uint16"
+              },
+              {
+                "name": "spokeVault",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "spokeToken",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "spokeCap",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "maxReportAge",
+                "type": "uint32",
+                "internalType": "uint32"
+              }
+            ]
+          },
+          {
+            "name": "bridgeAdapters",
+            "type": "tuple[]",
+            "internalType": "struct BridgeAdapterConfig[]",
+            "components": [
+              {
+                "name": "spokeChainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "adapter",
+                "type": "address",
+                "internalType": "address"
+              }
+            ]
+          },
+          {
+            "name": "operatingCash",
+            "type": "tuple[]",
+            "internalType": "struct OperatingCashConfig[]",
+            "components": [
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "floor",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "topUp",
+                "type": "uint256",
+                "internalType": "uint256"
+              }
+            ]
+          },
+          {
+            "name": "payoutFeeBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "standardPayoutTerm",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "minFirstDeposit",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "performanceFeeBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "managementFeeBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "maxBridgeFeeBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          }
+        ]
+      },
+      {
+        "name": "p",
+        "type": "tuple",
+        "internalType": "struct IFundFactory.SpokeParams",
+        "components": [
+          {
+            "name": "mandateHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "uniswapV4Pools",
+            "type": "tuple[]",
+            "internalType": "struct PoolKey[]",
+            "components": [
+              {
+                "name": "currency0",
+                "type": "address",
+                "internalType": "Currency"
+              },
+              {
+                "name": "currency1",
+                "type": "address",
+                "internalType": "Currency"
+              },
+              {
+                "name": "fee",
+                "type": "uint24",
+                "internalType": "uint24"
+              },
+              {
+                "name": "tickSpacing",
+                "type": "int24",
+                "internalType": "int24"
+              },
+              {
+                "name": "hooks",
+                "type": "address",
+                "internalType": "contract IHooks"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "addresses",
+        "type": "tuple",
+        "internalType": "struct IFundFactory.ChainAddresses",
+        "components": [
+          {
+            "name": "chainId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "spokeVault",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "uniswapV4Adapter",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "aaveV3Adapter",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "acrossBridgeAdapter",
+            "type": "address",
+            "internalType": "address"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "creationCodeHash",
+    "inputs": [
+      {
+        "name": "role",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "fundByNumber",
+    "inputs": [
+      {
+        "name": "creationNumber",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "coreVault",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "fundIdOf",
+    "inputs": [
+      {
+        "name": "hubChainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "creationNumber",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "manager",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "isFund",
+    "inputs": [
+      {
+        "name": "coreVault",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "nextCreationNumber",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "predictAddresses",
+    "inputs": [
+      {
+        "name": "creationNumber",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "manager",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "chainIds",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "addresses",
+        "type": "tuple",
+        "internalType": "struct IFundFactory.FundAddresses",
+        "components": [
+          {
+            "name": "creationNumber",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "fundId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "coreVault",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "shareToken",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "managerFeeVault",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "valueReportReceiver",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "chains",
+            "type": "tuple[]",
+            "internalType": "struct IFundFactory.ChainAddresses[]",
+            "components": [
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "spokeVault",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "uniswapV4Adapter",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "aaveV3Adapter",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "acrossBridgeAdapter",
+                "type": "address",
+                "internalType": "address"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "saltOf",
+    "inputs": [
+      {
+        "name": "fundId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "role",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "transitEscrowImplementation",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "wiring",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "w",
+        "type": "tuple",
+        "internalType": "struct IFundFactory.ProtocolWiring",
+        "components": [
+          {
+            "name": "numberOffset",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "baseToken",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "acrossSpokePool",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "wormholeCore",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "uniswapV4PoolManager",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "uniswapV4PositionManager",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "uniswapV4StateView",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "permit2",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "aaveV3Pool",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "managerRegistry",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "priceSource",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "protocolRecipient",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "guardian",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "flowFeeBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "coreVaultLogic",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "coreVaultCreationCodeHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "spokeCrossChainLib",
+            "type": "address",
+            "internalType": "address"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "FundCreated",
+    "inputs": [
+      {
+        "name": "creationNumber",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "fundId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "manager",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "mandateHash",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "addresses",
+        "type": "tuple",
+        "indexed": false,
+        "internalType": "struct IFundFactory.FundAddresses",
+        "components": [
+          {
+            "name": "creationNumber",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "fundId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "coreVault",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "shareToken",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "managerFeeVault",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "valueReportReceiver",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "chains",
+            "type": "tuple[]",
+            "internalType": "struct IFundFactory.ChainAddresses[]",
+            "components": [
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "spokeVault",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "uniswapV4Adapter",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "aaveV3Adapter",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "acrossBridgeAdapter",
+                "type": "address",
+                "internalType": "address"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SpokeCreated",
+    "inputs": [
+      {
+        "name": "fundId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "manager",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "mandateHash",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "addresses",
+        "type": "tuple",
+        "indexed": false,
+        "internalType": "struct IFundFactory.ChainAddresses",
+        "components": [
+          {
+            "name": "chainId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "spokeVault",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "uniswapV4Adapter",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "aaveV3Adapter",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "acrossBridgeAdapter",
+            "type": "address",
+            "internalType": "address"
+          }
+        ]
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "BaseTokenMismatch",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "baseToken",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "CreationNumberTaken",
+    "inputs": [
+      {
+        "name": "requested",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "next",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "DeploymentWithoutCode",
+    "inputs": [
+      {
+        "name": "salt",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "EmptyChunk",
+    "inputs": [
+      {
+        "name": "chunk",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "FlowFeeAboveCap",
+    "inputs": [
+      {
+        "name": "bps",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ForeignCreationCode",
+    "inputs": [
+      {
+        "name": "role",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "codeHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "expected",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "HubNotConfigured",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidAavePoolKey",
+    "inputs": [
+      {
+        "name": "poolKey",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "LibraryHasNoCode",
+    "inputs": [
+      {
+        "name": "library_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "MandateHashMismatch",
+    "inputs": [
+      {
+        "name": "mandateHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "expected",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "NonceOutOfRange",
+    "inputs": [
+      {
+        "name": "nonce",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "NotHubChain",
+    "inputs": [
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "hubChainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "NotManager",
+    "inputs": [
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "manager",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "PoolKeyCountMismatch",
+    "inputs": [
+      {
+        "name": "mandatePools",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "poolKeys",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "PoolKeyMismatch",
+    "inputs": [
+      {
+        "name": "index",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "mandatePoolKey",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "poolId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ProtocolNotOnChain",
+    "inputs": [
+      {
+        "name": "role",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ReentrancyGuardReentrantCall",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "RoleNotConfigured",
+    "inputs": [
+      {
+        "name": "role",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SaltAlreadyUsed",
+    "inputs": [
+      {
+        "name": "salt",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SpokeAlreadyCreated",
+    "inputs": [
+      {
+        "name": "fundId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "spokeVault",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SpokeOnHubChain",
+    "inputs": [
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SpokeVaultMismatch",
+    "inputs": [
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "predicted",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "listed",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnexpectedAdapter",
+    "inputs": [
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "adapter",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnexpectedBridgeAdapter",
+    "inputs": [
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "adapter",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnknownSpokeChain",
+    "inputs": [
+      {
+        "name": "spokeChainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ZeroAddress",
+    "inputs": []
+  }
+]
