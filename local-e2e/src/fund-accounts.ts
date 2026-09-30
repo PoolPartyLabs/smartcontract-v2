@@ -5,7 +5,7 @@
 // Standalone: `pnpm exec tsx src/fund-accounts.ts` tops everything up again on the running nodes.
 import { encodeAbiParameters, keccak256, maxUint256, pad, toHex, type Address, type Hex } from "viem";
 import { erc20Abi } from "./abis.ts";
-import { anvil, nodes, read, rpc, send, type Side } from "./chain.ts";
+import { anvil, nodes, read, rpc, runMain, send, type Side } from "./chain.ts";
 import { ARBITRUM, ROBINHOOD, actors, isMain, type ActorName } from "./config.ts";
 import { logger, units, type Logger } from "./log.ts";
 import { readState, type BalanceLayout, type DeploymentState } from "./state.ts";
@@ -168,5 +168,5 @@ export async function fundAccounts(state: DeploymentState, log: Logger): Promise
 }
 
 if (isMain(import.meta.url)) {
-  await fundAccounts(readState(), logger("funding"));
+  await runMain(() => fundAccounts(readState(), logger("funding")));
 }

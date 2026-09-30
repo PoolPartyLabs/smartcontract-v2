@@ -1,7 +1,7 @@
 // `pnpm status`: both nodes, the keeper, the deployment, and the default fund's books at a glance.
 import { formatEther, type Address } from "viem";
 import { chainlinkAggregatorAbi, coreVaultAbi, erc20Abi, shareTokenAbi, valueReportReceiverAbi } from "./abis.ts";
-import { anvil, explain, latestTimestamp, nodes, read, type Side } from "./chain.ts";
+import { anvil, explain, latestTimestamp, nodes, read, runMain, type Side } from "./chain.ts";
 import { ARBITRUM, ROBINHOOD, actors, isMain, type ActorName } from "./config.ts";
 import { runningKeeperPid } from "./keeper.ts";
 import { bold, dim, green, red, units, yellow } from "./log.ts";
@@ -107,5 +107,5 @@ export async function status(): Promise<void> {
 }
 
 if (isMain(import.meta.url)) {
-  await status();
+  await runMain(status);
 }

@@ -166,6 +166,16 @@ export function explain(err: unknown): string {
   return lines.join("\n");
 }
 
+/** Runs a script's entry point: any failure prints its explanation (with the pruned-state hint) and exits 1. */
+export async function runMain(task: () => Promise<unknown>): Promise<void> {
+  try {
+    await task();
+  } catch (err) {
+    console.error(explain(err));
+    process.exit(1);
+  }
+}
+
 export function isPrunedStateError(err: unknown): boolean {
   const text = err instanceof BaseError ? err.message : String(err);
   return PRUNED_STATE.test(text);

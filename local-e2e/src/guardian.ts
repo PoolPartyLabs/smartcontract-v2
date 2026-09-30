@@ -17,7 +17,7 @@ import {
 } from "viem";
 import { sign } from "viem/accounts";
 import { wormholeCoreAbi } from "./abis.ts";
-import { anvil, latestTimestamp, read, type Side } from "./chain.ts";
+import { anvil, latestTimestamp, read, runMain, type Side } from "./chain.ts";
 import { ARBITRUM, GUARDIAN_PRIVATE_KEY, WORMHOLE_ROBINHOOD, guardian, isMain } from "./config.ts";
 import { logger, type Logger } from "./log.ts";
 
@@ -139,7 +139,8 @@ export async function selfTest(guardianSetIndex: number, log: Logger): Promise<v
 }
 
 if (isMain(import.meta.url)) {
-  const log = logger("guardian");
-  const index = await overrideGuardianSet(log);
-  await selfTest(index, log);
+  await runMain(async () => {
+    const log = logger("guardian");
+    await selfTest(await overrideGuardianSet(log), log);
+  });
 }

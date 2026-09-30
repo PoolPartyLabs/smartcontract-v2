@@ -191,7 +191,7 @@ if (isMain(import.meta.url)) {
     console.log(`  state                local-e2e/.state/deployment.json`);
     console.log(`  next                 pnpm keeper --auto-report 600   (another terminal), then pnpm scenario`);
   } catch (err) {
-    console.error(`\n${red(bold("up failed"))}: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`\n${red(bold("up failed"))}: ${explain(err)}`);
     process.exit(1);
   }
 }
