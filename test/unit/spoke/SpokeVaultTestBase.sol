@@ -20,6 +20,7 @@ import {MockPositionAdapter} from "../../mocks/spoke/MockPositionAdapter.sol";
 import {MockBridgeAdapter} from "../../mocks/spoke/MockBridgeAdapter.sol";
 import {MockAcrossSpokePool} from "../../mocks/spoke/MockAcrossSpokePool.sol";
 import {MockCoreVault} from "../../mocks/spoke/MockCoreVault.sol";
+import {MockPriceSource} from "../../mocks/core/MockPriceSource.sol";
 import {MockWormholeCore} from "../../mocks/spoke/MockWormholeCore.sol";
 
 /// @notice Shared fixture: one Mandate with a Hub Chain (42161) and one Spoke Chain (4663), mock adapters on both,
@@ -74,6 +75,9 @@ abstract contract SpokeVaultTestBase is Test {
         spokeBridgeFallback = new MockBridgeAdapter(guardian, address(spokePool));
         wormhole = new MockWormholeCore();
         core = new MockCoreVault(address(usdc));
+        // Security review S-2: the unwind swap floor reads the Core Vault's price source; 2,000 USDC per WETH, the
+        // rate the hub tests swap at.
+        MockPriceSource(core.priceSource()).setPrice(address(weth), 2000e6);
         escrowImplementation = new TransitEscrow();
     }
 

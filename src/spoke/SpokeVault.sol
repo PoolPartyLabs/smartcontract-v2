@@ -11,6 +11,7 @@ import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {IAdapter} from "../interfaces/IAdapter.sol";
 import {IBridgeAdapter} from "../interfaces/IBridgeAdapter.sol";
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
+import {IPriceSource} from "../interfaces/IPriceSource.sol";
 import {Transit, TransferKind, ExpensePayer, BridgeQuote} from "../interfaces/FundTypes.sol";
 import {Mandate, MandateLib, SpokeConfig, PoolConfig, UnwindStep, BridgeAdapterConfig} from "../mandate/Mandate.sol";
 import {ReportCodec} from "../libraries/ReportCodec.sol";
@@ -49,9 +50,9 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
 
     /// @notice Largest shortfall below the pool's current price, in bps, that an automatic unwind swap accepts: the
     ///         swap's minimum output is at least the route's `IAdapter.spotQuote` less this share.
-    /// @dev OPEN parameter (QA3: the price guard of hub positions is undecided; final verification). A spot price can be
-    ///      moved within a block, so this bounds execution against the price at the time of the swap, not against an
-    ///      oracle; a claimant hint may only raise the minimum.
+    /// @dev OPEN parameter (QA3: the price guard of hub positions is undecided; final verification). Measured from the
+    ///      higher of the route's spot quote and the Core Vault's price-source value (security review S-2: a spot price
+    ///      can be moved within a block by the claimant); a claimant hint may only raise the minimum.
     uint256 public constant MAX_UNWIND_SLIPPAGE_BPS = 500;
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -900,13 +901,22 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         return IAdapter(r.adapter).spotQuote(r.poolKey, r.tokenIn, amount);
     }
 
-    /// @dev Swaps `amountIn` along route `r` into USDC with a minimum output of at least the route's spot quote less
-    ///      `MAX_UNWIND_SLIPPAGE_BPS`; the hint's minimum only when it is higher (final verification, QA3 OPEN).
+    /// @dev Swaps `amountIn` along route `r` into USDC with a minimum output of at least the higher of the route's
+    ///      spot quote and the Core Vault's price-source value, less `MAX_UNWIND_SLIPPAGE_BPS`; the hint's minimum
+    ///      only when it is higher (final verification, QA3 OPEN).
+    /// @dev Security review S-2: the claimant runs this inside its own transaction and can move `slot0` first, so a
+    ///      floor measured against the spot quote alone followed the moved price. The price-source value (Chainlink
+    ///      for WETH, the price Share Assets use) cannot be moved in the same block; a pushed-down spot now makes the
+    ///      swap revert, the whole unwind reverts and the claim is paid from Idle only (DEC-068). A reverting price
+    ///      source reverts the unwind the same way (the claim itself never reverts, `CoreVault._unwindForPayout`).
     function _unwindSwap(SpokeVaultTypes.UnwindSwap memory r, uint256 amountIn) internal {
         if (amountIn == 0 || r.adapter == address(0)) return;
         IAdapter a = IAdapter(r.adapter);
+        (uint256 oracleValue,) = IPriceSource(ICoreVault(coreVault).priceSource()).usdcValue(r.tokenIn, amountIn);
         uint256 floor = Math.mulDiv(
-            a.spotQuote(r.poolKey, r.tokenIn, amountIn), MandateLib.BPS - MAX_UNWIND_SLIPPAGE_BPS, MandateLib.BPS
+            Math.max(a.spotQuote(r.poolKey, r.tokenIn, amountIn), oracleValue),
+            MandateLib.BPS - MAX_UNWIND_SLIPPAGE_BPS,
+            MandateLib.BPS
         );
         _swap(
             a,

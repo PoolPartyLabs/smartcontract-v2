@@ -54,26 +54,16 @@ contract Sandwicher {
     }
 }
 
-/// @title Proof of concept: the automatic unwind's price floor is relative to a spot price the claimant moves first
-/// @notice `SpokeVault._unwindSwap` floors the unwind swap at `IAdapter.spotQuote` (Uniswap V4 `slot0`) less
-///         `MAX_UNWIND_SLIPPAGE_BPS` (5%), and `_unwindPosition` sizes the exit from `positionValue` at the same spot.
-///         Both are read inside the claim, after any swap the claimant put in front of it. The 5% therefore bounds
-///         nothing: a claimant who first crashes the pool (flash-loaned WETH sold into the Mandate pool) makes the vault
-///         (1) value the position at the crashed price, so it exits a larger share of it, and (2) sell that WETH with a
-///         floor 5% under the crashed price. The claimant then buys the WETH back, pocketing the fund's loss minus
-///         two LP fees. No mempool is needed: the attacker is the claimant and does everything in one transaction.
-/// @dev Attack: victim deposits 1,000,000 USDC, attacker 200,000; the manager allocates 95% into a WETH/USDC ±10%
-///      position (as a real manager would); the attacker requests a 150,000 USDC Standard Payout (reserve = Free
-///      Idle, ~60,000) and after the term claims inside a sandwich (dump 1,500 WETH, claim, buy back to the starting
-///      price). Measured against the same claim made honestly (state snapshot).
-/// @dev Impact (measured): the unwind sells 51.6 WETH worth 129,041 USDC for 91,323 USDC, 29.2% under the external
-///      price while the floor says 5%; the victim's wealth is 31,716 USDC lower than after an honest claim and the
-///      attacker's 28,242 USDC higher (net of the two 0.05% LP fees on the flash-loaned volume, about 3,200 USDC).
-///      The loss scales with the claim size; the cost scales only with pool depth. QA3 is OPEN, but the documented
-///      reading ("the floor bounds execution against the price at the time of the swap") is not a bound at all.
-/// @dev Fix: floor the unwind swap (and size the exit) against a reference the claimant cannot move in the same
-///      block: the price source (Chainlink) the Core Vault already prices Share Assets with, or a TWAP; and revert
-///      the claim (Partial Payout from Idle) when the pool's spot deviates from that reference beyond a tolerance.
+/// @title Regression (security review S-2): the automatic unwind's price floor no longer follows a spot price the
+///        claimant moves first
+/// @notice Was PoC `test_POC_unwindSwapFloorIsRelativeToManipulatedSpot` (high, integrations lens): the unwind swap
+///         was floored at `IAdapter.spotQuote` (Uniswap V4 `slot0`) less 5%, read inside the claim after any swap the
+///         claimant put in front of it; a claimant who crashed the pool with flash-loaned WETH made the unwind sell
+///         51.6 WETH 29.2% under the external price (victim -31,716 USDC, attacker +28,242 USDC).
+/// @dev Fix (S-2, `SpokeVault._unwindSwap`): the floor is the higher of the spot quote and the Core Vault's
+///      price-source value, less 5%. The test repeats the sandwich and asserts it now FAILS: the unwind swap cannot
+///      execute at the crashed price, so the unwind reverts, the claim is paid from Idle only (DEC-068), the victim
+///      loses nothing to the sandwich and the attacker gains nothing over an honest claim.
 contract UnwindSpotSandwichTest is HubFundFixture {
     address internal victim = makeAddr("victim");
     Sandwicher internal attacker;
@@ -101,12 +91,10 @@ contract UnwindSpotSandwichTest is HubFundFixture {
         vm.warp(block.timestamp + 72 hours);
     }
 
-    function test_POC_unwindSwapFloorIsRelativeToManipulatedSpot() public {
+    function test_SEC_S2_unwindSwapFloorNoLongerFollowsManipulatedSpot() public {
         uint256 victimBefore = _wealth(victim);
-        uint256 attackerBefore = _wealth(address(attacker));
 
-        // Honest claim, for reference: the unwind sells about 20 WETH at the external price less the pool's own
-        // impact and fee, and the market arbitrages the pool back afterwards.
+        // Honest claim, for reference.
         uint256 snapshot = vm.snapshotState();
         attacker.claim();
         _arbToExternalPrice();
@@ -120,30 +108,25 @@ contract UnwindSpotSandwichTest is HubFundFixture {
         weth.mint(address(attacker), dump);
 
         vm.recordLogs();
-        attacker.sandwichClaim(dump, startSqrtPrice);
-        (uint256 wethSold, uint256 usdcReceived) = _unwindSwap(vm.getRecordedLogs());
-
-        // The price is back where it started, so every valuation below is at the external price.
+        ICoreVault.PayoutReceipt memory r = attacker.sandwichClaim(dump, startSqrtPrice);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        (uint256 wethSold,) = _unwindSwap(logs);
         assertApproxEqRel(_usdcPerWeth(_spotSqrtPrice()), WETH_PRICE * 1e6, 0.001e18, "price restored");
 
-        uint256 victimAfter = _wealth(victim);
-        uint256 attackerAfter = _wealth(address(attacker)) - _fair(dump);
-        uint256 fairValueSold = _fair(wethSold);
-        uint256 unwindLossBps = (fairValueSold - usdcReceived) * 10_000 / fairValueSold;
+        // S-2: the fund's WETH was not sold at the crashed price; the unwind reverted and the claim was paid from Idle.
+        assertEq(wethSold, 0, "S-2: no unwind swap at the crashed spot");
+        assertEq(r.unwindProceeds, 0, "S-2: nothing unwound");
+        assertTrue(_emitted(logs, ICoreVault.UnwindForPayoutFailed.selector), "S-2: the unwind reverted");
 
-        emit log_named_decimal_uint("WETH the unwind sold", wethSold, 18);
-        emit log_named_decimal_uint("USDC it received", usdcReceived, 6);
-        emit log_named_decimal_uint("fair value of that WETH", fairValueSold, 6);
-        emit log_named_uint("unwind loss (bps, floor claims 500)", unwindLossBps);
-        emit log_named_decimal_uint("victim loss vs honest claim (USDC)", victimHonest - victimAfter, 6);
-        emit log_named_decimal_uint("attacker gain vs honest claim (USDC)", attackerAfter - attackerHonest, 6);
+        assertGe(_wealth(victim) + 500e6, victimHonest, "S-2: the victim loses nothing to the sandwich");
+        assertLe(_wealth(address(attacker)), attackerHonest + _fair(dump), "S-2: the attacker gains nothing");
+    }
 
-        // The fund sold its WETH far below the external price: the 5% floor bounded nothing.
-        assertGt(unwindLossBps, 1500, "unwind executed more than 15% under the external price");
-        // The victim paid for it, and the attacker took it home (net of two LP fees on the flash-loaned volume).
-        assertGt(victimHonest - victimAfter, 20_000e6, "victim lost more than 20,000 USDC");
-        assertGt(attackerAfter, attackerHonest + 10_000e6, "attacker gained more than 10,000 USDC over an honest claim");
-        assertGt(attackerAfter, attackerBefore, "attacker ends richer than before the claim");
+    function _emitted(Vm.Log[] memory logs, bytes32 selector) internal view returns (bool) {
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter == address(core) && logs[i].topics[0] == selector) return true;
+        }
+        return false;
     }
 
     /// @dev The adapter's `Swapped(poolKey, tokenIn, tokenOut, amountIn, amountOut)` of the unwind swap.

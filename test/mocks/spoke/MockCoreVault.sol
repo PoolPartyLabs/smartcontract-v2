@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
+import {MockPriceSource} from "../core/MockPriceSource.sol";
 
 /// @notice Core Vault mock for the hub Spoke Vault: records `returnToIdle` and `receiveCollectedIncome`, and drives the
 ///         Core Vault-only verbs of the vault.
@@ -15,9 +16,13 @@ contract MockCoreVault {
     uint256 public lastReturnBalance;
     mapping(address => uint256) public incomeReceived;
     address public usdc;
+    /// @notice The Core Vault's price source, which the hub Spoke Vault reads for the unwind swap floor (security
+    ///         review S-2); prices are set by the test.
+    address public priceSource;
 
     constructor(address usdc_) {
         usdc = usdc_;
+        priceSource = address(new MockPriceSource());
     }
 
     /// @dev Records the amount and checks the tokens arrived before the call.
