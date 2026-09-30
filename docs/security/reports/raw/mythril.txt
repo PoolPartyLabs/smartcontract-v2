@@ -1,0 +1,75 @@
+Mythril v0.24.8 (uv tool install mythril --with "setuptools<81"), solc 0.8.28 taken from Foundry's svm cache and put first on PATH.
+Settings file passed with --solc-json: docs/security/reports/raw/mythril-solc.json (remappings, optimizer 800 runs, evm cancun).
+Command per contract, from the repository root:
+  myth analyze <file>:<Contract> --solc-json docs/security/reports/raw/mythril-solc.json --execution-timeout 300 -t 3
+Python deprecation warnings were filtered from the output; the long symbolic constructor calldata is truncated where marked.
+
+=== myth analyze src/core/TransitEscrow.sol:TransitEscrow --solc-json docs/security/reports/raw/mythril-solc.json --execution-timeout 300 -t 3 ===
+The analysis was completed successfully. No issues were detected.
+
+(exit 0, 3 s)
+
+=== myth analyze src/core/ManagerFeeVault.sol:ManagerFeeVault --solc-json docs/security/reports/raw/mythril-solc.json --execution-timeout 300 -t 3 ===
+==== State access after external call ====
+SWC ID: 107
+Severity: Medium
+Contract: ManagerFeeVault
+Function name: withdraw(address,address,uint256)
+PC address: 612
+Estimated Gas Usage: 14757 - 89955
+Write to persistent state following external call
+The contract account state is accessed after an external call to a user defined address. To prevent reentrancy issues, consider accessing the state only before the call, especially if the callee is untrusted. Alternatively, a reentrancy lock can be used to prevent untrusted callees from re-entering the contract in an intermediate state.
+--------------------
+In file: lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol:99
+
+_reentrancyGuardStorageSlot().getUint256Slot().value = ENTERED
+
+--------------------
+Initial State:
+
+Account: [CREATOR], balance: 0x0, nonce:0, storage:{}
+Account: [ATTACKER], balance: 0x0, nonce:0, storage:{}
+
+Transaction Sequence:
+
+Caller: [CREATOR], calldata: 0000000000000000000000000402010101010101010101018001020101020101000000000000000000000000affeaffeaffeaffeaffeaffeaffeaffeaffeaffe000000000000000000000000000000000000000000000000000000000000000000000000...[symbolic constructor calldata truncated for readability], decoded_data: , value: 0x0
+Caller: [CREATOR], function: withdraw(address,address,uint256), txdata: 0xd9caed12000000000000000000000000deadbeefdeadbeefdeadbeefdeadbeefdeadbeef00000000000000000000000001010101010101010101010101010102012001010000000000000000000000000000000000000000000000000000000000000000, decoded_data: ('0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef', '0x0101010101010101010101010101010201200101', 0), value: 0x0
+
+==== External Call To User-Supplied Address ====
+SWC ID: 107
+Severity: Low
+Contract: ManagerFeeVault
+Function name: withdraw(address,address,uint256)
+PC address: 830
+Estimated Gas Usage: 14757 - 89955
+A call to a user-supplied address is executed.
+An external message call to an address specified by the caller is executed. Note that the callee account might contain arbitrary code and could re-enter any function within this contract. Reentering the contract in an intermediate state may lead to unexpected behaviour. Make sure that no state modifications are executed after this call and/or reentrancy guards are in place.
+--------------------
+In file: lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol:196
+
+call(gas(), token, 0, 0x00, 0x44, 0x00, 0x20)
+
+--------------------
+Initial State:
+
+Account: [CREATOR], balance: 0x0, nonce:0, storage:{}
+Account: [ATTACKER], balance: 0x0, nonce:0, storage:{}
+
+Transaction Sequence:
+
+Caller: [CREATOR], calldata: 0000000000000000000000008001010102010101010101010101020401010101000000000000000000000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa000000000000000000000000000000000000000000000000000000000000000000000000...[symbolic constructor calldata truncated for readability], decoded_data: , value: 0x0
+Caller: [SOMEGUY], function: withdraw(address,address,uint256), txdata: 0xd9caed12000000000000000000000000deadbeefdeadbeefdeadbeefdeadbeefdeadbeef00000000000000000000000001010101010101010101010140010102010101010000000000000000000000000000000000000000000000000000000000000000, decoded_data: ('0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef', '0x0101010101010101010101014001010201010101', 0), value: 0x0
+
+
+(exit 1, 164 s)
+
+=== myth analyze src/core/ManagerRegistry.sol:ManagerRegistry --solc-json docs/security/reports/raw/mythril-solc.json --execution-timeout 300 -t 3 ===
+The analysis was completed successfully. No issues were detected.
+
+(exit 0, 80 s)
+
+=== myth analyze src/core/ShareToken.sol:ShareToken --solc-json docs/security/reports/raw/mythril-solc.json --execution-timeout 300 -t 3 ===
+The analysis was completed successfully. No issues were detected.
+
+(exit 0, 2 s)
+

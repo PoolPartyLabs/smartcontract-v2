@@ -1,0 +1,15 @@
+{
+  "remappings": [
+    "forge-std/=lib/forge-std/src/",
+    "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+    "wormhole-sdk/=lib/wormhole-solidity-sdk/src/",
+    "IERC20/=lib/wormhole-solidity-sdk/src/interfaces/token/",
+    "SafeERC20/=lib/wormhole-solidity-sdk/src/libraries/",
+    "@uniswap/v4-core/=lib/v4-core/",
+    "@uniswap/v4-periphery/=lib/v4-periphery/",
+    "solmate/=lib/v4-core/lib/solmate/",
+    "permit2/=lib/v4-periphery/lib/permit2/"
+  ],
+  "optimizer": {"enabled": true, "runs": 800},
+  "evmVersion": "cancun"
+}
