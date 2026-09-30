@@ -1,5 +1,15 @@
 # Dynamic and symbolic analysis, 2026-09-30
 
+> **Snapshot, pre-fix.** Written at `e5c778a`, before the fixes of the sweep landed on `main` (`28551af`). The
+> current state is in [`../FINDINGS.md`](../FINDINGS.md). Register mapping: DYN-01 is S-3 (fixed), DYN-02 is S-4
+> (fixed), DYN-03 is S-5 (open), DYN-04 is S-18 (fixed), DYN-05 is S-41. The proof-of-concept tests it cites were
+> turned into regression tests in `test/security/invariants/FundSystemPoC.t.sol`:
+> `test_POC_payoutDuringTheWindowIsPaidAtTheUnderstatedPrice` is now `test_SEC_S3_*`,
+> `test_POC_sendHomeFilledButNeverListedIsLostToTheFund` is now `test_SEC_S4_*`,
+> `test_POC_zeroShareAssetsRevertEveryPayoutVerb` is now `test_SEC_S18_zeroShareAssetsClaimClosesTheRequest`; the
+> S-5 pins still pass. The whole-fund invariants now also hold with `SEC_LATE_REFUNDS=true` and
+> `SEC_UNLISTED_SENDS_HOME=true`.
+
 Scope: the Pool Party v2 buildathon MVP at `e5c778a` (main), reviewed with the dynamic tools: a deep fuzz and invariant
 campaign over the existing suites, new whole-fund stateful invariant suites, Halmos symbolic checks of the libraries,
 Medusa property fuzzing of a library model, and mutation testing of `ShareMath` and `IncomeAccumulator`. Every

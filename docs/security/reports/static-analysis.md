@@ -1,5 +1,15 @@
 # Static analysis report, 2026-09-30
 
+> **Snapshot, pre-fix.** Written at `e5c778a`, before the fixes of the sweep landed on `main` (`28551af`). The
+> behaviour it describes is the one the register fixed or acknowledged; the current state is in
+> [`../FINDINGS.md`](../FINDINGS.md). Register mapping: SA-01 is S-1 (fixed), SA-02 is S-4 (fixed), SA-03 is S-5
+> (open), SA-04 is S-21, SA-05 is S-26, SA-06 is S-44. The proof-of-concept tests it cites were turned into
+> regression tests by the fix phase: `test_POC_SA02_transferHomeNoAcceptedReportListedIsLockedForGood` is now
+> `test_SEC_S4_*` in `test/unit/security/StaticReviewFindings.t.sol`,
+> `test_POC_forkHubSharePriceFollowsPoolSpotCompositionNotTheOracle` is now
+> `test_SEC_S1_forkHubSharePriceIgnoresPoolSpotComposition` in `test/fork/security/SpotCompositionInflation.t.sol`;
+> the S-5 pins (`test_POC_SA03_*`) still pass.
+
 Security sweep of `src/` at commit `e5c778a` (main) with every static analyzer that could be made to run, each
 result read against the code. Branch `docs/pp-sc-docs-sec-static`. Raw outputs are in `docs/security/reports/raw/`.
 
