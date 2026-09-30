@@ -695,6 +695,107 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     await bucketsMatch("DEC-104: Share Assets is the sum of its buckets");
     run.ok(`the next report listed the transfer as Principal and the hub credited ${units(matchedTotal)} USDC to Idle`);
 
+    // ------------------------------------------------------------------------------------------------------------
+    // Phase 8: hub income collected and split at collection (ruling 2026-09-29, DEC-106, DEC-107, DEC-109)
+    // ------------------------------------------------------------------------------------------------------------
+    run.phase("Phase 8: hub income collected and split (ruling 2026-09-29, DEC-092, DEC-106, DEC-107, DEC-109)");
+    const assetsBeforeCollect = await shareAssets();
+    // Mined amounts (IncomeCollected): Aave interest grows every second, so a simulation's result is a block early.
+    const collected = async (adapter: Address, position: Hex) => {
+      const sent = await tx("arbitrum", "manager", hubSpoke, spokeVaultAbi, "collectIncome", [adapter, position]);
+      const [event] = events(sent.receipt, hubSpoke, spokeVaultAbi, "IncomeCollected");
+      return event as { income0: bigint; income1: bigint };
+    };
+    const v4Collect = await collected(hubUni, hubUniPosition);
+    const aaveCollect = await collected(hubAave, hubAavePosition);
+    run.true(v4Collect.income0 > 0n && v4Collect.income1 > 0n, "V4 fees collected");
+    run.true(aaveCollect.income0 > 0n, "DEC-068: Aave interest collected");
+    const usdcIncome = await view<bigint>("arbitrum", hubSpoke, spokeVaultAbi, "collectedIncome", [ARBITRUM.usdc]);
+    const wethIncome = await view<bigint>("arbitrum", hubSpoke, spokeVaultAbi, "collectedIncome", [ARBITRUM.weth]);
+    run.eq(usdcIncome, v4Collect.income1 + aaveCollect.income0, "USDC income bucket");
+    run.eq(wethIncome, v4Collect.income0, "WETH income bucket");
+    run.approx(await shareAssets(), assetsBeforeCollect, AAVE_ROUNDING, "DEC-092: collection leaves Share Assets");
+    run.ok(`manager collects ${units(usdcIncome)} USDC + ${units(wethIncome, 18, 6)} WETH of hub income; Share Assets unchanged`);
+
+    const sliceBps = BigInt(await view<number>("arbitrum", state.protocol.arbitrum.managerRegistry, managerRegistryAbi, "protocolSliceBps", [A.manager.address]));
+    run.eq(sliceBps, 5000n, "DEC-106: 50% protocol slice");
+    const feeVault = fund.hub.managerFeeVault;
+    const split = async (token: Address, amount: bigint) => {
+      const managerFee = bps(amount, 2000n);
+      const slice = bps(managerFee, sliceBps);
+      const net = amount - managerFee;
+      const recipientBefore = await balance("arbitrum", token, recipient);
+      const vaultBefore = await balance("arbitrum", token, feeVault);
+      const collectedBefore = await view<bigint>("arbitrum", core, coreVaultAbi, "collectedIncome", [token]);
+      const forwarded = await tx<bigint>("arbitrum", "stranger", hubSpoke, spokeVaultAbi, "forwardIncomeToCoreVault", [token]);
+      run.eq(forwarded.result, amount, "permissionless forward");
+      run.eq((await balance("arbitrum", token, recipient)) - recipientBefore, slice, "DEC-106: protocol slice");
+      run.eq((await balance("arbitrum", token, feeVault)) - vaultBefore, managerFee - slice, "DEC-109: ManagerFeeVault");
+      run.eq((await view<bigint>("arbitrum", core, coreVaultAbi, "collectedIncome", [token])) - collectedBefore, net, "the net to the accumulator");
+      return { managerFee, slice, net };
+    };
+    const usdcSplit = await split(ARBITRUM.usdc, usdcIncome);
+    const wethSplit = await split(ARBITRUM.weth, wethIncome);
+    run.approx(await view("arbitrum", core, coreVaultAbi, "attributedIncome", [A.ana.address, ARBITRUM.usdc]), usdcSplit.net, 1n, "DEC-014: Ana held while it was earned");
+    run.approx(await view("arbitrum", core, coreVaultAbi, "attributedIncome", [A.ana.address, ARBITRUM.weth]), wethSplit.net, 1n, "DEC-014: Ana's WETH");
+    run.ok(
+      `a stranger forwards it: 20% fee split 50/50 at collection, USDC ${units(usdcSplit.slice)} to the Protocol Recipient, ` +
+        `${units(usdcSplit.managerFee - usdcSplit.slice)} to the ManagerFeeVault, ${units(usdcSplit.net)} to holders (WETH likewise)`,
+    );
+
+    // ------------------------------------------------------------------------------------------------------------
+    // Phase 9: Bruno enters at the new Share Price (DEC-014, DEC-035, DEC-061, OQ-10)
+    // ------------------------------------------------------------------------------------------------------------
+    run.phase("Phase 9: Bruno deposits 11,000 USDC at the new Share Price (DEC-014, DEC-035, DEC-061)");
+    await ensureFeedFresh(log.child("chainlink"), 600n);
+    const priceBeforeBruno = await sharePrice();
+    const assetsBeforeBruno = await shareAssets();
+    const anaUsdcIncome = await view<bigint>("arbitrum", core, coreVaultAbi, "attributedIncome", [A.ana.address, ARBITRUM.usdc]);
+    const brunoUsdcBefore = await balance("arbitrum", ARBITRUM.usdc, A.bruno.address);
+    await tx("arbitrum", "bruno", ARBITRUM.usdc, erc20Abi, "approve", [core, BRUNO_DEPOSIT]);
+    const brunoDeposit = await tx("arbitrum", "bruno", core, coreVaultAbi, "deposit", [BRUNO_DEPOSIT, 0n]);
+    // The mined mint (Deposited): the price is read inside the transaction's block.
+    const [minted] = events(brunoDeposit.receipt, core, coreVaultAbi, "Deposited");
+    const mintPrice: bigint = minted.sharePrice;
+    const brunoShares: bigint = minted.shares;
+    const brunoCharged: bigint = minted.usdcForShares + minted.flowFee;
+    const brunoFee = bps(BRUNO_DEPOSIT, FLOW_FEE_BPS);
+    run.eq(minted.flowFee, brunoFee, "DEC-106: flow fee on the amount offered");
+    const expectedShares = sharesFor(BRUNO_DEPOSIT - brunoFee, mintPrice);
+    const forShares = usdcFor(expectedShares, mintPrice);
+    run.approx(mintPrice, priceBeforeBruno, priceBeforeBruno / 10n ** 9n, "DEC-083: minted at the Share Price read before");
+    run.eq(await balance("arbitrum", share, A.bruno.address), brunoShares, "Bruno holds his shares");
+    run.eq(brunoShares, expectedShares, "DEC-035: whole shares at the new Share Price");
+    run.eq(brunoShares % WHOLE, 0n, "whole shares");
+    run.eq(minted.usdcForShares, forShares, "what the shares cost");
+    run.eq(brunoCharged, forShares + brunoFee, "charged the shares' price plus the flow fee");
+    run.eq(brunoUsdcBefore - (await balance("arbitrum", ARBITRUM.usdc, A.bruno.address)), brunoCharged, "DEC-061: the remainder stays in his wallet");
+    run.approx(await shareAssets(), (minted.shareAssets as bigint) + forShares, AAVE_ROUNDING, "Share Assets grow by what the shares cost");
+    run.approx(assetsBeforeBruno, minted.shareAssets, AAVE_ROUNDING, "the mint valued the fund as the view did");
+    run.approx(await sharePrice(), priceBeforeBruno, priceBeforeBruno / 10n ** 9n, "DEC-061: rounding only");
+    run.eq(await view("arbitrum", core, coreVaultAbi, "attributedIncome", [A.bruno.address, ARBITRUM.usdc]), 0n, "DEC-014: none of the income already generated");
+    run.eq(await view("arbitrum", core, coreVaultAbi, "attributedIncome", [A.bruno.address, ARBITRUM.weth]), 0n, "DEC-014: none of the WETH income");
+    run.eq(await view("arbitrum", core, coreVaultAbi, "attributedIncome", [A.ana.address, ARBITRUM.usdc]), anaUsdcIncome, "DEC-014: Ana keeps hers");
+    run.ok(`Bruno deposits 11,000 USDC: ${units(brunoShares, 18, 0)} shares at ${price(priceBeforeBruno)}, charged ${units(brunoCharged)} USDC`);
+
+    // ------------------------------------------------------------------------------------------------------------
+    // Phase 10: Ana's Income Withdrawal (DEC-025, DEC-073, DEC-109, LC-143)
+    // ------------------------------------------------------------------------------------------------------------
+    run.phase("Phase 10: Ana withdraws her income (DEC-025, DEC-073, LC-143)");
+    const anaUsdc = await view<bigint>("arbitrum", core, coreVaultAbi, "attributedIncome", [A.ana.address, ARBITRUM.usdc]);
+    const anaWeth = await view<bigint>("arbitrum", core, coreVaultAbi, "attributedIncome", [A.ana.address, ARBITRUM.weth]);
+    const anaUsdcBefore = await balance("arbitrum", ARBITRUM.usdc, A.ana.address);
+    const anaWethBefore = await balance("arbitrum", ARBITRUM.weth, A.ana.address);
+    const anaSharesBefore = await balance("arbitrum", share, A.ana.address);
+    run.eq((await tx<bigint>("arbitrum", "ana", core, coreVaultAbi, "withdrawIncome", [ARBITRUM.usdc])).result, anaUsdc, "DEC-073: Income Withdrawal pays Attributed Income");
+    run.eq((await tx<bigint>("arbitrum", "ana", core, coreVaultAbi, "withdrawIncome", [ARBITRUM.weth])).result, anaWeth, "WETH income");
+    run.eq((await balance("arbitrum", ARBITRUM.usdc, A.ana.address)) - anaUsdcBefore, anaUsdc, "LC-143: no flow fee on Income Withdrawal");
+    run.eq((await balance("arbitrum", ARBITRUM.weth, A.ana.address)) - anaWethBefore, anaWeth, "DEC-109: paid in kind");
+    run.eq(await balance("arbitrum", share, A.ana.address), anaSharesBefore, "DEC-025: no share is burned");
+    run.eq(await view("arbitrum", core, coreVaultAbi, "attributedIncome", [A.ana.address, ARBITRUM.usdc]), 0n, "nothing left owed");
+    run.eq((await tx<bigint>("arbitrum", "bruno", core, coreVaultAbi, "withdrawIncome", [ARBITRUM.usdc])).result, 0n, "DEC-014: Bruno has nothing to withdraw");
+    run.ok(`Ana withdraws ${units(anaUsdc)} USDC + ${units(anaWeth, 18, 6)} WETH of income without burning shares; Bruno gets 0`);
+
     const result: ScenarioResult = {
       steps: run.step,
       assertions: run.assertions,
