@@ -157,3 +157,8 @@ export const FUND_PLAN = {
   PERFORMANCE_FEE_BPS: process.env.PERFORMANCE_FEE_BPS ?? "2000", // 20% (DEC-107)
   MAX_BRIDGE_FEE_BPS: process.env.MAX_BRIDGE_FEE_BPS ?? "50", // 0.50% (QA19 OPEN)
 } as const;
+
+/** Whether the module at `url` (`import.meta.url`) is the script node was started with. */
+export function isMain(url: string): boolean {
+  return process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(url);
+}
