@@ -32,6 +32,14 @@ library SpokeVaultTypes {
     ///      consolidation verifier round 2).
     uint256 internal constant MIN_LISTED_ARRIVAL = 1e6;
 
+    /// @notice Most sends home a Spoke Vault lists in `inFlightToHub` at once; `sendToHub` reverts above it.
+    /// @dev Security review S-11: every send home adds an entry that `report()` walks and encodes, and the hub stores
+    ///      and walks on every delivery, until its refund is recognized or `ReportCodec.HUB_BOUND_RETENTION` has
+    ///      passed. Without a bound a few thousand dust sends made `report()` exceed the block gas limit for good. At
+    ///      64 entries a report stays within a few million gas; the manager can still send home 64 times per retention
+    ///      period (about 20 a day). OPEN value (security review parameter, to confirm with the founder).
+    uint256 internal constant MAX_HUB_BOUND_IN_FLIGHT = 64;
+
     /// @notice Tokens of a Mandate pool on this chain, as the adapter's `poolTokens` returned them at creation
     ///         (OQ-12: a hooked Uniswap V4 pool makes that call revert, so it can never be listed).
     struct PoolTokens {
@@ -150,6 +158,8 @@ library SpokeVaultTypes {
     error InvalidUnwindSwap(address adapter, bytes32 poolKey, address tokenIn);
     /// @notice The vault did not receive exactly what a refund escrow held when it was released (DEC-066, DEC-080).
     error RefundReleaseMismatch(uint256 held, uint256 received);
+    /// @notice `MAX_HUB_BOUND_IN_FLIGHT` sends home are already listed (security review S-11).
+    error HubBoundInFlightLimit(uint256 limit);
 
     /// @notice Encodes the `unwindHints` argument of `ISpokeVault.unwindForPayout`.
     function encodeHints(UnwindHint[] memory hints) internal pure returns (bytes memory) {

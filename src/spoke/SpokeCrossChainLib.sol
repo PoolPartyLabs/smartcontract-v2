@@ -44,6 +44,11 @@ library SpokeCrossChainLib {
         BridgeQuote calldata quote
     ) external returns (bytes32 transitId) {
         _checkQuote(c.maxBridgeFeeBps, amount, quote.outputAmount);
+        // Security review S-11: the list a report walks is bounded; landed refunds and expired entries leave it first.
+        _sweepInFlight(s, c.baseToken);
+        if (s.inFlightIds.length >= SpokeVaultTypes.MAX_HUB_BOUND_IN_FLIGHT) {
+            revert SpokeVaultTypes.HubBoundInFlightLimit(SpokeVaultTypes.MAX_HUB_BOUND_IN_FLIGHT);
+        }
         address bridge = _bridgeAdapterAt(s, bridgeRank);
         _debit(s, c.baseToken, amount, kind);
 

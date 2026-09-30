@@ -7,6 +7,7 @@ import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
 import {Transit, TransitState, TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
+import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {ShareMath} from "../../../src/libraries/ShareMath.sol";
@@ -437,6 +438,8 @@ contract FundSystemHandler is Test {
     function sendHome(uint256 amount, bool income, uint256 feeBps) external {
         uint256 available = income ? s.spokeVault.collectedIncome(address(s.usdg)) : _spokeUsdgAfterTopUp();
         if (available == 0) return;
+        // Security review S-11: a full hub-bound list makes `sendToHub` revert; deep campaigns stop sending there.
+        if (s.spokeVault.inFlightTransitIds().length >= SpokeVaultTypes.MAX_HUB_BOUND_IN_FLIGHT) return;
         amount = bound(amount, 1, available);
         uint256 output = amount - amount * bound(feeBps, 0, MAX_BRIDGE_FEE_BPS) / 10_000;
         if (output == 0) return;
