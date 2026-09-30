@@ -1,20 +1,22 @@
 // `pnpm run up`: builds the contracts, starts both forks, deploys the protocol and a fund through the real Foundry
-// scripts, funds the actors, puts the Wormhole guardian set under the harness's key, re-stamps Chainlink and writes
-// local-e2e/.state/deployment.json.
+// scripts, funds the actors, puts the Wormhole guardian set under the harness's key, re-stamps Chainlink, writes
+// local-e2e/.state/deployment.json, and warms the fork caches by running the scenario inside a snapshot that is then
+// reverted (public RPCs serve fork state for minutes only; see README "Troubleshooting").
 //
-// Usage: pnpm run up
+// Usage: pnpm run up [--warm-up scenario|none]
 // (`pnpm up` is pnpm's own `update` command; the script needs `pnpm run up`.)
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { encodeDeployData, encodeFunctionData, type Address, type Hex } from "viem";
 import { acrossSpokePoolAbi, v4SwapRouterAbi, v4SwapRouterBytecode, wormholeCoreAbi } from "./abis.ts";
-import { anvil, deploy, nodes, nodesUp, type Side } from "./chain.ts";
+import { anvil, deploy, explain, nodes, nodesUp, type Side } from "./chain.ts";
 import { ARBITRUM, HARNESS_DIR, ROBINHOOD, actors, guardian, isMain } from "./config.ts";
 import { createFund, deployFactory, forgeBuild, protocolRoles } from "./deploy.ts";
 import { discoverLayouts, discoverMappingSlot, fundAccounts, mappingSlot, storageRead } from "./fund-accounts.ts";
 import { WORMHOLE_SEQUENCES_SLOT, overrideGuardianSet, selfTest } from "./guardian.ts";
 import { bold, green, logger, red, type Logger } from "./log.ts";
 import { restampFeed } from "./price-feed.ts";
+import { runScenario } from "./scenario.ts";
 import { tryReadState, writeState, type DeploymentState, type NodeState } from "./state.ts";
 
 function startForks(): Promise<void> {
@@ -70,7 +72,7 @@ async function deploySwapRouter(side: Side, poolManager: Address): Promise<Addre
   return deploy(side, "operator", encodeDeployData({ abi: v4SwapRouterAbi, bytecode: v4SwapRouterBytecode(), args: [poolManager] }) as Hex);
 }
 
-export async function up(): Promise<DeploymentState> {
+export async function up(warmUp: "scenario" | "none"): Promise<DeploymentState> {
   const log = logger("up");
   const started = Date.now();
   const running = await nodesUp();
@@ -139,12 +141,50 @@ export async function up(): Promise<DeploymentState> {
   writeState(state);
   await fundAccounts(state, log.child("funding"));
   log.info(`deployed in ${((Date.now() - started) / 1000).toFixed(0)}s`, { state: "local-e2e/.state/deployment.json" });
+
+  if (warmUp === "scenario") await warmUpCaches(log);
   return state;
 }
 
-if (isMain(import.meta.url)) {
+/** Runs the whole scenario inside a snapshot of both nodes and reverts it: every storage slot the fund's flows touch
+ *  is fetched from the upstream now, while it still serves the fork block, and stays in anvil's fork cache. */
+async function warmUpCaches(log: Logger): Promise<void> {
+  const started = Date.now();
+  log.info("warm-up: running the scenario inside a snapshot (reverted afterwards)");
+  const snapshots = { arbitrum: await anvil.snapshot("arbitrum"), robinhood: await anvil.snapshot("robinhood") };
+  let failure: unknown;
   try {
-    const state = await up();
+    const result = await runScenario({ keeper: "inprocess", newFund: false, quiet: true }, logger("warm-up", true));
+    log.info("warm-up scenario passed", {
+      steps: result.steps,
+      assertions: result.assertions,
+      fillsThroughSpokePool: result.fills.real,
+      simulatedFills: result.fills.simulated,
+    });
+  } catch (err) {
+    failure = err;
+  }
+  for (const side of ["arbitrum", "robinhood"] as const) {
+    if (!(await anvil.revert(side, snapshots[side]))) throw new Error(`could not revert the ${side} snapshot`);
+  }
+  // The revert took the clocks back to the snapshot: re-stamp Chainlink for the current block.
+  await restampFeed(logger("chainlink", true));
+  if (failure) {
+    throw new Error(`warm-up scenario failed (both nodes reverted to the deployment; state file kept):\n${explain(failure)}`);
+  }
+  log.info(`warm-up done in ${((Date.now() - started) / 1000).toFixed(0)}s; both nodes back at the fresh deployment`);
+}
+
+if (isMain(import.meta.url)) {
+  const args = process.argv.slice(2);
+  const flag = args.indexOf("--warm-up");
+  const warmUp = (flag >= 0 ? args[flag + 1] : "scenario") as "scenario" | "none";
+  if (!["scenario", "none"].includes(warmUp)) {
+    console.error("usage: pnpm run up [--warm-up scenario|none]");
+    process.exit(1);
+  }
+  try {
+    const state = await up(warmUp);
     console.log(`\n${green(bold("up"))}: Arbitrum One fork ${state.nodes.arbitrum.rpc} (chain 42161), Robinhood Chain fork ${state.nodes.robinhood.rpc} (chain 4663)`);
     console.log(`  FundFactory          ${state.protocol.arbitrum.fundFactory} (both chains)`);
     console.log(`  fund ${state.fund.shareSymbol.padEnd(15)} Core Vault ${state.fund.hub.coreVault}, Spoke Vault (Robinhood) ${state.fund.spoke.spokeVault}`);
