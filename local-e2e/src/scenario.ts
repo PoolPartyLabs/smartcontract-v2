@@ -436,6 +436,265 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
         `${units(hubV4Value.income1)} USDC in fees, outside Share Assets`,
     );
 
+    // ------------------------------------------------------------------------------------------------------------
+    // Phase 4: 4,000 USDC to Robinhood through the live Across SpokePool (DEC-037, DEC-066, DEC-085, DEC-087, QA19)
+    // ------------------------------------------------------------------------------------------------------------
+    run.phase("Phase 4: 4,000 USDC to Robinhood through the live Across SpokePool (DEC-037, DEC-066, DEC-085, QA19)");
+    const bridgeFee = bps(BRIDGE_AMOUNT, BRIDGE_FEE_BPS < maxBridgeFeeBps ? BRIDGE_FEE_BPS : maxBridgeFeeBps);
+    const quoteTimestamp = Number(await latestTimestamp("arbitrum"));
+    const quote = { outputAmount: BRIDGE_AMOUNT - bridgeFee, quoteTimestamp, exclusivityDeadline: 0, exclusiveRelayer: "0x0000000000000000000000000000000000000000" };
+    const [capValue, capSent, capToHub, cap] = await view<readonly [bigint, bigint, bigint, bigint]>("arbitrum", core, coreVaultAbi, "spokeCapUsage", [0n]);
+    const above = cap - (capValue + capSent + capToHub) + USD;
+    if (above <= (await view<bigint>("arbitrum", core, coreVaultAbi, "freeIdle"))) {
+      run.eq(
+        await simulateRevert("arbitrum", "manager", {
+          address: core,
+          abi: coreVaultAbi,
+          functionName: "sendToSpoke",
+          args: [0n, above, 0n, { ...quote, outputAmount: above - bps(above, BRIDGE_FEE_BPS < maxBridgeFeeBps ? BRIDGE_FEE_BPS : maxBridgeFeeBps) }],
+        }),
+        "SpokeCapExceeded",
+        "DEC-037, DEC-095: the Spoke Cap bounds the send",
+      );
+      run.ok(`a send of ${units(above, 6, 0)} USDC, above the ${units(cap, 6, 0)} USDC Spoke Cap, reverts SpokeCapExceeded`);
+    } else {
+      run.note(`Spoke Cap refusal not exercised: ${units(above, 6, 0)} USDC above the cap exceeds Free Idle`);
+    }
+    const maxFee = bps(BRIDGE_AMOUNT, maxBridgeFeeBps);
+    run.eq(
+      await simulateRevert("arbitrum", "manager", {
+        address: core,
+        abi: coreVaultAbi,
+        functionName: "sendToSpoke",
+        args: [0n, BRIDGE_AMOUNT, 0n, { ...quote, outputAmount: BRIDGE_AMOUNT - maxFee - 1n }],
+      }),
+      "BridgeFeeAboveMax",
+      "QA19: the quote's fee above maxBridgeFeeBps",
+    );
+    run.ok(`a quote charging more than ${maxBridgeFeeBps} bps reverts BridgeFeeAboveMax`);
+
+    const assetsBeforeSend = await shareAssets();
+    const idleBeforeSend = await idle();
+    const depositIdBefore = await view<number>("arbitrum", ARBITRUM.acrossSpokePool, acrossSpokePoolAbi, "numberOfDeposits");
+    const sendTx = await tx<Hex>("arbitrum", "manager", core, coreVaultAbi, "sendToSpoke", [0n, BRIDGE_AMOUNT, 0n, quote]);
+    const transitId = sendTx.result;
+    const transit = await view<any>("arbitrum", core, coreVaultAbi, "transit", [transitId]);
+    const amountToArrive: bigint = transit.amountToArrive;
+    const sendBlock = await nodes.arbitrum.client.getBlock({ blockNumber: sendTx.receipt.blockNumber });
+    run.eq(Number(transit.state), SENT, "DEC-066: state Sent");
+    run.eq(amountToArrive, BRIDGE_AMOUNT - bridgeFee, "DEC-085: the quote's outputAmount");
+    run.eq(BigInt(transit.bridgeRef), BigInt(depositIdBefore), "Across deposit id");
+    run.eq(BigInt(transit.fillDeadline), sendBlock.timestamp + 6n * 3600n, "DEC-066: 6 h fill deadline");
+    const [deposited] = events(sendTx.receipt, ARBITRUM.acrossSpokePool, acrossSpokePoolAbi, "FundsDeposited");
+    run.true(deposited !== undefined, "the live SpokePool emitted FundsDeposited");
+    run.eq(deposited.destinationChainId, BigInt(ROBINHOOD_CHAIN_ID), "destination Robinhood");
+    run.eq(deposited.depositId, BigInt(depositIdBefore), "deposit id");
+    run.eq(deposited.depositor, universal(transit.escrow), "DEC-066: the per-send escrow is the depositor");
+    run.eq(deposited.inputToken, universal(ARBITRUM.usdc), "USDC in");
+    run.eq(deposited.outputToken, universal(ROBINHOOD.usdg), "USDG out");
+    run.eq(deposited.inputAmount, BRIDGE_AMOUNT, "input amount");
+    run.eq(deposited.outputAmount, amountToArrive, "output amount");
+    run.eq(BigInt(deposited.quoteTimestamp), BigInt(quoteTimestamp), "quote timestamp");
+    run.eq(BigInt(deposited.fillDeadline), BigInt(transit.fillDeadline), "fill deadline");
+    run.eq(deposited.recipient, universal(spokeVault), "DEC-087: the Mandate's Spoke Vault");
+    const [version, messageFund, messageOrigin, messageTransit, messageKind] = decodeAbiParameters(
+      [{ type: "uint256" }, { type: "bytes32" }, { type: "uint256" }, { type: "bytes32" }, { type: "uint8" }],
+      deposited.message,
+    );
+    run.true(version > 0n, "TransitMessage version");
+    run.eq(messageFund, fund.fundId, "message fund id");
+    run.eq(messageOrigin, BigInt(ARBITRUM_CHAIN_ID), "message origin");
+    run.eq(messageTransit, transitId, "message transit id");
+    run.eq(Number(messageKind), PRINCIPAL, "message kind Principal");
+    run.eq(await idle(), idleBeforeSend - BRIDGE_AMOUNT, "Idle debited");
+    run.eq(await view("arbitrum", core, coreVaultAbi, "inFlightValue"), amountToArrive, "DEC-085: In-flight Value at the amount that will arrive");
+    run.eq(assetsBeforeSend - (await shareAssets()), bridgeFee, "DEC-085: Share Assets drop by the bridge fee only");
+    const [, inFlightSentAfter, , capAfter] = await view<readonly [bigint, bigint, bigint, bigint]>("arbitrum", core, coreVaultAbi, "spokeCapUsage", [0n]);
+    run.eq(inFlightSentAfter, BRIDGE_AMOUNT, "DEC-066 C1: the Spoke Cap counts the amount sent");
+    run.eq(capAfter, BigInt(spokeCfg.spokeCap), "Spoke Cap");
+    run.eq(await view("arbitrum", ARBITRUM.usdc, erc20Abi, "allowance", [core, ARBITRUM.acrossSpokePool]), 0n, "DEC-087: approval reset");
+    run.ok(
+      `manager sends 4,000 USDC: Across deposit ${depositIdBefore}, ${units(amountToArrive)} USDG to arrive (fee ${units(bridgeFee)}), ` +
+        `escrow ${transit.escrow} as depositor, transit ${transitId.slice(0, 10)}... Sent`,
+    );
+
+    // ------------------------------------------------------------------------------------------------------------
+    // Phase 5: the keeper fills on Robinhood; a WETH/USDG position; fees (DEC-090, DEC-096, OQ-09)
+    // ------------------------------------------------------------------------------------------------------------
+    run.phase("Phase 5: Across fill on Robinhood, spoke position, fees (DEC-079, DEC-090, DEC-096, OQ-09)");
+    await waitFor("the Across fill on Robinhood", () => view<boolean>("robinhood", spokeVault, spokeVaultAbi, "hasArrived", [transitId]));
+    const fills = await nodes.robinhood.client.getLogs({
+      address: ROBINHOOD.acrossSpokePool,
+      event: acrossSpokePoolAbi.find((e) => e.type === "event" && e.name === "FilledRelay") as never,
+      args: { originChainId: BigInt(ARBITRUM_CHAIN_ID), depositId: BigInt(depositIdBefore) } as never,
+      fromBlock: BigInt(fund.spoke.createdInBlock),
+    });
+    if (fills.length === 1) {
+      const filled = (fills[0] as unknown as { args: Record<string, any> }).args;
+      run.eq(filled.recipient, universal(spokeVault), "FilledRelay recipient");
+      run.eq(filled.outputAmount, amountToArrive, "FilledRelay output amount");
+      run.eq(filled.relayer, universal(A.keeper.address), "the keeper relayed");
+      realFills++;
+      run.ok(`the keeper filled deposit ${depositIdBefore} through the Robinhood SpokePool's fillRelay (FilledRelay, relayer ${A.keeper.address})`);
+    } else {
+      simulatedFills++;
+      run.note("no FilledRelay: the keeper used the simulated fill path (see the keeper log)");
+    }
+    run.eq(await view("robinhood", spokeVault, spokeVaultAbi, "arrivals", [transitId]), amountToArrive, "OQ-09: credited total per transit id");
+    run.eq(await view("robinhood", spokeVault, spokeVaultAbi, "cumulativeReceived"), amountToArrive, "cumulative received");
+    run.eq(await view("robinhood", spokeVault, spokeVaultAbi, "operatingCash"), SPOKE_OPERATING_CASH_TOP_UP, "DEC-096: the arrival tops up Operating Cash");
+    run.eq(
+      await view("robinhood", spokeVault, spokeVaultAbi, "unallocatedBalance", [ROBINHOOD.usdg]),
+      amountToArrive - SPOKE_OPERATING_CASH_TOP_UP,
+      "Unallocated Balance on the spoke",
+    );
+    run.ok(`the Spoke Vault credited ${units(amountToArrive)} USDG: 10.00 to Operating Cash, the rest to Unallocated Balance`);
+
+    const spokeHalf = SPOKE_V4_USDG / 2n;
+    const spokeSwap = await tx<bigint>("robinhood", "manager", spokeVault, spokeVaultAbi, "swapExactInput", [
+      spokeUni,
+      SPOKE_POOL_ID,
+      ROBINHOOD.usdg,
+      spokeHalf,
+      await minWethFor(spokeHalf),
+      swapParams(await deadline("robinhood")),
+    ]);
+    const spokeWeth = spokeSwap.result;
+    const spokeCenter = await centerTick("robinhood", ROBINHOOD.v4StateView, SPOKE_POOL_ID);
+    const spokeOpen = await tx<readonly [Hex, bigint, bigint]>("robinhood", "manager", spokeVault, spokeVaultAbi, "openPosition", [
+      spokeUni,
+      SPOKE_POOL_ID,
+      spokeWeth,
+      spokeHalf,
+      openParams(spokeCenter, HALF_RANGE, spokeWeth, spokeHalf, await deadline("robinhood")),
+    ]);
+    const [spokeUniPosition, spokeUsed0, spokeUsed1] = spokeOpen.result;
+    run.true(spokeUsed0 > 0n && spokeUsed1 > 0n, "both tokens used on the spoke");
+    run.eq((await view<readonly unknown[]>("robinhood", spokeVault, spokeVaultAbi, "positions")).length, 1, "one spoke position");
+    run.ok(`manager swaps 1,500 USDG for ${units(spokeWeth, 18, 4)} WETH on Robinhood and opens a V4 range around tick ${spokeCenter}`);
+
+    const spokeTicks = await generateFees("robinhood", state.helpers.robinhoodSwapRouter, SPOKE_POOL_KEY, ROBINHOOD.v4StateView, SPOKE_POOL_ID, spokeCenter, SWING);
+    const spokeV4Value = await view<any>("robinhood", spokeUni, uniswapV4AdapterAbi, "positionValue", [spokeUniPosition]);
+    run.true(spokeV4Value.income0 > 0n, "DEC-079: WETH fees on the spoke");
+    run.true(spokeV4Value.income1 > 0n, "DEC-079: USDG fees on the spoke");
+    run.ok(`trader swings the spoke pool to ticks ${spokeTicks.join(" / ")}: ${units(spokeV4Value.income0, 18, 6)} WETH + ${units(spokeV4Value.income1)} USDG fees`);
+
+    // ------------------------------------------------------------------------------------------------------------
+    // Phase 6: the report on the real Robinhood Core, the VAA delivered on Arbitrum (DEC-066, DEC-086, DEC-090, DEC-093)
+    // ------------------------------------------------------------------------------------------------------------
+    run.phase("Phase 6: report on Robinhood, VAA delivered on Arbitrum (DEC-066, DEC-083, DEC-086, DEC-090, DEC-093)");
+    const assetsBeforeReport = await shareAssets();
+    const inFlightBeforeReport = await view<bigint>("arbitrum", core, coreVaultAbi, "inFlightValue");
+    run.eq(inFlightBeforeReport, amountToArrive, "the transit is still in flight on the hub");
+    const reported = await tx<readonly [bigint, bigint]>("robinhood", "stranger", spokeVault, spokeVaultAbi, "report");
+    const [reportSequence, wormholeSequence] = reported.result;
+    const [published] = events(reported.receipt, ROBINHOOD.wormholeCore, wormholeCoreAbi, "LogMessagePublished");
+    run.true(published !== undefined, "the real Robinhood Core published the report");
+    run.eq(published.sender, spokeVault, "DEC-086: the Spoke Vault is the emitter");
+    run.eq(published.sequence, wormholeSequence, "Wormhole sequence");
+    run.eq(Number(published.consistencyLevel), 1, "DEC-093: finalized");
+    run.ok(`anyone calls report(): report ${reportSequence}, Wormhole sequence ${wormholeSequence}, finalized, on the Robinhood Core`);
+
+    await waitForDelivery(spokeRef, wormholeSequence, WAIT_SECONDS);
+    const [latest] = await view<readonly [any, bigint, bigint]>("arbitrum", receiver, valueReportReceiverAbi, "latestReport", [0n]);
+    run.eq(latest.sequence, reportSequence, "DEC-093: the delivered report");
+    run.eq(latest.fundId, fund.fundId, "report fund id");
+    run.eq(latest.spokeChainId, BigInt(ROBINHOOD_CHAIN_ID), "report spoke chain");
+    run.true(
+      latest.arrivedTransits.some((t: any) => t.transitId === transitId && t.amount === amountToArrive),
+      "DEC-090, OQ-09: the arrival is listed by transit id at its credited total",
+    );
+    run.eq(latest.cumulativeReceived, amountToArrive, "cumulative received in the report");
+    run.eq(latest.operatingCash, SPOKE_OPERATING_CASH_TOP_UP, "DEC-096: Operating Cash on its own line");
+    run.eq(latest.positions.length, 1, "one position in the report");
+    run.true(latest.positions[0].income0 + latest.positions[0].income1 > 0n, "DEC-079: income apart from principal");
+    run.eq(await view("arbitrum", receiver, valueReportReceiverAbi, "isReportFresh", [0n]), true, "DEC-099: within the report lifetime");
+    run.ok(`the keeper signed the VAA with the local guardian and delivered it: the hub accepted report ${reportSequence}`);
+
+    const transitAfter = await view<any>("arbitrum", core, coreVaultAbi, "transit", [transitId]);
+    run.eq(Number(transitAfter.state), ARRIVAL_CONFIRMED, "DEC-066, DEC-090: ArrivalConfirmed");
+    run.eq(await view("arbitrum", core, coreVaultAbi, "inFlightValue"), 0n, "DEC-085: In-flight Value dropped");
+    const [spokeValue, sentAfterReport] = await view<readonly [bigint, bigint, bigint, bigint]>("arbitrum", core, coreVaultAbi, "spokeCapUsage", [0n]);
+    run.eq(sentAfterReport, 0n, "DEC-066: the Spoke Cap is released on arrival");
+    const [, answer] = await view<readonly [bigint, bigint, bigint, bigint, bigint]>("arbitrum", ARBITRUM.ethUsdFeed, chainlinkAggregatorAbi, "latestRoundData");
+    const [wethPrice] = await view<readonly [bigint, bigint]>("arbitrum", priceSource, chainlinkPriceSourceAbi, "priceInUsdc", [ROBINHOOD.weth]);
+    const [usdgPrice] = await view<readonly [bigint, bigint]>("arbitrum", priceSource, chainlinkPriceSourceAbi, "priceInUsdc", [ROBINHOOD.usdg]);
+    run.eq(wethPrice, mulDiv(answer, 10n ** 24n, 10n ** 26n), "ruling 2026-09-29: Chainlink ETH / USD for WETH");
+    run.eq(usdgPrice, WHOLE, "ruling 2026-09-29: USDG at 1:1");
+    const spokePrincipal = await principalValue(latest);
+    run.eq(spokeValue, spokePrincipal, "the hub's spoke value is the report's principal");
+    run.approx(await shareAssets(), assetsBeforeReport - inFlightBeforeReport + spokePrincipal, AAVE_ROUNDING, "DEC-083: the spoke value entered Share Assets");
+    run.true(spokePrincipal < amountToArrive, "DEC-096: Operating Cash and the swap's Market Costs left");
+    run.true(spokePrincipal > (amountToArrive * 99n) / 100n, "within 1% of the amount that arrived");
+    await bucketsMatch("DEC-104: Share Assets is the sum of its buckets");
+    run.true((await view<bigint>("arbitrum", core, coreVaultAbi, "grossAssets")) > (await shareAssets()), "DEC-098: Gross Assets add income and Operating Cash");
+    run.ok(
+      `transit ArrivalConfirmed, In-flight Value 0, spoke principal ${units(spokePrincipal)} USDC (WETH at Chainlink ${units(answer, 8, 2)}, USDG 1:1); ` +
+        `Share Assets ${units(await shareAssets())}, Share Price ${price(await sharePrice())}`,
+    );
+
+    // ------------------------------------------------------------------------------------------------------------
+    // Phase 7 (beyond the fork test): Principal comes home through Across, filled on the hub (DEC-085, DEC-104, OQ-01)
+    // ------------------------------------------------------------------------------------------------------------
+    run.phase("Phase 7: 500 USDG of Principal comes home through Across (DEC-085, DEC-104, OQ-01, CV-OQ-1)");
+    const idleBeforeReturn = await idle();
+    const assetsBeforeReturn = await shareAssets();
+    const returnQuote = {
+      outputAmount: RETURN_AMOUNT - RETURN_FEE,
+      quoteTimestamp: Number(await latestTimestamp("robinhood")),
+      exclusivityDeadline: 0,
+      exclusiveRelayer: "0x0000000000000000000000000000000000000000",
+    };
+    const returnTx = await tx<Hex>("robinhood", "manager", spokeVault, spokeVaultAbi, "sendToHub", [RETURN_AMOUNT, PRINCIPAL, 0n, returnQuote]);
+    const returnId = returnTx.result;
+    const [returnDeposit] = events(returnTx.receipt, ROBINHOOD.acrossSpokePool, acrossSpokePoolAbi, "FundsDeposited");
+    run.true(returnDeposit !== undefined, "the Robinhood SpokePool emitted FundsDeposited");
+    run.eq(returnDeposit.destinationChainId, BigInt(ARBITRUM_CHAIN_ID), "destination Arbitrum");
+    run.eq(returnDeposit.recipient, universal(core), "the Core Vault receives");
+    run.eq(returnDeposit.outputToken, universal(ARBITRUM.usdc), "USDC out");
+    run.ok(`manager sends 500 USDG home: Across deposit ${returnDeposit.depositId} from Robinhood, ${units(returnQuote.outputAmount)} USDC to arrive`);
+
+    const received = await waitFor("the Across fill on Arbitrum", async () => {
+      const logs = await nodes.arbitrum.client.getLogs({
+        address: core,
+        event: coreVaultAbi.find((e) => e.type === "event" && e.name === "TransitReceived") as never,
+        args: { transitId: returnId } as never,
+        fromBlock: BigInt(fund.hub.createdInBlock),
+      });
+      return logs.length > 0 ? (logs as unknown as { args: Record<string, any> }[]) : undefined;
+    });
+    const hubFills = await nodes.arbitrum.client.getLogs({
+      address: ARBITRUM.acrossSpokePool,
+      event: acrossSpokePoolAbi.find((e) => e.type === "event" && e.name === "FilledRelay") as never,
+      args: { originChainId: BigInt(ROBINHOOD_CHAIN_ID), depositId: returnDeposit.depositId } as never,
+      fromBlock: BigInt(fund.hub.createdInBlock),
+    });
+    if (hubFills.length === 1) {
+      realFills++;
+      run.ok(`the keeper filled it through the Arbitrum SpokePool's fillRelay; the Core Vault got ${units(received[0].args.amount)} USDC (matched: ${received[0].args.matched})`);
+    } else {
+      simulatedFills++;
+      run.note("no FilledRelay on Arbitrum: the keeper used the simulated fill path");
+    }
+    const returnReport = await tx<readonly [bigint, bigint]>("robinhood", "stranger", spokeVault, spokeVaultAbi, "report");
+    await waitForDelivery(spokeRef, returnReport.result[1], WAIT_SECONDS);
+    const credited = await nodes.arbitrum.client.getLogs({
+      address: core,
+      event: coreVaultAbi.find((e) => e.type === "event" && e.name === "TransitReceived") as never,
+      args: { transitId: returnId } as never,
+      fromBlock: BigInt(fund.hub.createdInBlock),
+    });
+    const matchedTotal = (credited as unknown as { args: Record<string, any> }[])
+      .filter((l) => l.args.matched)
+      .reduce((sum, l) => sum + (l.args.amount as bigint), 0n);
+    run.eq(matchedTotal, returnQuote.outputAmount, "OQ-01: credited up to what the report listed");
+    run.eq(await idle(), idleBeforeReturn + returnQuote.outputAmount, "Principal reached Idle");
+    run.eq(await view("arbitrum", core, coreVaultAbi, "unmatchedArrivals"), 0n, "nothing held apart");
+    run.eq(await view("arbitrum", core, coreVaultAbi, "inFlightValue"), 0n, "no return leg in flight once credited");
+    run.approx(assetsBeforeReturn - (await shareAssets()), RETURN_FEE, AAVE_ROUNDING, "DEC-085: Share Assets drop by the bridge fee only");
+    await bucketsMatch("DEC-104: Share Assets is the sum of its buckets");
+    run.ok(`the next report listed the transfer as Principal and the hub credited ${units(matchedTotal)} USDC to Idle`);
+
     const result: ScenarioResult = {
       steps: run.step,
       assertions: run.assertions,
