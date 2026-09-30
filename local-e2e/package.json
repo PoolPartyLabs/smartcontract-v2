@@ -1,0 +1,26 @@
+{
+  "name": "pool-party-local-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Local two-fork development harness for the Pool Party v2 contracts: Arbitrum One and Robinhood Chain anvil forks, the real deployment scripts, a keeper standing in for Across relayers and Wormhole guardians, and an end-to-end scenario over JSON-RPC.",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "up": "tsx src/up.ts",
+    "down": "bash scripts/stop-forks.sh",
+    "keeper": "tsx src/keeper.ts",
+    "scenario": "tsx src/scenario.ts",
+    "warp": "tsx src/warp.ts",
+    "abis": "bash scripts/export-abis.sh",
+    "status": "tsx src/status.ts"
+  },
+  "dependencies": {
+    "viem": "^2.57.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
