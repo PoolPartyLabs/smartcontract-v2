@@ -280,7 +280,8 @@ abstract contract HubFundFixture is Test {
     }
 
     /// @dev The manager allocates `usdcAmount` of Free Idle to the hub Spoke Vault, swaps half of it into WETH in the
-    ///      Mandate pool and opens a position over `[lower, upper]` with everything the swap produced.
+    ///      Mandate pool (the market then arbitrages the pool back to the external price) and opens a position over
+    ///      `[lower, upper]` with everything the swap produced.
     function _allocateAndOpen(uint256 usdcAmount, int24 lower, int24 upper)
         internal
         returns (bytes32 positionKey, uint256 used0, uint256 used1)
@@ -289,6 +290,9 @@ abstract contract HubFundFixture is Test {
         core.allocateToHubSpokeVault(usdcAmount);
         uint256 half = usdcAmount / 2;
         uint256 wethBought = hubVault.swapExactInput(address(adapter), poolId, address(usdc), half, 0, "");
+        vm.stopPrank();
+        _arbToExternalPrice();
+        vm.startPrank(manager);
         uint256 usdcLeft = hubVault.unallocatedBalance(address(usdc));
         (positionKey, used0, used1) = hubVault.openPosition(
             address(adapter),

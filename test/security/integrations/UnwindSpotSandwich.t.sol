@@ -66,9 +66,9 @@ contract Sandwicher {
 ///      position (as a real manager would); the attacker requests a 150,000 USDC Standard Payout (reserve = Free
 ///      Idle, ~60,000) and after the term claims inside a sandwich (dump 1,500 WETH, claim, buy back to the starting
 ///      price). Measured against the same claim made honestly (state snapshot).
-/// @dev Impact (measured): the unwind sells 52.8 WETH worth 132,064 USDC for 91,317 USDC, 30.9% under the external
-///      price while the floor says 5%; the victim's wealth is 32,706 USDC lower than after an honest claim and the
-///      attacker's 29,273 USDC higher (net of the two 0.05% LP fees on the flash-loaned volume, about 3,200 USDC).
+/// @dev Impact (measured): the unwind sells 51.6 WETH worth 129,041 USDC for 91,323 USDC, 29.2% under the external
+///      price while the floor says 5%; the victim's wealth is 31,716 USDC lower than after an honest claim and the
+///      attacker's 28,242 USDC higher (net of the two 0.05% LP fees on the flash-loaned volume, about 3,200 USDC).
 ///      The loss scales with the claim size; the cost scales only with pool depth. QA3 is OPEN, but the documented
 ///      reading ("the floor bounds execution against the price at the time of the swap") is not a bound at all.
 /// @dev Fix: floor the unwind swap (and size the exit) against a reference the claimant cannot move in the same
