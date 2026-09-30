@@ -28,6 +28,7 @@ contract ReportCodecTest is Test {
 
     function _sample() internal pure returns (ReportCodec.Report memory r) {
         r.fundId = keccak256("fund-1");
+        r.mandateHash = keccak256("mandate-1");
         r.sequence = 7;
         r.spokeChainId = 4663;
         r.blockNumber = 123_456_789;
@@ -73,6 +74,7 @@ contract ReportCodecTest is Test {
         assertEq(h.versionOf(payload), ReportCodec.VERSION);
         ReportCodec.Report memory d = h.decode(payload);
         _assertSame(r, d);
+        assertEq(d.mandateHash, keccak256("mandate-1"), "S-6: the Spoke Vault's Mandate hash travels");
         assertEq(d.positions[0].tickLower, -887_220);
         assertEq(d.inFlightToHub[0].amount, 999e6);
         assertEq(uint8(d.inFlightToHub[0].kind), uint8(TransferKind.Income), "CV-OQ-1: the kind travels");
@@ -88,8 +90,11 @@ contract ReportCodecTest is Test {
         bytes memory payload = abi.encode(uint256(1), _sample());
         vm.expectRevert(abi.encodeWithSelector(ReportCodec.UnsupportedReportVersion.selector, 1));
         h.decode(payload);
-        payload = abi.encode(uint256(3), _sample());
-        vm.expectRevert(abi.encodeWithSelector(ReportCodec.UnsupportedReportVersion.selector, 3));
+        payload = abi.encode(uint256(2), _sample());
+        vm.expectRevert(abi.encodeWithSelector(ReportCodec.UnsupportedReportVersion.selector, 2));
+        h.decode(payload);
+        payload = abi.encode(uint256(4), _sample());
+        vm.expectRevert(abi.encodeWithSelector(ReportCodec.UnsupportedReportVersion.selector, 4));
         h.decode(payload);
         payload = abi.encode(uint256(0), _sample());
         vm.expectRevert(abi.encodeWithSelector(ReportCodec.UnsupportedReportVersion.selector, 0));

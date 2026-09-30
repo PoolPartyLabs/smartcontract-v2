@@ -390,6 +390,11 @@
             "internalType": "bytes32"
           },
           {
+            "name": "mandateHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
             "name": "sequence",
             "type": "uint64",
             "internalType": "uint64"
@@ -1349,6 +1354,19 @@
   },
   {
     "type": "function",
+    "name": "releaseOperatingCash",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "report",
     "inputs": [],
     "outputs": [
@@ -1771,6 +1789,25 @@
       },
       {
         "name": "topUp",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OperatingCashReleased",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "balance",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"

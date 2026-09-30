@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {SqrtPriceMath} from "@uniswap/v4-core/src/libraries/SqrtPriceMath.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
@@ -334,15 +335,44 @@ abstract contract EndToEndBase is Test, FactoryDeployment, FundMandate {
         return Math.mulDiv(amount, price, 1e18);
     }
 
-    /// @dev Unallocated Balance plus position principal of a report, in USDC; income excluded (DEC-079, DEC-092).
+    /// @dev Unallocated Balance plus position principal of a report, in USDC; income excluded (DEC-079, DEC-092). A
+    ///      range position is valued at the price-source price from its liquidity and ticks, never at the pool's spot
+    ///      composition (security review S-1, `CoreVaultLogic._oracleComposition`).
     function _principalValue(ReportCodec.Report memory r) internal view returns (uint256 value) {
         for (uint256 i; i < r.unallocated.length; ++i) {
             value += _usdcValue(r.unallocated[i].token, r.unallocated[i].amount);
         }
         for (uint256 i; i < r.positions.length; ++i) {
-            value += _usdcValue(r.positions[i].token0, r.positions[i].principal0)
-            + _usdcValue(r.positions[i].token1, r.positions[i].principal1);
+            (uint256 amount0, uint256 amount1) = _oracleAmounts(r.positions[i]);
+            value += _usdcValue(r.positions[i].token0, amount0) + _usdcValue(r.positions[i].token1, amount1);
         }
+    }
+
+    /// @dev The token amounts of a range position at `sqrt(price(token0) / price(token1))`, as the Core Vault computes.
+    function _oracleAmounts(ReportCodec.PositionReport memory p) internal view returns (uint256 a0, uint256 a1) {
+        if (p.token1 == address(0) || p.tickLower >= p.tickUpper || p.liquidity == 0) {
+            return (p.principal0, p.principal1);
+        }
+        uint256 price0 = _unitPrice(p.token0);
+        uint256 price1 = _unitPrice(p.token1);
+        uint256 sqrtPrice = Math.sqrt(Math.mulDiv(price0, 1 << 96, price1)) << 48;
+        uint160 lower = TickMath.getSqrtPriceAtTick(p.tickLower);
+        uint160 upper = TickMath.getSqrtPriceAtTick(p.tickUpper);
+        if (sqrtPrice <= lower) {
+            a0 = SqrtPriceMath.getAmount0Delta(lower, upper, p.liquidity, false);
+        } else if (sqrtPrice < upper) {
+            // forge-lint: disable-next-line(unsafe-typecast)
+            uint160 sp = uint160(sqrtPrice);
+            a0 = SqrtPriceMath.getAmount0Delta(sp, upper, p.liquidity, false);
+            a1 = SqrtPriceMath.getAmount1Delta(lower, sp, p.liquidity, false);
+        } else {
+            a1 = SqrtPriceMath.getAmount1Delta(lower, upper, p.liquidity, false);
+        }
+    }
+
+    function _unitPrice(address token) internal view returns (uint256 price) {
+        if (token == ARB_USDC) return 1e18;
+        (price,) = IPriceSource(hubDeployment.priceSource).priceInUsdc(token);
     }
 
     /// @dev Share Assets rebuilt bucket by bucket (DEC-042, DEC-104): Idle (Payout Reserve included) + the hub Spoke

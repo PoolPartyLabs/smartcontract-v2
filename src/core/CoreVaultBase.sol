@@ -222,6 +222,11 @@ abstract contract CoreVaultBase is ICoreVault, ReentrancyGuardTransient {
     }
 
     /// @inheritdoc ICoreVault
+    function spokeCapHeld(bytes32 transitId) external view returns (bool) {
+        return _s.spokeCapHeld[transitId];
+    }
+
+    /// @inheritdoc ICoreVault
     function transit(bytes32 transitId) external view returns (Transit memory) {
         return _s.transits[transitId];
     }
@@ -272,6 +277,17 @@ abstract contract CoreVaultBase is ICoreVault, ReentrancyGuardTransient {
         emit OperatingCashParametersSet(floor, topUp);
     }
 
+    /// @inheritdoc ICoreVault
+    function releaseOperatingCash(uint256 amount) external onlyManager nonReentrant {
+        uint256 cash = _s.operatingCash;
+        uint256 floor = _s.operatingCashFloor;
+        uint256 releasable = cash > floor ? cash - floor : 0;
+        if (amount == 0 || amount > releasable) revert OperatingCashNotReleasable(amount, releasable);
+        _s.operatingCash = cash - amount;
+        _s.idle += amount;
+        emit OperatingCashReleased(amount, cash - amount);
+    }
+
     /// @notice DEC-096, DEC-100, DEC-041: when hub Operating Cash is below its floor, the value-moving operation that
     ///         calls this tops it up by `operatingCashTopUp` from Free Idle (never the Payout Reserve, DEC-072). The
     ///         top-up is an Operating Expense paid by Share Assets (accepted effect on Share Price, DEC-100).
@@ -302,6 +318,7 @@ abstract contract CoreVaultBase is ICoreVault, ReentrancyGuardTransient {
     function _wiring() internal view returns (CoreVaultWiring memory) {
         return CoreVaultWiring({
             fundId: fundId,
+            mandateHash: mandateHash,
             manager: manager,
             usdc: usdc,
             shareToken: shareToken,
@@ -319,10 +336,11 @@ abstract contract CoreVaultBase is ICoreVault, ReentrancyGuardTransient {
 
     /// @notice Every amount of `token` the Core Vault's ledger holds.
     /// @dev DEC-080, DEC-096, DEC-101: Idle, Operating Cash and unmatched arrivals (USDC only) plus the collected income
-    ///      of the token. Attributed Income is a claim paid out of the collected balance, so it is inside it and is not
+    ///      and the owed fees (S-12) of the token. Attributed Income is a claim paid out of the collected balance, so it is inside it and is not
     ///      added a second time; no fee is ever owed here (ruling 2026-09-29: fees leave at collection).
     function _ledger(address token) internal view returns (uint256 amount) {
-        amount = _s.collectedIncome[token];
+        // Security review S-12: fees whose transfer failed are owed to their recipient, never swept.
+        amount = _s.collectedIncome[token] + _s.owedFeesTotal[token];
         if (token == usdc) amount += _s.idle + _s.operatingCash + _s.unmatchedArrivals;
     }
 

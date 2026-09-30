@@ -10,7 +10,7 @@ import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {IAdapter} from "../interfaces/IAdapter.sol";
 import {IBridgeAdapter} from "../interfaces/IBridgeAdapter.sol";
 import {ITransitEscrow} from "../interfaces/ITransitEscrow.sol";
-import {Transit, TransitState, TransferKind, BridgeQuote} from "../interfaces/FundTypes.sol";
+import {Transit, TransitState, TransferKind, BridgeQuote, ExpensePayer} from "../interfaces/FundTypes.sol";
 import {MandateLib} from "../mandate/Mandate.sol";
 import {ReportCodec} from "../libraries/ReportCodec.sol";
 import {TransitMessage} from "../libraries/TransitMessage.sol";
@@ -24,6 +24,10 @@ import {SpokeVaultTypes} from "./SpokeVaultTypes.sol";
 ///      vault's (ISpokeVault and SpokeVaultTypes), emitted from the vault's address.
 library SpokeCrossChainLib {
     using SafeERC20 for IERC20;
+
+    /// @dev Kind tag of the Operating Expense booked by an Operating Cash top-up; equals
+    ///      `SpokeVault.OPERATING_CASH_TOP_UP` (DEC-041, DEC-096).
+    bytes32 internal constant OPERATING_CASH_TOP_UP = keccak256("OPERATING_CASH_TOP_UP");
 
     // ---------------------------------------------------------------------------------------------------------------
     // Send home (DEC-056, DEC-066, DEC-085, DEC-087, DEC-088, QA6, QA19)
@@ -44,6 +48,16 @@ library SpokeCrossChainLib {
         BridgeQuote calldata quote
     ) external returns (bytes32 transitId) {
         _checkQuote(c.maxBridgeFeeBps, amount, quote.outputAmount);
+        // Security review S-9: no Across exclusivity (an exclusive relayer that never fills forces an expiry; one that
+        // fills keeps the whole fee bound on every send).
+        if (quote.exclusiveRelayer != address(0) || quote.exclusivityDeadline != 0) {
+            revert SpokeVaultTypes.ExclusiveRelayerNotAllowed(quote.exclusiveRelayer);
+        }
+        // Security review S-11: the list a report walks is bounded; landed refunds and expired entries leave it first.
+        _sweepInFlight(s, c.baseToken);
+        if (s.inFlightIds.length >= SpokeVaultTypes.MAX_HUB_BOUND_IN_FLIGHT) {
+            revert SpokeVaultTypes.HubBoundInFlightLimit(SpokeVaultTypes.MAX_HUB_BOUND_IN_FLIGHT);
+        }
         address bridge = _bridgeAdapterAt(s, bridgeRank);
         _debit(s, c.baseToken, amount, kind);
 
@@ -74,11 +88,24 @@ library SpokeCrossChainLib {
         Transit storage t = s.hubBoundTransits[transitId];
         if (t.state != TransitState.Sent) revert ISpokeVault.UnknownTransit(transitId);
         if (block.timestamp <= t.fillDeadline) revert ISpokeVault.FillDeadlineNotReached(transitId, t.fillDeadline);
+        if (!_refundLanded(t, baseToken)) revert ISpokeVault.NoRefund(transitId);
+        amount = _recognize(s, t, baseToken, transitId);
+    }
+
+    /// @dev Whether an expired send's escrow holds its full Across refund (DEC-063: the whole `amountSent`).
+    function _refundLanded(Transit storage t, address baseToken) private view returns (bool) {
+        return IERC20(baseToken).balanceOf(t.escrow) >= t.amountSent;
+    }
+
+    /// @dev Effects then the escrow release of a refund whose escrow holds at least `amountSent`.
+    function _recognize(SpokeVaultTypes.State storage s, Transit storage t, address baseToken, bytes32 transitId)
+        private
+        returns (uint256 amount)
+    {
         address escrow = t.escrow;
         IERC20 token = IERC20(baseToken);
         uint256 held = token.balanceOf(escrow);
         amount = t.amountSent;
-        if (held < amount) revert ISpokeVault.NoRefund(transitId);
         t.state = TransitState.RefundRecognized;
         _removeInFlight(s, transitId);
         if (t.kind == TransferKind.Principal) s.unallocated[baseToken] += amount;
@@ -90,20 +117,93 @@ library SpokeCrossChainLib {
         if (received != held) revert SpokeVaultTypes.RefundReleaseMismatch(held, received);
     }
 
+    /// @dev Security review S-3: walks the hub-bound list once. An expired send whose refund has landed is recognized
+    ///      (the same effects as `recognizeRefund`, so a report never drops a refunded transfer from every value
+    ///      base while nobody has called it); a send past `fillDeadline + ReportCodec.HUB_BOUND_RETENTION` leaves the
+    ///      list. Iterates from the end, so the swap-and-pop removal never skips an entry.
+    function _sweepInFlight(SpokeVaultTypes.State storage s, address baseToken) private {
+        for (uint256 i = s.inFlightIds.length; i > 0; --i) {
+            bytes32 id = s.inFlightIds[i - 1];
+            Transit storage t = s.hubBoundTransits[id];
+            if (block.timestamp > t.fillDeadline && _refundLanded(t, baseToken)) _recognize(s, t, baseToken, id);
+            else if (!_stillInFlight(t)) _removeInFlight(s, id);
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Arrivals and Operating Cash (bodies of Spoke Vault verbs, kept here for the vault's bytecode margin)
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// @notice Credits a hub-to-spoke arrival the vault's `handleV3AcrossMessage` accepted (DEC-080, OQ-09, OQ-01).
+    /// @dev Principal: Unallocated Balance, `cumulativeReceived` and the per-id credited total; the id is listed when
+    ///      its total first reaches `MIN_LISTED_ARRIVAL` and, security review S-13, again on every credit of at least
+    ///      that minimum, so an id a stranger pre-listed (hub ids are predictable) and flushed out of the window comes
+    ///      back with the real fill, while flushing the window still costs the minimum per entry. Income: the
+    ///      collected income bucket (DEC-092), never listed.
+    function creditArrival(
+        SpokeVaultTypes.State storage s,
+        address token,
+        bytes32 transitId,
+        TransferKind kind,
+        uint256 amount
+    ) external {
+        if (kind != TransferKind.Principal) {
+            s.collectedIncome[token] += amount;
+            return;
+        }
+        s.unallocated[token] += amount;
+        s.cumulativeReceived += amount;
+        uint256 before = s.arrivals[transitId];
+        s.arrivals[transitId] = before + amount;
+        uint256 min = SpokeVaultTypes.MIN_LISTED_ARRIVAL;
+        if (amount >= min || (before < min && before + amount >= min)) {
+            s.recentArrivals[s.arrivalCount % SpokeVaultTypes.ARRIVAL_WINDOW] = transitId;
+            ++s.arrivalCount;
+        }
+    }
+
+    /// @notice The Operating Cash top-up of a Spoke Chain (body of `SpokeVault._topUpOperatingCash`).
+    /// @dev DEC-096, DEC-100: below the floor, the next value-moving operation adds `operatingCashTopUp` (or what
+    ///      Unallocated Balance of the base token holds, if less) to Operating Cash; the Share Price drop is accepted.
+    ///      DEC-041: the expense is booked with its payer, Share Assets. Never reverts, so it never blocks an exit
+    ///      (DEC-056).
+    function topUpOperatingCash(SpokeVaultTypes.State storage s, address baseToken, uint256 chainId) external {
+        uint256 cash = s.operatingCash;
+        if (cash >= s.operatingCashFloor) return;
+        uint256 amount = Math.min(s.operatingCashTopUp, s.unallocated[baseToken]);
+        if (amount == 0) return;
+        s.unallocated[baseToken] -= amount;
+        s.operatingCash = cash + amount;
+        emit ISpokeVault.OperatingCashToppedUp(amount, cash + amount);
+        emit ISpokeVault.OperatingExpensePaid(
+            chainId, address(0), OPERATING_CASH_TOP_UP, amount, ExpensePayer.ShareAssets
+        );
+    }
+
+    /// @notice ISpokeVault.releaseOperatingCash (security review S-5, interim mitigation pending a DEC-100 ruling):
+    ///         Operating Cash above the floor back to the base token's Unallocated Balance.
+    function releaseOperatingCash(SpokeVaultTypes.State storage s, address baseToken, uint256 amount) external {
+        uint256 cash = s.operatingCash;
+        uint256 floor = s.operatingCashFloor;
+        uint256 releasable = cash > floor ? cash - floor : 0;
+        if (amount == 0 || amount > releasable) revert SpokeVaultTypes.OperatingCashNotReleasable(amount, releasable);
+        s.operatingCash = cash - amount;
+        s.unallocated[baseToken] += amount;
+        emit ISpokeVault.OperatingCashReleased(amount, cash - amount);
+    }
+
     // ---------------------------------------------------------------------------------------------------------------
     // Report (DEC-070, DEC-079, DEC-085, DEC-090, DEC-093, Q60, OQ-09)
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @notice Drops hub-bound transits presumed filled, advances the report sequence and returns the payload.
-    /// @dev DEC-093: the sequence strictly increases, by one per report.
+    /// @notice Recognizes landed refunds, drops hub-bound transits past their retention, advances the report sequence
+    ///         and returns the payload.
+    /// @dev DEC-093: the sequence strictly increases, by one per report. Security review S-3: see `_sweepInFlight`.
     function nextReport(SpokeVaultTypes.State storage s, SpokeVaultTypes.Config memory c)
         external
         returns (uint64 sequence, bytes memory payload)
     {
-        for (uint256 i = s.inFlightIds.length; i > 0; --i) {
-            bytes32 id = s.inFlightIds[i - 1];
-            if (!_stillInFlight(s.hubBoundTransits[id], c.maxReportAge)) _removeInFlight(s, id);
-        }
+        _sweepInFlight(s, c.baseToken);
         sequence = ++s.reportSequence;
         payload = ReportCodec.encode(_build(s, c, sequence));
     }
@@ -132,6 +232,7 @@ library SpokeCrossChainLib {
         returns (ReportCodec.Report memory r)
     {
         r.fundId = c.fundId;
+        r.mandateHash = c.mandateHash;
         r.sequence = sequence;
         r.spokeChainId = c.chainId;
         r.blockNumber = uint64(block.number);
@@ -181,7 +282,7 @@ library SpokeCrossChainLib {
         for (uint256 i; i < n; ++i) {
             bytes32 id = s.inFlightIds[i];
             Transit storage t = s.hubBoundTransits[id];
-            if (_stillInFlight(t, c.maxReportAge)) {
+            if (_stillInFlight(t)) {
                 inFlight[found++] = ReportCodec.HubBoundAmount(id, t.amountToArrive, t.kind);
             }
         }
@@ -295,10 +396,18 @@ library SpokeCrossChainLib {
         s.cumulativeSentHome += amount;
     }
 
-    /// @dev OQ-09 stance: a hub-bound transit is in flight until its refund is recognized or until
-    ///      `fillDeadline + maxReportAge` has passed, after which it is presumed filled.
-    function _stillInFlight(Transit storage t, uint32 maxReportAge) private view returns (bool) {
-        return t.state == TransitState.Sent && block.timestamp <= uint256(t.fillDeadline) + maxReportAge;
+    /// @dev A hub-bound transit is listed until its refund is recognized or until `fillDeadline +
+    ///      ReportCodec.HUB_BOUND_RETENTION` has passed, after which it is presumed filled.
+    /// @dev Security review S-3 (DEC-085, DEC-104; OQ-09 stance revised): the spoke cannot tell a filled send from an
+    ///      unfilled one, and the hub nets out what it credited (`CoreVaultLogic._returnLeg`: listed minus credited), so
+    ///      listing a filled send longer counts nothing twice. Dropping it at `fillDeadline + maxReportAge` (about
+    ///      26 min) left an unfilled send in no value base until its Across refund (55 to 90 min after the deadline,
+    ///      DEC-063) was recognized and reported: entrants minted at the understated Share Price and the Spoke Cap
+    ///      forgot the return leg. The retention covers the refund latency with a wide margin; `_sweepInFlight`
+    ///      recognizes a landed refund at the next report or send.
+    function _stillInFlight(Transit storage t) private view returns (bool) {
+        return
+            t.state == TransitState.Sent && block.timestamp <= uint256(t.fillDeadline) + ReportCodec.HUB_BOUND_RETENTION;
     }
 
     function _removeInFlight(SpokeVaultTypes.State storage s, bytes32 transitId) private {

@@ -25,8 +25,8 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
 
     // ---------------------------------------------------------------------------------------------------------------
     // DEC-066 ordering: the expiry is attested through the report-lifetime path, then the spoke's late report lists
-    // the arrival. ExpiryAttested -> ArrivalConfirmed must release In-flight Value exactly once, must not touch the
-    // Spoke Cap book a second time (no underflow), and must close the refund path for good.
+    // the arrival. ExpiryAttested -> ArrivalConfirmed must release In-flight Value exactly once, must release the
+    // Spoke Cap the time-path attestation kept (security review S-13) exactly once, and must close the refund path.
     // ---------------------------------------------------------------------------------------------------------------
     function test_DEC066_lateArrivalAfterAttestedExpiryConfirmsOnceAndClosesRefund() public {
         _deposit(alice, 10_000e6); // Idle 9,975
@@ -35,7 +35,7 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
         prices.setPrice(address(usdg), 1e18);
         vault.attestExpiry(id);
         (, uint256 inFlightSent,,) = vault.spokeCapUsage(0);
-        assertEq(inFlightSent, 0, "the Spoke Cap is released at the attested expiry");
+        assertEq(inFlightSent, SENT, "S-13: a time-path attestation keeps the Spoke Cap until the outcome is known");
         assertEq(vault.inFlightValue(), ARRIVES, "Share Assets still count the transit (QB11 stance)");
 
         // The fill happened after all; the spoke's report lists it.
@@ -44,7 +44,7 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
         assertEq(vault.inFlightValue(), 0, "released exactly once");
         (uint256 spokeValue, uint256 sentAfter,,) = vault.spokeCapUsage(0);
         assertEq(spokeValue, ARRIVES, "the report carries it now, nothing deducted as unknown");
-        assertEq(sentAfter, 0, "the Spoke Cap book was not decremented twice");
+        assertEq(sentAfter, 0, "the Spoke Cap is released once, at the confirmation");
         assertEq(vault.shareAssets(), 9975e6 - SENT + ARRIVES);
         assertEq(vault.shareAssets(), _bucketSum());
 
@@ -113,6 +113,7 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
         c.acrossSpokePool = address(malPool);
         _deploy(_mandate(2000), c);
         _deposit(alice, 10_000e6); // Idle 9,975
+        _ensureSpokeReport(); // S-14: the spoke has reported once before the hub funds it
         bytes32 fakeId = keccak256("fabricated");
 
         bytes[2] memory payloads = [

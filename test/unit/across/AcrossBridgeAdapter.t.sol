@@ -286,4 +286,20 @@ contract AcrossBridgeAdapterTest is Test {
         vm.expectRevert(IBridgeAdapter.InvalidParty.selector);
         adapter.buildSend(req, escrow);
     }
+
+    /// @dev Security review S-23: a SpokePool buffer lowered after deployment shortens the window instead of making
+    ///      every send (the send home included) revert; a zero buffer is refused.
+    function test_SEC_S23_fillDeadlineFollowsALoweredSpokePoolBuffer() public {
+        pool.setFillDeadlineBuffer(3 hours);
+        IBridgeAdapter.BridgeCall memory call = adapter.buildSend(_request(), makeAddr("escrow"));
+        assertEq(call.fillDeadline, block.timestamp + 3 hours, "S-23: the lower buffer");
+
+        pool.setFillDeadlineBuffer(12 hours);
+        call = adapter.buildSend(_request(), makeAddr("escrow"));
+        assertEq(call.fillDeadline, block.timestamp + 6 hours, "never above the DEC-066 constant");
+
+        pool.setFillDeadlineBuffer(0);
+        vm.expectRevert(abi.encodeWithSelector(AcrossBridgeAdapter.FillDeadlineBufferTooShort.selector, 0));
+        adapter.buildSend(_request(), makeAddr("escrow"));
+    }
 }

@@ -166,6 +166,9 @@ interface ICoreVault is IAcrossMessageHandler {
     /// @notice The manager changed the hub Operating Cash floor and top-up (DEC-096).
     event OperatingCashParametersSet(uint256 floor, uint256 topUp);
 
+    /// @notice The manager returned Operating Cash above the floor to Idle (security review S-5).
+    event OperatingCashReleased(uint256 amount, uint256 balance);
+
     /// @notice Free Idle was moved to the hub Spoke Vault's Unallocated Balance (DEC-017, DEC-072).
     event AllocatedToHubSpokeVault(uint256 amount);
 
@@ -180,6 +183,13 @@ interface ICoreVault is IAcrossMessageHandler {
     event CollectedIncomeReceived(
         address indexed token, uint256 amount, uint256 managerFee, uint256 protocolSlice, uint16 protocolSliceBps
     );
+
+    /// @notice A fee transfer to `recipient` (the Protocol Recipient or the ManagerFeeVault) failed, so the amount is
+    ///         owed to it and waits in the Core Vault, outside every value base (security review S-12).
+    event FeeAccrued(address indexed token, address indexed recipient, uint256 amount);
+
+    /// @notice An owed fee was paid to its recipient (security review S-12).
+    event OwedFeePaid(address indexed token, address indexed recipient, uint256 amount);
 
     /// @notice The manager lowered the manager fee (DEC-110).
     event ManagerFeeDecreased(
@@ -214,6 +224,10 @@ interface ICoreVault is IAcrossMessageHandler {
     ///         was already credited (DEC-080, OQ-01).
     event ArrivalHeldApart(bytes32 indexed transitId, uint256 indexed originChainId, TransferKind kind, uint256 amount);
 
+    /// @notice An arrival no accepted report ever listed was credited to Idle as Principal once no report could list
+    ///         it any more (security review S-4).
+    event UnlistedArrivalRecovered(bytes32 indexed transitId, uint256 indexed originChainId, uint256 amount);
+
     // ---------------------------------------------------------------------------------------------------------------
     // Errors
     // ---------------------------------------------------------------------------------------------------------------
@@ -246,7 +260,19 @@ interface ICoreVault is IAcrossMessageHandler {
     error FillDeadlineNotReached(bytes32 transitId, uint32 fillDeadline);
     error ExpiryNotProvable(bytes32 transitId);
     error NoRefund(bytes32 transitId);
+    /// @notice Only Operating Cash above the floor can be returned (security review S-5).
+    error OperatingCashNotReleasable(uint256 amount, uint256 releasable);
+    /// @notice The hub has accepted no report from that spoke yet, so it may not fund it (security review S-14).
+    error SpokeNotReporting(uint256 spokeIndex);
+    /// @notice A quote named an exclusive relayer or an exclusivity period (security review S-9).
+    error ExclusiveRelayerNotAllowed(address exclusiveRelayer);
+    /// @notice No arrival of that transit is held apart without a listing (security review S-4).
+    error NothingToRecover(bytes32 transitId);
+    /// @notice A report could still list the transit; recovery opens at `readyAt` (security review S-4).
+    error RecoveryNotReady(bytes32 transitId, uint256 readyAt);
     error WrongFund(bytes32 fundId);
+    /// @notice A report came from a Spoke Vault running another Mandate than the Core Vault's (security review S-6).
+    error WrongMandate(bytes32 mandateHash);
     error UnexpectedToken(address token);
     error ManagerFeeNotDecreasing();
     error ManagementFeeNotSupported(uint16 bps);
@@ -314,6 +340,13 @@ interface ICoreVault is IAcrossMessageHandler {
     ///      (OPEN): pays `min(owed, collectedIncome(token))`.
     function withdrawIncome(address token) external returns (uint256 amount);
 
+    /// @notice Pays `recipient` every fee in `token` that could not be transferred to it when charged. Permissionless.
+    /// @dev Security review S-12 (DEC-106, DEC-107, DEC-109): the flow fee, the protocol slice and the manager fee are
+    ///      transferred when charged; a transfer that fails (a USDC blocklist entry on the fee wallet, a reverting
+    ///      recipient) no longer reverts the Shareholder's deposit, claim or the income collection but is owed here.
+    ///      Reverts if the transfer still fails.
+    function claimOwedFees(address token, address recipient) external returns (uint256 amount);
+
     // ---------------------------------------------------------------------------------------------------------------
     // Permissionless verbs
     // ---------------------------------------------------------------------------------------------------------------
@@ -321,8 +354,10 @@ interface ICoreVault is IAcrossMessageHandler {
     /// @notice Attests that a hub-to-spoke transit expired without arriving (DEC-066). Permissionless.
     /// @dev Requires the fill deadline to have passed and proof of non-arrival: a spoke report built after the
     ///      deadline that does not list the transit and lists fewer than `ReportCodec.ARRIVAL_WINDOW` arrivals (a full
-    ///      window cannot prove absence, OQ-09), or the deadline plus the report lifetime having passed. Releases
-    ///      the Spoke Cap; Share Assets keep counting the transit until its refund is recognized (QB11, QB10 OPEN).
+    ///      window cannot prove absence, OQ-09), or the deadline plus the report lifetime having passed. With a
+    ///      report's proof it releases the Spoke Cap; on the time path alone the cap stays held until the arrival is
+    ///      confirmed or the refund recognized (security review S-13). Share Assets keep counting the transit until its
+    ///      refund is recognized (QB11, QB10 OPEN).
     function attestExpiry(bytes32 transitId) external;
 
     /// @notice Pulls an expired transit's refund from its escrow back to Idle (DEC-066, QA6). Permissionless.
@@ -331,6 +366,18 @@ interface ICoreVault is IAcrossMessageHandler {
     ///      `InvalidTransitState` or `NoRefund` otherwise. Exactly `amountSent` is credited to Idle; any surplus in the
     ///      escrow reaches the Core Vault unledgered and is swept as excess (DEC-080).
     function recognizeRefund(bytes32 transitId) external returns (uint256 amount);
+
+    /// @notice Credits to Idle, as Principal, what arrived from spoke `spokeIndex` for `transitId` while no accepted
+    ///         report of that spoke ever listed it, once no report can list it any more. Permissionless.
+    /// @dev Security review S-4 (DEC-080, DEC-104, OQ-01): a send home is filled within minutes and credited only
+    ///      against a listing, but a spoke lists it only until `fillDeadline + ReportCodec.HUB_BOUND_RETENTION`; if no
+    ///      report built in that window is accepted (keeper, guardian or sequencer outage) the fund's own USDC would
+    ///      stay in `unmatchedArrivals` for good. Recovery opens `UNLISTED_ARRIVAL_DELAY` plus twice the spoke's
+    ///      report lifetime after the first unlisted arrival for that id, when no acceptable report can list it. The
+    ///      amount is added to the transit's credited total, so a later listing of the same id nets it out and nothing
+    ///      is counted twice; an Income transfer recovered this way reaches holders as Principal (no fee split).
+    ///      Reverts `UnknownSpoke`, `NothingToRecover` or `RecoveryNotReady`.
+    function recoverUnlistedArrival(uint256 spokeIndex, bytes32 transitId) external returns (uint256 amount);
 
     /// @notice Sends `balanceOf(token)` minus every ledger amount of `token` to the excess recipient. Permissionless.
     /// @dev DEC-080, DEC-096, DEC-101. Never sweeps ledger value (Idle, Operating Cash, collected income, owed fees).
@@ -364,6 +411,14 @@ interface ICoreVault is IAcrossMessageHandler {
 
     /// @notice Sets the hub Operating Cash floor and top-up. Manager only (DEC-096, DEC-100).
     function setOperatingCashParameters(uint256 floor, uint256 topUp) external;
+
+    /// @notice Returns `amount` of hub Operating Cash above its floor to Idle. Manager only.
+    /// @dev Security review S-5, interim mitigation pending a founder ruling on DEC-100: the floor and top-up have no
+    ///      protocol cap and nothing spends or returns Operating Cash in the MVP, so a mis-set parameter (or a
+    ///      compromised key) moved Free Idle out of Share Assets for good. Returning it to Idle only moves value back to
+    ///      the Shareholders (DEC-096 sends Operating Cash to them at fund close); it never lets the manager take it.
+    ///      Reverts `OperatingCashNotReleasable` above `operatingCash - floor`.
+    function releaseOperatingCash(uint256 amount) external;
 
     // ---------------------------------------------------------------------------------------------------------------
     // Callbacks from the fund's own contracts (DEC-090: transitions only from the Mandate's contracts)
@@ -484,6 +539,13 @@ interface ICoreVault is IAcrossMessageHandler {
 
     /// @notice Income recognized with no shares outstanding (LC-32 OPEN: retained).
     function ownerlessIncome(address token) external view returns (uint256);
+
+    /// @notice Whether an ExpiryAttested transit still holds its Spoke Cap because its expiry was attested by time
+    ///         alone (security review S-13).
+    function spokeCapHeld(bytes32 transitId) external view returns (bool);
+
+    /// @notice Fees in `token` owed to `recipient` because their transfer failed when charged (security review S-12).
+    function owedFees(address token, address recipient) external view returns (uint256);
 
     /// @notice Accumulator state of an income token: index (Q128), remainder, ownerless, distributed and taken totals
     ///         (Q60 fitness functions).

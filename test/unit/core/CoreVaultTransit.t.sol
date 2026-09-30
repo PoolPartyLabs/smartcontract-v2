@@ -16,6 +16,7 @@ contract CoreVaultTransitTest is CoreVaultFixture {
     function setUp() public override {
         super.setUp();
         _deposit(alice, 10_000e6); // Idle 9,975
+        _ensureSpokeReport(); // S-14: the spoke has reported once before the hub funds it
     }
 
     function _sendDefault() internal returns (bytes32) {
@@ -159,7 +160,7 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         bytes32 id = _sendDefault();
         uint256 assetsInFlight = vault.shareAssets();
         vm.expectEmit(address(vault));
-        emit ICoreVault.TransitArrived(id, 0, ARRIVES, 1);
+        emit ICoreVault.TransitArrived(id, 0, ARRIVES, reportSequence + 1);
         _deliver(_arrived(_spokeReport(ARRIVES, ARRIVES), id, ARRIVES));
         assertEq(uint8(vault.transit(id).state), uint8(TransitState.ArrivalConfirmed));
         assertEq(vault.inFlightValue(), 0);
@@ -467,5 +468,22 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         assertEq(usdc.balanceOf(excess), 123e6);
         assertEq(usdc.balanceOf(address(vault)), _ledgerUsdc());
         assertEq(vault.sweepExcess(address(usdc)), 0);
+    }
+
+    /// @dev Security review S-20 (DEC-080): the hub's Across callback credits nothing the SpokePool did not transfer
+    ///      first; an unbacked call reverts `UnbackedCredit` and moves no base.
+    function test_SEC_S20_hubAcrossCallbackRequiresTheTokensAboveTheLedger() public {
+        bytes32 homeId = keccak256("home-unbacked");
+        bytes memory message = TransitMessage.encode(FUND_ID, SPOKE, homeId, TransferKind.Principal);
+        uint256 idleBefore = vault.idle();
+        vm.prank(address(pool));
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.UnbackedCredit.selector, address(usdc), 500e6, 0));
+        vault.handleV3AcrossMessage(address(usdc), 500e6, address(this), message);
+        assertEq(vault.unmatchedArrivals(), 0);
+        assertEq(vault.idle(), idleBefore);
+
+        // The same arrival, transferred first as the SpokePool does, is held apart as before.
+        pool.fill(address(vault), address(usdc), 500e6, message);
+        assertEq(vault.unmatchedArrivals(), 500e6);
     }
 }

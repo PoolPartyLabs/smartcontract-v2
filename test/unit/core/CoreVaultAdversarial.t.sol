@@ -55,7 +55,9 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         try vault.recognizeRefund(id) {} catch {}
         prices.setPrice(address(usdg), 1e18); // the feed kept updating; only the value capture is under test
 
-        // Bob enters at whatever price the vault shows now.
+        // Bob enters at whatever price the vault shows now, on a fresh report of a spoke that has not yet reported the
+        // fill (S-14: the hub funded the spoke after its first report, so mints need a fresh one).
+        _deliver(_spokeReport(0, 0));
         (uint256 bobShares, uint256 bobCharged) = _deposit(bob, 9000e6);
         // The report confirming the arrival lands afterwards.
         _deliver(_arrived(_spokeReport(ARRIVES, ARRIVES), id, ARRIVES));

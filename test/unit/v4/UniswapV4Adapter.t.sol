@@ -183,9 +183,11 @@ contract UniswapV4AdapterTest is Test {
         assertEq(adapter.positionKeys().length, 0);
     }
 
-    /// DEC-058: deprecation blocks open, increase and (OQ-04) swap; exits keep working.
+    /// DEC-058: deprecation blocks open, increase and (OQ-04) a swap out of the base token; exits keep working, and
+    /// since security review S-10 so does a swap into the vault's base token (the exit of a non-base leg).
     function test_DEC058_deprecationBlocksEntriesAndSwapNeverExits() public {
         bytes32 positionKey = _open();
+        vault.setBaseToken(address(token1));
         vm.prank(guardian);
         adapter.deprecate();
 
@@ -194,6 +196,7 @@ contract UniswapV4AdapterTest is Test {
         vm.expectRevert(IAdapterGuard.AdapterIsDeprecated.selector);
         vault.increase(positionKey, address(token0), 1e20, address(token1), 1e20, _increaseParams(LIQUIDITY));
         vm.expectRevert(IAdapterGuard.AdapterIsDeprecated.selector);
+        vault.swap(poolId, address(token1), 1e18, 0, _swapParams());
         vault.swap(poolId, address(token0), 1e18, 0, _swapParams());
 
         vault.collect(positionKey);

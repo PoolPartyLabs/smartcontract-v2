@@ -85,6 +85,16 @@ abstract contract CoreVaultTransit is CoreVaultIncome {
         return CoreVaultLogic.recognizeRefund(_s, _wiring(), transitId);
     }
 
+    /// @inheritdoc ICoreVault
+    /// @dev Security review S-4: see CoreVaultLogic.recoverUnlistedArrival.
+    function recoverUnlistedArrival(uint256 spokeIndex, bytes32 transitId)
+        external
+        nonReentrant
+        returns (uint256 amount)
+    {
+        return CoreVaultLogic.recoverUnlistedArrival(_s, spokeIndex, transitId);
+    }
+
     // ---------------------------------------------------------------------------------------------------------------
     // Reports (DEC-066, DEC-080, DEC-090, Q60)
     // ---------------------------------------------------------------------------------------------------------------
@@ -118,6 +128,10 @@ abstract contract CoreVaultTransit is CoreVaultIncome {
         (bytes32 messageFundId, uint256 originChainId, bytes32 transitId, TransferKind kind) =
             TransitMessage.decode(message);
         if (messageFundId != fundId) revert WrongFund(messageFundId);
+        // Security review S-20 (DEC-080 fitness function, as `returnToIdle` and `receiveCollectedIncome` apply it and
+        // as the Spoke Vault's handler checks its ledger): the amount the SpokePool states must already sit above the
+        // ledger, so a faulty or compromised pool can never credit unbacked Idle or unmatched arrivals.
+        _requireUnledgered(usdc, amount);
         CoreVaultLogic.receiveHubBound(_s, _wiring(), originChainId, transitId, kind, amount);
     }
 

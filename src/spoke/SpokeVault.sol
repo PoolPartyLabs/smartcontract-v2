@@ -11,6 +11,7 @@ import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {IAdapter} from "../interfaces/IAdapter.sol";
 import {IBridgeAdapter} from "../interfaces/IBridgeAdapter.sol";
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
+import {IPriceSource} from "../interfaces/IPriceSource.sol";
 import {Transit, TransferKind, ExpensePayer, BridgeQuote} from "../interfaces/FundTypes.sol";
 import {Mandate, MandateLib, SpokeConfig, PoolConfig, UnwindStep, BridgeAdapterConfig} from "../mandate/Mandate.sol";
 import {ReportCodec} from "../libraries/ReportCodec.sol";
@@ -49,9 +50,9 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
 
     /// @notice Largest shortfall below the pool's current price, in bps, that an automatic unwind swap accepts: the
     ///         swap's minimum output is at least the route's `IAdapter.spotQuote` less this share.
-    /// @dev OPEN parameter (QA3: the price guard of hub positions is undecided; final verification). A spot price can be
-    ///      moved within a block, so this bounds execution against the price at the time of the swap, not against an
-    ///      oracle; a claimant hint may only raise the minimum.
+    /// @dev OPEN parameter (QA3: the price guard of hub positions is undecided; final verification). Measured from the
+    ///      higher of the route's spot quote and the Core Vault's price-source value (security review S-2: a spot price
+    ///      can be moved within a block by the claimant); a claimant hint may only raise the minimum.
     uint256 public constant MAX_UNWIND_SLIPPAGE_BPS = 500;
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -371,14 +372,21 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         emit OperatingCashParametersSet(floor, topUp);
     }
 
+    /// @inheritdoc ISpokeVault
+    /// @dev Security review S-5; body in SpokeCrossChainLib (bytecode margin).
+    function releaseOperatingCash(uint256 amount) external onlyOnSpokeChain onlyManager nonReentrant {
+        SpokeCrossChainLib.releaseOperatingCash(_s, baseToken, amount);
+    }
+
     // ---------------------------------------------------------------------------------------------------------------
     // Cross-chain (Spoke Chains)
     // ---------------------------------------------------------------------------------------------------------------
 
     /// @inheritdoc ISpokeVault
-    /// @dev See `SpokeCrossChainLib.sendToHub`: DEC-056, DEC-066, DEC-085, DEC-087, DEC-088, QA6, QA19. OQ-09 stance:
-    ///      the transit stays in `inFlightToHub` until its refund is recognized or until `fillDeadline +
-    ///      maxReportAge` has passed. `cumulativeSentHome` grows by `amount`.
+    /// @dev See `SpokeCrossChainLib.sendToHub`: DEC-056, DEC-066, DEC-085, DEC-087, DEC-088, QA6, QA19. Security review
+    ///      S-3: the transit stays in `inFlightToHub` until its refund is recognized (by anyone, or at the next report
+    ///      or send once it landed) or until `fillDeadline + ReportCodec.HUB_BOUND_RETENTION` has passed.
+    ///      `cumulativeSentHome` grows by `amount`.
     function sendToHub(uint256 amount, TransferKind kind, uint256 bridgeRank, BridgeQuote calldata quote)
         external
         onlyOnSpokeChain
@@ -431,8 +439,8 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
     /// @dev DEC-080, OQ-01, OQ-09: only the Across SpokePool, only the base token, only this fund's messages from the
     ///      Hub Chain. The arrival is a claim: the id and amount travel in the next reports (the last
     ///      `ARRIVAL_WINDOW` listed ids plus `cumulativeReceived`) so the hub confirms what it sent (at or above the amount it expects) and excludes what it
-    ///      did not. A repeated id adds to the same entry and is listed once, when its credited total first reaches
-    ///      `MIN_LISTED_ARRIVAL`; below it the arrival is credited but never listed (the hub then counts the transit
+    ///      did not. A repeated id adds to the same entry and is listed when its credited total first reaches
+    ///      `MIN_LISTED_ARRIVAL` and again on every credit of at least that minimum (security review S-13); below it the arrival is credited but never listed (the hub then counts the transit
     ///      once through a fund-level deduction, at a liveness cost: see SpokeVaultTypes.MIN_LISTED_ARRIVAL). DEC-096: an arrival is a value-moving operation, so it runs the
     ///      Operating Cash top-up after crediting, like every other one (Spoke Vault verifier finding). OQ-09, OQ-01: only
     ///      a Principal-kind arrival feeds the per-id total and the listing, because the hub only ever sends Principal
@@ -451,18 +459,7 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         if (messageFundId != fundId) revert WrongFund(messageFundId);
         if (originChainId != hubChainId) revert SpokeVaultTypes.UnexpectedOriginChain(originChainId);
 
-        if (kind == TransferKind.Principal) {
-            _s.unallocated[tokenSent] += amount;
-            _s.cumulativeReceived += amount;
-            uint256 before = _s.arrivals[transitId];
-            _s.arrivals[transitId] = before + amount;
-            if (before < SpokeVaultTypes.MIN_LISTED_ARRIVAL && before + amount >= SpokeVaultTypes.MIN_LISTED_ARRIVAL) {
-                _s.recentArrivals[_s.arrivalCount % SpokeVaultTypes.ARRIVAL_WINDOW] = transitId;
-                ++_s.arrivalCount;
-            }
-        } else {
-            _s.collectedIncome[tokenSent] += amount;
-        }
+        SpokeCrossChainLib.creditArrival(_s, tokenSent, transitId, kind, amount);
         _requireBacked(tokenSent);
         emit TransitArrived(transitId, originChainId, tokenSent, amount, kind);
         _topUpOperatingCash();
@@ -679,6 +676,7 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
     function _config() internal view returns (SpokeVaultTypes.Config memory) {
         return SpokeVaultTypes.Config({
             fundId: fundId,
+            mandateHash: mandateHash,
             chainId: chainId,
             hubChainId: hubChainId,
             coreVault: coreVault,
@@ -900,13 +898,22 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         return IAdapter(r.adapter).spotQuote(r.poolKey, r.tokenIn, amount);
     }
 
-    /// @dev Swaps `amountIn` along route `r` into USDC with a minimum output of at least the route's spot quote less
-    ///      `MAX_UNWIND_SLIPPAGE_BPS`; the hint's minimum only when it is higher (final verification, QA3 OPEN).
+    /// @dev Swaps `amountIn` along route `r` into USDC with a minimum output of at least the higher of the route's
+    ///      spot quote and the Core Vault's price-source value, less `MAX_UNWIND_SLIPPAGE_BPS`; the hint's minimum
+    ///      only when it is higher (final verification, QA3 OPEN).
+    /// @dev Security review S-2: the claimant runs this inside its own transaction and can move `slot0` first, so a
+    ///      floor measured against the spot quote alone followed the moved price. The price-source value (Chainlink
+    ///      for WETH, the price Share Assets use) cannot be moved in the same block; a pushed-down spot now makes the
+    ///      swap revert, the whole unwind reverts and the claim is paid from Idle only (DEC-068). A reverting price
+    ///      source reverts the unwind the same way (the claim itself never reverts, `CoreVault._unwindForPayout`).
     function _unwindSwap(SpokeVaultTypes.UnwindSwap memory r, uint256 amountIn) internal {
         if (amountIn == 0 || r.adapter == address(0)) return;
         IAdapter a = IAdapter(r.adapter);
+        (uint256 oracleValue,) = IPriceSource(ICoreVault(coreVault).priceSource()).usdcValue(r.tokenIn, amountIn);
         uint256 floor = Math.mulDiv(
-            a.spotQuote(r.poolKey, r.tokenIn, amountIn), MandateLib.BPS - MAX_UNWIND_SLIPPAGE_BPS, MandateLib.BPS
+            Math.max(a.spotQuote(r.poolKey, r.tokenIn, amountIn), oracleValue),
+            MandateLib.BPS - MAX_UNWIND_SLIPPAGE_BPS,
+            MandateLib.BPS
         );
         _swap(
             a,
@@ -986,15 +993,7 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
     ///      DEC-041: the expense is booked with its payer, Share Assets. Spoke Chains only (on the hub, Operating Cash
     ///      lives in the Core Vault). Never reverts, so it never blocks an exit (DEC-056).
     function _topUpOperatingCash() internal {
-        if (onHubChain) return;
-        uint256 cash = _s.operatingCash;
-        if (cash >= _s.operatingCashFloor) return;
-        uint256 amount = Math.min(_s.operatingCashTopUp, _s.unallocated[baseToken]);
-        if (amount == 0) return;
-        _s.unallocated[baseToken] -= amount;
-        _s.operatingCash = cash + amount;
-        emit OperatingCashToppedUp(amount, cash + amount);
-        emit OperatingExpensePaid(chainId, address(0), OPERATING_CASH_TOP_UP, amount, ExpensePayer.ShareAssets);
+        if (!onHubChain) SpokeCrossChainLib.topUpOperatingCash(_s, baseToken, chainId);
     }
 
     function _payCoreVaultIdle(uint256 amount) internal {

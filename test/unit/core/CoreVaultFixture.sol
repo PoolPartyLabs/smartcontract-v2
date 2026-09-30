@@ -184,8 +184,15 @@ abstract contract CoreVaultFixture is Test {
     }
 
     function _send(uint256 amount, uint256 outputAmount) internal returns (bytes32 transitId) {
+        _ensureSpokeReport();
         vm.prank(manager);
         transitId = vault.sendToSpoke(0, amount, 0, _quote(outputAmount));
+    }
+
+    /// @dev Security review S-14: the hub funds a spoke only once it accepted a report from it; the spoke's first
+    ///      (empty) report, as a keeper relays it after `createSpoke`.
+    function _ensureSpokeReport() internal {
+        if (!receiver.hasReport(0)) _deliver(_spokeReport(0, 0));
     }
 
     /// @dev A Robinhood report with `unallocatedUsdg` and `cumulativeReceived`, built now, next sequence.
@@ -194,6 +201,7 @@ abstract contract CoreVaultFixture is Test {
         returns (ReportCodec.Report memory r)
     {
         r.fundId = FUND_ID;
+        r.mandateHash = vault.mandateHash(); // S-6: a report of the spoke running the hub's Mandate
         r.sequence = ++reportSequence;
         r.spokeChainId = SPOKE;
         r.blockNumber = uint64(block.number);

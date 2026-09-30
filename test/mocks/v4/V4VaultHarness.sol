@@ -11,9 +11,15 @@ contract V4VaultHarness {
     using SafeERC20 for IERC20;
 
     IAdapter public adapter;
+    /// @notice The vault's base token as `ISpokeVault.baseToken`; a deprecated adapter still swaps into it (S-10).
+    address public baseToken;
 
     function setAdapter(IAdapter adapter_) external {
         adapter = adapter_;
+    }
+
+    function setBaseToken(address baseToken_) external {
+        baseToken = baseToken_;
     }
 
     function open(bytes32 poolKey, address token0, uint256 amount0, address token1, uint256 amount1, bytes calldata p)

@@ -5,6 +5,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
+import {SqrtPriceMath} from "@uniswap/v4-core/src/libraries/SqrtPriceMath.sol";
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {IValueReportReceiver} from "../interfaces/IValueReportReceiver.sol";
@@ -39,6 +41,14 @@ library CoreVaultLogic {
     uint16 internal constant DEFAULT_PROTOCOL_SLICE_BPS = 5000;
 
     uint256 private constant BPS = 10_000;
+
+    /// @notice Longest fill window of a send: `AcrossBridgeAdapter.FILL_DEADLINE_SECONDS` (DEC-066), the only
+    ///         Transport Route of the MVP.
+    uint256 internal constant FILL_WINDOW = 6 hours;
+
+    /// @notice Security review S-4: the part of the recovery delay of an unlisted arrival that does not depend on the
+    ///         spoke's report lifetime: the fill window plus the spoke's listing retention.
+    uint256 internal constant UNLISTED_ARRIVAL_DELAY = FILL_WINDOW + ReportCodec.HUB_BOUND_RETENTION;
 
     // ---------------------------------------------------------------------------------------------------------------
     // Value bases (DEC-042, DEC-083, DEC-084, DEC-085, DEC-098, DEC-104)
@@ -232,6 +242,9 @@ library CoreVaultLogic {
     }
 
     /// @notice Unallocated Balance plus position principal of a report, in USDC (DEC-079: income excluded).
+    /// @dev Security review S-1 (DEC-067 "guarded pool price", Q57 (b) alternative 2): a price-dependent position is
+    ///      valued from its liquidity and range at the price the price source gives, never from the token amounts at
+    ///      the pool's spot price (`_oracleComposition`).
     function _positionsPrincipal(
         CoreVaultState storage s,
         CoreVaultWiring memory w,
@@ -243,8 +256,57 @@ library CoreVaultLogic {
         }
         for (uint256 i; i < r.positions.length; ++i) {
             ReportCodec.PositionReport memory pos = r.positions[i];
-            value += _usdcValue(s, w, p, pos.token0, pos.principal0) + _usdcValue(s, w, p, pos.token1, pos.principal1);
+            (uint256 amount0, uint256 amount1) = _oracleComposition(s, w, p, pos);
+            value += _usdcValue(s, w, p, pos.token0, amount0) + _usdcValue(s, w, p, pos.token1, amount1);
         }
+    }
+
+    /// @notice The token amounts a concentrated-liquidity position holds at the price-source price.
+    /// @dev Security review S-1: the amounts a range position holds at pool price P, valued at an outside price P*,
+    ///      are worth the least at P = P* (dV/dP = x'(P) (P* - P), x' < 0), so taking them at a spot price anyone can
+    ///      move within a transaction (a Uniswap V4 `slot0` read by `positionValue`, on the hub inside `claimPayout`,
+    ///      on a spoke inside the permissionless `report()`) and pricing them at the oracle only ever overstates Share
+    ///      Assets. The position is recomputed instead from its `liquidity`, `tickLower` and `tickUpper` (which a price
+    ///      move does not change) at sqrtPriceX96 = sqrt(price(token0) / price(token1)) * 2^96, with the pool's own
+    ///      formulas (`SqrtPriceMath`, rounded down as on removal). A single-token or exact-value position (Aave V3:
+    ///      `token1 == address(0)`, ticks 0) keeps its reported principal, which no pool price moves; so does a position
+    ///      whose token was never priced in a PAYOUT fallback (value 0, CS-OQ-4).
+    function _oracleComposition(
+        CoreVaultState storage s,
+        CoreVaultWiring memory w,
+        Prices memory p,
+        ReportCodec.PositionReport memory pos
+    ) private view returns (uint256 amount0, uint256 amount1) {
+        if (pos.token1 == address(0) || pos.tickLower >= pos.tickUpper || pos.liquidity == 0) {
+            return (pos.principal0, pos.principal1);
+        }
+        uint256 price0 = _unitPrice(s, w, p, pos.token0);
+        uint256 price1 = _unitPrice(s, w, p, pos.token1);
+        if (price0 == 0 || price1 == 0) return (pos.principal0, pos.principal1);
+        // price(token1 per token0) in Q96 under the root, then shifted to Q96: sqrt(r * 2^96) * 2^48 = sqrt(r) * 2^96.
+        uint256 sqrtPrice = Math.sqrt(Math.mulDiv(price0, 1 << 96, price1)) << 48;
+        uint160 sqrtLower = TickMath.getSqrtPriceAtTick(pos.tickLower);
+        uint160 sqrtUpper = TickMath.getSqrtPriceAtTick(pos.tickUpper);
+        if (sqrtPrice <= sqrtLower) {
+            amount0 = SqrtPriceMath.getAmount0Delta(sqrtLower, sqrtUpper, pos.liquidity, false);
+        } else if (sqrtPrice < sqrtUpper) {
+            // casting to 'uint160' is safe because sqrtPrice < sqrtUpper, a uint160
+            // forge-lint: disable-next-line(unsafe-typecast)
+            uint160 sqrtP = uint160(sqrtPrice);
+            amount0 = SqrtPriceMath.getAmount0Delta(sqrtP, sqrtUpper, pos.liquidity, false);
+            amount1 = SqrtPriceMath.getAmount1Delta(sqrtLower, sqrtP, pos.liquidity, false);
+        } else {
+            amount1 = SqrtPriceMath.getAmount1Delta(sqrtLower, sqrtUpper, pos.liquidity, false);
+        }
+    }
+
+    /// @notice price1e18 of `token` for this valuation; USDC is 1e18 by definition (IPriceSource scale).
+    function _unitPrice(CoreVaultState storage s, CoreVaultWiring memory w, Prices memory p, address token)
+        private
+        view
+        returns (uint256)
+    {
+        return token == w.usdc ? 1e18 : _price(s, w, p, token);
     }
 
     function _positionsIncome(
@@ -392,8 +454,20 @@ library CoreVaultLogic {
         s.collectedIncome[token] += net;
         s.income.distribute(token, net, IERC20(w.shareToken).totalSupply());
         emit ICoreVault.CollectedIncomeReceived(token, amount, managerFee, slice, sliceBps);
-        if (slice != 0) IERC20(token).safeTransfer(w.protocolRecipient, slice);
-        if (managerFee != 0) IERC20(token).safeTransfer(w.managerFeeVault, managerFee);
+        payFee(s, token, w.protocolRecipient, slice);
+        payFee(s, token, w.managerFeeVault, managerFee);
+    }
+
+    /// @notice Transfers a fee to its recipient, or books it as owed when the transfer fails.
+    /// @dev Security review S-12: the Protocol Recipient and the ManagerFeeVault are immutable third-party addresses on
+    ///      the path of every deposit, claim, income collection and report delivery. A USDC blocklist entry on either
+    ///      (FiatToken reverts a transfer to a blacklisted address) or a reverting recipient must not freeze the fund:
+    ///      the fee stays in the Core Vault, outside every value base and inside the ledger, until `claimOwedFees`.
+    function payFee(CoreVaultState storage s, address token, address recipient, uint256 amount) internal {
+        if (amount == 0 || IERC20(token).trySafeTransfer(recipient, amount)) return;
+        s.owedFees[token][recipient] += amount;
+        s.owedFeesTotal[token] += amount;
+        emit ICoreVault.FeeAccrued(token, recipient, amount);
     }
 
     /// @notice DEC-106, DEC-110: the registry is read at every charge. A failed read or a value above 100% never blocks
@@ -418,6 +492,11 @@ library CoreVaultLogic {
         if (spokeIndex >= s.mandate.spokes.length) revert ICoreVault.UnknownSpoke(spokeIndex);
         (ReportCodec.Report memory r,,) = IValueReportReceiver(w.reportReceiver).latestReport(spokeIndex);
         if (r.fundId != w.fundId) revert ICoreVault.WrongFund(r.fundId);
+        // Security review S-6 (FF-OQ-1, DEC-053, DEC-086, DEC-087): `createSpoke` binds a Spoke Vault's addresses to
+        // the fund, not its rules, so the Manager could create it from another Mandate (a 100% bridge fee, a pool it
+        // controls). Its reports then carry another hash: rejected, so the spoke never counts in Share Assets and,
+        // with S-14, the hub never funds it.
+        if (r.mandateHash != w.mandateHash) revert ICoreVault.WrongMandate(r.mandateHash);
         uint256 arrived = _confirmArrivals(s, spokeIndex, r.arrivedTransits, r.sequence);
         _matchReturnLeg(s, w, s.mandate.spokes[spokeIndex].chainId, r.inFlightToHub);
         emit ICoreVault.ReportAccepted(spokeIndex, r.sequence, r.blockNumber, r.timestamp, arrived);
@@ -449,6 +528,7 @@ library CoreVaultLogic {
             if (s.transitSpoke[id] != spokeIndex) continue;
             if (list[i].amount < t.amountToArrive) continue;
             if (state == TransitState.Sent) book.inFlightSent -= t.amountSent;
+            else _releaseHeldCap(s, book, id, t.amountSent);
             if (state != TransitState.RefundRecognized) book.inFlightToArrive -= t.amountToArrive;
             book.confirmedArrived += t.amountToArrive;
             t.state = TransitState.ArrivalConfirmed;
@@ -496,6 +576,7 @@ library CoreVaultLogic {
     ) public {
         HubBoundTransfer storage h = s.hubBound[hubBoundKey(originChainId, transitId)];
         if (h.listed == 0) {
+            if (h.pending == 0) h.pendingSince = uint64(block.timestamp);
             h.pending += amount;
             s.unmatchedArrivals += amount;
             emit ICoreVault.TransitReceived(transitId, originChainId, kind, amount, false);
@@ -516,7 +597,8 @@ library CoreVaultLogic {
         uint256 amount
     ) private {
         TransferKind kind = h.kind;
-        uint256 room = h.listed - h.credited;
+        // A recovered unlisted arrival (S-4) may have credited more than a later listing.
+        uint256 room = h.listed > h.credited ? h.listed - h.credited : 0;
         uint256 credit = amount < room ? amount : room;
         if (credit != 0) {
             h.credited += credit;
@@ -528,6 +610,33 @@ library CoreVaultLogic {
             s.unmatchedArrivals += amount - credit;
             emit ICoreVault.ArrivalHeldApart(transitId, originChainId, kind, amount - credit);
         }
+    }
+
+    /// @notice ICoreVault.recoverUnlistedArrival (security review S-4).
+    /// @dev Delay: the spoke lists a send home at most until its fill deadline (at most `FILL_WINDOW` after the send,
+    ///      so after any fill) plus `ReportCodec.HUB_BOUND_RETENTION`, and the receiver accepts a report at most one
+    ///      report lifetime after it was built and tolerates one lifetime of clock skew (CS-OQ-5). Past
+    ///      `pendingSince + UNLISTED_ARRIVAL_DELAY + 2 * maxReportAge` no accepted report can list the id. The
+    ///      recovered amount joins `credited`, so the netting of `_returnLeg` and `_creditHubBound` keeps it counted
+    ///      once even if the delay were ever too short; a stranger who bridged dust under a real id gains nothing, the
+    ///      dust becomes a donation to Idle.
+    function recoverUnlistedArrival(CoreVaultState storage s, uint256 spokeIndex, bytes32 transitId)
+        public
+        returns (uint256 amount)
+    {
+        if (spokeIndex >= s.mandate.spokes.length) revert ICoreVault.UnknownSpoke(spokeIndex);
+        SpokeConfig storage spoke = s.mandate.spokes[spokeIndex];
+        uint256 originChainId = spoke.chainId;
+        HubBoundTransfer storage h = s.hubBound[hubBoundKey(originChainId, transitId)];
+        amount = h.pending;
+        if (h.listed != 0 || amount == 0) revert ICoreVault.NothingToRecover(transitId);
+        uint256 readyAt = uint256(h.pendingSince) + UNLISTED_ARRIVAL_DELAY + 2 * uint256(spoke.maxReportAge);
+        if (block.timestamp < readyAt) revert ICoreVault.RecoveryNotReady(transitId, readyAt);
+        h.pending = 0;
+        h.credited += amount;
+        s.unmatchedArrivals -= amount;
+        s.idle += amount;
+        emit ICoreVault.UnlistedArrivalRecovered(transitId, originChainId, amount);
     }
 
     /// @notice DEC-066: non-arrival is proven by a spoke report built after the fill deadline that does not list the
@@ -545,9 +654,24 @@ library CoreVaultLogic {
         bytes32 transitId,
         uint32 deadline
     ) public view returns (bool) {
-        if (block.timestamp > uint256(deadline) + s.mandate.spokes[spokeIndex].maxReportAge) {
-            return true;
-        }
+        return _expiryByTime(s, spokeIndex, deadline) || _reportProvesNonArrival(s, w, spokeIndex, transitId, deadline);
+    }
+
+    /// @dev The time path: the deadline plus the spoke's report lifetime has passed. It proves nothing about the
+    ///      arrival itself (security review S-13).
+    function _expiryByTime(CoreVaultState storage s, uint256 spokeIndex, uint32 deadline) private view returns (bool) {
+        return block.timestamp > uint256(deadline) + s.mandate.spokes[spokeIndex].maxReportAge;
+    }
+
+    /// @dev The report path: the latest accepted report, built after the deadline and listing fewer than
+    ///      `ARRIVAL_WINDOW` ids, does not list the transit at or above its `amountToArrive`.
+    function _reportProvesNonArrival(
+        CoreVaultState storage s,
+        CoreVaultWiring memory w,
+        uint256 spokeIndex,
+        bytes32 transitId,
+        uint32 deadline
+    ) private view returns (bool) {
         IValueReportReceiver receiver = IValueReportReceiver(w.reportReceiver);
         if (!receiver.hasReport(spokeIndex)) return false;
         (ReportCodec.Report memory r,,) = receiver.latestReport(spokeIndex);
@@ -582,7 +706,7 @@ library CoreVaultLogic {
         BridgeQuote calldata quote
     ) public returns (bytes32 transitId) {
         SpokeConfig memory spoke = s.mandate.spokes[spokeIndex];
-        address adapter = _checkSend(s, w, spokeIndex, spoke.chainId, usdcAmount, bridgeRank, quote.outputAmount);
+        address adapter = _checkSend(s, w, spokeIndex, spoke.chainId, usdcAmount, bridgeRank, quote);
 
         transitId = keccak256(abi.encode(block.chainid, address(this), ++s.transitNonce));
         // DEC-066, QA6: a keyless per-send escrow is the depositor of record, so a refund is recognizable.
@@ -642,8 +766,16 @@ library CoreVaultLogic {
         uint256 spokeChainId,
         uint256 usdcAmount,
         uint256 bridgeRank,
-        uint256 outputAmount
+        BridgeQuote calldata quote
     ) private view returns (address adapter) {
+        // Security review S-14 (DEC-066, DEC-104): a spoke is funded only once the hub accepted a report from it. The
+        // Spoke Vault is created by a second transaction on another chain; an Across fill to an address without code
+        // succeeds, skips the handler and is never refunded, so the amount would stay in In-flight Value for good. An
+        // accepted report proves the fund's Spoke Vault exists there (and, with S-6, runs the hub's Mandate).
+        if (!IValueReportReceiver(w.reportReceiver).hasReport(spokeIndex)) {
+            revert ICoreVault.SpokeNotReporting(spokeIndex);
+        }
+
         // DEC-017, DEC-072: only Free Idle leaves the Core Vault.
         uint256 free = s.idle - s.payoutReserve;
         if (usdcAmount > free) revert ICoreVault.InsufficientFreeIdle(usdcAmount, free);
@@ -656,9 +788,15 @@ library CoreVaultLogic {
         }
         if (adapter.codehash != s.bridgeCodehash[adapter]) revert ICoreVault.BridgeAdapterCodehashMismatch(adapter);
 
+        // Security review S-9: no Across exclusivity. An exclusive relayer (the manager's own) that never fills forces
+        // an expiry, and one that fills keeps the whole bound on every send; without exclusivity relayers compete.
+        if (quote.exclusiveRelayer != address(0) || quote.exclusivityDeadline != 0) {
+            revert ICoreVault.ExclusiveRelayerNotAllowed(quote.exclusiveRelayer);
+        }
+
         // QA19: the quote's fee is at most maxBridgeFeeBps of the amount sent.
         uint256 maxFee = usdcAmount * w.maxBridgeFeeBps / BPS;
-        uint256 fee = outputAmount < usdcAmount ? usdcAmount - outputAmount : 0;
+        uint256 fee = quote.outputAmount < usdcAmount ? usdcAmount - quote.outputAmount : 0;
         if (fee > maxFee) revert ICoreVault.BridgeFeeAboveMax(fee, maxFee);
 
         // DEC-037, DEC-095, DEC-066 B1/C1: spoke value + in flight (both legs) + amount <= Spoke Cap.
@@ -717,10 +855,25 @@ library CoreVaultLogic {
         uint32 deadline = t.fillDeadline;
         if (block.timestamp <= deadline) revert ICoreVault.FillDeadlineNotReached(transitId, deadline);
         uint256 spokeIndex = s.transitSpoke[transitId];
-        if (!nonArrivalProvable(s, w, spokeIndex, transitId, deadline)) revert ICoreVault.ExpiryNotProvable(transitId);
+        bool byReport = _reportProvesNonArrival(s, w, spokeIndex, transitId, deadline);
+        if (!byReport && !_expiryByTime(s, spokeIndex, deadline)) revert ICoreVault.ExpiryNotProvable(transitId);
         t.state = TransitState.ExpiryAttested;
-        s.spokeBooks[spokeIndex].inFlightSent -= t.amountSent;
+        // Security review S-13 (DEC-037, DEC-095; DEC-066 A2 read conservatively): only a report proves that the
+        // transit did not arrive. On the time path alone it may have been filled and never confirmed (a report outage,
+        // or its id evicted from the arrival window), so its Spoke Cap stays held until the arrival is confirmed or
+        // the refund is recognized; otherwise the manager could send the cap again on top of the arrived capital.
+        if (byReport) s.spokeBooks[spokeIndex].inFlightSent -= t.amountSent;
+        else s.spokeCapHeld[transitId] = true;
         emit ICoreVault.TransitExpiryAttested(transitId, spokeIndex, msg.sender);
+    }
+
+    /// @dev Releases the Spoke Cap a time-path attestation kept (security review S-13).
+    function _releaseHeldCap(CoreVaultState storage s, SpokeBook storage book, bytes32 transitId, uint256 amountSent)
+        private
+    {
+        if (!s.spokeCapHeld[transitId]) return;
+        delete s.spokeCapHeld[transitId];
+        book.inFlightSent -= amountSent;
     }
 
     /// @notice ICoreVault.recognizeRefund (DEC-066, QA6): pulls an attested-expired transit's refund from its escrow
@@ -744,8 +897,11 @@ library CoreVaultLogic {
         amount = t.amountSent;
         if (held < amount) revert ICoreVault.NoRefund(transitId);
         uint256 spokeIndex = s.transitSpoke[transitId];
-        // The Spoke Cap was released at the attested expiry; Share Assets release the transit now (QB11/QB10 stance).
-        s.spokeBooks[spokeIndex].inFlightToArrive -= t.amountToArrive;
+        // The Spoke Cap was released at the attested expiry, or is released now if the expiry was attested by time
+        // alone (S-13: the refund proves non-arrival); Share Assets release the transit now (QB11/QB10 stance).
+        SpokeBook storage book = s.spokeBooks[spokeIndex];
+        _releaseHeldCap(s, book, transitId, amount);
+        book.inFlightToArrive -= t.amountToArrive;
         t.state = TransitState.RefundRecognized;
         s.idle += amount;
         emit ICoreVault.TransitRefundRecognized(transitId, spokeIndex, amount);

@@ -43,6 +43,7 @@ struct CoreVaultConfig {
 /// @notice Immutable addresses the Core Vault hands to its external library on every call.
 struct CoreVaultWiring {
     bytes32 fundId;
+    bytes32 mandateHash;
     address manager;
     address usdc;
     address shareToken;
@@ -75,11 +76,14 @@ struct SpokeBook {
 /// @param credited Amount credited to Idle or collected income against `listed`.
 /// @param pending Arrived before any report listed it; held apart (DEC-080, OQ-01).
 /// @param kind Kind the report listed (CV-OQ-1): an arrival is credited by it, never by the Across message's claim.
+/// @param pendingSince When the first arrival held apart without a listing reached the hub; starts the recovery delay
+///        of `recoverUnlistedArrival` (security review S-4).
 struct HubBoundTransfer {
     uint256 listed;
     uint256 credited;
     uint256 pending;
     TransferKind kind;
+    uint64 pendingSince;
 }
 
 /// @notice All mutable state of a Core Vault, in one struct so the external library can work on it by reference.
@@ -110,6 +114,11 @@ struct HubBoundTransfer {
 ///        liveness, DEC-021, DEC-056).
 /// @param lastPrice Last known price1e18 per token (IPriceSource scale), refreshed likewise; a payout falls back to it
 ///        when the price source reverts.
+/// @param owedFees Fees whose transfer to their recipient failed when charged, per token and recipient; outside every
+///        value base, never swept, paid by `claimOwedFees` (security review S-12).
+/// @param owedFeesTotal Sum of `owedFees` per token (part of the ledger, DEC-080).
+/// @param spokeCapHeld An ExpiryAttested transit whose expiry was proven by time alone keeps its Spoke Cap until its
+///        arrival is confirmed or its refund recognized (security review S-13).
 struct CoreVaultState {
     Mandate mandate;
     uint256 idle;
@@ -132,4 +141,7 @@ struct CoreVaultState {
     mapping(address bridgeAdapter => bytes32) bridgeCodehash;
     uint256 lastHubValue;
     mapping(address token => uint256) lastPrice;
+    mapping(address token => mapping(address recipient => uint256)) owedFees;
+    mapping(address token => uint256) owedFeesTotal;
+    mapping(bytes32 transitId => bool) spokeCapHeld;
 }

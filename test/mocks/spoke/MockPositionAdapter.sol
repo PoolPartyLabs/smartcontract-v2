@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {AdapterGuard} from "../../../src/adapters/AdapterGuard.sol";
+import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
 import {IAdapter} from "../../../src/interfaces/IAdapter.sol";
 
 /// @notice Position adapter mock for Spoke Vault tests.
@@ -215,10 +216,11 @@ contract MockPositionAdapter is AdapterGuard, IAdapter {
         onlyVault
         returns (uint256 amountOut)
     {
-        if (deprecated) revert AdapterIsDeprecated();
         Pool memory pool = pools[poolKey];
         if (!pool.exists) revert UnknownPool(poolKey);
         address tokenOut = tokenIn == pool.token0 ? pool.token1 : pool.token0;
+        // Security review S-10: a deprecated adapter still swaps into the vault's base token (an exit).
+        if (deprecated && tokenOut != ISpokeVault(vault).baseToken()) revert AdapterIsDeprecated();
         reserved[tokenIn] += amountIn;
         amountOut = amountIn * swapNumerator / swapDenominator * (10_000 - swapHaircutBps) / 10_000;
         if (amountOut < minAmountOut) revert InsufficientOutput(amountOut, minAmountOut);
@@ -232,8 +234,8 @@ contract MockPositionAdapter is AdapterGuard, IAdapter {
         Pool memory pool = pools[p.poolKey];
         v.poolKey = p.poolKey;
         v.poolId = keccak256(abi.encode(p.poolKey));
-        v.tickLower = -600;
-        v.tickUpper = 600;
+        // A ledger mock, not a concentrated-liquidity position: no range (ticks 0), so the Core Vault values the
+        // principal it reports as is (security review S-1 recomputes only a real range at the price-source price).
         v.liquidity = uint128(p.principal0 + p.principal1);
         v.token0 = pool.token0;
         v.token1 = pool.token1;

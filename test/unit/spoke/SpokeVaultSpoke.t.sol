@@ -289,7 +289,9 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         vm.prank(guardian);
         spokeUni.deprecate();
         vm.startPrank(manager);
+        // Security review S-10: a swap out of the base token is an entry and is blocked; into it is an exit and runs.
         vm.expectRevert(IAdapterGuard.AdapterIsDeprecated.selector);
+        vault.swapExactInput(address(spokeUni), SPOKE_POOL, address(usdg), 1e6, 0, "");
         vault.swapExactInput(address(spokeUni), SPOKE_POOL, address(weth), 0.01e18, 0, "");
         vault.closePosition(address(spokeUni), key, "");
         vm.stopPrank();
@@ -546,13 +548,15 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         assertEq(vault.buildReport().arrivedTransits.length, 0);
     }
 
-    function test_OQ09_repeatedArrivalIdAddsAndIsListedOnce() public {
+    function test_OQ09_repeatedArrivalIdAddsToOneEntry() public {
         _arrive(1e6, ARRIVAL, TransferKind.Principal);
         _arrive(2e6, ARRIVAL, TransferKind.Principal);
         assertEq(vault.arrivals(ARRIVAL), 3e6);
         ReportCodec.Report memory r = vault.buildReport();
-        assertEq(r.arrivedTransits.length, 1);
+        // S-13: each credit of at least the minimum lists the id; every listing carries the same credited total.
+        assertEq(r.arrivedTransits.length, 2);
         assertEq(r.arrivedTransits[0].amount, 3e6);
+        assertEq(r.arrivedTransits[1].amount, 3e6);
     }
 
     function test_OQ09_reportCarriesLast256ArrivalsAndCumulativeReceived() public {
@@ -571,7 +575,9 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         assertEq(SpokeVaultTypes.ARRIVAL_WINDOW, ReportCodec.ARRIVAL_WINDOW);
     }
 
-    function test_OQ09_idIsListedOnceItsCreditedTotalReachesTheMinimum() public {
+    /// @dev Security review S-13: listed when the total first reaches 1 USDG, and again on every credit of at least
+    ///      1 USDG (never on a smaller credit, so flushing the window still costs the minimum per entry).
+    function test_SEC_S13_idIsListedAtTheMinimumAndAgainOnEveryCreditOfTheMinimum() public {
         _disableOperatingCash();
         _arrive(0.4e6, ARRIVAL, TransferKind.Principal);
         assertEq(vault.buildReport().arrivedTransits.length, 0, "below 1 USDG: credited, not listed");
@@ -580,8 +586,12 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         ReportCodec.Report memory r = vault.buildReport();
         assertEq(r.arrivedTransits.length, 1, "listed when the total reaches 1 USDG");
         assertEq(r.arrivedTransits[0].amount, 1e6);
+        _arrive(0.5e6, ARRIVAL, TransferKind.Principal);
+        assertEq(vault.buildReport().arrivedTransits.length, 1, "a credit below the minimum does not list it again");
         _arrive(5e6, ARRIVAL, TransferKind.Principal);
-        assertEq(vault.buildReport().arrivedTransits.length, 1, "and only once");
+        r = vault.buildReport();
+        assertEq(r.arrivedTransits.length, 2, "S-13: a credit of the minimum lists it again");
+        assertEq(r.arrivedTransits[1].amount, 6.5e6, "at its credited total");
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -845,17 +855,47 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         vault.recognizeRefund(bytes32(uint256(9)));
     }
 
-    function test_OQ09_hubBoundTransitDroppedAfterDeadlinePlusMaxReportAge() public {
+    /// @dev Security review S-5 (interim mitigation pending a DEC-100 ruling): Operating Cash above the floor returns
+    ///      to Unallocated Balance, manager only.
+    function test_SEC_S5_spokeOperatingCashAboveTheFloorReturnsToUnallocatedBalance() public {
+        vm.prank(manager);
+        vault.setOperatingCashParameters(type(uint256).max, type(uint256).max);
+        _arrive(1000e6, ARRIVAL, TransferKind.Principal);
+        assertEq(vault.operatingCash(), 1000e6, "the arrival swept everything into Operating Cash");
+        assertEq(vault.unallocatedBalance(address(usdg)), 0);
+
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(ISpokeVault.NotManager.selector, stranger));
+        vault.releaseOperatingCash(1);
+
+        vm.startPrank(manager);
+        vault.setOperatingCashParameters(5e6, 5e6);
+        vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.OperatingCashNotReleasable.selector, 996e6, 995e6));
+        vault.releaseOperatingCash(996e6);
+        vault.releaseOperatingCash(995e6);
+        vm.stopPrank();
+        assertEq(vault.operatingCash(), 5e6);
+        assertEq(vault.unallocatedBalance(address(usdg)), 995e6, "S-5: back in Unallocated Balance");
+        assertEq(vault.buildReport().unallocated[0].amount, 995e6, "and in the report");
+    }
+
+    /// @dev Security review S-3: a send home is listed until its refund is recognized or until its fill deadline plus
+    ///      `ReportCodec.HUB_BOUND_RETENTION` (no longer the report lifetime); a refund that shows up later is still
+    ///      recognized.
+    function test_SEC_S3_hubBoundTransitDroppedOnlyAfterDeadlinePlusRetention() public {
         _disableOperatingCash();
         _arrive(1000e6, ARRIVAL, TransferKind.Principal);
         vm.prank(manager);
         bytes32 id = vault.sendToHub(500e6, TransferKind.Principal, 0, _quote(499e6));
         uint32 deadline = vault.hubBoundTransit(id).fillDeadline;
 
-        vm.warp(uint256(deadline) + MAX_REPORT_AGE);
+        vm.warp(uint256(deadline) + MAX_REPORT_AGE + 1);
+        assertEq(vault.buildReport().inFlightToHub.length, 1, "S-3: still listed past the report lifetime");
+
+        vm.warp(uint256(deadline) + ReportCodec.HUB_BOUND_RETENTION);
         assertEq(vault.buildReport().inFlightToHub.length, 1);
 
-        vm.warp(uint256(deadline) + MAX_REPORT_AGE + 1);
+        vm.warp(uint256(deadline) + ReportCodec.HUB_BOUND_RETENTION + 1);
         assertEq(vault.buildReport().inFlightToHub.length, 0);
         assertEq(vault.inFlightTransitIds().length, 1, "pruned lazily");
         vault.report();
@@ -866,6 +906,29 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         spokePool.refund(vault.hubBoundTransit(id).escrow, address(usdg), 500e6);
         assertEq(vault.recognizeRefund(id), 500e6);
         assertEq(vault.unallocatedBalance(address(usdg)), 1000e6);
+    }
+
+    /// @dev Security review S-3: once the refund has landed, the next report recognizes it itself, so the transfer
+    ///      moves from `inFlightToHub` to Unallocated Balance in one report and is never in no value base.
+    function test_SEC_S3_reportRecognizesALandedRefundItself() public {
+        _disableOperatingCash();
+        _arrive(1000e6, ARRIVAL, TransferKind.Principal);
+        vm.prank(manager);
+        bytes32 id = vault.sendToHub(500e6, TransferKind.Principal, 0, _quote(499e6));
+        uint32 deadline = vault.hubBoundTransit(id).fillDeadline;
+
+        spokePool.refund(vault.hubBoundTransit(id).escrow, address(usdg), 500e6);
+        vault.report();
+        assertEq(uint8(vault.hubBoundTransit(id).state), uint8(TransitState.Sent), "not before the deadline");
+
+        vm.warp(uint256(deadline) + 1);
+        vault.report();
+        assertEq(uint8(vault.hubBoundTransit(id).state), uint8(TransitState.RefundRecognized));
+        assertEq(vault.inFlightTransitIds().length, 0);
+        assertEq(vault.unallocatedBalance(address(usdg)), 1000e6);
+        ReportCodec.Report memory r = vault.buildReport();
+        assertEq(r.inFlightToHub.length, 0);
+        assertEq(r.unallocated[0].amount, 1000e6);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -928,8 +991,8 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         assertEq(pr.adapter, address(spokeUni));
         assertEq(pr.poolKey, SPOKE_POOL);
         assertEq(pr.poolId, keccak256(abi.encode(SPOKE_POOL)));
-        assertEq(pr.tickLower, -600);
-        assertEq(pr.tickUpper, 600);
+        assertEq(pr.tickLower, 0);
+        assertEq(pr.tickUpper, 0);
         assertEq(pr.token0, address(weth));
         assertEq(pr.token1, address(usdg));
         assertEq(pr.principal0, 0.2e18);

@@ -81,9 +81,10 @@ contract CoreVault is CoreVaultTransit {
         _s.idle += usdcForShares;
         emit Deposited(msg.sender, usdcForShares, fee, shares, price, assets, supply, consolidation);
 
-        IERC20(usdc).safeTransferFrom(msg.sender, address(this), usdcForShares);
-        // DEC-106: the flow fee goes to the protocol in the same transaction.
-        if (fee != 0) IERC20(usdc).safeTransferFrom(msg.sender, protocolRecipient, fee);
+        IERC20(usdc).safeTransferFrom(msg.sender, address(this), usdcCharged);
+        // DEC-106: the flow fee goes to the protocol in the same transaction; security review S-12: if that transfer
+        // fails it is owed, never a reason to refuse the deposit.
+        CoreVaultLogic.payFee(_s, usdc, protocolRecipient, fee);
         ShareToken(shareToken).mint(msg.sender, shares);
     }
 
@@ -191,7 +192,12 @@ contract CoreVault is CoreVaultTransit {
         if (req.mode == PayoutMode.Standard) c.available += req.reserved;
     }
 
+    /// @dev Security review S-18 (DEC-021, DEC-056, FV-OQ-2): at a zero Share Price with shares outstanding (a total
+    ///      loss, or every value base reading zero) nothing can be paid, so no share is burned and the claim closes the
+    ///      request like an outstanding tail below one share (`closedBelowOneShare`) instead of reverting
+    ///      `ZeroSharePrice`; the holder keeps its shares and may request again once value returns.
     function _sharesFor(Claim memory c, uint256 usdcAmount) private pure returns (uint256 shares) {
+        if (c.price == 0) return 0;
         shares = ShareMath.sharesToBurn(usdcAmount, c.price);
         if (shares > c.balance) shares = c.balance;
     }
@@ -256,7 +262,8 @@ contract CoreVault is CoreVaultTransit {
 
         // Interactions.
         if (c.shares != 0) ShareToken(shareToken).burn(msg.sender, c.shares);
-        if (r.flowFee != 0) IERC20(usdc).safeTransfer(protocolRecipient, r.flowFee);
+        // Security review S-12: a failed flow-fee transfer is owed to the protocol, never a reason to refuse the claim.
+        CoreVaultLogic.payFee(_s, usdc, protocolRecipient, r.flowFee);
         if (r.usdcPaid != 0) IERC20(usdc).safeTransfer(msg.sender, r.usdcPaid);
         if (c.shares == c.balance) _payAllIncome(msg.sender);
     }
