@@ -201,6 +201,7 @@ abstract contract CoreVaultFixture is Test {
         returns (ReportCodec.Report memory r)
     {
         r.fundId = FUND_ID;
+        r.mandateHash = vault.mandateHash(); // S-6: a report of the spoke running the hub's Mandate
         r.sequence = ++reportSequence;
         r.spokeChainId = SPOKE;
         r.blockNumber = uint64(block.number);

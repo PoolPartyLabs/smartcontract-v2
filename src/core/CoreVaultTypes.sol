@@ -43,6 +43,7 @@ struct CoreVaultConfig {
 /// @notice Immutable addresses the Core Vault hands to its external library on every call.
 struct CoreVaultWiring {
     bytes32 fundId;
+    bytes32 mandateHash;
     address manager;
     address usdc;
     address shareToken;

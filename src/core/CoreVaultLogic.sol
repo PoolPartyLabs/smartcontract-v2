@@ -480,6 +480,11 @@ library CoreVaultLogic {
         if (spokeIndex >= s.mandate.spokes.length) revert ICoreVault.UnknownSpoke(spokeIndex);
         (ReportCodec.Report memory r,,) = IValueReportReceiver(w.reportReceiver).latestReport(spokeIndex);
         if (r.fundId != w.fundId) revert ICoreVault.WrongFund(r.fundId);
+        // Security review S-6 (FF-OQ-1, DEC-053, DEC-086, DEC-087): `createSpoke` binds a Spoke Vault's addresses to
+        // the fund, not its rules, so the Manager could create it from another Mandate (a 100% bridge fee, a pool it
+        // controls). Its reports then carry another hash: rejected, so the spoke never counts in Share Assets and,
+        // with S-14, the hub never funds it.
+        if (r.mandateHash != w.mandateHash) revert ICoreVault.WrongMandate(r.mandateHash);
         uint256 arrived = _confirmArrivals(s, spokeIndex, r.arrivedTransits, r.sequence);
         _matchReturnLeg(s, w, s.mandate.spokes[spokeIndex].chainId, r.inFlightToHub);
         emit ICoreVault.ReportAccepted(spokeIndex, r.sequence, r.blockNumber, r.timestamp, arrived);

@@ -259,6 +259,8 @@ interface ICoreVault is IAcrossMessageHandler {
     /// @notice A report could still list the transit; recovery opens at `readyAt` (security review S-4).
     error RecoveryNotReady(bytes32 transitId, uint256 readyAt);
     error WrongFund(bytes32 fundId);
+    /// @notice A report came from a Spoke Vault running another Mandate than the Core Vault's (security review S-6).
+    error WrongMandate(bytes32 mandateHash);
     error UnexpectedToken(address token);
     error ManagerFeeNotDecreasing();
     error ManagementFeeNotSupported(uint16 bps);

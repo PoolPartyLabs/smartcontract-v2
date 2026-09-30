@@ -8,6 +8,9 @@ import {CoreVault} from "../../../src/core/CoreVault.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
 import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
+import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
+import {ValueReportReceiver} from "../../../src/report/ValueReportReceiver.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {Mandate, MandateLib} from "../../../src/mandate/Mandate.sol";
 import {AccessFundFixture} from "./AccessFundFixture.sol";
@@ -58,6 +61,50 @@ contract RogueSpokeMandatePoC is AccessFundFixture {
         vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.ExclusiveRelayerNotAllowed.selector, manager));
         spoke.sendToHub(amount, TransferKind.Principal, 0, _quote(amount - amount / 100, manager));
         assertEq(spoke.unallocatedBalance(address(usdg)), amount, "S-9: the principal stays on the spoke");
+    }
+
+    /// @notice S-6 and S-14: a Spoke Vault created from another Mandate (here a far larger Spoke Cap and another fee
+    ///         bound, both within the core caps) at the fund's address reports its own `mandateHash`; the hub rejects
+    ///         the report, so the spoke never counts in Share Assets and the hub never funds it. The same fund's honest
+    ///         spoke is accepted.
+    function test_SEC_S6_reportsOfASpokeRunningAnotherMandateAreRejected() public {
+        // ---------------------------------------------------------------- Spoke Chain: both candidate spokes
+        FundFactory spokeFactory = _spokeFactory();
+        bytes32 fundId = spokeFactory.fundIdOf(HUB, 1, manager);
+        uint256 snapshot = vm.snapshotState();
+        SpokeVault honest = _createSpoke(spokeFactory, fundId, _plan());
+        honest.report();
+        bytes memory honestReport = spokeWormhole.published(0).payload;
+        vm.revertToState(snapshot);
+
+        FundPlan memory roguePlan = _plan();
+        roguePlan.maxBridgeFeeBps = MandateLib.MAX_BRIDGE_FEE_BPS;
+        roguePlan.spokeCap = type(uint256).max;
+        SpokeVault rogue = _createSpoke(spokeFactory, fundId, roguePlan);
+        address spokeAddress = address(rogue);
+        rogue.report();
+        bytes memory rogueReport = spokeWormhole.published(0).payload;
+        assertEq(address(honest), spokeAddress, "same address, same emitter");
+
+        // ---------------------------------------------------------------- Hub Chain
+        _hubFactory();
+        (IFundFactory.FundAddresses memory a,) = _createFund(_plan());
+        CoreVault core = CoreVault(a.coreVault);
+        _deposit(core, alice, 500_000e6);
+        bytes32 rogueHash = ReportCodec.decode(rogueReport).mandateHash;
+        assertTrue(rogueHash != core.mandateHash());
+
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.WrongMandate.selector, rogueHash));
+        _deliverReport(a.valueReportReceiver, spokeAddress, 0, rogueReport);
+        assertFalse(ValueReportReceiver(a.valueReportReceiver).hasReport(0), "S-6: the rogue report is not accepted");
+        vm.prank(manager);
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.SpokeNotReporting.selector, 0));
+        core.sendToSpoke(0, 100_000e6, 0, _quote(99_950e6, address(0)));
+
+        // The honest spoke's report is accepted and the hub may fund it.
+        _deliverReport(a.valueReportReceiver, spokeAddress, 0, honestReport);
+        vm.prank(manager);
+        core.sendToSpoke(0, 100_000e6, 0, _quote(99_950e6, address(0)));
     }
 
     function _hubFund() internal returns (Hub memory hub) {

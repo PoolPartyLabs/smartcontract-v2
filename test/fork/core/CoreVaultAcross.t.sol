@@ -106,6 +106,7 @@ contract CoreVaultAcrossForkTest is Test {
         // Security review S-14: the spoke's first report, before the hub funds it.
         ReportCodec.Report memory first;
         first.fundId = FUND_ID;
+        first.mandateHash = vault.mandateHash();
         first.sequence = 1;
         first.spokeChainId = SPOKE;
         first.timestamp = uint64(block.timestamp);
@@ -140,6 +141,7 @@ contract CoreVaultAcrossForkTest is Test {
         assertEq(vault.unmatchedArrivals(), 500e6);
         ReportCodec.Report memory r;
         r.fundId = FUND_ID;
+        r.mandateHash = vault.mandateHash(); // security review S-6
         r.sequence = 1;
         r.spokeChainId = SPOKE;
         r.timestamp = uint64(block.timestamp);

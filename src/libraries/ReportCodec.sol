@@ -12,10 +12,12 @@ import {TransferKind} from "../interfaces/FundTypes.sol";
 /// @dev Layout: `abi.encode(uint256 version, Report report)`. A reader checks the first word before decoding.
 /// @dev Versions: 1, the module build; 2, the consolidation of 2026-09-29: `inFlightToHub` entries carry their
 ///      `TransferKind` (CV-OQ-1, DEC-085, DEC-092), and the spoke's collected income bucket and Operating Cash travel
-///      for Gross Assets (DEC-098). Nothing was ever deployed with version 1.
+///      for Gross Assets (DEC-098); 3, the security review of 2026-09-30: the report carries the Spoke Vault's
+///      `mandateHash` so the hub accepts reports only from a spoke running its own Mandate (S-6, FF-OQ-1). Nothing was
+///      ever deployed with versions 1 or 2.
 library ReportCodec {
     /// @notice Current payload version.
-    uint256 internal constant VERSION = 2;
+    uint256 internal constant VERSION = 3;
 
     /// @notice Most arrivals a report lists in `arrivedTransits` (OQ-09 stance; Spoke Vault verifier finding).
     /// @dev Shared by the Spoke Vault, which keeps a ring of this size, and the Core Vault, which accepts a report's
@@ -72,6 +74,9 @@ library ReportCodec {
 
     /// @notice The value report payload.
     /// @param fundId Fund identifier; the hub rejects a report for another fund.
+    /// @param mandateHash The reporting Spoke Vault's `mandateHash`; the hub rejects a report whose hash differs from
+    ///        the Core Vault's, so a Spoke Vault created from another Mandate at the fund's address is never trusted
+    ///        (security review S-6, FF-OQ-1).
     /// @param sequence Spoke Vault report counter, strictly increasing per spoke (DEC-093).
     /// @param spokeChainId EVM chain id of the reporting Spoke Vault.
     /// @param blockNumber Spoke block at which the report was built (DEC-083, DEC-105).
@@ -95,6 +100,7 @@ library ReportCodec {
     ///        hub can reconcile by transfer id and never count an arrival twice (DEC-104).
     struct Report {
         bytes32 fundId;
+        bytes32 mandateHash;
         uint64 sequence;
         uint256 spokeChainId;
         uint64 blockNumber;

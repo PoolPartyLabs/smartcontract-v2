@@ -86,6 +86,7 @@ library SpokeVaultTypes {
     /// @notice Immutable wiring the cross-chain library needs, rebuilt in memory from the vault's immutables.
     struct Config {
         bytes32 fundId;
+        bytes32 mandateHash;
         uint256 chainId;
         uint256 hubChainId;
         address coreVault;

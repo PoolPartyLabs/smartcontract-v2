@@ -302,6 +302,7 @@ abstract contract CoreVaultBase is ICoreVault, ReentrancyGuardTransient {
     function _wiring() internal view returns (CoreVaultWiring memory) {
         return CoreVaultWiring({
             fundId: fundId,
+            mandateHash: mandateHash,
             manager: manager,
             usdc: usdc,
             shareToken: shareToken,

@@ -166,6 +166,7 @@ library SpokeCrossChainLib {
         returns (ReportCodec.Report memory r)
     {
         r.fundId = c.fundId;
+        r.mandateHash = c.mandateHash;
         r.sequence = sequence;
         r.spokeChainId = c.chainId;
         r.blockNumber = uint64(block.number);

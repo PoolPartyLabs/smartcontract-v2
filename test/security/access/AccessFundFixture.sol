@@ -211,6 +211,7 @@ abstract contract AccessFundFixture is Test, FactoryDeployment, FundMandate {
     function _deliverFirstReport(IFundFactory.FundAddresses memory a) internal {
         ReportCodec.Report memory r;
         r.fundId = a.fundId;
+        r.mandateHash = CoreVault(a.coreVault).mandateHash();
         r.sequence = 1;
         r.spokeChainId = SPOKE;
         r.blockNumber = uint64(block.number);

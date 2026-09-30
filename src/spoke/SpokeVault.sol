@@ -681,6 +681,7 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
     function _config() internal view returns (SpokeVaultTypes.Config memory) {
         return SpokeVaultTypes.Config({
             fundId: fundId,
+            mandateHash: mandateHash,
             chainId: chainId,
             hubChainId: hubChainId,
             coreVault: coreVault,
