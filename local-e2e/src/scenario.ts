@@ -94,6 +94,9 @@ const STANDARD = 1;
 
 class AssertionFailed extends Error {}
 
+/** Failures the scenario already printed (the entry point prints any other). */
+const reported = new WeakSet<object>();
+
 class Run {
   step = 0;
   assertions = 0;
@@ -997,6 +1000,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
   } catch (err) {
     const message = err instanceof AssertionFailed ? err.message : explain(err);
     console.error(`\n${red(bold("FAIL"))} after step #${String(run.step).padStart(2, "0")}: ${message}`);
+    if (err && typeof err === "object") reported.add(err);
     throw err;
   } finally {
     if (keeper) await keeper.stop();
@@ -1014,7 +1018,8 @@ if (isMain(import.meta.url)) {
   try {
     await runScenario({ keeper: keeperMode, newFund: args.includes("--new-fund"), quiet: false });
     process.exit(0);
-  } catch {
+  } catch (err) {
+    if (!(err && typeof err === "object" && reported.has(err))) console.error(`\n${red(bold("FAIL"))}: ${explain(err)}`);
     process.exit(1);
   }
 }

@@ -162,7 +162,7 @@ export function explain(err: unknown): string {
   } else {
     lines.push(err instanceof BaseError ? err.shortMessage : String(err));
   }
-  if (PRUNED_STATE.test(text)) lines.push(PRUNED_STATE_HINT);
+  if (PRUNED_STATE.test(text) && !lines.join("\n").includes(PRUNED_STATE_HINT)) lines.push(PRUNED_STATE_HINT);
   return lines.join("\n");
 }
 
