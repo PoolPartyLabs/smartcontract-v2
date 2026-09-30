@@ -289,7 +289,9 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         vm.prank(guardian);
         spokeUni.deprecate();
         vm.startPrank(manager);
+        // Security review S-10: a swap out of the base token is an entry and is blocked; into it is an exit and runs.
         vm.expectRevert(IAdapterGuard.AdapterIsDeprecated.selector);
+        vault.swapExactInput(address(spokeUni), SPOKE_POOL, address(usdg), 1e6, 0, "");
         vault.swapExactInput(address(spokeUni), SPOKE_POOL, address(weth), 0.01e18, 0, "");
         vault.closePosition(address(spokeUni), key, "");
         vm.stopPrank();

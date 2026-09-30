@@ -23,6 +23,7 @@ import {LiquidityAmounts} from "@uniswap/v4-periphery/src/libraries/LiquidityAmo
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
 
 import {IAdapter} from "../interfaces/IAdapter.sol";
+import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {AdapterGuard} from "./AdapterGuard.sol";
 
 /// @title UniswapV4Adapter
@@ -510,9 +511,12 @@ contract UniswapV4Adapter is IAdapter, AdapterGuard, ReentrancyGuard, IUnlockCal
     }
 
     /// @inheritdoc IAdapter
-    /// @dev `params` is `abi.encode(SwapExactInputParams)`. OQ-04: reverts when deprecated, never when paused. DEC-030,
-    ///      DEC-079 OPEN: registered hookless pools only. The swap runs in `unlockCallback`; the output goes straight
-    ///      from the PoolManager to the vault; a swap that does not use the whole input reverts `PartialSwap`.
+    /// @dev `params` is `abi.encode(SwapExactInputParams)`. OQ-04: never blocked when paused; when deprecated only a
+    ///      swap INTO the vault's base token runs (security review S-10: DEC-056, DEC-058 "withdraw-only" keep the exit
+    ///      path open, and this swap is the only way a Spoke Vault turns the non-base leg of a closed position, or of
+    ///      the automatic unwind, into its base token; a swap out of the base token is an entry and stays blocked).
+    ///      DEC-030, DEC-079 OPEN: registered hookless pools only. The swap runs in `unlockCallback`; the output goes
+    ///      straight from the PoolManager to the vault; a swap that does not use the whole input reverts `PartialSwap`.
     function swapExactInput(
         bytes32 poolKey,
         address tokenIn,
@@ -520,10 +524,13 @@ contract UniswapV4Adapter is IAdapter, AdapterGuard, ReentrancyGuard, IUnlockCal
         uint256 minAmountOut,
         bytes calldata params
     ) external onlyVault nonReentrant returns (uint256 amountOut) {
-        if (deprecated) revert AdapterIsDeprecated();
         PoolKey memory key = _operablePool(poolKey);
         bool zeroForOne = Currency.unwrap(key.currency0) == tokenIn;
         if (!zeroForOne && Currency.unwrap(key.currency1) != tokenIn) revert TokenNotInPool(tokenIn);
+        if (deprecated) {
+            address tokenOut = Currency.unwrap(zeroForOne ? key.currency1 : key.currency0);
+            if (tokenOut != ISpokeVault(vault).baseToken()) revert AdapterIsDeprecated();
+        }
         if (amountIn == 0) revert ZeroAmount();
         SwapExactInputParams memory p =
             params.length == 0 ? SwapExactInputParams(0, block.timestamp) : abi.decode(params, (SwapExactInputParams));

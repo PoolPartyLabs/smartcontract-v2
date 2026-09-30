@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {AdapterGuard} from "../../../src/adapters/AdapterGuard.sol";
+import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
 import {IAdapter} from "../../../src/interfaces/IAdapter.sol";
 
 /// @notice Position adapter mock for Spoke Vault tests.
@@ -215,10 +216,11 @@ contract MockPositionAdapter is AdapterGuard, IAdapter {
         onlyVault
         returns (uint256 amountOut)
     {
-        if (deprecated) revert AdapterIsDeprecated();
         Pool memory pool = pools[poolKey];
         if (!pool.exists) revert UnknownPool(poolKey);
         address tokenOut = tokenIn == pool.token0 ? pool.token1 : pool.token0;
+        // Security review S-10: a deprecated adapter still swaps into the vault's base token (an exit).
+        if (deprecated && tokenOut != ISpokeVault(vault).baseToken()) revert AdapterIsDeprecated();
         reserved[tokenIn] += amountIn;
         amountOut = amountIn * swapNumerator / swapDenominator * (10_000 - swapHaircutBps) / 10_000;
         if (amountOut < minAmountOut) revert InsufficientOutput(amountOut, minAmountOut);
