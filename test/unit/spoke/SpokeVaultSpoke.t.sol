@@ -845,17 +845,23 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         vault.recognizeRefund(bytes32(uint256(9)));
     }
 
-    function test_OQ09_hubBoundTransitDroppedAfterDeadlinePlusMaxReportAge() public {
+    /// @dev Security review S-3: a send home is listed until its refund is recognized or until its fill deadline plus
+    ///      `ReportCodec.HUB_BOUND_RETENTION` (no longer the report lifetime); a refund that shows up later is still
+    ///      recognized.
+    function test_SEC_S3_hubBoundTransitDroppedOnlyAfterDeadlinePlusRetention() public {
         _disableOperatingCash();
         _arrive(1000e6, ARRIVAL, TransferKind.Principal);
         vm.prank(manager);
         bytes32 id = vault.sendToHub(500e6, TransferKind.Principal, 0, _quote(499e6));
         uint32 deadline = vault.hubBoundTransit(id).fillDeadline;
 
-        vm.warp(uint256(deadline) + MAX_REPORT_AGE);
+        vm.warp(uint256(deadline) + MAX_REPORT_AGE + 1);
+        assertEq(vault.buildReport().inFlightToHub.length, 1, "S-3: still listed past the report lifetime");
+
+        vm.warp(uint256(deadline) + ReportCodec.HUB_BOUND_RETENTION);
         assertEq(vault.buildReport().inFlightToHub.length, 1);
 
-        vm.warp(uint256(deadline) + MAX_REPORT_AGE + 1);
+        vm.warp(uint256(deadline) + ReportCodec.HUB_BOUND_RETENTION + 1);
         assertEq(vault.buildReport().inFlightToHub.length, 0);
         assertEq(vault.inFlightTransitIds().length, 1, "pruned lazily");
         vault.report();
@@ -866,6 +872,29 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         spokePool.refund(vault.hubBoundTransit(id).escrow, address(usdg), 500e6);
         assertEq(vault.recognizeRefund(id), 500e6);
         assertEq(vault.unallocatedBalance(address(usdg)), 1000e6);
+    }
+
+    /// @dev Security review S-3: once the refund has landed, the next report recognizes it itself, so the transfer
+    ///      moves from `inFlightToHub` to Unallocated Balance in one report and is never in no value base.
+    function test_SEC_S3_reportRecognizesALandedRefundItself() public {
+        _disableOperatingCash();
+        _arrive(1000e6, ARRIVAL, TransferKind.Principal);
+        vm.prank(manager);
+        bytes32 id = vault.sendToHub(500e6, TransferKind.Principal, 0, _quote(499e6));
+        uint32 deadline = vault.hubBoundTransit(id).fillDeadline;
+
+        spokePool.refund(vault.hubBoundTransit(id).escrow, address(usdg), 500e6);
+        vault.report();
+        assertEq(uint8(vault.hubBoundTransit(id).state), uint8(TransitState.Sent), "not before the deadline");
+
+        vm.warp(uint256(deadline) + 1);
+        vault.report();
+        assertEq(uint8(vault.hubBoundTransit(id).state), uint8(TransitState.RefundRecognized));
+        assertEq(vault.inFlightTransitIds().length, 0);
+        assertEq(vault.unallocatedBalance(address(usdg)), 1000e6);
+        ReportCodec.Report memory r = vault.buildReport();
+        assertEq(r.inFlightToHub.length, 0);
+        assertEq(r.unallocated[0].amount, 1000e6);
     }
 
     // ---------------------------------------------------------------------------------------------------------------

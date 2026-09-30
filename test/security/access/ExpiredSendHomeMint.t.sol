@@ -11,29 +11,15 @@ import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {Mandate, MandateLib} from "../../../src/mandate/Mandate.sol";
 import {AccessFundFixture} from "./AccessFundFixture.sol";
 
-/// @title PoC: an expired send home is in no value base between "presumed filled" and its refund; anyone mints
-///        shares at the understated price and takes the refund from the shareholders
-/// @notice TRUST BOUNDARY. A Spoke Vault cannot see the hub, so it PRESUMES a send home was filled once
-///         `fillDeadline + maxReportAge` has passed and drops it from `inFlightToHub`
-///         (SpokeCrossChainLib.sol:300-302, 103-106; OQ-09 stance). When the deposit in fact expired unfilled, the
-///         Across refund only reaches the escrow 55 to 90 minutes after the fill deadline (docs/DECISIONS.md, measured
-///         facts), while `maxReportAge` is about 26 minutes. In between, the amount is nowhere: the spoke debited its
-///         Unallocated Balance at the send, the report no longer lists it in flight, the hub never received it. Share
-///         Assets, hence Share Price, drop by the whole transfer although nothing was lost (DEC-104 broken), and come
-///         back when `recognizeRefund` runs and the next report is accepted.
-/// @notice ATTACK. Anyone watching a fund whose send home expired (no relayer took the quote, or the route was down;
-///         docs/INTEGRATIONS.md says route liveness is off-chain) publishes and delivers the report that drops the
-///         transfer (both permissionless), deposits at the understated price, then recognizes the refund
-///         (permissionless), reports again and owns a share of the refund in proportion to the deposit. A malicious
-///         manager can stage it alone: `sendToHub` with itself as exclusive relayer for the whole fill window, never
-///         fill, deposit from a second address.
-/// @notice IMPACT. Theft from the existing shareholders: here a 1,000,000 USDC deposit made during the gap captures
-///         about 249,000 of a 299,000 USDC refund, and Alice's shares lose half their value. The entry and exit fees
-///         (0.25% each way, 2% for an Instant Payout) do not come close to covering it.
-/// @notice FIX. Do not presume a fill: keep a send home in `inFlightToHub` until its refund is recognized or until a
-///         retention far beyond Across's refund latency has passed (the hub already nets out what it credited,
-///         `CoreVaultLogic._returnLeg`, so a filled transfer kept listed counts zero). The same change closes
-///         UnmatchedReturnLeg.t.sol.
+/// @title Regression (security review S-3): an expired send home stays in a value base until its refund; a new
+///        entrant can no longer take the refund from the shareholders
+/// @notice Was PoC `test_POC_expiredSendHomeLeavesEveryBaseAndANewEntrantCapturesTheRefund` (high, access lens): the
+///         Spoke Vault presumed a send home filled at `fillDeadline + maxReportAge` and dropped it from
+///         `inFlightToHub` while the Across refund was still 30 minutes away, so Share Assets fell by the whole transfer
+///         and a 1,000,000 USDC deposit captured about 249,000 of a 299,000 USDC refund.
+/// @notice FIX (S-3): the send stays listed until its refund is recognized or `ReportCodec.HUB_BOUND_RETENTION` after
+///         its deadline (the hub already nets out what it credited). The test replays the sequence and asserts it now
+///         FAILS: Share Assets never drop, the entrant pays the fair price and cannot cash out above its deposit.
 contract ExpiredSendHomeMintPoC is AccessFundFixture {
     uint256 internal constant T0 = 1_800_000_000;
     uint256 internal constant FILL_WINDOW = 21_600;
@@ -49,7 +35,7 @@ contract ExpiredSendHomeMintPoC is AccessFundFixture {
         uint256 refundedAt;
     }
 
-    function test_POC_expiredSendHomeLeavesEveryBaseAndANewEntrantCapturesTheRefund() public {
+    function test_SEC_S3_expiredSendHomeStaysInABaseAndANewEntrantTakesNothing() public {
         // ---------------------------------------------------------------- Spoke Chain (its own state, run first)
         SpokeSide memory s = _spokeSide();
 
@@ -61,52 +47,43 @@ contract ExpiredSendHomeMintPoC is AccessFundFixture {
         vm.prank(manager);
         core.sendToSpoke(0, 300_000e6, 0, _quote(299_700e6, address(0)));
 
-        // Normal operation: the arrival, then the send home in flight. Alice's 498,750 shares are worth 1.00 each.
         vm.warp(T0 + 900);
         _deliverReport(a.valueReportReceiver, s.spokeVault, 0, s.reportAfterArrival);
         _deliverReport(a.valueReportReceiver, s.spokeVault, 1, s.reportWhileInFlight);
-        assertEq(core.shareAssets(), 198_750e6 + 690e6 + 298_999e6, "Idle + spoke + the send home in flight");
+        uint256 fairAssets = core.shareAssets();
+        assertEq(fairAssets, 198_750e6 + 690e6 + 298_999e6, "Idle + spoke + the send home in flight");
         uint256 fairPrice = core.sharePrice();
-        assertApproxEqRel(fairPrice, 1e24, 0.002e18);
+        uint256 aliceFair = _shares(core, alice) * fairPrice / 1e36;
 
-        // The send home expired unfilled. The spoke presumes it filled and the report drops it; anyone delivers it.
+        // The send home expired unfilled; past the report lifetime the spoke still lists it.
         vm.warp(s.presumedFilledAt + 900);
         prices.setPrice(address(usdg), 1e18);
         vm.prank(stranger);
         _deliverReport(a.valueReportReceiver, s.spokeVault, 2, s.reportAfterPresumedFill);
-        assertEq(core.shareAssets(), 198_750e6 + 690e6, "299,000 USDC of the fund is in no base");
-        assertLt(core.sharePrice(), fairPrice * 41 / 100, "Share Price reads 0.40 although nothing was lost");
+        assertEq(core.shareAssets(), fairAssets, "S-3: the transfer is still counted in flight");
 
-        // The attacker enters now.
+        // The would-be attacker enters at the fair price.
         uint256 attackerShares = _deposit(core, stranger, 1_000_000e6);
-        assertGt(attackerShares, 2_490_000e18, "2.49 million shares for 1,000,000 USDC");
+        assertLt(attackerShares, 1_000_000e18, "S-3: no discount");
 
-        // The Across refund lands, `recognizeRefund` (permissionless) puts it back and the next report says so.
+        // The Across refund lands and is recognized; the next report says so.
         vm.warp(s.refundedAt + 900);
         prices.setPrice(address(usdg), 1e18);
         _deliverReport(a.valueReportReceiver, s.spokeVault, 3, s.reportAfterRefund);
-        assertApproxEqAbs(core.shareAssets(), 198_750e6 + 997_500e6 + 299_690e6, 1e6, "the refund is back");
 
-        // Alice deposited 500,000 and lost nothing to any market; her shares are now worth about half.
         uint256 price = core.sharePrice();
-        uint256 aliceValue = _shares(core, alice) * price / 1e36;
-        uint256 attackerValue = attackerShares * price / 1e36;
-        assertLt(aliceValue, 250_000e6, "Alice: under 250,000 USDC for shares that were worth 498,440");
-        assertGt(attackerValue, 1_246_000e6, "the attacker: 1,246,000 USDC for a 1,000,000 deposit");
+        assertGe(_shares(core, alice) * price / 1e36 + 1e6, aliceFair, "S-3: Alice's shares kept their value");
 
-        // The attacker cashes out of Idle at once (Instant Payout, 2% Payout Fee and 0.25% flow fee included).
         uint256 before = _balance(usdc, stranger);
         vm.startPrank(stranger);
-        core.requestPayout(1_190_000e6, ICoreVault.PayoutMode.Instant);
+        core.requestPayout(attackerShares * price / 1e36, ICoreVault.PayoutMode.Instant);
         core.claimPayout("");
         vm.stopPrank();
-        uint256 cashed = _balance(usdc, stranger) - before;
-        assertGt(cashed, 1_163_000e6, "1,163,000 USDC out against 1,000,000 in, in one claim");
-        assertGt(_shares(core, stranger) * core.sharePrice() / 1e36, 55_000e6, "and shares worth 55,000 more");
+        assertLt(_balance(usdc, stranger) - before, 1_000_000e6, "S-3: the entrant cashes out less than it put in");
     }
 
     /// @dev The spoke's half: the hub's send arrives; the manager sends 299,000 USDG home with a quote nobody fills;
-    ///      the vault presumes the fill after `fillDeadline + maxReportAge`; the Across refund reaches the escrow 55
+    ///      the vault still lists it after `fillDeadline + maxReportAge`; the Across refund reaches the escrow 55
     ///      minutes after the deadline and is recognized. One report after each step.
     function _spokeSide() internal returns (SpokeSide memory s) {
         FundFactory spokeFactory = _spokeFactory();
@@ -130,12 +107,12 @@ contract ExpiredSendHomeMintPoC is AccessFundFixture {
         spoke.report();
         s.reportWhileInFlight = spokeWormhole.published(1).payload;
 
-        // Nobody fills. Past the deadline plus the report lifetime the vault presumes it was filled.
+        // Nobody fills. Past the deadline plus the report lifetime the vault still lists it (security review S-3).
         vm.warp(T0 + FILL_WINDOW + MAX_REPORT_AGE + 1);
         spoke.report();
         s.reportAfterPresumedFill = spokeWormhole.published(2).payload;
         s.presumedFilledAt = block.timestamp;
-        assertEq(spoke.buildReport().inFlightToHub.length, 0);
+        assertEq(spoke.buildReport().inFlightToHub.length, 1);
         assertEq(spoke.unallocatedBalance(address(usdg)), 690e6);
 
         // Across refunds the depositor of record (the escrow) 55 minutes after the deadline; anyone recognizes it.

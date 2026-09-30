@@ -74,11 +74,24 @@ library SpokeCrossChainLib {
         Transit storage t = s.hubBoundTransits[transitId];
         if (t.state != TransitState.Sent) revert ISpokeVault.UnknownTransit(transitId);
         if (block.timestamp <= t.fillDeadline) revert ISpokeVault.FillDeadlineNotReached(transitId, t.fillDeadline);
+        if (!_refundLanded(t, baseToken)) revert ISpokeVault.NoRefund(transitId);
+        amount = _recognize(s, t, baseToken, transitId);
+    }
+
+    /// @dev Whether an expired send's escrow holds its full Across refund (DEC-063: the whole `amountSent`).
+    function _refundLanded(Transit storage t, address baseToken) private view returns (bool) {
+        return IERC20(baseToken).balanceOf(t.escrow) >= t.amountSent;
+    }
+
+    /// @dev Effects then the escrow release of a refund whose escrow holds at least `amountSent`.
+    function _recognize(SpokeVaultTypes.State storage s, Transit storage t, address baseToken, bytes32 transitId)
+        private
+        returns (uint256 amount)
+    {
         address escrow = t.escrow;
         IERC20 token = IERC20(baseToken);
         uint256 held = token.balanceOf(escrow);
         amount = t.amountSent;
-        if (held < amount) revert ISpokeVault.NoRefund(transitId);
         t.state = TransitState.RefundRecognized;
         _removeInFlight(s, transitId);
         if (t.kind == TransferKind.Principal) s.unallocated[baseToken] += amount;
@@ -90,20 +103,31 @@ library SpokeCrossChainLib {
         if (received != held) revert SpokeVaultTypes.RefundReleaseMismatch(held, received);
     }
 
+    /// @dev Security review S-3: walks the hub-bound list once. An expired send whose refund has landed is recognized
+    ///      (the same effects as `recognizeRefund`, so a report never drops a refunded transfer from every value
+    ///      base while nobody has called it); a send past `fillDeadline + ReportCodec.HUB_BOUND_RETENTION` leaves the
+    ///      list. Iterates from the end, so the swap-and-pop removal never skips an entry.
+    function _sweepInFlight(SpokeVaultTypes.State storage s, address baseToken) private {
+        for (uint256 i = s.inFlightIds.length; i > 0; --i) {
+            bytes32 id = s.inFlightIds[i - 1];
+            Transit storage t = s.hubBoundTransits[id];
+            if (block.timestamp > t.fillDeadline && _refundLanded(t, baseToken)) _recognize(s, t, baseToken, id);
+            else if (!_stillInFlight(t)) _removeInFlight(s, id);
+        }
+    }
+
     // ---------------------------------------------------------------------------------------------------------------
     // Report (DEC-070, DEC-079, DEC-085, DEC-090, DEC-093, Q60, OQ-09)
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @notice Drops hub-bound transits presumed filled, advances the report sequence and returns the payload.
-    /// @dev DEC-093: the sequence strictly increases, by one per report.
+    /// @notice Recognizes landed refunds, drops hub-bound transits past their retention, advances the report sequence
+    ///         and returns the payload.
+    /// @dev DEC-093: the sequence strictly increases, by one per report. Security review S-3: see `_sweepInFlight`.
     function nextReport(SpokeVaultTypes.State storage s, SpokeVaultTypes.Config memory c)
         external
         returns (uint64 sequence, bytes memory payload)
     {
-        for (uint256 i = s.inFlightIds.length; i > 0; --i) {
-            bytes32 id = s.inFlightIds[i - 1];
-            if (!_stillInFlight(s.hubBoundTransits[id], c.maxReportAge)) _removeInFlight(s, id);
-        }
+        _sweepInFlight(s, c.baseToken);
         sequence = ++s.reportSequence;
         payload = ReportCodec.encode(_build(s, c, sequence));
     }
@@ -181,7 +205,7 @@ library SpokeCrossChainLib {
         for (uint256 i; i < n; ++i) {
             bytes32 id = s.inFlightIds[i];
             Transit storage t = s.hubBoundTransits[id];
-            if (_stillInFlight(t, c.maxReportAge)) {
+            if (_stillInFlight(t)) {
                 inFlight[found++] = ReportCodec.HubBoundAmount(id, t.amountToArrive, t.kind);
             }
         }
@@ -295,10 +319,18 @@ library SpokeCrossChainLib {
         s.cumulativeSentHome += amount;
     }
 
-    /// @dev OQ-09 stance: a hub-bound transit is in flight until its refund is recognized or until
-    ///      `fillDeadline + maxReportAge` has passed, after which it is presumed filled.
-    function _stillInFlight(Transit storage t, uint32 maxReportAge) private view returns (bool) {
-        return t.state == TransitState.Sent && block.timestamp <= uint256(t.fillDeadline) + maxReportAge;
+    /// @dev A hub-bound transit is listed until its refund is recognized or until `fillDeadline +
+    ///      ReportCodec.HUB_BOUND_RETENTION` has passed, after which it is presumed filled.
+    /// @dev Security review S-3 (DEC-085, DEC-104; OQ-09 stance revised): the spoke cannot tell a filled send from an
+    ///      unfilled one, and the hub nets out what it credited (`CoreVaultLogic._returnLeg`: listed minus credited), so
+    ///      listing a filled send longer counts nothing twice. Dropping it at `fillDeadline + maxReportAge` (about
+    ///      26 min) left an unfilled send in no value base until its Across refund (55 to 90 min after the deadline,
+    ///      DEC-063) was recognized and reported: entrants minted at the understated Share Price and the Spoke Cap
+    ///      forgot the return leg. The retention covers the refund latency with a wide margin; `_sweepInFlight`
+    ///      recognizes a landed refund at the next report or send.
+    function _stillInFlight(Transit storage t) private view returns (bool) {
+        return
+            t.state == TransitState.Sent && block.timestamp <= uint256(t.fillDeadline) + ReportCodec.HUB_BOUND_RETENTION;
     }
 
     function _removeInFlight(SpokeVaultTypes.State storage s, bytes32 transitId) private {

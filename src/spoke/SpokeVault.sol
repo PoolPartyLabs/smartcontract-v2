@@ -377,9 +377,10 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
     // ---------------------------------------------------------------------------------------------------------------
 
     /// @inheritdoc ISpokeVault
-    /// @dev See `SpokeCrossChainLib.sendToHub`: DEC-056, DEC-066, DEC-085, DEC-087, DEC-088, QA6, QA19. OQ-09 stance:
-    ///      the transit stays in `inFlightToHub` until its refund is recognized or until `fillDeadline +
-    ///      maxReportAge` has passed. `cumulativeSentHome` grows by `amount`.
+    /// @dev See `SpokeCrossChainLib.sendToHub`: DEC-056, DEC-066, DEC-085, DEC-087, DEC-088, QA6, QA19. Security review
+    ///      S-3: the transit stays in `inFlightToHub` until its refund is recognized (by anyone, or at the next report
+    ///      or send once it landed) or until `fillDeadline + ReportCodec.HUB_BOUND_RETENTION` has passed.
+    ///      `cumulativeSentHome` grows by `amount`.
     function sendToHub(uint256 amount, TransferKind kind, uint256 bridgeRank, BridgeQuote calldata quote)
         external
         onlyOnSpokeChain

@@ -32,7 +32,9 @@ import {FundSystem} from "./FundSystemFixture.sol";
 ///      - `listSendsHomeAtOnce`: every send home is followed at once by a delivered report that lists it, so the hub
 ///        knows the transfer before it arrives or expires.
 ///      - `recognizeRefundsBeforeReports`: an expired send home is refunded and its refund recognized on the spoke
-///        before the next report is built.
+///        before the next report is built. Since the security review's S-3 fix the report itself recognizes a landed
+///        refund and keeps an unrefunded send listed for `ReportCodec.HUB_BOUND_RETENTION`, so the value invariants
+///        also hold with this switch off (`SEC_LATE_REFUNDS=true`) as long as Across refunds within that retention.
 contract FundSystemHandler is Test {
     uint256 internal constant HUB = 42_161;
     uint256 internal constant SPOKE = 4663;
@@ -1040,9 +1042,24 @@ contract FundSystemHandler is Test {
         _beforeReport();
         index = s.wormhole.publishedCount();
         (uint64 sequence,) = s.spokeVault.report();
+        _syncRecognizedByReport();
         assertEq(sequence, lastReportSequence + 1, "DEC-093: the report sequence increases by one");
         lastReportSequence = sequence;
         ++done["report"];
+    }
+
+    /// @dev Security review S-3: `report()` recognizes an expired send home whose refund landed; the ghost state
+    ///      follows it exactly as it follows a `recognizeRefund` call.
+    function _syncRecognizedByReport() internal {
+        for (uint256 i; i < _homeSends.length; ++i) {
+            HomeSend storage h = _homeSends[i];
+            if (h.recognized || s.spokeVault.hubBoundTransit(h.id).state != TransitState.RefundRecognized) continue;
+            assertEq(h.outcome, REFUNDED, "DEC-063: a refund was recognized that Across never paid");
+            h.recognized = true;
+            if (h.kind == TransferKind.Principal) refundedBridgeFees += h.amountSent - h.amountToArrive;
+            ++valueOps;
+            ++done["recognizeRefundOnSpoke"];
+        }
     }
 
     function _publishAndDeliver() internal returns (bool) {

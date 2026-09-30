@@ -28,17 +28,16 @@ contract FundSystemPoCTest is FundSystemFixture {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // Finding DYN-01: an expired send home leaves Share Assets until its refund is recognized
+    // Finding DYN-01 (security review S-3): an expired send home no longer leaves Share Assets before its refund
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// OQ-09 stance ("a hub-bound transit leaves `inFlightToHub` once `fillDeadline + maxReportAge` has passed,
-    /// presumed filled") against DEC-085 / DEC-104: a send home that no relayer filled is not filled, its value sits
-    /// in its escrow (or still with Across), and from the first report after `fillDeadline + maxReportAge` until
-    /// someone recognizes the refund on the spoke and a new report is delivered, that value is in no base at all.
-    /// The Share Price is understated by the whole transfer, anyone who deposits in that window buys shares at the
-    /// understated price, and the holders who were there pay for it. The manager alone can open the window (a quote
-    /// no relayer takes) and every step after it is permissionless.
-    function test_POC_expiredSendHomeLeavesShareAssetsAndAnEntrantTakesTheDifference() public {
+    /// Was PoC `test_POC_expiredSendHomeLeavesShareAssetsAndAnEntrantTakesTheDifference`: the spoke dropped an
+    /// unfilled send home from `inFlightToHub` at `fillDeadline + maxReportAge` (OQ-09 "presumed filled"), so until
+    /// its refund was recognized and reported the transfer was in no base, the Share Price was halved and an entrant
+    /// took more than 22,000 USDC from the prior holder. Fix (S-3, `SpokeCrossChainLib._stillInFlight` and
+    /// `_sweepInFlight`): the send stays listed until its refund is recognized (a report recognizes a landed refund
+    /// itself) or `ReportCodec.HUB_BOUND_RETENTION` after its deadline. The same sequence now FAILS for the entrant.
+    function test_SEC_S3_expiredSendHomeStaysInShareAssetsAndAnEntrantGainsNothing() public {
         _fundWithSpokeBalance(50_000e6);
         uint256 assetsBefore = sys.core.shareAssets();
         uint256 priceBefore = sys.core.sharePrice();
@@ -52,25 +51,21 @@ contract FundSystemPoCTest is FundSystemFixture {
         _report();
         assertEq(sys.core.shareAssets(), assetsBefore, "in flight home, still counted (DEC-085)");
 
-        // The fill deadline and one report lifetime pass. Across has not refunded yet (refunds of expired deposits
-        // are paid with a later bundle), or it has and nobody called recognizeRefund.
+        // The fill deadline and one report lifetime pass; Across has not refunded yet.
         Transit memory t = sys.spokeVault.hubBoundTransit(transitId);
         _warp(uint256(t.fillDeadline) + MAX_REPORT_AGE + 1 - block.timestamp);
         _report();
-        assertEq(sys.core.shareAssets(), assetsBefore - 50_000e6, "the transfer left every base");
-        assertEq(sys.core.inFlightValue(), 0);
-        assertLt(sys.core.sharePrice(), priceBefore * 5001 / 10_000, "Share Price halved with no loss");
+        assertEq(sys.core.shareAssets(), assetsBefore, "S-3: the unfilled transfer is still counted in flight");
+        assertEq(sys.core.sharePrice(), priceBefore, "S-3: the Share Price did not move");
 
-        // Anyone deposits at the understated price.
-        (uint256 attackerShares, uint256 charged) = _deposit(attacker, 50_000e6);
-        assertGt(attackerShares, anaShares * 99 / 100, "the entrant gets as many shares as the whole prior supply");
+        // An entrant deposits at the fair price.
+        (uint256 attackerShares,) = _deposit(attacker, 50_000e6);
+        assertLt(attackerShares, anaShares * 51 / 100, "S-3: the entrant gets half the prior supply, not all of it");
 
-        // The refund lands and is recognized (permissionless), a report is delivered: the value is back.
+        // The refund lands; the next report recognizes it by itself.
         sys.spokePool.refund(depositIndex);
-        vm.prank(attacker);
-        sys.spokeVault.recognizeRefund(transitId);
         _report();
-        assertEq(sys.core.shareAssets(), assetsBefore + charged - ShareMath.flowFee(50_000e6, FLOW_FEE_BPS));
+        assertEq(uint8(sys.spokeVault.hubBoundTransit(transitId).state), uint8(TransitState.RefundRecognized));
 
         // The entrant exits at once (Instant Payout from Idle), paying the 2% Payout Fee and the flow fee.
         uint256 worth = ShareMath.usdcFor(attackerShares, sys.core.sharePrice());
@@ -78,18 +73,15 @@ contract FundSystemPoCTest is FundSystemFixture {
         sys.core.requestPayout(worth, ICoreVault.PayoutMode.Instant);
         sys.core.claimPayout("");
         vm.stopPrank();
-        uint256 profit = sys.usdc.balanceOf(attacker) - 50_000e6;
-        assertGt(profit, 22_000e6, "the entrant leaves with more than 22,000 USDC above the 50,000 deposited");
+        assertLt(sys.usdc.balanceOf(attacker), 50_000e6, "S-3: the entrant leaves with less than it deposited");
 
-        // Ana's 99,999 shares, worth 99,999 USDC before, are now worth about 75,000.
         uint256 anaWorth = ShareMath.usdcFor(anaShares, sys.core.sharePrice());
-        assertLt(anaWorth, 76_000e6, "the prior holder lost a quarter of her value");
-        assertGt(assetsBefore - anaWorth, profit, "and the loss covers the entrant's profit and the fees");
+        assertGe(anaWorth + 1e6, assetsBefore, "S-3: the prior holder lost nothing");
     }
 
-    /// The same window seen from a leaver: a holder whose payout is priced while the transfer is in no base is paid
-    /// half of what the shares are worth, and the difference stays with the other holders.
-    function test_POC_payoutDuringTheWindowIsPaidAtTheUnderstatedPrice() public {
+    /// Was PoC `test_POC_payoutDuringTheWindowIsPaidAtTheUnderstatedPrice`: a holder whose payout was priced while the
+    /// transfer was in no base was paid about half of what the shares were worth. Now paid their value.
+    function test_SEC_S3_payoutAfterTheReportLifetimeIsPaidTheFairValue() public {
         _fundWithSpokeBalance(50_000e6);
         _deposit(bruno, 10_025e6);
         uint256 brunoShares = sys.shares.balanceOf(bruno);
@@ -106,7 +98,7 @@ contract FundSystemPoCTest is FundSystemFixture {
         ICoreVault.PayoutReceipt memory receipt = sys.core.claimPayout("");
         vm.stopPrank();
         assertEq(sys.shares.balanceOf(bruno), 0, "every share burned");
-        assertLt(receipt.usdcGross, fairValue * 55 / 100, "for little more than half their value");
+        assertGe(receipt.usdcGross + 1e6, fairValue, "S-3: paid the shares' value");
     }
 
     // ---------------------------------------------------------------------------------------------------------------

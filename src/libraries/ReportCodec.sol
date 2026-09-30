@@ -23,6 +23,14 @@ library ReportCodec {
     ///      window may have evicted the id).
     uint256 internal constant ARRIVAL_WINDOW = 256;
 
+    /// @notice How long after its fill deadline a Spoke Vault keeps an unrefunded send home in `inFlightToHub`.
+    /// @dev Security review S-3 (DEC-063, DEC-085, DEC-104). Shared by the Spoke Vault, which lists a send home until
+    ///      its refund is recognized or this long after its fill deadline, and the Core Vault, which lets an arrival no
+    ///      accepted report listed be recovered only once no report can list it any more (S-4). Across refunds an
+    ///      expired deposit 55 to 90 min after its deadline (DEC-063 measured facts); three days is a wide margin.
+    ///      OPEN value (security review parameter, to confirm with the founder).
+    uint256 internal constant HUB_BOUND_RETENTION = 3 days;
+
     /// @notice A token and an amount in that token's base units.
     struct TokenAmount {
         address token;
