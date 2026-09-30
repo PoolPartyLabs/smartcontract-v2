@@ -54,8 +54,8 @@ contract AcrossBridgeAdapter is AdapterGuard, IBridgeAdapter {
     /// @param guardian_ Immutable guardian of the quarantine and deprecation flags (DEC-021, DEC-058; Q17-2b OPEN).
     /// @param spokePool_ The Across SpokePool of this chain.
     /// @dev DEC-066: rejects a SpokePool whose `fillDeadlineBuffer` is below the 6 h constant, since every deposit
-    ///      built by this adapter would revert there. Across governance can still lower the buffer later; the
-    ///      vault's send then reverts atomically and no value moves.
+    ///      built by this adapter would revert there. Across governance can still lower the buffer later; `buildSend`
+    ///      then uses the lower buffer (security review S-23), so sends, the send home included, keep working.
     constructor(address vault_, address guardian_, address spokePool_) AdapterGuard(guardian_) {
         if (vault_ == address(0)) revert ZeroVault();
         if (spokePool_ == address(0)) revert ZeroSpokePool();
@@ -86,7 +86,8 @@ contract AcrossBridgeAdapter is AdapterGuard, IBridgeAdapter {
     ///      `recipient` that is not a 20-byte EVM address is rejected with `InvalidParty` instead of being
     ///      truncated, because truncation would deliver to a different address than the vault fixed.
     /// @dev DEC-085: `amountToArrive` is the quote's `outputAmount`, the value In-flight Value counts in Share Assets.
-    /// @dev DEC-066: `fillDeadline = block.timestamp + 21600`, the same value encoded in the call.
+    /// @dev DEC-066: `fillDeadline = block.timestamp + 21600`, the same value encoded in the call; security review S-23:
+    ///      `block.timestamp + fillDeadlineBuffer` when the SpokePool's buffer was lowered below 21,600 s.
     /// @dev DEC-056, DEC-058: does not read `paused` or `deprecated`; the Core Vault refuses a hub-to-spoke send
     ///      through a paused or deprecated bridge adapter, and a send home is never blocked.
     /// @dev DEC-090: `transitRef` is the Across deposit id the call will be assigned (`numberOfDeposits()` now),
@@ -101,7 +102,7 @@ contract AcrossBridgeAdapter is AdapterGuard, IBridgeAdapter {
             revert InvalidParty();
         }
 
-        uint32 fillDeadline = uint32(block.timestamp) + FILL_DEADLINE_SECONDS;
+        uint32 fillDeadline = uint32(block.timestamp) + _fillWindow();
 
         call.target = spokePool;
         call.data = abi.encodeCall(
@@ -126,5 +127,14 @@ contract AcrossBridgeAdapter is AdapterGuard, IBridgeAdapter {
         call.transitRef = bytes32(uint256(IAcrossSpokePool(spokePool).numberOfDeposits()));
         call.amountToArrive = req.outputAmount;
         call.fillDeadline = fillDeadline;
+    }
+
+    /// @dev Security review S-23 (DEC-056, DEC-066): the constant equals the SpokePool's maximum, and adapters are
+    ///      immutable with Across the only Transport Route, so a later governance decrease of `fillDeadlineBuffer`
+    ///      would make every send revert, the send home (the exit path) included. The window follows a lower buffer.
+    function _fillWindow() private view returns (uint32 window) {
+        uint32 buffer = IAcrossSpokePool(spokePool).fillDeadlineBuffer();
+        window = buffer < FILL_DEADLINE_SECONDS ? buffer : FILL_DEADLINE_SECONDS;
+        if (window == 0) revert FillDeadlineBufferTooShort(buffer);
     }
 }
