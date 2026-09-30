@@ -16,6 +16,7 @@ contract CoreVaultTransitTest is CoreVaultFixture {
     function setUp() public override {
         super.setUp();
         _deposit(alice, 10_000e6); // Idle 9,975
+        _ensureSpokeReport(); // S-14: the spoke has reported once before the hub funds it
     }
 
     function _sendDefault() internal returns (bytes32) {
@@ -159,7 +160,7 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         bytes32 id = _sendDefault();
         uint256 assetsInFlight = vault.shareAssets();
         vm.expectEmit(address(vault));
-        emit ICoreVault.TransitArrived(id, 0, ARRIVES, 1);
+        emit ICoreVault.TransitArrived(id, 0, ARRIVES, reportSequence + 1);
         _deliver(_arrived(_spokeReport(ARRIVES, ARRIVES), id, ARRIVES));
         assertEq(uint8(vault.transit(id).state), uint8(TransitState.ArrivalConfirmed));
         assertEq(vault.inFlightValue(), 0);

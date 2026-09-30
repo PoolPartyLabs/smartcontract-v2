@@ -250,6 +250,8 @@ interface ICoreVault is IAcrossMessageHandler {
     error FillDeadlineNotReached(bytes32 transitId, uint32 fillDeadline);
     error ExpiryNotProvable(bytes32 transitId);
     error NoRefund(bytes32 transitId);
+    /// @notice The hub has accepted no report from that spoke yet, so it may not fund it (security review S-14).
+    error SpokeNotReporting(uint256 spokeIndex);
     /// @notice A quote named an exclusive relayer or an exclusivity period (security review S-9).
     error ExclusiveRelayerNotAllowed(address exclusiveRelayer);
     /// @notice No arrival of that transit is held apart without a listing (security review S-4).

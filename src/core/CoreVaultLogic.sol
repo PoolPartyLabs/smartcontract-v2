@@ -735,6 +735,14 @@ library CoreVaultLogic {
         uint256 bridgeRank,
         BridgeQuote calldata quote
     ) private view returns (address adapter) {
+        // Security review S-14 (DEC-066, DEC-104): a spoke is funded only once the hub accepted a report from it. The
+        // Spoke Vault is created by a second transaction on another chain; an Across fill to an address without code
+        // succeeds, skips the handler and is never refunded, so the amount would stay in In-flight Value for good. An
+        // accepted report proves the fund's Spoke Vault exists there (and, with S-6, runs the hub's Mandate).
+        if (!IValueReportReceiver(w.reportReceiver).hasReport(spokeIndex)) {
+            revert ICoreVault.SpokeNotReporting(spokeIndex);
+        }
+
         // DEC-017, DEC-072: only Free Idle leaves the Core Vault.
         uint256 free = s.idle - s.payoutReserve;
         if (usdcAmount > free) revert ICoreVault.InsufficientFreeIdle(usdcAmount, free);

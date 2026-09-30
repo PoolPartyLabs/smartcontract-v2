@@ -29,6 +29,7 @@ contract UnmatchedReturnLegPoC is AccessFundFixture {
     /// @dev What the spoke chain produced, carried across the chain switch in memory.
     struct SpokeSide {
         address spokeVault;
+        bytes reportFirst;
         bytes32 homeTransitId;
         bytes reportAfterArrival;
         bytes reportInsideWindow;
@@ -45,11 +46,12 @@ contract UnmatchedReturnLegPoC is AccessFundFixture {
         (IFundFactory.FundAddresses memory a,) = _createFund(_plan());
         CoreVault core = CoreVault(a.coreVault);
         _deposit(core, alice, 500_000e6);
+        _deliverReport(a.valueReportReceiver, s.spokeVault, 0, s.reportFirst);
         vm.prank(manager);
         assertEq(core.sendToSpoke(0, SENT, 0, _quote(ARRIVES, address(0))), _hubTransitId(a.coreVault));
 
         vm.warp(T0 + 900);
-        _deliverReport(a.valueReportReceiver, s.spokeVault, 0, s.reportAfterArrival);
+        _deliverReport(a.valueReportReceiver, s.spokeVault, 1, s.reportAfterArrival);
         assertEq(core.inFlightValue(), 0, "arrival confirmed");
 
         // The manager's send home is filled on the hub: held apart until a report lists the transfer.
@@ -66,7 +68,7 @@ contract UnmatchedReturnLegPoC is AccessFundFixture {
         // The outage: no report built in the 6 h 26 min after the send is accepted. The next one the hub accepts was
         // built after that window and still lists the transfer, so the arrival is credited.
         vm.warp(s.afterWindow + 900);
-        _deliverReport(a.valueReportReceiver, s.spokeVault, 2, s.reportAfterWindow);
+        _deliverReport(a.valueReportReceiver, s.spokeVault, 3, s.reportAfterWindow);
 
         assertEq(core.unmatchedArrivals(), 0, "S-4: credited on the report after the outage");
         assertEq(core.idle(), 198_750e6 + ARRIVES_HOME, "S-4: in Idle");
@@ -83,6 +85,9 @@ contract UnmatchedReturnLegPoC is AccessFundFixture {
         IFundFactory.ChainAddresses memory c = spokeFactory.createSpoke(1, m, _spokeParams(MandateLib.hash(m), _plan()));
         SpokeVault spoke = SpokeVault(c.spokeVault);
         s.spokeVault = c.spokeVault;
+        // Security review S-14: the new Spoke Vault reports once, so the hub may fund it.
+        spoke.report();
+        s.reportFirst = spokeWormhole.published(0).payload;
 
         // The hub's send arrives (the hub transit id depends only on the Core Vault address and its first nonce).
         bytes memory message = TransitMessage.encode(
@@ -92,19 +97,19 @@ contract UnmatchedReturnLegPoC is AccessFundFixture {
         vm.prank(address(spokeAcross));
         spoke.handleV3AcrossMessage(address(usdg), ARRIVES, stranger, message);
         spoke.report();
-        s.reportAfterArrival = spokeWormhole.published(0).payload;
+        s.reportAfterArrival = spokeWormhole.published(1).payload;
 
         // The manager sends 299,000 USDG home (0.1% fee) and a report lists it while it is in flight.
         vm.prank(manager);
         s.homeTransitId = spoke.sendToHub(SENT_HOME, TransferKind.Principal, 0, _quote(ARRIVES_HOME, address(0)));
         spoke.report();
-        s.reportInsideWindow = spokeWormhole.published(1).payload;
+        s.reportInsideWindow = spokeWormhole.published(2).payload;
         assertEq(spoke.buildReport().inFlightToHub.length, 1);
 
         // Past the fill deadline plus the report lifetime the spoke still lists it (security review S-3).
         vm.warp(block.timestamp + 21_600 + MAX_REPORT_AGE + 1);
         spoke.report();
-        s.reportAfterWindow = spokeWormhole.published(2).payload;
+        s.reportAfterWindow = spokeWormhole.published(3).payload;
         s.afterWindow = block.timestamp;
         assertEq(spoke.buildReport().inFlightToHub.length, 1);
     }

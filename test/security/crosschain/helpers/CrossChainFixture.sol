@@ -250,6 +250,8 @@ abstract contract CrossChainFixture is Test {
         internal
         returns (bytes32 transitId, uint256 depositId)
     {
+        // Security review S-14: the hub funds a spoke only once it accepted a report from it.
+        if (!receiver.hasReport(0)) _reportAndDeliver(0);
         vm.chainId(HUB);
         depositId = hubPool.numberOfDeposits();
         vm.prank(manager);

@@ -27,6 +27,7 @@ contract ExpiredSendHomeMintPoC is AccessFundFixture {
     /// @dev What the spoke chain produced, carried across the chain switch in memory.
     struct SpokeSide {
         address spokeVault;
+        bytes reportFirst;
         bytes reportAfterArrival;
         bytes reportWhileInFlight;
         bytes reportAfterPresumedFill;
@@ -44,12 +45,13 @@ contract ExpiredSendHomeMintPoC is AccessFundFixture {
         (IFundFactory.FundAddresses memory a,) = _createFund(_plan());
         CoreVault core = CoreVault(a.coreVault);
         _deposit(core, alice, 500_000e6);
+        _deliverReport(a.valueReportReceiver, s.spokeVault, 0, s.reportFirst);
         vm.prank(manager);
         core.sendToSpoke(0, 300_000e6, 0, _quote(299_700e6, address(0)));
 
         vm.warp(T0 + 900);
-        _deliverReport(a.valueReportReceiver, s.spokeVault, 0, s.reportAfterArrival);
-        _deliverReport(a.valueReportReceiver, s.spokeVault, 1, s.reportWhileInFlight);
+        _deliverReport(a.valueReportReceiver, s.spokeVault, 1, s.reportAfterArrival);
+        _deliverReport(a.valueReportReceiver, s.spokeVault, 2, s.reportWhileInFlight);
         uint256 fairAssets = core.shareAssets();
         assertEq(fairAssets, 198_750e6 + 690e6 + 298_999e6, "Idle + spoke + the send home in flight");
         uint256 fairPrice = core.sharePrice();
@@ -59,7 +61,7 @@ contract ExpiredSendHomeMintPoC is AccessFundFixture {
         vm.warp(s.presumedFilledAt + 900);
         prices.setPrice(address(usdg), 1e18);
         vm.prank(stranger);
-        _deliverReport(a.valueReportReceiver, s.spokeVault, 2, s.reportAfterPresumedFill);
+        _deliverReport(a.valueReportReceiver, s.spokeVault, 3, s.reportAfterPresumedFill);
         assertEq(core.shareAssets(), fairAssets, "S-3: the transfer is still counted in flight");
 
         // The would-be attacker enters at the fair price.
@@ -69,7 +71,7 @@ contract ExpiredSendHomeMintPoC is AccessFundFixture {
         // The Across refund lands and is recognized; the next report says so.
         vm.warp(s.refundedAt + 900);
         prices.setPrice(address(usdg), 1e18);
-        _deliverReport(a.valueReportReceiver, s.spokeVault, 3, s.reportAfterRefund);
+        _deliverReport(a.valueReportReceiver, s.spokeVault, 4, s.reportAfterRefund);
 
         uint256 price = core.sharePrice();
         assertGe(_shares(core, alice) * price / 1e36 + 1e6, aliceFair, "S-3: Alice's shares kept their value");
@@ -93,6 +95,9 @@ contract ExpiredSendHomeMintPoC is AccessFundFixture {
         IFundFactory.ChainAddresses memory c = spokeFactory.createSpoke(1, m, _spokeParams(MandateLib.hash(m), _plan()));
         SpokeVault spoke = SpokeVault(c.spokeVault);
         s.spokeVault = c.spokeVault;
+        // Security review S-14: the new Spoke Vault reports once, so the hub may fund it.
+        spoke.report();
+        s.reportFirst = spokeWormhole.published(0).payload;
 
         bytes32 hubTransitId = keccak256(abi.encode(HUB, spokeFactory.addressOf(fundId, "CoreVault", HUB), uint256(1)));
         bytes memory message = TransitMessage.encode(fundId, HUB, hubTransitId, TransferKind.Principal);
@@ -100,17 +105,17 @@ contract ExpiredSendHomeMintPoC is AccessFundFixture {
         vm.prank(address(spokeAcross));
         spoke.handleV3AcrossMessage(address(usdg), 299_700e6, stranger, message);
         spoke.report();
-        s.reportAfterArrival = spokeWormhole.published(0).payload;
+        s.reportAfterArrival = spokeWormhole.published(1).payload;
 
         vm.prank(manager);
         bytes32 homeTransitId = spoke.sendToHub(299_000e6, TransferKind.Principal, 0, _quote(298_999e6, address(0)));
         spoke.report();
-        s.reportWhileInFlight = spokeWormhole.published(1).payload;
+        s.reportWhileInFlight = spokeWormhole.published(2).payload;
 
         // Nobody fills. Past the deadline plus the report lifetime the vault still lists it (security review S-3).
         vm.warp(T0 + FILL_WINDOW + MAX_REPORT_AGE + 1);
         spoke.report();
-        s.reportAfterPresumedFill = spokeWormhole.published(2).payload;
+        s.reportAfterPresumedFill = spokeWormhole.published(3).payload;
         s.presumedFilledAt = block.timestamp;
         assertEq(spoke.buildReport().inFlightToHub.length, 1);
         assertEq(spoke.unallocatedBalance(address(usdg)), 690e6);
@@ -121,7 +126,7 @@ contract ExpiredSendHomeMintPoC is AccessFundFixture {
         vm.prank(stranger);
         spoke.recognizeRefund(homeTransitId);
         spoke.report();
-        s.reportAfterRefund = spokeWormhole.published(3).payload;
+        s.reportAfterRefund = spokeWormhole.published(4).payload;
         s.refundedAt = block.timestamp;
         assertEq(spoke.unallocatedBalance(address(usdg)), 299_690e6);
     }

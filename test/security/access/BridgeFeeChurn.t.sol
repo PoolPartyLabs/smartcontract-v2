@@ -21,6 +21,7 @@ contract BridgeFeeChurnPoC is CoreVaultFixture {
 
     function test_SEC_S9_managerCanNoLongerSelfRelayExclusively() public {
         _deposit(alice, 100_000e6);
+        _ensureSpokeReport(); // S-14: the spoke has reported once before the hub funds it
         uint256 sent = vault.freeIdle();
         uint256 arrives = sent - sent * MAX_FEE_BPS / 10_000;
 

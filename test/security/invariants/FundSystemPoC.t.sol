@@ -277,6 +277,7 @@ contract FundSystemPoCTest is FundSystemFixture {
     /// @dev 100,000 USDC deposited by Ana, `toSpoke` of it sent to the spoke, filled and confirmed by a report.
     function _fundWithSpokeBalance(uint256 toSpoke) internal {
         _deposit(ana, 100_250e6);
+        _report(); // S-14: the spoke's first report, before the hub funds it
         uint256 depositIndex = sys.hubPool.numberOfDeposits();
         vm.prank(manager);
         sys.core.sendToSpoke(0, toSpoke, 0, _quote(toSpoke));

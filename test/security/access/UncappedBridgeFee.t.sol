@@ -30,6 +30,7 @@ contract UncappedBridgeFeePoC is AccessFundFixture {
         (IFundFactory.FundAddresses memory a,) = _createFund(plan);
         CoreVault core = CoreVault(a.coreVault);
         _deposit(core, alice, 600_000e6);
+        _deliverFirstReport(a); // S-14: the spoke has reported once before the hub funds it
         uint256 idle = core.idle();
         vm.prank(manager);
         vm.expectPartialRevert(ICoreVault.BridgeFeeAboveMax.selector);

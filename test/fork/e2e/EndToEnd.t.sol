@@ -246,6 +246,7 @@ abstract contract EndToEndScenario is EndToEndBase {
     ///      per-send escrow is the depositor. DEC-085: Share Assets count the transit at the amount that will arrive.
     ///      DEC-087: the vault fixes recipient, token pair and message.
     function _phase4SendToRobinhood() internal {
+        _deliverFirstSpokeReport();
         _onArbitrum();
         BridgeQuote memory quote = BridgeQuote(BRIDGE_AMOUNT - BRIDGE_FEE, uint32(block.timestamp), 0, address(0));
         _assertSendRefusals(quote);
@@ -361,6 +362,24 @@ abstract contract EndToEndScenario is EndToEndBase {
         assertEq(spokeVault.positions().length, 1);
     }
 
+    /// @dev Security review S-14: the hub funds a spoke only once it accepted a report from it. The new Spoke Vault's
+    ///      first (empty) report, published on the real Robinhood Core and delivered on the real Arbitrum Core.
+    function _deliverFirstSpokeReport() internal {
+        _onRobinhood();
+        vm.recordLogs();
+        spokeVault.report();
+        VaaBody[] memory published = ICoreBridge(RH_WORMHOLE_CORE).fetchPublishedMessages(vm.getRecordedLogs());
+        assertEq(published.length, 1);
+        _onArbitrum();
+        ICoreBridge arbitrumCore = ICoreBridge(ARB_WORMHOLE_CORE);
+        arbitrumCore.setUpOverride();
+        VaaEnvelope memory e = published[0].envelope;
+        e.timestamp = uint32(block.timestamp);
+        bytes memory vaa = VaaLib.encode(arbitrumCore.sign(VaaBody(e, published[0].payload)));
+        (, uint64 reportSequence) = receiver.deliver(vaa);
+        assertEq(reportSequence, 1, "S-14: the spoke's first report");
+    }
+
     /// @dev `report()` publishes to the real Robinhood Core; the message is read back from the logs.
     function _publishReport() internal {
         vm.recordLogs();
@@ -374,8 +393,8 @@ abstract contract EndToEndScenario is EndToEndBase {
         assertEq(e.consistencyLevel, 1, "DEC-093: finalized");
 
         ReportCodec.Report memory r = ReportCodec.decode(published[0].payload);
-        assertEq(sequence, 1);
-        assertEq(r.sequence, 1, "DEC-093: first report");
+        assertEq(sequence, 2);
+        assertEq(r.sequence, 2, "DEC-093: the report after the spoke's first one (S-14)");
         assertEq(r.fundId, fundId);
         assertEq(r.spokeChainId, ROBINHOOD);
         assertEq(r.timestamp, block.timestamp);
@@ -419,7 +438,7 @@ abstract contract EndToEndScenario is EndToEndBase {
         vm.prank(makeAddr("anyone"));
         (uint256 spokeIndex, uint64 reportSequence) = receiver.deliver(vaa);
         assertEq(spokeIndex, 0);
-        assertEq(reportSequence, 1);
+        assertEq(reportSequence, 2);
         assertTrue(receiver.isReportFresh(0), "DEC-099: within the report lifetime");
 
         Transit memory t = core.transit(transitId);

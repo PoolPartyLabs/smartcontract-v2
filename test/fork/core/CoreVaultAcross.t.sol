@@ -103,6 +103,13 @@ contract CoreVaultAcrossForkTest is Test {
     }
 
     function test_DEC087_sendThroughLiveSpokePoolDebitsExactlyAndResetsApproval() public {
+        // Security review S-14: the spoke's first report, before the hub funds it.
+        ReportCodec.Report memory first;
+        first.fundId = FUND_ID;
+        first.sequence = 1;
+        first.spokeChainId = SPOKE;
+        first.timestamp = uint64(block.timestamp);
+        receiver.deliver(0, first);
         uint32 depositId = IAcrossSpokePool(SPOKE_POOL).numberOfDeposits();
         uint256 poolBefore = IERC20(USDC).balanceOf(SPOKE_POOL);
         BridgeQuote memory quote = BridgeQuote({

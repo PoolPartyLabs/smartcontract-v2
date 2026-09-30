@@ -19,6 +19,7 @@ import {UniswapV4Adapter} from "../../../src/adapters/UniswapV4Adapter.sol";
 import {ValueReportReceiver} from "../../../src/report/ValueReportReceiver.sol";
 import {BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
 import {Mandate} from "../../../src/mandate/Mandate.sol";
+import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {MockToken} from "../../mocks/v4/MockToken.sol";
 import {MockPermit2} from "../../mocks/v4/MockPermit2.sol";
 import {MockV4} from "../../mocks/v4/MockV4.sol";
@@ -203,6 +204,20 @@ abstract contract AccessFundFixture is Test, FactoryDeployment, FundMandate {
             exclusivityDeadline: exclusiveRelayer == address(0) ? 0 : 3600,
             exclusiveRelayer: exclusiveRelayer
         });
+    }
+
+    /// @dev Security review S-14: the spoke's first (empty) report, as its Spoke Vault would publish it right after
+    ///      `createSpoke`, delivered so the hub may fund the spoke.
+    function _deliverFirstReport(IFundFactory.FundAddresses memory a) internal {
+        ReportCodec.Report memory r;
+        r.fundId = a.fundId;
+        r.sequence = 1;
+        r.spokeChainId = SPOKE;
+        r.blockNumber = uint64(block.number);
+        r.timestamp = uint64(block.timestamp);
+        _deliverReport(
+            a.valueReportReceiver, factory.addressOf(a.fundId, "SpokeVault", SPOKE), 0, ReportCodec.encode(r)
+        );
     }
 
     /// @dev Delivers a spoke report payload to the fund's receiver as a finalized VAA of the spoke's emitter.

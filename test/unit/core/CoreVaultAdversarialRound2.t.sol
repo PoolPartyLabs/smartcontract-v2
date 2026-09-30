@@ -113,6 +113,7 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
         c.acrossSpokePool = address(malPool);
         _deploy(_mandate(2000), c);
         _deposit(alice, 10_000e6); // Idle 9,975
+        _ensureSpokeReport(); // S-14: the spoke has reported once before the hub funds it
         bytes32 fakeId = keccak256("fabricated");
 
         bytes[2] memory payloads = [

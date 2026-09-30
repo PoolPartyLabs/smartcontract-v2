@@ -298,6 +298,12 @@ abstract contract AccountingPocFixture is Test {
 
     /// @dev Manager sends Idle to the Robinhood Spoke Vault through Across.
     function _sendToSpoke(uint256 amount, uint256 outputAmount) internal returns (bytes32 transitId) {
+        // Security review S-14: the hub funds a spoke only once it accepted a report from it.
+        if (!receiver.hasReport(0)) {
+            bytes memory vaa = _publishReport();
+            vm.prank(keeper);
+            receiver.deliver(vaa);
+        }
         vm.prank(manager);
         transitId = core.sendToSpoke(0, amount, 0, _quote(outputAmount));
     }

@@ -350,6 +350,8 @@ contract FundSystemHandler is Test {
         amount = bound(amount, 1, free);
         uint256 output = amount - amount * bound(feeBps, 0, MAX_BRIDGE_FEE_BPS) / 10_000;
         if (output == 0) return;
+        // Security review S-14: the hub funds a spoke only once it accepted a report from it.
+        if (!s.receiver.hasReport(0)) _publishAndDeliver();
         uint256 depositIndex = s.hubPool.numberOfDeposits();
         vm.prank(s.manager);
         try s.core.sendToSpoke(0, amount, 0, _quote(output)) returns (bytes32 id) {
