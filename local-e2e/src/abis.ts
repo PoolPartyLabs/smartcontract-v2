@@ -84,6 +84,7 @@ export const aavePoolAbi = parseAbi([
 /** test/mocks/v4/V4SwapRouter.sol, a third-party trader's router on `PoolManager.unlock` (deployed by `up`). */
 export const v4SwapRouterAbi = parseAbi([
   "struct PoolKey { address currency0; address currency1; uint24 fee; int24 tickSpacing; address hooks; }",
+  "constructor(address manager)",
   "function swap(PoolKey key, bool zeroForOne, int256 amountSpecified, uint160 sqrtPriceLimitX96) returns (int256 delta)",
   "function manager() view returns (address)",
 ]);

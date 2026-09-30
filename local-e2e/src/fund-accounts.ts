@@ -53,6 +53,16 @@ export async function discoverBalanceLayout(side: Side, token: Address, probe: A
   throw new Error(`could not find the balance mapping of ${token} on ${nodes[side].label}`);
 }
 
+/** The Solidity mapping slot index `n` such that `data` (a call on `target` taking `key` as its mapping key) reads
+ *  `keccak256(abi.encode(key, n))`. */
+export async function discoverMappingSlot(side: Side, target: Address, data: Hex, key: Hex, maxIndex = 5000n): Promise<string> {
+  const keys = new Set(await storageRead(side, target, data));
+  for (let index = 0n; index < maxIndex; index++) {
+    if (keys.has(mappingSlot(key, index))) return index.toString();
+  }
+  throw new Error(`no mapping slot below ${maxIndex} matches the storage ${target} read on ${nodes[side].label}`);
+}
+
 export async function balanceOf(side: Side, token: Address, holder: Address): Promise<bigint> {
   return read<bigint>(side, { address: token, abi: erc20Abi, functionName: "balanceOf", args: [holder] });
 }
