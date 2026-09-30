@@ -227,14 +227,20 @@ export async function send<T = unknown>(side: Side, who: ActorName | Account, ca
   });
 }
 
-/** Reads a view function. */
-export async function read<T = unknown>(side: Side, call: Omit<Call, "value">, account?: Address): Promise<T> {
+/** Reads a view function, at `blockNumber` when given (reads pinned to one block see one consistent state). */
+export async function read<T = unknown>(
+  side: Side,
+  call: Omit<Call, "value">,
+  account?: Address,
+  blockNumber?: bigint,
+): Promise<T> {
   return (await nodes[side].client.readContract({
     address: call.address,
     abi: withErrors(call.abi),
     functionName: call.functionName,
     args: call.args ?? [],
     account,
+    blockNumber,
   } as never)) as T;
 }
 
