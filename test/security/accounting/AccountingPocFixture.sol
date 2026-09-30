@@ -353,6 +353,14 @@ abstract contract AccountingPocFixture is Test {
     ///      swapped to WETH at the oracle price (the V4 mock swaps at a fixed rate), then both legs enter the range
     ///      `TICK_FAIR +- halfWidthTicks`. Returns the position key (the PositionManager token id).
     function _openHubPosition(uint256 usdcAmount, int24 halfWidthTicks) internal returns (bytes32 positionKey) {
+        return _openHubPositionAt(usdcAmount, TICK_FAIR - halfWidthTicks, TICK_FAIR + halfWidthTicks);
+    }
+
+    /// @dev Same, in the range `[tickLower, tickUpper]`.
+    function _openHubPositionAt(uint256 usdcAmount, int24 tickLower, int24 tickUpper)
+        internal
+        returns (bytes32 positionKey)
+    {
         uint256 half = usdcAmount / 2;
         // WETH base units per USDC base unit, 1e18-scaled: the inverse of the oracle price.
         v4.setSwap(1e36 / wethPrice1e18, 10_000);
@@ -360,8 +368,8 @@ abstract contract AccountingPocFixture is Test {
         core.allocateToHubSpokeVault(usdcAmount);
         uint256 wethOut = hubVault.swapExactInput(address(hubV4), hubPoolId, address(usdc), half, 0, "");
         UniswapV4Adapter.OpenParams memory p = UniswapV4Adapter.OpenParams({
-            tickLower: TICK_FAIR - halfWidthTicks,
-            tickUpper: TICK_FAIR + halfWidthTicks,
+            tickLower: tickLower,
+            tickUpper: tickUpper,
             liquidity: 0,
             amount0Max: uint128(wethOut),
             amount1Max: uint128(usdcAmount - half),

