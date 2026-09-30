@@ -17,7 +17,7 @@ import {MockV4} from "../../mocks/v4/MockV4.sol";
 import {CrossChainFixture} from "./helpers/CrossChainFixture.sol";
 
 /// @title PoC: a report taken while the spoke pool's spot price is pushed overstates Share Assets on the hub
-/// @notice Finding (medium). Lens: cross-chain messaging and bridging (what a spoke payload can do to the hub).
+/// @notice Finding (high). Lens: cross-chain messaging and bridging (what a spoke payload can do to the hub).
 ///
 /// Root cause: `SpokeVault.report()` is permissionless and snapshots every Uniswap V4 position's token amounts at the
 /// pool's CURRENT `slot0` price (`UniswapV4Adapter.positionValue` -> `_principal`). The hub then prices those amounts
@@ -39,7 +39,9 @@ import {CrossChainFixture} from "./helpers/CrossChainFixture.sol";
 /// Impact: here the fund keeps 899,550 USDG of its 1,196,550 USDC on the spoke in a position spanning about -33% to
 /// +50% around the price. The manipulated report raises Share Assets by about 99,900 USDC (8.3%), and the attacker's
 /// Payout takes about 16,600 USDC more than the shares are worth, out of Idle, at the expense of the remaining
-/// Shareholder (an Instant Payout would still clear its 2% fee). The same
+/// Shareholder (an Instant Payout would still clear its 2% fee). The overstatement is `(k + 1) / 2` of the position
+/// for a range reaching `k^2` times the price, so it grows without bound with the range's width: a full-range
+/// position pushed 100 times over reads 5.5 times its worth, enough to empty Free Idle. The same
 /// read happens for hub positions inside `claimPayout` itself (`ISpokeVault.buildReport` on the hub Spoke Vault), where
 /// the manipulation and the claim fit in one transaction.
 ///
