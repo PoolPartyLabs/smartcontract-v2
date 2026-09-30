@@ -41,6 +41,16 @@ abstract contract CoreVaultIncome is CoreVaultBase {
         amount = _takeIncome(msg.sender, token);
     }
 
+    /// @inheritdoc ICoreVault
+    function claimOwedFees(address token, address recipient) external nonReentrant returns (uint256 amount) {
+        amount = _s.owedFees[token][recipient];
+        if (amount == 0) revert ZeroAmount();
+        _s.owedFees[token][recipient] = 0;
+        _s.owedFeesTotal[token] -= amount;
+        emit OwedFeePaid(token, recipient, amount);
+        IERC20(token).safeTransfer(recipient, amount);
+    }
+
     /// @notice DEC-045, DEC-047: a full burn pays all Attributed Income payable now, in every token, in the same
     ///         transaction. The caller has checkpointed the holder.
     function _payAllIncome(address holder) internal {
@@ -91,6 +101,11 @@ abstract contract CoreVaultIncome is CoreVaultBase {
     /// @inheritdoc ICoreVault
     function collectedIncome(address token) external view returns (uint256) {
         return _s.collectedIncome[token];
+    }
+
+    /// @inheritdoc ICoreVault
+    function owedFees(address token, address recipient) external view returns (uint256) {
+        return _s.owedFees[token][recipient];
     }
 
     /// @inheritdoc ICoreVault

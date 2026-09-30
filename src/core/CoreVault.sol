@@ -81,9 +81,10 @@ contract CoreVault is CoreVaultTransit {
         _s.idle += usdcForShares;
         emit Deposited(msg.sender, usdcForShares, fee, shares, price, assets, supply, consolidation);
 
-        IERC20(usdc).safeTransferFrom(msg.sender, address(this), usdcForShares);
-        // DEC-106: the flow fee goes to the protocol in the same transaction.
-        if (fee != 0) IERC20(usdc).safeTransferFrom(msg.sender, protocolRecipient, fee);
+        IERC20(usdc).safeTransferFrom(msg.sender, address(this), usdcCharged);
+        // DEC-106: the flow fee goes to the protocol in the same transaction; security review S-12: if that transfer
+        // fails it is owed, never a reason to refuse the deposit.
+        CoreVaultLogic.payFee(_s, usdc, protocolRecipient, fee);
         ShareToken(shareToken).mint(msg.sender, shares);
     }
 
@@ -256,7 +257,8 @@ contract CoreVault is CoreVaultTransit {
 
         // Interactions.
         if (c.shares != 0) ShareToken(shareToken).burn(msg.sender, c.shares);
-        if (r.flowFee != 0) IERC20(usdc).safeTransfer(protocolRecipient, r.flowFee);
+        // Security review S-12: a failed flow-fee transfer is owed to the protocol, never a reason to refuse the claim.
+        CoreVaultLogic.payFee(_s, usdc, protocolRecipient, r.flowFee);
         if (r.usdcPaid != 0) IERC20(usdc).safeTransfer(msg.sender, r.usdcPaid);
         if (c.shares == c.balance) _payAllIncome(msg.sender);
     }

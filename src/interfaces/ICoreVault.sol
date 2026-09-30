@@ -181,6 +181,13 @@ interface ICoreVault is IAcrossMessageHandler {
         address indexed token, uint256 amount, uint256 managerFee, uint256 protocolSlice, uint16 protocolSliceBps
     );
 
+    /// @notice A fee transfer to `recipient` (the Protocol Recipient or the ManagerFeeVault) failed, so the amount is
+    ///         owed to it and waits in the Core Vault, outside every value base (security review S-12).
+    event FeeAccrued(address indexed token, address indexed recipient, uint256 amount);
+
+    /// @notice An owed fee was paid to its recipient (security review S-12).
+    event OwedFeePaid(address indexed token, address indexed recipient, uint256 amount);
+
     /// @notice The manager lowered the manager fee (DEC-110).
     event ManagerFeeDecreased(
         uint16 previousPerformanceFeeBps,
@@ -327,6 +334,13 @@ interface ICoreVault is IAcrossMessageHandler {
     /// @dev No Payout Fee, no flow fee (LC-143 reading), not a Payout Request (DEC-029). Checkpoint first. LC-100
     ///      (OPEN): pays `min(owed, collectedIncome(token))`.
     function withdrawIncome(address token) external returns (uint256 amount);
+
+    /// @notice Pays `recipient` every fee in `token` that could not be transferred to it when charged. Permissionless.
+    /// @dev Security review S-12 (DEC-106, DEC-107, DEC-109): the flow fee, the protocol slice and the manager fee are
+    ///      transferred when charged; a transfer that fails (a USDC blocklist entry on the fee wallet, a reverting
+    ///      recipient) no longer reverts the Shareholder's deposit, claim or the income collection but is owed here.
+    ///      Reverts if the transfer still fails.
+    function claimOwedFees(address token, address recipient) external returns (uint256 amount);
 
     // ---------------------------------------------------------------------------------------------------------------
     // Permissionless verbs
@@ -510,6 +524,9 @@ interface ICoreVault is IAcrossMessageHandler {
 
     /// @notice Income recognized with no shares outstanding (LC-32 OPEN: retained).
     function ownerlessIncome(address token) external view returns (uint256);
+
+    /// @notice Fees in `token` owed to `recipient` because their transfer failed when charged (security review S-12).
+    function owedFees(address token, address recipient) external view returns (uint256);
 
     /// @notice Accumulator state of an income token: index (Q128), remainder, ownerless, distributed and taken totals
     ///         (Q60 fitness functions).

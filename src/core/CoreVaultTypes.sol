@@ -114,6 +114,9 @@ struct HubBoundTransfer {
 ///        liveness, DEC-021, DEC-056).
 /// @param lastPrice Last known price1e18 per token (IPriceSource scale), refreshed likewise; a payout falls back to it
 ///        when the price source reverts.
+/// @param owedFees Fees whose transfer to their recipient failed when charged, per token and recipient; outside every
+///        value base, never swept, paid by `claimOwedFees` (security review S-12).
+/// @param owedFeesTotal Sum of `owedFees` per token (part of the ledger, DEC-080).
 struct CoreVaultState {
     Mandate mandate;
     uint256 idle;
@@ -136,4 +139,6 @@ struct CoreVaultState {
     mapping(address bridgeAdapter => bytes32) bridgeCodehash;
     uint256 lastHubValue;
     mapping(address token => uint256) lastPrice;
+    mapping(address token => mapping(address recipient => uint256)) owedFees;
+    mapping(address token => uint256) owedFeesTotal;
 }

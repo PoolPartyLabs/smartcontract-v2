@@ -454,8 +454,20 @@ library CoreVaultLogic {
         s.collectedIncome[token] += net;
         s.income.distribute(token, net, IERC20(w.shareToken).totalSupply());
         emit ICoreVault.CollectedIncomeReceived(token, amount, managerFee, slice, sliceBps);
-        if (slice != 0) IERC20(token).safeTransfer(w.protocolRecipient, slice);
-        if (managerFee != 0) IERC20(token).safeTransfer(w.managerFeeVault, managerFee);
+        payFee(s, token, w.protocolRecipient, slice);
+        payFee(s, token, w.managerFeeVault, managerFee);
+    }
+
+    /// @notice Transfers a fee to its recipient, or books it as owed when the transfer fails.
+    /// @dev Security review S-12: the Protocol Recipient and the ManagerFeeVault are immutable third-party addresses on
+    ///      the path of every deposit, claim, income collection and report delivery. A USDC blocklist entry on either
+    ///      (FiatToken reverts a transfer to a blacklisted address) or a reverting recipient must not freeze the fund:
+    ///      the fee stays in the Core Vault, outside every value base and inside the ledger, until `claimOwedFees`.
+    function payFee(CoreVaultState storage s, address token, address recipient, uint256 amount) internal {
+        if (amount == 0 || IERC20(token).trySafeTransfer(recipient, amount)) return;
+        s.owedFees[token][recipient] += amount;
+        s.owedFeesTotal[token] += amount;
+        emit ICoreVault.FeeAccrued(token, recipient, amount);
     }
 
     /// @notice DEC-106, DEC-110: the registry is read at every charge. A failed read or a value above 100% never blocks

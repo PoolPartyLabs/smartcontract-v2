@@ -320,10 +320,11 @@ abstract contract CoreVaultBase is ICoreVault, ReentrancyGuardTransient {
 
     /// @notice Every amount of `token` the Core Vault's ledger holds.
     /// @dev DEC-080, DEC-096, DEC-101: Idle, Operating Cash and unmatched arrivals (USDC only) plus the collected income
-    ///      of the token. Attributed Income is a claim paid out of the collected balance, so it is inside it and is not
+    ///      and the owed fees (S-12) of the token. Attributed Income is a claim paid out of the collected balance, so it is inside it and is not
     ///      added a second time; no fee is ever owed here (ruling 2026-09-29: fees leave at collection).
     function _ledger(address token) internal view returns (uint256 amount) {
-        amount = _s.collectedIncome[token];
+        // Security review S-12: fees whose transfer failed are owed to their recipient, never swept.
+        amount = _s.collectedIncome[token] + _s.owedFeesTotal[token];
         if (token == usdc) amount += _s.idle + _s.operatingCash + _s.unmatchedArrivals;
     }
 
