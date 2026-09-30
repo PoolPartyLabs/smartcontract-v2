@@ -41,6 +41,47 @@ export function sqrtPriceAtTick(tick: number): bigint {
   return (ratio >> 32n) + (ratio % (1n << 32n) === 0n ? 0n : 1n);
 }
 
+const Q96 = 1n << 96n;
+
+/** OpenZeppelin Math.sqrt: the floor of the square root. */
+function sqrt(n: bigint): bigint {
+  if (n < 2n) return n;
+  let x = n;
+  let y = (x + 1n) >> 1n;
+  while (y < x) {
+    x = y;
+    y = (x + n / x) >> 1n;
+  }
+  return x;
+}
+
+/** v4-core SqrtPriceMath.getAmount0Delta with roundUp = false. */
+function amount0Delta(sqrtA: bigint, sqrtB: bigint, liquidity: bigint): bigint {
+  if (sqrtA > sqrtB) [sqrtA, sqrtB] = [sqrtB, sqrtA];
+  return ((liquidity << 96n) * (sqrtB - sqrtA)) / sqrtB / sqrtA;
+}
+
+/** v4-core SqrtPriceMath.getAmount1Delta with roundUp = false. */
+function amount1Delta(sqrtA: bigint, sqrtB: bigint, liquidity: bigint): bigint {
+  if (sqrtA > sqrtB) [sqrtA, sqrtB] = [sqrtB, sqrtA];
+  return (liquidity * (sqrtB - sqrtA)) / Q96;
+}
+
+/**
+ * The token amounts a range position holds at the price-source price (security review S-1,
+ * `CoreVaultLogic._oracleComposition`): recomputed from `liquidity` and the ticks at
+ * sqrtPriceX96 = sqrt(price0 / price1) * 2^96, rounded down as on removal. `price0`, `price1` are the unit prices
+ * in USDC (18 decimals of precision, as IPriceSource.priceInUsdc returns them; 1e18 for USDC itself).
+ */
+export function oracleAmounts(tickLower: number, tickUpper: number, liquidity: bigint, price0: bigint, price1: bigint): [bigint, bigint] {
+  const sqrtPrice = sqrt((price0 * Q96) / price1) << 48n;
+  const lower = sqrtPriceAtTick(tickLower);
+  const upper = sqrtPriceAtTick(tickUpper);
+  if (sqrtPrice <= lower) return [amount0Delta(lower, upper, liquidity), 0n];
+  if (sqrtPrice < upper) return [amount0Delta(sqrtPrice, upper, liquidity), amount1Delta(lower, sqrtPrice, liquidity)];
+  return [0n, amount1Delta(lower, upper, liquidity)];
+}
+
 export async function currentTick(side: Side, stateView: Address, poolId: Hex): Promise<number> {
   const [, tick] = await read<readonly [bigint, number, number, number]>(side, {
     address: stateView,

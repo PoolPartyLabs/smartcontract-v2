@@ -10,6 +10,7 @@ import {
   decodeAbiParameters,
   decodeEventLog,
   encodeAbiParameters,
+  zeroAddress,
   type Abi,
   type Address,
   type Hex,
@@ -51,7 +52,7 @@ import { DEFAULT_KEEPER_OPTIONS, runningKeeperPid, startKeeper, type Keeper } fr
 import { bold, dim, green, logger, red, units, type Logger } from "./log.ts";
 import { ensureFeedFresh } from "./price-feed.ts";
 import { readState, type DeploymentState, type FundRecord } from "./state.ts";
-import { centerTick, currentTick, generateFees, openParams, swapParams } from "./uniswap.ts";
+import { centerTick, currentTick, generateFees, openParams, oracleAmounts, swapParams } from "./uniswap.ts";
 import { waitForDelivery, warp, type SpokeRef } from "./warp.ts";
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -266,10 +267,24 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     const [p] = await view<readonly [bigint, bigint]>("arbitrum", priceSource, chainlinkPriceSourceAbi, "priceInUsdc", [token], at);
     return mulDiv(amount, p, WHOLE);
   };
+  const unitPrice = async (token: Address, at?: bigint) => {
+    if (token.toLowerCase() === ARBITRUM.usdc.toLowerCase()) return WHOLE;
+    const [p] = await view<readonly [bigint, bigint]>("arbitrum", priceSource, chainlinkPriceSourceAbi, "priceInUsdc", [token], at);
+    return p;
+  };
+  // Security review S-1 (CoreVaultLogic._oracleComposition): a range position is valued at the price-source price from
+  // its liquidity and ticks, never at the pool's spot composition; a single-token position keeps its reported principal.
+  const positionAmounts = async (p: any, at?: bigint): Promise<[bigint, bigint]> => {
+    if (p.token1 === zeroAddress || p.tickLower >= p.tickUpper || p.liquidity === 0n) return [p.principal0, p.principal1];
+    return oracleAmounts(p.tickLower, p.tickUpper, p.liquidity, await unitPrice(p.token0, at), await unitPrice(p.token1, at));
+  };
   const principalValue = async (r: any, at?: bigint) => {
     let value = 0n;
     for (const u of r.unallocated) value += await usdcValue(u.token, u.amount, at);
-    for (const p of r.positions) value += (await usdcValue(p.token0, p.principal0, at)) + (await usdcValue(p.token1, p.principal1, at));
+    for (const p of r.positions) {
+      const [amount0, amount1] = await positionAmounts(p, at);
+      value += (await usdcValue(p.token0, amount0, at)) + (await usdcValue(p.token1, amount1, at));
+    }
     return value;
   };
   // DEC-042, DEC-104: Share Assets rebuilt bucket by bucket (EndToEndBase `_sumOfBuckets`), every read in block `at`.
