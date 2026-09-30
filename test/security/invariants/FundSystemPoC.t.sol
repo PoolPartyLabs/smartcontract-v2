@@ -198,21 +198,21 @@ contract FundSystemPoCTest is FundSystemFixture {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // Finding DYN-04: with Share Assets at zero and shares outstanding, every exit verb reverts
+    // Finding DYN-04 (security review S-18): at zero Share Assets a claim closes its request instead of reverting
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// Found by the deep invariant campaign on the existing Core Vault suite (ZeroSharePrice). Payout liveness
-    /// (DEC-021, DEC-056) says a claim never reverts because of a valuation; with a valuation of exactly zero (the
-    /// state above, a total loss in a position, or a payout fallback to a never-priced token, CS-OQ-4) an open
-    /// request cannot be claimed, a new one cannot be opened and no deposit can enter, until value returns.
-    function test_POC_zeroShareAssetsRevertEveryPayoutVerb() public {
+    /// Was PoC `test_POC_zeroShareAssetsRevertEveryPayoutVerb`: with Share Assets at exactly zero and shares
+    /// outstanding, `claimPayout`, `requestPayout` and `deposit` all reverted `ZeroSharePrice`, so an open request could
+    /// never be closed. Fix (S-18, `CoreVault._sharesFor`): the claim closes the request with nothing burned or paid
+    /// (`closedBelowOneShare`), the holder keeps its shares; a new request or a deposit still reverts, since nothing
+    /// can be priced until value returns (documented in docs/security/KNOWN-LIMITATIONS.md).
+    function test_SEC_S18_zeroShareAssetsClaimClosesTheRequest() public {
         _deposit(ana, 100_250e6);
         vm.prank(ana);
         sys.core.requestPayout(1000e6, ICoreVault.PayoutMode.Instant);
         _deposit(bruno, 10_025e6);
+        uint256 anaShares = sys.shares.balanceOf(ana);
 
-        // Everything is allocated to the hub Spoke Vault and then lost there (a position that went to zero), modelled
-        // by the hub report reading zero: Share Assets are zero with shares outstanding.
         uint256 idle = sys.core.idle();
         vm.prank(manager);
         sys.core.allocateToHubSpokeVault(idle);
@@ -220,8 +220,13 @@ contract FundSystemPoCTest is FundSystemFixture {
         assertEq(sys.core.shareAssets(), 0);
 
         vm.prank(ana);
-        vm.expectRevert(ShareMath.ZeroSharePrice.selector);
-        sys.core.claimPayout("");
+        ICoreVault.PayoutReceipt memory r = sys.core.claimPayout("");
+        assertTrue(r.closedBelowOneShare, "S-18: closed with nothing burned");
+        assertEq(r.sharesBurned, 0);
+        assertEq(r.usdcPaid, 0);
+        assertFalse(sys.core.payoutRequest(ana).open, "S-18: the request is closed");
+        assertEq(sys.shares.balanceOf(ana), anaShares, "S-18: the holder keeps its shares");
+
         vm.prank(bruno);
         vm.expectRevert(ShareMath.ZeroSharePrice.selector);
         sys.core.requestPayout(1e6, ICoreVault.PayoutMode.Instant);

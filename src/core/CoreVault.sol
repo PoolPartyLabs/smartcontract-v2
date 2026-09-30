@@ -192,7 +192,12 @@ contract CoreVault is CoreVaultTransit {
         if (req.mode == PayoutMode.Standard) c.available += req.reserved;
     }
 
+    /// @dev Security review S-18 (DEC-021, DEC-056, FV-OQ-2): at a zero Share Price with shares outstanding (a total
+    ///      loss, or every value base reading zero) nothing can be paid, so no share is burned and the claim closes the
+    ///      request like an outstanding tail below one share (`closedBelowOneShare`) instead of reverting
+    ///      `ZeroSharePrice`; the holder keeps its shares and may request again once value returns.
     function _sharesFor(Claim memory c, uint256 usdcAmount) private pure returns (uint256 shares) {
+        if (c.price == 0) return 0;
         shares = ShareMath.sharesToBurn(usdcAmount, c.price);
         if (shares > c.balance) shares = c.balance;
     }
