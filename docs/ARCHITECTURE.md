@@ -298,6 +298,16 @@ WETH, 1:1 for USDG). The MVP therefore:
   libraries (§1.1), never into adapters.
 - No upgradeability: a live fund never adopts new code; a new version is a new fund (DEC-058).
 - Pausing an adapter blocks entries only; exits always work (DEC-021).
+- Valuation never trusts a price anyone can move within a transaction: a Uniswap V4 range position is recomputed
+  from its liquidity and ticks at the price-source price (`CoreVaultLogic._oracleComposition`), and the automatic
+  unwind floors its swap at `max(spot, oracle)` less 5% (security review S-1, S-2).
+- Cross-chain value is credited only against evidence: an arrival only up to what an accepted report of the origin
+  spoke listed, a hub-to-spoke send only after that spoke has reported once, a report only from a spoke running the
+  same Mandate (`mandateHash` in the payload), no exclusive relayer (S-4, S-6, S-9, S-14).
+- Fee transfers that fail (a blocklisted recipient) are booked as owed and paid later by a permissionless verb, so no
+  recipient can freeze the fund (S-12).
+- The register of the 2026-09-30 security sweep, the threat model, the invariants and the open decisions are under
+  `docs/security/` (`SECURITY.md` at the root states the audit status: none yet).
 
 ## 7. Testing strategy
 

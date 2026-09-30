@@ -41,11 +41,12 @@ src/
   libraries/   Shared math (whole-share rounding, USDC truncation, income accumulator)
   interfaces/  External protocol interfaces not shipped by a dependency (Across)
 test/
-  unit/        Pure unit and fuzz tests, no network
-  invariant/   Invariant suites (share price never moved by third-party entries, ledger vs balance, ...)
+  unit/        Pure unit and fuzz tests, no network (invariant suites next to their contract)
+  security/    Regression tests of the security findings, whole-fund invariants, symbolic and mutation suites
   fork/        Mainnet fork tests against Arbitrum One and Robinhood Chain (never testnets)
 script/        Deployment scripts (fork first, then mainnet)
 docs/          DECISIONS.md, OPEN-QUESTIONS.md, ARCHITECTURE.md, INTEGRATIONS.md, DEPLOYMENT.md
+  security/    Threat model, findings register, invariants, tooling, known limitations, pre-mainnet checklist
 ```
 
 ## Toolchain
@@ -89,6 +90,13 @@ pnpm down
 
 See `local-e2e/README.md` for what is real and what is simulated, the actors and keys, the state file and
 troubleshooting (public RPCs serve fork state for minutes only; an archive RPC is recommended for long sessions).
+
+## Security
+
+**Not audited by a third party.** One internal security sweep (static, dynamic, symbolic, mutation and five manual
+lenses) ran on 2026-09-30: 44 findings, 16 fixed with regression tests, 3 waiting for a founder decision, 25
+acknowledged. Read `SECURITY.md` for the disclosure policy and `docs/security/` for the threat model, the register,
+the invariants, the tooling and the pre-mainnet checklist.
 
 ## Canonical vocabulary
 
