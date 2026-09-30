@@ -8,6 +8,7 @@ import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
+import {CoreBridgeVM, GuardianSignature} from "wormhole-sdk/interfaces/ICoreBridge.sol";
 import {IFundFactory} from "../../../src/interfaces/IFundFactory.sol";
 import {FundFactory} from "../../../src/factory/FundFactory.sol";
 import {CoreVault} from "../../../src/core/CoreVault.sol";
@@ -15,6 +16,7 @@ import {ShareToken} from "../../../src/core/ShareToken.sol";
 import {ManagerRegistry} from "../../../src/core/ManagerRegistry.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {UniswapV4Adapter} from "../../../src/adapters/UniswapV4Adapter.sol";
+import {ValueReportReceiver} from "../../../src/report/ValueReportReceiver.sol";
 import {BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
 import {Mandate} from "../../../src/mandate/Mandate.sol";
 import {MockToken} from "../../mocks/v4/MockToken.sol";
@@ -23,6 +25,7 @@ import {MockV4} from "../../mocks/v4/MockV4.sol";
 import {MockAcrossSpokePool} from "../../mocks/across/MockAcrossSpokePool.sol";
 import {MockAaveV3Pool} from "../../mocks/aave/MockAaveV3Pool.sol";
 import {MockWormholeCore} from "../../mocks/spoke/MockWormholeCore.sol";
+import {MockCoreBridge} from "../../mocks/receiver/MockCoreBridge.sol";
 import {MockPriceSource} from "../../mocks/core/MockPriceSource.sol";
 import {FactoryDeployment} from "../../../script/FactoryDeployment.sol";
 import {FundMandate} from "../../../script/FundMandate.sol";
@@ -47,7 +50,9 @@ abstract contract AccessFundFixture is Test, FactoryDeployment, FundMandate {
     MockAcrossSpokePool internal hubAcross;
     MockAcrossSpokePool internal spokeAcross;
     MockAaveV3Pool internal aave;
-    MockWormholeCore internal hubWormhole;
+    /// @dev The hub Core Bridge only verifies VAAs (a "VAA" is `abi.encode(CoreBridgeVM)`, as in the receiver's unit
+    ///      tests); the spoke Core Bridge only records published messages.
+    MockCoreBridge internal hubWormhole;
     MockWormholeCore internal spokeWormhole;
     MockPermit2 internal permit2;
     MockV4 internal v4;
@@ -76,7 +81,7 @@ abstract contract AccessFundFixture is Test, FactoryDeployment, FundMandate {
         spokeAcross = new MockAcrossSpokePool(0);
         aave = new MockAaveV3Pool(MockAaveV3Pool.Rounding.HalfUp);
         aave.listReserve(address(usdc));
-        hubWormhole = new MockWormholeCore();
+        hubWormhole = new MockCoreBridge();
         spokeWormhole = new MockWormholeCore();
         permit2 = new MockPermit2();
         v4 = new MockV4(permit2);
@@ -89,11 +94,7 @@ abstract contract AccessFundFixture is Test, FactoryDeployment, FundMandate {
         usdc.mint(address(v4), 1e15);
         weth.mint(address(v4), 1e15);
         cleanState = vm.snapshotState();
-        vm.chainId(HUB);
-        Deployment memory d;
-        d = _deployFactory(_wiring(true), true, d);
-        hubDeployment = d;
-        factory = d.factory;
+        _hubFactory();
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -115,6 +116,16 @@ abstract contract AccessFundFixture is Test, FactoryDeployment, FundMandate {
         w.protocolRecipient = recipient;
         w.guardian = guardian;
         w.flowFeeBps = 25;
+    }
+
+    /// @dev The hub chain's factory. Called again after `_spokeFactory`, it switches back to a fresh hub chain.
+    function _hubFactory() internal {
+        vm.revertToState(cleanState);
+        vm.chainId(HUB);
+        Deployment memory d;
+        d = _deployFactory(_wiring(true), true, d);
+        hubDeployment = d;
+        factory = d.factory;
     }
 
     /// @dev The spoke chain's factory, at the hub factory's address (the hub state is reverted, as on another chain).
@@ -187,6 +198,21 @@ abstract contract AccessFundFixture is Test, FactoryDeployment, FundMandate {
             exclusivityDeadline: exclusiveRelayer == address(0) ? 0 : 3600,
             exclusiveRelayer: exclusiveRelayer
         });
+    }
+
+    /// @dev Delivers a spoke report payload to the fund's receiver as a finalized VAA of the spoke's emitter.
+    function _deliverReport(address receiver, address spokeVault, uint64 wormholeSequence, bytes memory payload)
+        internal
+    {
+        CoreBridgeVM memory m;
+        m.version = 1;
+        m.emitterChainId = 72;
+        m.emitterAddress = bytes32(uint256(uint160(spokeVault)));
+        m.sequence = wormholeSequence;
+        m.consistencyLevel = 1;
+        m.payload = payload;
+        m.signatures = new GuardianSignature[](0);
+        ValueReportReceiver(receiver).deliver(abi.encode(m));
     }
 
     function _openParams(uint128 amount0Max, uint128 amount1Max) internal view returns (bytes memory) {
