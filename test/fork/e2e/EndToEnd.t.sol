@@ -419,8 +419,8 @@ abstract contract EndToEndScenario is EndToEndBase {
     ///      Value. Ruling 2026-09-29: the spoke's quantities are priced through Chainlink for WETH and 1:1 for USDG.
     function _phase6DeliverReport() internal {
         _onArbitrum();
+        // The guardian override was set up in phase 4, when the spoke's first report was delivered (S-14).
         ICoreBridge arbitrumCore = ICoreBridge(ARB_WORMHOLE_CORE);
-        arbitrumCore.setUpOverride();
         uint256 assetsBefore = core.shareAssets();
         uint256 inFlightBefore = core.inFlightValue();
         assertEq(inFlightBefore, amountToArrive);
