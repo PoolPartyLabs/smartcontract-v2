@@ -42,7 +42,7 @@ contract POC_OperatingCashFreeze is CoreVaultFixture {
         vault.setOperatingCashParameters(50_000e6, 50_000e6);
 
         // Any routine operation executes the move: here a stranger's small deposit.
-        _deposit(bob, 1_000e6);
+        _deposit(bob, 1000e6);
 
         // Half of the fund left Share Assets for good.
         assertEq(vault.operatingCash(), 50_000e6);

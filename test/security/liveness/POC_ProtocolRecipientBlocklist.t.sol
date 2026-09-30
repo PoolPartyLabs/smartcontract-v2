@@ -70,10 +70,10 @@ contract POC_ProtocolRecipientBlocklist is CoreVaultFixture {
     function test_POC_blocklistedProtocolRecipientFreezesDepositsPayoutsAndIncome() public {
         // Two shareholders, one Standard request already past its term and one Instant request.
         _deposit(alice, 10_000e6);
-        _deposit(bob, 5_000e6);
-        _request(alice, 4_000e6, ICoreVault.PayoutMode.Standard);
+        _deposit(bob, 5000e6);
+        _request(alice, 4000e6, ICoreVault.PayoutMode.Standard);
         vm.warp(block.timestamp + 72 hours + 1);
-        _request(bob, 1_000e6, ICoreVault.PayoutMode.Instant);
+        _request(bob, 1000e6, ICoreVault.PayoutMode.Instant);
         uint256 idleBefore = vault.idle();
         assertGt(idleBefore, 0);
 
@@ -89,21 +89,21 @@ contract POC_ProtocolRecipientBlocklist is CoreVaultFixture {
         vault.claimPayout("");
 
         // 2. No deposit can enter either.
-        usdc.mint(ana, 1_000e6);
+        usdc.mint(ana, 1000e6);
         vm.startPrank(ana);
-        usdc.approve(address(vault), 1_000e6);
+        usdc.approve(address(vault), 1000e6);
         vm.expectRevert(bytes("Blacklistable: account is blacklisted"));
-        vault.deposit(1_000e6, 0);
+        vault.deposit(1000e6, 0);
         vm.stopPrank();
 
         // 3. Hub income can no longer be collected (the protocol slice of the performance fee is pushed in-line).
         vm.expectRevert(bytes("Blacklistable: account is blacklisted"));
-        hubVault.forwardIncome(address(usdc), 1_000e6);
+        hubVault.forwardIncome(address(usdc), 1000e6);
 
         // 4. Nothing moved, nothing can move: the principal is frozen with no verb able to change the recipient.
         assertEq(vault.idle(), idleBefore);
         assertEq(shares.balanceOf(alice), 10_000e18 - 25e18);
-        assertEq(shares.balanceOf(bob), 5_000e18 - 12e18 - 1e18); // 4,987.5 rounds down to 4,987 whole shares
+        assertEq(shares.balanceOf(bob), 5000e18 - 12e18 - 1e18); // 4,987.5 rounds down to 4,987 whole shares
         assertEq(vault.protocolRecipient(), protocol);
         // The only verb that still runs pays nothing: no income was ever collected.
         vm.prank(alice);

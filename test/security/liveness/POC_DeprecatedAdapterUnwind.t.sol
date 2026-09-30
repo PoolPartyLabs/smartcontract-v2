@@ -77,7 +77,9 @@ contract POC_DeprecatedAdapterUnwind is HubStackFixture {
         // 3. The manager can pull the liquidity, but the WETH has no path to USDC: the swap is gated, the return to
         //    the Core Vault takes USDC only, and the Mandate lists no other adapter or pool.
         vm.startPrank(manager);
-        hubSpoke.closePosition(address(adapter), positionKey, abi.encode(UniswapV4Adapter.CloseParams(0, 0, block.timestamp)));
+        hubSpoke.closePosition(
+            address(adapter), positionKey, abi.encode(UniswapV4Adapter.CloseParams(0, 0, block.timestamp))
+        );
         uint256 strandedWeth = hubSpoke.unallocatedBalance(address(weth));
         assertGt(strandedWeth, 19e18);
         vm.expectRevert(IAdapterGuard.AdapterIsDeprecated.selector);
