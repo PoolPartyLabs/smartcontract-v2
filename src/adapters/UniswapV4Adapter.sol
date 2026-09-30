@@ -527,10 +527,8 @@ contract UniswapV4Adapter is IAdapter, AdapterGuard, ReentrancyGuard, IUnlockCal
         PoolKey memory key = _operablePool(poolKey);
         bool zeroForOne = Currency.unwrap(key.currency0) == tokenIn;
         if (!zeroForOne && Currency.unwrap(key.currency1) != tokenIn) revert TokenNotInPool(tokenIn);
-        if (deprecated) {
-            address tokenOut = Currency.unwrap(zeroForOne ? key.currency1 : key.currency0);
-            if (tokenOut != ISpokeVault(vault).baseToken()) revert AdapterIsDeprecated();
-        }
+        address tokenOut = Currency.unwrap(zeroForOne ? key.currency1 : key.currency0);
+        if (deprecated && tokenOut != ISpokeVault(vault).baseToken()) revert AdapterIsDeprecated();
         if (amountIn == 0) revert ZeroAmount();
         SwapExactInputParams memory p =
             params.length == 0 ? SwapExactInputParams(0, block.timestamp) : abi.decode(params, (SwapExactInputParams));
@@ -545,7 +543,6 @@ contract UniswapV4Adapter is IAdapter, AdapterGuard, ReentrancyGuard, IUnlockCal
         // (DEC-080: a physical hand-back, never a reported amount).
         _returnUnused(tokenIn);
 
-        address tokenOut = zeroForOne ? Currency.unwrap(key.currency1) : Currency.unwrap(key.currency0);
         emit Swapped(poolKey, tokenIn, tokenOut, amountIn, amountOut);
     }
 
