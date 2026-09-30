@@ -55,8 +55,13 @@ contract CoreVaultHandler is Test {
     function requestPayout(uint256 seed, uint256 amount, bool standard) external trackIndex {
         address who = actors[seed % 3];
         if (shares.balanceOf(who) == 0 || vault.payoutRequest(who).open) return;
+        // With Share Assets at zero and shares outstanding no share can be priced and a request reverts with
+        // `ZeroSharePrice` (found by the deep campaign of docs/security/reports/dynamic-analysis.md: every Idle unit
+        // allocated, then `movePrice(0)`); the handler has nothing to request then.
+        uint256 price = vault.sharePrice();
+        if (price == 0) return;
         // DEC-035 spirit (final verification): a request buys at least one share at the current Share Price.
-        amount = bound(amount, (vault.sharePrice() + 1e18 - 1) / 1e18, 100_000e6);
+        amount = bound(amount, (price + 1e18 - 1) / 1e18, 100_000e6);
         vm.prank(who);
         vault.requestPayout(amount, standard ? ICoreVault.PayoutMode.Standard : ICoreVault.PayoutMode.Instant);
     }
