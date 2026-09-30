@@ -140,10 +140,29 @@ export function layoutOf(state: DeploymentState, side: Side, token: Address): Ba
   return layout;
 }
 
+/** anvil's default keys are public, and on mainnet their accounts carry an EIP-7702 delegation (to a sweeper). On the
+ *  forks the actors must be plain EOAs, so a delegation is cleared. */
+export async function clearDelegation(side: Side, holder: Address): Promise<Hex | undefined> {
+  const code = await nodes[side].client.getCode({ address: holder });
+  if (!code || code === "0x") return undefined;
+  await anvil.setCode(side, holder, "0x");
+  return code;
+}
+
 export async function fundAccounts(state: DeploymentState, log: Logger): Promise<void> {
   for (const side of ["arbitrum", "robinhood"] as Side[]) {
+    const cleared = new Map<string, Hex>();
     for (const [name, account] of Object.entries(actors) as [ActorName, (typeof actors)[ActorName]][]) {
+      const delegation = await clearDelegation(side, account.address);
+      if (delegation) cleared.set(name, delegation);
       await topUpEth(side, account.address, name === "trader" ? TARGETS.traderEth : TARGETS.eth);
+    }
+    if (cleared.size > 0) {
+      log.info("cleared the EIP-7702 delegations anvil's public keys carry on mainnet", {
+        chain: nodes[side].chain.id,
+        actors: [...cleared.keys()].join(","),
+        delegation: [...new Set(cleared.values())].join(","),
+      });
     }
   }
   const usdc = layoutOf(state, "arbitrum", ARBITRUM.usdc);
