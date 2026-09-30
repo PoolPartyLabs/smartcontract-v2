@@ -36,13 +36,13 @@ contract TransitStateMachineInvariantTest is FundSystemFixture {
     }
 
     /// DEC-066, DEC-085: the hub's transit books are exactly the sums over its transits by state: the Spoke Cap
-    /// counts the amount sent of every transit still Sent (C1) plus the pending return leg of both kinds (B1), and
+    /// counts the amount sent of every transit still Sent (C1) or whose expiry was attested by time alone (S-13) plus the pending return leg of both kinds (B1), and
     /// In-flight Value counts the amount to arrive of every transit Sent or ExpiryAttested plus the pending Principal
     /// return leg. What really happened to each Across deposit is consistent with the state the hub keeps.
     function invariant_DEC066_booksAreTheSumOfTheirTransits() public view {
         (, uint256 inFlightSent, uint256 inFlightToHub, uint256 cap) = sys.core.spokeCapUsage(0);
         assertEq(cap, SPOKE_CAP);
-        assertEq(inFlightSent, handler.hubSendsIn(TransitState.Sent, false), "DEC-066 C1: Spoke Cap in flight");
+        assertEq(inFlightSent, handler.hubSendsHoldingTheCap(), "DEC-066 C1, S-13: Spoke Cap in flight");
         assertEq(
             sys.core.inFlightValue(),
             handler.hubSendsIn(TransitState.Sent, true) + handler.hubSendsIn(TransitState.ExpiryAttested, true)

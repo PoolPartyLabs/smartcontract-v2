@@ -222,6 +222,11 @@ abstract contract CoreVaultBase is ICoreVault, ReentrancyGuardTransient {
     }
 
     /// @inheritdoc ICoreVault
+    function spokeCapHeld(bytes32 transitId) external view returns (bool) {
+        return _s.spokeCapHeld[transitId];
+    }
+
+    /// @inheritdoc ICoreVault
     function transit(bytes32 transitId) external view returns (Transit memory) {
         return _s.transits[transitId];
     }

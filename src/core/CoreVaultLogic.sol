@@ -528,6 +528,7 @@ library CoreVaultLogic {
             if (s.transitSpoke[id] != spokeIndex) continue;
             if (list[i].amount < t.amountToArrive) continue;
             if (state == TransitState.Sent) book.inFlightSent -= t.amountSent;
+            else _releaseHeldCap(s, book, id, t.amountSent);
             if (state != TransitState.RefundRecognized) book.inFlightToArrive -= t.amountToArrive;
             book.confirmedArrived += t.amountToArrive;
             t.state = TransitState.ArrivalConfirmed;
@@ -653,9 +654,24 @@ library CoreVaultLogic {
         bytes32 transitId,
         uint32 deadline
     ) public view returns (bool) {
-        if (block.timestamp > uint256(deadline) + s.mandate.spokes[spokeIndex].maxReportAge) {
-            return true;
-        }
+        return _expiryByTime(s, spokeIndex, deadline) || _reportProvesNonArrival(s, w, spokeIndex, transitId, deadline);
+    }
+
+    /// @dev The time path: the deadline plus the spoke's report lifetime has passed. It proves nothing about the
+    ///      arrival itself (security review S-13).
+    function _expiryByTime(CoreVaultState storage s, uint256 spokeIndex, uint32 deadline) private view returns (bool) {
+        return block.timestamp > uint256(deadline) + s.mandate.spokes[spokeIndex].maxReportAge;
+    }
+
+    /// @dev The report path: the latest accepted report, built after the deadline and listing fewer than
+    ///      `ARRIVAL_WINDOW` ids, does not list the transit at or above its `amountToArrive`.
+    function _reportProvesNonArrival(
+        CoreVaultState storage s,
+        CoreVaultWiring memory w,
+        uint256 spokeIndex,
+        bytes32 transitId,
+        uint32 deadline
+    ) private view returns (bool) {
         IValueReportReceiver receiver = IValueReportReceiver(w.reportReceiver);
         if (!receiver.hasReport(spokeIndex)) return false;
         (ReportCodec.Report memory r,,) = receiver.latestReport(spokeIndex);
@@ -839,10 +855,25 @@ library CoreVaultLogic {
         uint32 deadline = t.fillDeadline;
         if (block.timestamp <= deadline) revert ICoreVault.FillDeadlineNotReached(transitId, deadline);
         uint256 spokeIndex = s.transitSpoke[transitId];
-        if (!nonArrivalProvable(s, w, spokeIndex, transitId, deadline)) revert ICoreVault.ExpiryNotProvable(transitId);
+        bool byReport = _reportProvesNonArrival(s, w, spokeIndex, transitId, deadline);
+        if (!byReport && !_expiryByTime(s, spokeIndex, deadline)) revert ICoreVault.ExpiryNotProvable(transitId);
         t.state = TransitState.ExpiryAttested;
-        s.spokeBooks[spokeIndex].inFlightSent -= t.amountSent;
+        // Security review S-13 (DEC-037, DEC-095; DEC-066 A2 read conservatively): only a report proves that the
+        // transit did not arrive. On the time path alone it may have been filled and never confirmed (a report outage,
+        // or its id evicted from the arrival window), so its Spoke Cap stays held until the arrival is confirmed or
+        // the refund is recognized; otherwise the manager could send the cap again on top of the arrived capital.
+        if (byReport) s.spokeBooks[spokeIndex].inFlightSent -= t.amountSent;
+        else s.spokeCapHeld[transitId] = true;
         emit ICoreVault.TransitExpiryAttested(transitId, spokeIndex, msg.sender);
+    }
+
+    /// @dev Releases the Spoke Cap a time-path attestation kept (security review S-13).
+    function _releaseHeldCap(CoreVaultState storage s, SpokeBook storage book, bytes32 transitId, uint256 amountSent)
+        private
+    {
+        if (!s.spokeCapHeld[transitId]) return;
+        delete s.spokeCapHeld[transitId];
+        book.inFlightSent -= amountSent;
     }
 
     /// @notice ICoreVault.recognizeRefund (DEC-066, QA6): pulls an attested-expired transit's refund from its escrow
@@ -866,8 +897,11 @@ library CoreVaultLogic {
         amount = t.amountSent;
         if (held < amount) revert ICoreVault.NoRefund(transitId);
         uint256 spokeIndex = s.transitSpoke[transitId];
-        // The Spoke Cap was released at the attested expiry; Share Assets release the transit now (QB11/QB10 stance).
-        s.spokeBooks[spokeIndex].inFlightToArrive -= t.amountToArrive;
+        // The Spoke Cap was released at the attested expiry, or is released now if the expiry was attested by time
+        // alone (S-13: the refund proves non-arrival); Share Assets release the transit now (QB11/QB10 stance).
+        SpokeBook storage book = s.spokeBooks[spokeIndex];
+        _releaseHeldCap(s, book, transitId, amount);
+        book.inFlightToArrive -= t.amountToArrive;
         t.state = TransitState.RefundRecognized;
         s.idle += amount;
         emit ICoreVault.TransitRefundRecognized(transitId, spokeIndex, amount);

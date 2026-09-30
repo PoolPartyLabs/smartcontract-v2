@@ -548,13 +548,15 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         assertEq(vault.buildReport().arrivedTransits.length, 0);
     }
 
-    function test_OQ09_repeatedArrivalIdAddsAndIsListedOnce() public {
+    function test_OQ09_repeatedArrivalIdAddsToOneEntry() public {
         _arrive(1e6, ARRIVAL, TransferKind.Principal);
         _arrive(2e6, ARRIVAL, TransferKind.Principal);
         assertEq(vault.arrivals(ARRIVAL), 3e6);
         ReportCodec.Report memory r = vault.buildReport();
-        assertEq(r.arrivedTransits.length, 1);
+        // S-13: each credit of at least the minimum lists the id; every listing carries the same credited total.
+        assertEq(r.arrivedTransits.length, 2);
         assertEq(r.arrivedTransits[0].amount, 3e6);
+        assertEq(r.arrivedTransits[1].amount, 3e6);
     }
 
     function test_OQ09_reportCarriesLast256ArrivalsAndCumulativeReceived() public {
@@ -573,7 +575,9 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         assertEq(SpokeVaultTypes.ARRIVAL_WINDOW, ReportCodec.ARRIVAL_WINDOW);
     }
 
-    function test_OQ09_idIsListedOnceItsCreditedTotalReachesTheMinimum() public {
+    /// @dev Security review S-13: listed when the total first reaches 1 USDG, and again on every credit of at least
+    ///      1 USDG (never on a smaller credit, so flushing the window still costs the minimum per entry).
+    function test_SEC_S13_idIsListedAtTheMinimumAndAgainOnEveryCreditOfTheMinimum() public {
         _disableOperatingCash();
         _arrive(0.4e6, ARRIVAL, TransferKind.Principal);
         assertEq(vault.buildReport().arrivedTransits.length, 0, "below 1 USDG: credited, not listed");
@@ -582,8 +586,12 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         ReportCodec.Report memory r = vault.buildReport();
         assertEq(r.arrivedTransits.length, 1, "listed when the total reaches 1 USDG");
         assertEq(r.arrivedTransits[0].amount, 1e6);
+        _arrive(0.5e6, ARRIVAL, TransferKind.Principal);
+        assertEq(vault.buildReport().arrivedTransits.length, 1, "a credit below the minimum does not list it again");
         _arrive(5e6, ARRIVAL, TransferKind.Principal);
-        assertEq(vault.buildReport().arrivedTransits.length, 1, "and only once");
+        r = vault.buildReport();
+        assertEq(r.arrivedTransits.length, 2, "S-13: a credit of the minimum lists it again");
+        assertEq(r.arrivedTransits[1].amount, 6.5e6, "at its credited total");
     }
 
     // ---------------------------------------------------------------------------------------------------------------

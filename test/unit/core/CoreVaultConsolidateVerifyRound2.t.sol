@@ -96,12 +96,12 @@ contract CoreVaultConsolidateVerifyRound2Test is CoreVaultFixture {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // OQ-09 / CS-OQ-6 / DEC-066: a stranded transit is attestable through the deadline plus report lifetime path, so
-    // it does not keep its Spoke Cap for good (the OQ-09 and CS-OQ-6 rows say it does): the cap is released at the
-    // attested expiry, In-flight Value keeps the transit and the fund-level deduction keeps it counted once; the
-    // escrow holds no refund, so `recognizeRefund` reverts and the transit stays ExpiryAttested.
+    // OQ-09 / CS-OQ-6 / DEC-066: a stranded transit is attestable through the deadline plus report lifetime path.
+    // Security review S-13: that path proves nothing about the arrival, so the Spoke Cap stays held (the OQ-09 and
+    // CS-OQ-6 rows' liveness cost); In-flight Value keeps the transit and the fund-level deduction keeps it counted
+    // once; the escrow holds no refund, so `recognizeRefund` reverts and the transit stays ExpiryAttested.
     // ---------------------------------------------------------------------------------------------------------------
-    function test_OQ09_strandedTransitReleasesItsSpokeCapAtTheTimePathExpiryAndStaysCountedOnce() public {
+    function test_SEC_S13_strandedTransitKeepsItsSpokeCapAtTheTimePathExpiryAndStaysCountedOnce() public {
         bytes32 id = _send(SENT, SENT);
         _deliver(_spokeReport(SENT, SENT)); // credited by the spoke, never listed
         (, uint256 inFlightSent,,) = vault.spokeCapUsage(0);
@@ -111,7 +111,7 @@ contract CoreVaultConsolidateVerifyRound2Test is CoreVaultFixture {
         vault.attestExpiry(id);
         assertEq(uint8(vault.transit(id).state), uint8(TransitState.ExpiryAttested));
         (, inFlightSent,,) = vault.spokeCapUsage(0);
-        assertEq(inFlightSent, 0, "the Spoke Cap is released by the time-path attestation");
+        assertEq(inFlightSent, SENT, "S-13: the time path does not release the Spoke Cap");
         assertEq(vault.inFlightValue(), SENT, "QB11: In-flight Value keeps the transit");
         assertEq(vault.shareAssets(), 9975e6, "counted once through the fund-level deduction");
 

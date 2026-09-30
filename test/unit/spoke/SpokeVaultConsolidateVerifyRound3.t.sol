@@ -37,12 +37,11 @@ contract SpokeVaultConsolidateVerifyRound3Test is SpokeVaultTestBase {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // OQ-09 liveness limit (author's disclosure, round 3): a stranger's listing pushes the real id into the window,
-    // a full window of listable spam evicts it, and the real fill that follows is credited to the same entry but is
-    // never listed again. The transit falls back to the time path on the hub; the hub's fund-level deduction keeps it
-    // counted once. Cost to the stranger: 257 USDG donated. Pinned here so a change to the rule is deliberate.
+    // OQ-09 liveness limit (author's disclosure, round 3), closed by security review S-13: a stranger's listing pushes
+    // the real id into the window and a full window of listable spam evicts it, but the real fill that follows (at
+    // least the listing minimum) lists the id again, so the hub can confirm it. Flushing it again costs 256 USDG more.
     // ---------------------------------------------------------------------------------------------------------------
-    function test_OQ09_realFillAfterAStrangerListingAndAFlushIsCreditedButNeverListedAgain() public {
+    function test_SEC_S13_realFillAfterAStrangerListingAndAFlushIsListedAgain() public {
         _arrive(SpokeVaultTypes.MIN_LISTED_ARRIVAL, GENUINE, TransferKind.Principal);
         for (uint256 i; i < SpokeVaultTypes.ARRIVAL_WINDOW; ++i) {
             _arrive(SpokeVaultTypes.MIN_LISTED_ARRIVAL, keccak256(abi.encode("spam", i)), TransferKind.Principal);
@@ -51,9 +50,9 @@ contract SpokeVaultConsolidateVerifyRound3Test is SpokeVaultTestBase {
 
         ReportCodec.Report memory r = vault.buildReport();
         assertEq(r.arrivedTransits.length, ReportCodec.ARRIVAL_WINDOW);
-        for (uint256 i; i < r.arrivedTransits.length; ++i) {
-            assertTrue(r.arrivedTransits[i].transitId != GENUINE, "the real fill is not listed again");
-        }
+        ReportCodec.TransitAmount memory last = r.arrivedTransits[r.arrivedTransits.length - 1];
+        assertEq(last.transitId, GENUINE, "S-13: the real fill is listed again");
+        assertEq(last.amount, 1000e6 + SpokeVaultTypes.MIN_LISTED_ARRIVAL, "at its credited total");
         assertEq(vault.arrivals(GENUINE), 1000e6 + SpokeVaultTypes.MIN_LISTED_ARRIVAL, "credited to the same entry");
         assertEq(
             r.cumulativeReceived,

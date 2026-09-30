@@ -117,6 +117,8 @@ struct HubBoundTransfer {
 /// @param owedFees Fees whose transfer to their recipient failed when charged, per token and recipient; outside every
 ///        value base, never swept, paid by `claimOwedFees` (security review S-12).
 /// @param owedFeesTotal Sum of `owedFees` per token (part of the ledger, DEC-080).
+/// @param spokeCapHeld An ExpiryAttested transit whose expiry was proven by time alone keeps its Spoke Cap until its
+///        arrival is confirmed or its refund recognized (security review S-13).
 struct CoreVaultState {
     Mandate mandate;
     uint256 idle;
@@ -141,4 +143,5 @@ struct CoreVaultState {
     mapping(address token => uint256) lastPrice;
     mapping(address token => mapping(address recipient => uint256)) owedFees;
     mapping(address token => uint256) owedFeesTotal;
+    mapping(bytes32 transitId => bool) spokeCapHeld;
 }

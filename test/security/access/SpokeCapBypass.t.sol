@@ -6,72 +6,64 @@ import {TransitState} from "../../../src/interfaces/FundTypes.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {CoreVaultFixture} from "../../unit/core/CoreVaultFixture.sol";
 
-/// @title PoC: the Spoke Cap is released by a time-based "expiry" of a transit that was filled, so the manager sends
-///        the cap to the spoke twice
-/// @notice ATTACK. The Spoke Cap is the Mandate's only bound on how much fund principal one spoke may hold (DEC-031,
-///         DEC-037, DEC-095) and is checked on send as `spokeValue + inFlightSent + inFlightToHub + amount <= cap`
-///         (CoreVaultLogic.sol:664-667). `spokeValue` comes from the LAST ACCEPTED report and `inFlightSent` is
-///         released by `attestExpiry` (CoreVaultLogic.sol:722). `attestExpiry` is permissionless and needs no report
-///         at all once `fillDeadline + maxReportAge` has passed (`nonArrivalProvable`, CoreVaultLogic.sol:548-550):
-///         the deadline-plus-lifetime path "proves" non-arrival of a transit that Across filled hours earlier. So the
-///         manager sends the whole cap, has it filled, lets no report be accepted for 6 h 27 min (it runs the fund's
-///         keeper, or it is the only party that bothers; `report()` and `deliver` are permissionless but nobody is
-///         obliged to call them), attests the expiry of its own transit and sends the whole cap again. The next
-///         report then confirms both arrivals and values the spoke at twice its cap; Share Assets stay exact, only
-///         the limit is gone. An honest fund gets the same result from a 6.5 h report outage: a stranger attests,
-///         the manager believes the send failed and sends again.
-/// @notice IMPACT. The risk limit the Mandate promises to shareholders (how much of the fund may sit on a spoke,
-///         where the hub cannot unwind it and every value depends on a report) is bypassable by the manager at will,
-///         to any multiple: a fund with a 10% Robinhood cap can be moved to Robinhood in full. No value is lost by
-///         the bypass itself; the loss is that DEC-037's "cap = spoke value + in-flight" no longer bounds anything.
-/// @notice FIX. Do not treat "deadline + report lifetime" alone as proof of non-arrival for the purpose of the cap:
-///         keep `inFlightSent` counted until the transit is confirmed OR its refund is recognized (a real refund
-///         proves non-arrival; DEC-066's "attested expiry" can keep releasing In-flight Value from Share Assets
-///         only after the refund). Alternatively require, for the time-based path, a report whose
-///         `cumulativeReceived` proves the spoke never credited the amount.
-/// @dev Real Core Vault and CoreVaultLogic on the repository's unit fixture; reports come from the mock receiver
-///      exactly as a Spoke Vault would publish them. SPOKE_CAP is 100,000 USDC.
+/// @title Regression (security review S-13): a time-based expiry of a filled transit no longer releases the Spoke Cap
+/// @notice Was PoC `test_POC_attestedExpiryOfAFilledTransitLetsTheManagerSendTheCapTwice` (medium, access lens):
+///         `attestExpiry`'s deadline-plus-lifetime path needs no evidence and released `inFlightSent`, so after a
+///         6.5 h report outage the manager attested its own filled transit and sent the whole cap again (200,000 USDC
+///         of principal on a spoke capped at 100,000).
+/// @notice FIX (S-13, `CoreVaultLogic.attestExpiry`): only a report's proof of non-arrival releases the Spoke Cap at
+///         the attestation; on the time path alone the cap stays held (`spokeCapHeld`) until the arrival is confirmed
+///         or the refund recognized. The test asserts the second send now FAILS and the cap is released exactly once,
+///         when the late report confirms the arrival.
+/// @dev Real Core Vault and CoreVaultLogic on the repository's unit fixture. SPOKE_CAP is 100,000 USDC.
 contract SpokeCapBypassPoC is CoreVaultFixture {
-    function test_POC_attestedExpiryOfAFilledTransitLetsTheManagerSendTheCapTwice() public {
+    function test_SEC_S13_timeBasedExpiryOfAFilledTransitNoLongerReleasesTheSpokeCap() public {
         _deposit(alice, 300_000e6);
         uint256 assetsBefore = vault.shareAssets();
 
-        // The manager fills the cap in one send. The cap holds: one more USDC is refused.
         bytes32 first = _send(SPOKE_CAP, SPOKE_CAP);
-        vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.SpokeCapExceeded.selector, 0, SPOKE_CAP, 1e6, SPOKE_CAP));
-        vault.sendToSpoke(0, 1e6, 0, _quote(1e6));
 
-        // Across fills the deposit on Robinhood within the hour (the spoke credits it; the hub only learns it from a
-        // report). No report is accepted on the hub for the next 6 h 27 min.
+        // No report is accepted on the hub for 6 h 27 min; anyone attests the expiry by time.
         vm.warp(block.timestamp + 6 hours + MAX_REPORT_AGE + 1);
-
-        // Anyone "attests" the expiry of a transit that arrived: the time path needs no evidence. The Spoke Cap is
-        // released, Share Assets still count the amount (QB11 stance).
         vault.attestExpiry(first);
         assertEq(uint8(vault.transit(first).state), uint8(TransitState.ExpiryAttested));
+        assertTrue(vault.spokeCapHeld(first), "S-13: the time path keeps the cap");
         (uint256 spokeValue, uint256 inFlightSent,,) = vault.spokeCapUsage(0);
-        assertEq(spokeValue + inFlightSent, 0, "the cap reads empty while 100,000 USDC sit on the spoke");
-        assertEq(vault.shareAssets(), assetsBefore, "nothing was lost, the transit is still In-flight Value");
+        assertEq(spokeValue + inFlightSent, SPOKE_CAP, "S-13: the cap still reads full");
+        assertEq(vault.shareAssets(), assetsBefore);
 
-        // The manager sends the whole cap again.
-        bytes32 second = _send(SPOKE_CAP, SPOKE_CAP);
-        assertEq(vault.idle(), assetsBefore - 2 * SPOKE_CAP);
+        // The manager cannot send the cap again.
+        vm.prank(manager);
+        vm.expectRevert(
+            abi.encodeWithSelector(ICoreVault.SpokeCapExceeded.selector, 0, SPOKE_CAP, SPOKE_CAP, SPOKE_CAP)
+        );
+        vault.sendToSpoke(0, SPOKE_CAP, 0, _quote(SPOKE_CAP));
 
-        // The spoke's next report lists both arrivals. Both are confirmed and the spoke is valued at twice its cap.
-        ReportCodec.Report memory r = _spokeReport(2 * SPOKE_CAP, 2 * SPOKE_CAP);
-        r.arrivedTransits = new ReportCodec.TransitAmount[](2);
+        // The spoke's late report lists the arrival: confirmed, the cap is now spoke value, released once.
+        ReportCodec.Report memory r = _spokeReport(SPOKE_CAP, SPOKE_CAP);
+        r.arrivedTransits = new ReportCodec.TransitAmount[](1);
         r.arrivedTransits[0] = ReportCodec.TransitAmount(first, SPOKE_CAP);
-        r.arrivedTransits[1] = ReportCodec.TransitAmount(second, SPOKE_CAP);
         _deliver(r);
         assertEq(uint8(vault.transit(first).state), uint8(TransitState.ArrivalConfirmed));
-        assertEq(uint8(vault.transit(second).state), uint8(TransitState.ArrivalConfirmed));
+        assertFalse(vault.spokeCapHeld(first));
         uint256 cap;
         (spokeValue, inFlightSent,, cap) = vault.spokeCapUsage(0);
-        assertEq(spokeValue, 2 * SPOKE_CAP, "200,000 USDC of principal on a spoke capped at 100,000");
+        assertEq(spokeValue, SPOKE_CAP);
         assertEq(inFlightSent, 0);
-        assertEq(cap, SPOKE_CAP);
-        assertEq(vault.shareAssets(), assetsBefore, "Share Assets are exact: only the Mandate's limit is gone");
-        assertEq(vault.inFlightValue(), 0);
+        assertLe(spokeValue + inFlightSent, cap, "S-13: the Spoke Cap holds");
+        assertEq(vault.shareAssets(), assetsBefore);
+    }
+
+    /// @dev S-13: a refund proves non-arrival, so recognizing it releases a cap the time path kept.
+    function test_SEC_S13_refundReleasesACapTheTimePathKept() public {
+        _deposit(alice, 300_000e6);
+        bytes32 id = _send(SPOKE_CAP, SPOKE_CAP);
+        vm.warp(block.timestamp + 6 hours + MAX_REPORT_AGE + 1);
+        vault.attestExpiry(id);
+        usdc.mint(vault.transit(id).escrow, SPOKE_CAP);
+        vault.recognizeRefund(id);
+        (, uint256 inFlightSent,,) = vault.spokeCapUsage(0);
+        assertEq(inFlightSent, 0, "S-13: released by the refund");
+        assertFalse(vault.spokeCapHeld(id));
     }
 }

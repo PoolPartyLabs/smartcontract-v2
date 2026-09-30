@@ -433,8 +433,8 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
     /// @dev DEC-080, OQ-01, OQ-09: only the Across SpokePool, only the base token, only this fund's messages from the
     ///      Hub Chain. The arrival is a claim: the id and amount travel in the next reports (the last
     ///      `ARRIVAL_WINDOW` listed ids plus `cumulativeReceived`) so the hub confirms what it sent (at or above the amount it expects) and excludes what it
-    ///      did not. A repeated id adds to the same entry and is listed once, when its credited total first reaches
-    ///      `MIN_LISTED_ARRIVAL`; below it the arrival is credited but never listed (the hub then counts the transit
+    ///      did not. A repeated id adds to the same entry and is listed when its credited total first reaches
+    ///      `MIN_LISTED_ARRIVAL` and again on every credit of at least that minimum (security review S-13); below it the arrival is credited but never listed (the hub then counts the transit
     ///      once through a fund-level deduction, at a liveness cost: see SpokeVaultTypes.MIN_LISTED_ARRIVAL). DEC-096: an arrival is a value-moving operation, so it runs the
     ///      Operating Cash top-up after crediting, like every other one (Spoke Vault verifier finding). OQ-09, OQ-01: only
     ///      a Principal-kind arrival feeds the per-id total and the listing, because the hub only ever sends Principal
@@ -458,7 +458,14 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
             _s.cumulativeReceived += amount;
             uint256 before = _s.arrivals[transitId];
             _s.arrivals[transitId] = before + amount;
-            if (before < SpokeVaultTypes.MIN_LISTED_ARRIVAL && before + amount >= SpokeVaultTypes.MIN_LISTED_ARRIVAL) {
+            // Listed when its total first reaches the minimum and, security review S-13, again on every credit of at
+            // least the minimum: an id a stranger pre-listed (ids are predictable) and flushed out of the window comes
+            // back with the real fill, while flushing the window still costs the minimum per entry.
+            if (
+                amount >= SpokeVaultTypes.MIN_LISTED_ARRIVAL
+                    || (before < SpokeVaultTypes.MIN_LISTED_ARRIVAL
+                        && before + amount >= SpokeVaultTypes.MIN_LISTED_ARRIVAL)
+            ) {
                 _s.recentArrivals[_s.arrivalCount % SpokeVaultTypes.ARRIVAL_WINDOW] = transitId;
                 ++_s.arrivalCount;
             }

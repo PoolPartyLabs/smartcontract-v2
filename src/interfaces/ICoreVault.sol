@@ -349,8 +349,10 @@ interface ICoreVault is IAcrossMessageHandler {
     /// @notice Attests that a hub-to-spoke transit expired without arriving (DEC-066). Permissionless.
     /// @dev Requires the fill deadline to have passed and proof of non-arrival: a spoke report built after the
     ///      deadline that does not list the transit and lists fewer than `ReportCodec.ARRIVAL_WINDOW` arrivals (a full
-    ///      window cannot prove absence, OQ-09), or the deadline plus the report lifetime having passed. Releases
-    ///      the Spoke Cap; Share Assets keep counting the transit until its refund is recognized (QB11, QB10 OPEN).
+    ///      window cannot prove absence, OQ-09), or the deadline plus the report lifetime having passed. With a
+    ///      report's proof it releases the Spoke Cap; on the time path alone the cap stays held until the arrival is
+    ///      confirmed or the refund recognized (security review S-13). Share Assets keep counting the transit until its
+    ///      refund is recognized (QB11, QB10 OPEN).
     function attestExpiry(bytes32 transitId) external;
 
     /// @notice Pulls an expired transit's refund from its escrow back to Idle (DEC-066, QA6). Permissionless.
@@ -524,6 +526,10 @@ interface ICoreVault is IAcrossMessageHandler {
 
     /// @notice Income recognized with no shares outstanding (LC-32 OPEN: retained).
     function ownerlessIncome(address token) external view returns (uint256);
+
+    /// @notice Whether an ExpiryAttested transit still holds its Spoke Cap because its expiry was attested by time
+    ///         alone (security review S-13).
+    function spokeCapHeld(bytes32 transitId) external view returns (bool);
 
     /// @notice Fees in `token` owed to `recipient` because their transfer failed when charged (security review S-12).
     function owedFees(address token, address recipient) external view returns (uint256);

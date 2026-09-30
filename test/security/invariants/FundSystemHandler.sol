@@ -808,6 +808,18 @@ contract FundSystemHandler is Test {
         }
     }
 
+    /// @notice Amount sent of every hub send that holds the Spoke Cap: still Sent, or ExpiryAttested by time alone
+    ///         (security review S-13).
+    function hubSendsHoldingTheCap() public view returns (uint256 total) {
+        for (uint256 i; i < _hubSends.length; ++i) {
+            bytes32 id = _hubSends[i].id;
+            TransitState state = s.core.transit(id).state;
+            if (state == TransitState.Sent || (state == TransitState.ExpiryAttested && s.core.spokeCapHeld(id))) {
+                total += _hubSends[i].amountSent;
+            }
+        }
+    }
+
     /// @notice Refunds that can never be recognized because a stranger's arrival confirmed the transit first: the
     ///         stranger made the fund whole on the spoke and the Across refund stays in the escrow (OQ-01, OQ-09).
     function strandedRefunds() public view returns (uint256 total) {
