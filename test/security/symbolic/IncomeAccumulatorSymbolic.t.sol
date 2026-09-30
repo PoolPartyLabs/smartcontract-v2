@@ -9,6 +9,10 @@ import {IncomeAccumulator} from "../../../src/libraries/IncomeAccumulator.sol";
 /// @notice Run with `halmos --match-contract IncomeAccumulatorSymbolicTest`. Each check writes an arbitrary (symbolic)
 ///         accumulator state straight into storage, so the property holds from every reachable state, not only from
 ///         the ones a call sequence builds.
+/// @dev Solver reality (docs/security/reports/dynamic-analysis.md): five of the seven checks are proved by the default
+///      solver (yices) in under a second; `check_Q60_remainderStaysBelowSupply` needs `--solver bitwuzla` (yices and z3
+///      exhaust memory on its 512-bit `mulDiv`); `check_Q60_twoHoldersNeverOwedMoreThanDistributed` is undecided
+///      (bitwuzla times out on every assertion query at 30 s) and is covered by its fuzz twin.
 contract IncomeAccumulatorSymbolicTest is Test {
     using IncomeAccumulator for IncomeAccumulator.State;
 

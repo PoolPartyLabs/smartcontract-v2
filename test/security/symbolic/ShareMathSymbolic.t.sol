@@ -36,9 +36,12 @@ contract ShareMathSymbolicHarness {
 ///      `Math.mulDiv` takes its single-word path; the 512-bit path is covered by the fuzz suites.
 /// @dev Solver reality (docs/security/reports/dynamic-analysis.md): every property that sends two symbolic operands
 ///      through `Math.mulDiv` (a 256-bit product divided by a symbolic or large constant denominator, plus the
-///      512-bit branch the solver must first rule out) times out or exhausts the memory cap with the solvers Halmos
-///      ships (yices, z3). The checks in the second half of this contract are the part of ShareMath those solvers do
-///      decide: the fee at the rates in use, every revert condition, the initial price and the whole-share test.
+///      512-bit branch the solver must first rule out) is undecided by every solver tried: yices and z3 (the ones
+///      Halmos ships) exhaust the 6 GB memory cap within seconds, bitwuzla stays within memory but times out on every
+///      assertion query (60 s per query on the first property, 30 s or 10 s on the others to fit the run's wall
+///      clock). The checks in the second half of this contract are the part of
+///      ShareMath the solvers do decide: the fee at the rates in use, every revert condition, the initial price and
+///      the whole-share test. The undecided properties are covered by their fuzz twins.
 contract ShareMathSymbolicTest is Test {
     uint256 internal constant WHOLE = 1e18;
     uint256 internal constant MAX_USDC = 1e18;
