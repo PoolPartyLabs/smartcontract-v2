@@ -72,6 +72,24 @@ forge fmt --check
 Fork tests read `ARBITRUM_RPC_URL` and `ROBINHOOD_RPC_URL`. Set `ARBITRUM_FORK_BLOCK` and
 `ROBINHOOD_FORK_BLOCK` to pin blocks for deterministic runs.
 
+## Local two-fork environment (`local-e2e/`)
+
+For API and frontend development against real transactions: two long-lived anvil forks (Arbitrum One on port 8545,
+Robinhood Chain on port 8546) with the protocol deployed by `script/DeployFactory.s.sol` and `script/CreateFund.s.sol`,
+a keeper that fills Across deposits through the live SpokePools and delivers Wormhole VAAs signed by a local guardian,
+time warps on both clocks, committed ABIs, and an end-to-end scenario over JSON-RPC.
+
+```bash
+cd local-e2e && pnpm install
+pnpm run up          # fork, deploy, fund the actors, warm the fork caches
+pnpm keeper          # another terminal
+pnpm scenario        # the fork e2e phases over JSON-RPC
+pnpm down
+```
+
+See `local-e2e/README.md` for what is real and what is simulated, the actors and keys, the state file and
+troubleshooting (public RPCs serve fork state for minutes only; an archive RPC is recommended for long sessions).
+
 ## Canonical vocabulary
 
 Identifiers, NatSpec and docs use the canonical English names from the specification glossary. The ones that

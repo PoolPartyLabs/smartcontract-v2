@@ -21,3 +21,7 @@ corpus/
 .idea/
 .vscode/
 node_modules/
+
+# local-e2e harness (dependencies, fork pids and logs, deployment state)
+local-e2e/node_modules
+local-e2e/.state
