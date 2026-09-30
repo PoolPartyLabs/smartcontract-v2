@@ -25,7 +25,8 @@ export function parseDuration(text: string): bigint {
 /** Moves both nodes to `max(hub, spoke) + seconds` and mines a block on each. Returns the new timestamp. */
 export async function warpClocks(seconds: bigint, log: Logger): Promise<bigint> {
   const [hub, spoke] = await Promise.all([latestTimestamp("arbitrum"), latestTimestamp("robinhood")]);
-  const target = (hub > spoke ? hub : spoke) + seconds;
+  // Both nodes land on one timestamp, strictly after their latest block (a warp of 0 moves them by one second).
+  const target = (hub > spoke ? hub : spoke) + (seconds > 0n ? seconds : 1n);
   for (const side of ["arbitrum", "robinhood"] as const) {
     await anvil.setNextBlockTimestamp(side, target);
     await anvil.mine(side);
