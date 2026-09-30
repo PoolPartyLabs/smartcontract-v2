@@ -44,6 +44,11 @@ library SpokeCrossChainLib {
         BridgeQuote calldata quote
     ) external returns (bytes32 transitId) {
         _checkQuote(c.maxBridgeFeeBps, amount, quote.outputAmount);
+        // Security review S-9: no Across exclusivity (an exclusive relayer that never fills forces an expiry; one that
+        // fills keeps the whole fee bound on every send).
+        if (quote.exclusiveRelayer != address(0) || quote.exclusivityDeadline != 0) {
+            revert SpokeVaultTypes.ExclusiveRelayerNotAllowed(quote.exclusiveRelayer);
+        }
         // Security review S-11: the list a report walks is bounded; landed refunds and expired entries leave it first.
         _sweepInFlight(s, c.baseToken);
         if (s.inFlightIds.length >= SpokeVaultTypes.MAX_HUB_BOUND_IN_FLIGHT) {

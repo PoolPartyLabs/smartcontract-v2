@@ -424,7 +424,21 @@ contract MandateTest is Test {
     function test_DEC030_bridgeFeeAboveHundredPercentReverts() public {
         Mandate memory m = _valid();
         m.maxBridgeFeeBps = 10_001;
-        vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsAboveMax.selector, 10_001, 10_000));
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsAboveMax.selector, 10_001, MandateLib.MAX_BRIDGE_FEE_BPS));
+        h.validate(m);
+    }
+
+    /// @dev Security review S-9: the bridge fee bound is capped by a core constant (1%), not only at 100%.
+    function test_SEC_S9_bridgeFeeAboveTheCoreCapReverts() public {
+        Mandate memory m = _valid();
+        m.maxBridgeFeeBps = MandateLib.MAX_BRIDGE_FEE_BPS;
+        h.validate(m);
+        m.maxBridgeFeeBps = MandateLib.MAX_BRIDGE_FEE_BPS + 1;
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MandateLib.BpsAboveMax.selector, MandateLib.MAX_BRIDGE_FEE_BPS + 1, MandateLib.MAX_BRIDGE_FEE_BPS
+            )
+        );
         h.validate(m);
     }
 }

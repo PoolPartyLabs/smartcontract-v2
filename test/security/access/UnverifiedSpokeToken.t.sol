@@ -51,8 +51,8 @@ contract UnverifiedSpokeTokenPoC is AccessFundFixture {
         uint256 idle = core.idle();
         assertEq(idle, 997_500e6);
 
-        // The manager sends all of it "to the spoke", quoting the maximum fee the Mandate allows (0.5%) and naming
-        // itself exclusive relayer. The Core Vault builds a deposit of real USDC for the worthless token.
+        // The manager sends all of it "to the spoke", quoting the maximum fee the Mandate allows (0.5%). Exclusivity is
+        // refused since S-9, but no other relayer serves a route into a worthless token, so the manager relays it.
         uint256 output = idle - idle * 50 / 10_000;
         address spokeVault = factory.addressOf(a.fundId, "SpokeVault", SPOKE);
         address escrow = vm.computeCreateAddress(address(core), vm.getNonce(address(core)));
@@ -67,17 +67,17 @@ contract UnverifiedSpokeTokenPoC is AccessFundFixture {
                 idle,
                 output,
                 SPOKE,
-                manager
+                address(0)
             )
         );
         vm.prank(manager);
-        bytes32 transitId = core.sendToSpoke(0, idle, 0, _quote(output, manager));
+        bytes32 transitId = core.sendToSpoke(0, idle, 0, _quote(output, address(0)));
 
         assertEq(core.idle(), 0, "every USDC of the shareholders left the Core Vault");
         assertEq(_balance(usdc, address(hubAcross)), idle, "and waits in the Across SpokePool for the relayer");
         assertEq(spokeVault.code.length, 0, "the recipient: an address nobody ever created a vault at");
 
-        // Across settlement, modelled (the mock pool has no relayer leg): the exclusive relayer delivers `output`
+        // Across settlement, modelled (the mock pool has no relayer leg): the manager as relayer delivers `output`
         // units of the output token on the spoke and is repaid the input amount in USDC.
         vm.prank(address(hubAcross));
         usdc.transfer(manager, idle);

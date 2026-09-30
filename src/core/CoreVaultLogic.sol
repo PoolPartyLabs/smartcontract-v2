@@ -673,7 +673,7 @@ library CoreVaultLogic {
         BridgeQuote calldata quote
     ) public returns (bytes32 transitId) {
         SpokeConfig memory spoke = s.mandate.spokes[spokeIndex];
-        address adapter = _checkSend(s, w, spokeIndex, spoke.chainId, usdcAmount, bridgeRank, quote.outputAmount);
+        address adapter = _checkSend(s, w, spokeIndex, spoke.chainId, usdcAmount, bridgeRank, quote);
 
         transitId = keccak256(abi.encode(block.chainid, address(this), ++s.transitNonce));
         // DEC-066, QA6: a keyless per-send escrow is the depositor of record, so a refund is recognizable.
@@ -733,7 +733,7 @@ library CoreVaultLogic {
         uint256 spokeChainId,
         uint256 usdcAmount,
         uint256 bridgeRank,
-        uint256 outputAmount
+        BridgeQuote calldata quote
     ) private view returns (address adapter) {
         // DEC-017, DEC-072: only Free Idle leaves the Core Vault.
         uint256 free = s.idle - s.payoutReserve;
@@ -747,9 +747,15 @@ library CoreVaultLogic {
         }
         if (adapter.codehash != s.bridgeCodehash[adapter]) revert ICoreVault.BridgeAdapterCodehashMismatch(adapter);
 
+        // Security review S-9: no Across exclusivity. An exclusive relayer (the manager's own) that never fills forces
+        // an expiry, and one that fills keeps the whole bound on every send; without exclusivity relayers compete.
+        if (quote.exclusiveRelayer != address(0) || quote.exclusivityDeadline != 0) {
+            revert ICoreVault.ExclusiveRelayerNotAllowed(quote.exclusiveRelayer);
+        }
+
         // QA19: the quote's fee is at most maxBridgeFeeBps of the amount sent.
         uint256 maxFee = usdcAmount * w.maxBridgeFeeBps / BPS;
-        uint256 fee = outputAmount < usdcAmount ? usdcAmount - outputAmount : 0;
+        uint256 fee = quote.outputAmount < usdcAmount ? usdcAmount - quote.outputAmount : 0;
         if (fee > maxFee) revert ICoreVault.BridgeFeeAboveMax(fee, maxFee);
 
         // DEC-037, DEC-095, DEC-066 B1/C1: spoke value + in flight (both legs) + amount <= Spoke Cap.

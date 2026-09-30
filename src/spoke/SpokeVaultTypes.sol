@@ -147,6 +147,8 @@ library SpokeVaultTypes {
     error BridgeAmountMismatch(uint256 quoted, uint256 built);
     error BridgeDebitMismatch(uint256 expected, uint256 debited);
     error InvalidQuoteAmount(uint256 amount, uint256 outputAmount);
+    /// @notice A quote named an exclusive relayer or an exclusivity period (security review S-9).
+    error ExclusiveRelayerNotAllowed(address exclusiveRelayer);
     error AdapterUsedAboveInput(address adapter, address token, uint256 sent, uint256 used);
     error LedgerExceedsBalance(address token, uint256 balance, uint256 ledger);
     error PositionAlreadyRegistered(address adapter, bytes32 positionKey);

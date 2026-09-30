@@ -175,7 +175,7 @@ contract FundFactoryVerifyRound2Test is Test, FactoryDeployment, FundMandate {
         FundPlan memory otherPlan = _plan(manager);
         otherPlan.spokePool = _poolKey(address(spokeWeth), address(usdg), 3000, 60);
         otherPlan.spokeCap = type(uint256).max;
-        otherPlan.maxBridgeFeeBps = 10_000;
+        otherPlan.maxBridgeFeeBps = 100; // other rules, within the core cap (security review S-9)
         FundFactory spokeFactory = _spokeFactory();
         Mandate memory other = _buildMandate(spokeFactory, fundId, otherPlan);
         assertEq(other.spokes[0].spokeVault, hubMandate.spokes[0].spokeVault, "the hub-named address");
@@ -195,7 +195,7 @@ contract FundFactoryVerifyRound2Test is Test, FactoryDeployment, FundMandate {
         PoolKey memory otherPool
     ) internal {
         assertTrue(vault.mandateHash() != hubHash, "the spoke enforces rules the hub's Mandate never showed");
-        assertEq(vault.maxBridgeFeeBps(), 10_000);
+        assertEq(vault.maxBridgeFeeBps(), 100);
         (address token0,) = vault.poolTokens(uniswapAdapter, PoolId.unwrap(otherPool.toId()));
         assertTrue(token0 != address(0), "the unlisted pool is allowed on the spoke");
         bytes32 hubListedPool = PoolId.unwrap(_plan(manager).spokePool.toId());

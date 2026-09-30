@@ -121,6 +121,14 @@ library MandateLib {
     /// @notice Cap on the management fee, per year. OPEN (LC-57): value proposed by research, not decided.
     uint16 internal constant MAX_MANAGEMENT_FEE_BPS = 200;
 
+    /// @notice Cap on `maxBridgeFeeBps`: 1% of the amount sent.
+    /// @dev Security review S-9 (QA19 leaves the per-fund value OPEN; DEC-110 makes fee caps core constants): with
+    ///      `maxBridgeFeeBps` allowed up to 100% a Mandate the factory accepted let one send deliver 1 base unit for
+    ///      the whole Free Idle and the relayer keep the rest. The measured Across route fee is about 0.06%
+    ///      (docs/DECISIONS.md), so 1% leaves a wide margin. OPEN value (security review parameter, to confirm with the
+    ///      founder).
+    uint16 internal constant MAX_BRIDGE_FEE_BPS = 100;
+
     error ZeroManager();
     error ZeroUsdc();
     error ZeroHubChainId();
@@ -157,8 +165,8 @@ library MandateLib {
     ///      - every spoke has at least one bridge adapter on the hub side and one on the spoke side (DEC-089: a chain
     ///        is supported only through a live bridge adapter); no address listed twice as an adapter on one chain;
     ///      - Operating Cash entries on known chains, one per chain (DEC-096);
-    ///      - fees: Payout Fee and bridge fee at most 100%; performance fee within the OPEN cap; management fee 0 in
-    ///        the MVP (DEC-108, LC-144, LC-57).
+    ///      - fees: Payout Fee at most 100%; bridge fee at most `MAX_BRIDGE_FEE_BPS` (security review S-9);
+    ///        performance fee within the OPEN cap; management fee 0 in the MVP (DEC-108, LC-144, LC-57).
     ///      A Mandate without spokes (hub-only fund) is accepted: no decision requires a spoke.
     function validate(Mandate memory m) internal pure {
         if (m.manager == address(0)) revert ZeroManager();
@@ -173,7 +181,7 @@ library MandateLib {
         _validateOperatingCash(m);
 
         if (m.payoutFeeBps > BPS) revert BpsAboveMax(m.payoutFeeBps, BPS);
-        if (m.maxBridgeFeeBps > BPS) revert BpsAboveMax(m.maxBridgeFeeBps, BPS);
+        if (m.maxBridgeFeeBps > MAX_BRIDGE_FEE_BPS) revert BpsAboveMax(m.maxBridgeFeeBps, MAX_BRIDGE_FEE_BPS);
         if (m.performanceFeeBps > MAX_PERFORMANCE_FEE_BPS) {
             revert BpsAboveMax(m.performanceFeeBps, MAX_PERFORMANCE_FEE_BPS);
         }
