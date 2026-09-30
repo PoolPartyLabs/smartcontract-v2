@@ -176,7 +176,8 @@ contract PoolLibV4 {
     ///      Returns the principal part (what the PositionManager checks slippage on).
     function _modify(uint256 tokenId, int256 liquidityDelta) internal returns (int256 p0, int256 p1) {
         TokenState memory t = _tokens[tokenId];
-        (BalanceDelta principal, BalanceDelta fees) = _pools[t.key.toId()].modifyLiquidity(
+        (BalanceDelta principal, BalanceDelta fees) = _pools[t.key
+            .toId()].modifyLiquidity(
             Pool.ModifyLiquidityParams({
                 owner: address(this),
                 tickLower: t.tickLower,

@@ -238,9 +238,11 @@ abstract contract HubFundFixture is Test {
         permit2.approve(address(weth), address(pool), type(uint160).max, type(uint48).max);
         permit2.approve(address(usdc), address(pool), type(uint160).max, type(uint48).max);
 
-        bytes memory actions = abi.encodePacked(uint8(Actions.MINT_POSITION), uint8(Actions.SETTLE), uint8(Actions.SETTLE));
+        bytes memory actions =
+            abi.encodePacked(uint8(Actions.MINT_POSITION), uint8(Actions.SETTLE), uint8(Actions.SETTLE));
         bytes[] memory params = new bytes[](3);
-        params[0] = abi.encode(key, lower, upper, uint256(liquidity), type(uint128).max, type(uint128).max, address(this), "");
+        params[0] =
+            abi.encode(key, lower, upper, uint256(liquidity), type(uint128).max, type(uint128).max, address(this), "");
         params[1] = abi.encode(key.currency0, uint256(0), true);
         params[2] = abi.encode(key.currency1, uint256(0), true);
         pool.modifyLiquidities(abi.encode(actions, params), block.timestamp);

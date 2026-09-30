@@ -89,7 +89,7 @@ contract CompositionSharePriceTest is HubFundFixture {
         assertGt(gamed.shareAssets, assetsAtExternalPrice + 20_000e6, "Share Assets inflated by more than 20,000 USDC");
         assertApproxEqAbs(gamed.usdcPaid, honest.usdcPaid, 1e6, "same USDC paid");
         assertLt(gamed.sharesBurned, honest.sharesBurned, "fewer shares burned");
-        assertGt(victimHonest - victimAfter, 8_000e6, "victim lost more than 8,000 USDC");
-        assertGt(attackerAfter, attackerHonest + 5_000e6, "attacker gained more than 5,000 USDC net of LP fees");
+        assertGt(victimHonest - victimAfter, 8000e6, "victim lost more than 8,000 USDC");
+        assertGt(attackerAfter, attackerHonest + 5000e6, "attacker gained more than 5,000 USDC net of LP fees");
     }
 }

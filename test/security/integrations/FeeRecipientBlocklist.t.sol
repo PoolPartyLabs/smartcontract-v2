@@ -35,7 +35,7 @@ contract FeeRecipientBlocklistTest is HubFundFixture {
         vm.warp(block.timestamp + 72 hours);
         // The fund goes on working until the fee wallet is blocklisted.
         prices.setPrice(address(weth), WETH_PRICE_1E18);
-        _deposit(bob, 1_000e6);
+        _deposit(bob, 1000e6);
     }
 
     function test_POC_blocklistedProtocolRecipientFreezesDepositsAndPayouts() public {
@@ -43,11 +43,11 @@ contract FeeRecipientBlocklistTest is HubFundFixture {
         bytes memory blocked = abi.encodeWithSelector(BlocklistToken.Blocklisted.selector, protocol);
 
         // No deposit: the flow fee push reverts.
-        usdc.mint(bob, 1_000e6);
+        usdc.mint(bob, 1000e6);
         vm.startPrank(bob);
-        usdc.approve(address(core), 1_000e6);
+        usdc.approve(address(core), 1000e6);
         vm.expectRevert(blocked);
-        core.deposit(1_000e6, 0);
+        core.deposit(1000e6, 0);
         vm.stopPrank();
 
         // No payout, although Idle covers the whole claim and the term has ended: the flow fee push reverts.
