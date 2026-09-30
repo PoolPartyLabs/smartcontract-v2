@@ -10,7 +10,7 @@ import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {IAdapter} from "../interfaces/IAdapter.sol";
 import {IBridgeAdapter} from "../interfaces/IBridgeAdapter.sol";
 import {ITransitEscrow} from "../interfaces/ITransitEscrow.sol";
-import {Transit, TransitState, TransferKind, BridgeQuote} from "../interfaces/FundTypes.sol";
+import {Transit, TransitState, TransferKind, BridgeQuote, ExpensePayer} from "../interfaces/FundTypes.sol";
 import {MandateLib} from "../mandate/Mandate.sol";
 import {ReportCodec} from "../libraries/ReportCodec.sol";
 import {TransitMessage} from "../libraries/TransitMessage.sol";
@@ -24,6 +24,10 @@ import {SpokeVaultTypes} from "./SpokeVaultTypes.sol";
 ///      vault's (ISpokeVault and SpokeVaultTypes), emitted from the vault's address.
 library SpokeCrossChainLib {
     using SafeERC20 for IERC20;
+
+    /// @dev Kind tag of the Operating Expense booked by an Operating Cash top-up; equals
+    ///      `SpokeVault.OPERATING_CASH_TOP_UP` (DEC-041, DEC-096).
+    bytes32 internal constant OPERATING_CASH_TOP_UP = keccak256("OPERATING_CASH_TOP_UP");
 
     // ---------------------------------------------------------------------------------------------------------------
     // Send home (DEC-056, DEC-066, DEC-085, DEC-087, DEC-088, QA6, QA19)
@@ -124,6 +128,68 @@ library SpokeCrossChainLib {
             if (block.timestamp > t.fillDeadline && _refundLanded(t, baseToken)) _recognize(s, t, baseToken, id);
             else if (!_stillInFlight(t)) _removeInFlight(s, id);
         }
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Arrivals and Operating Cash (bodies of Spoke Vault verbs, kept here for the vault's bytecode margin)
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// @notice Credits a hub-to-spoke arrival the vault's `handleV3AcrossMessage` accepted (DEC-080, OQ-09, OQ-01).
+    /// @dev Principal: Unallocated Balance, `cumulativeReceived` and the per-id credited total; the id is listed when
+    ///      its total first reaches `MIN_LISTED_ARRIVAL` and, security review S-13, again on every credit of at least
+    ///      that minimum, so an id a stranger pre-listed (hub ids are predictable) and flushed out of the window comes
+    ///      back with the real fill, while flushing the window still costs the minimum per entry. Income: the
+    ///      collected income bucket (DEC-092), never listed.
+    function creditArrival(
+        SpokeVaultTypes.State storage s,
+        address token,
+        bytes32 transitId,
+        TransferKind kind,
+        uint256 amount
+    ) external {
+        if (kind != TransferKind.Principal) {
+            s.collectedIncome[token] += amount;
+            return;
+        }
+        s.unallocated[token] += amount;
+        s.cumulativeReceived += amount;
+        uint256 before = s.arrivals[transitId];
+        s.arrivals[transitId] = before + amount;
+        uint256 min = SpokeVaultTypes.MIN_LISTED_ARRIVAL;
+        if (amount >= min || (before < min && before + amount >= min)) {
+            s.recentArrivals[s.arrivalCount % SpokeVaultTypes.ARRIVAL_WINDOW] = transitId;
+            ++s.arrivalCount;
+        }
+    }
+
+    /// @notice The Operating Cash top-up of a Spoke Chain (body of `SpokeVault._topUpOperatingCash`).
+    /// @dev DEC-096, DEC-100: below the floor, the next value-moving operation adds `operatingCashTopUp` (or what
+    ///      Unallocated Balance of the base token holds, if less) to Operating Cash; the Share Price drop is accepted.
+    ///      DEC-041: the expense is booked with its payer, Share Assets. Never reverts, so it never blocks an exit
+    ///      (DEC-056).
+    function topUpOperatingCash(SpokeVaultTypes.State storage s, address baseToken, uint256 chainId) external {
+        uint256 cash = s.operatingCash;
+        if (cash >= s.operatingCashFloor) return;
+        uint256 amount = Math.min(s.operatingCashTopUp, s.unallocated[baseToken]);
+        if (amount == 0) return;
+        s.unallocated[baseToken] -= amount;
+        s.operatingCash = cash + amount;
+        emit ISpokeVault.OperatingCashToppedUp(amount, cash + amount);
+        emit ISpokeVault.OperatingExpensePaid(
+            chainId, address(0), OPERATING_CASH_TOP_UP, amount, ExpensePayer.ShareAssets
+        );
+    }
+
+    /// @notice ISpokeVault.releaseOperatingCash (security review S-5, interim mitigation pending a DEC-100 ruling):
+    ///         Operating Cash above the floor back to the base token's Unallocated Balance.
+    function releaseOperatingCash(SpokeVaultTypes.State storage s, address baseToken, uint256 amount) external {
+        uint256 cash = s.operatingCash;
+        uint256 floor = s.operatingCashFloor;
+        uint256 releasable = cash > floor ? cash - floor : 0;
+        if (amount == 0 || amount > releasable) revert SpokeVaultTypes.OperatingCashNotReleasable(amount, releasable);
+        s.operatingCash = cash - amount;
+        s.unallocated[baseToken] += amount;
+        emit ISpokeVault.OperatingCashReleased(amount, cash - amount);
     }
 
     // ---------------------------------------------------------------------------------------------------------------

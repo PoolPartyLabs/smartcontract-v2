@@ -277,6 +277,17 @@ abstract contract CoreVaultBase is ICoreVault, ReentrancyGuardTransient {
         emit OperatingCashParametersSet(floor, topUp);
     }
 
+    /// @inheritdoc ICoreVault
+    function releaseOperatingCash(uint256 amount) external onlyManager nonReentrant {
+        uint256 cash = _s.operatingCash;
+        uint256 floor = _s.operatingCashFloor;
+        uint256 releasable = cash > floor ? cash - floor : 0;
+        if (amount == 0 || amount > releasable) revert OperatingCashNotReleasable(amount, releasable);
+        _s.operatingCash = cash - amount;
+        _s.idle += amount;
+        emit OperatingCashReleased(amount, cash - amount);
+    }
+
     /// @notice DEC-096, DEC-100, DEC-041: when hub Operating Cash is below its floor, the value-moving operation that
     ///         calls this tops it up by `operatingCashTopUp` from Free Idle (never the Payout Reserve, DEC-072). The
     ///         top-up is an Operating Expense paid by Share Assets (accepted effect on Share Price, DEC-100).

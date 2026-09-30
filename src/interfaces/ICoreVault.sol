@@ -166,6 +166,9 @@ interface ICoreVault is IAcrossMessageHandler {
     /// @notice The manager changed the hub Operating Cash floor and top-up (DEC-096).
     event OperatingCashParametersSet(uint256 floor, uint256 topUp);
 
+    /// @notice The manager returned Operating Cash above the floor to Idle (security review S-5).
+    event OperatingCashReleased(uint256 amount, uint256 balance);
+
     /// @notice Free Idle was moved to the hub Spoke Vault's Unallocated Balance (DEC-017, DEC-072).
     event AllocatedToHubSpokeVault(uint256 amount);
 
@@ -257,6 +260,8 @@ interface ICoreVault is IAcrossMessageHandler {
     error FillDeadlineNotReached(bytes32 transitId, uint32 fillDeadline);
     error ExpiryNotProvable(bytes32 transitId);
     error NoRefund(bytes32 transitId);
+    /// @notice Only Operating Cash above the floor can be returned (security review S-5).
+    error OperatingCashNotReleasable(uint256 amount, uint256 releasable);
     /// @notice The hub has accepted no report from that spoke yet, so it may not fund it (security review S-14).
     error SpokeNotReporting(uint256 spokeIndex);
     /// @notice A quote named an exclusive relayer or an exclusivity period (security review S-9).
@@ -406,6 +411,14 @@ interface ICoreVault is IAcrossMessageHandler {
 
     /// @notice Sets the hub Operating Cash floor and top-up. Manager only (DEC-096, DEC-100).
     function setOperatingCashParameters(uint256 floor, uint256 topUp) external;
+
+    /// @notice Returns `amount` of hub Operating Cash above its floor to Idle. Manager only.
+    /// @dev Security review S-5, interim mitigation pending a founder ruling on DEC-100: the floor and top-up have no
+    ///      protocol cap and nothing spends or returns Operating Cash in the MVP, so a mis-set parameter (or a
+    ///      compromised key) moved Free Idle out of Share Assets for good. Returning it to Idle only moves value back to
+    ///      the Shareholders (DEC-096 sends Operating Cash to them at fund close); it never lets the manager take it.
+    ///      Reverts `OperatingCashNotReleasable` above `operatingCash - floor`.
+    function releaseOperatingCash(uint256 amount) external;
 
     // ---------------------------------------------------------------------------------------------------------------
     // Callbacks from the fund's own contracts (DEC-090: transitions only from the Mandate's contracts)

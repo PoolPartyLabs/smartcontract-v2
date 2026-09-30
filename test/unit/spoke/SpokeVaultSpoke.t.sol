@@ -855,6 +855,30 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         vault.recognizeRefund(bytes32(uint256(9)));
     }
 
+    /// @dev Security review S-5 (interim mitigation pending a DEC-100 ruling): Operating Cash above the floor returns
+    ///      to Unallocated Balance, manager only.
+    function test_SEC_S5_spokeOperatingCashAboveTheFloorReturnsToUnallocatedBalance() public {
+        vm.prank(manager);
+        vault.setOperatingCashParameters(type(uint256).max, type(uint256).max);
+        _arrive(1000e6, ARRIVAL, TransferKind.Principal);
+        assertEq(vault.operatingCash(), 1000e6, "the arrival swept everything into Operating Cash");
+        assertEq(vault.unallocatedBalance(address(usdg)), 0);
+
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(ISpokeVault.NotManager.selector, stranger));
+        vault.releaseOperatingCash(1);
+
+        vm.startPrank(manager);
+        vault.setOperatingCashParameters(5e6, 5e6);
+        vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.OperatingCashNotReleasable.selector, 996e6, 995e6));
+        vault.releaseOperatingCash(996e6);
+        vault.releaseOperatingCash(995e6);
+        vm.stopPrank();
+        assertEq(vault.operatingCash(), 5e6);
+        assertEq(vault.unallocatedBalance(address(usdg)), 995e6, "S-5: back in Unallocated Balance");
+        assertEq(vault.buildReport().unallocated[0].amount, 995e6, "and in the report");
+    }
+
     /// @dev Security review S-3: a send home is listed until its refund is recognized or until its fill deadline plus
     ///      `ReportCodec.HUB_BOUND_RETENTION` (no longer the report lifetime); a refund that shows up later is still
     ///      recognized.

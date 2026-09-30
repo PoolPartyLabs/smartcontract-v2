@@ -161,6 +161,8 @@ library SpokeVaultTypes {
     error InvalidUnwindSwap(address adapter, bytes32 poolKey, address tokenIn);
     /// @notice The vault did not receive exactly what a refund escrow held when it was released (DEC-066, DEC-080).
     error RefundReleaseMismatch(uint256 held, uint256 received);
+    /// @notice Only Operating Cash above the floor can be returned (security review S-5).
+    error OperatingCashNotReleasable(uint256 amount, uint256 releasable);
     /// @notice `MAX_HUB_BOUND_IN_FLIGHT` sends home are already listed (security review S-11).
     error HubBoundInFlightLimit(uint256 limit);
 

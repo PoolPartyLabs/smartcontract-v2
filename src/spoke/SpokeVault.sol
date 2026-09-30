@@ -372,6 +372,12 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         emit OperatingCashParametersSet(floor, topUp);
     }
 
+    /// @inheritdoc ISpokeVault
+    /// @dev Security review S-5; body in SpokeCrossChainLib (bytecode margin).
+    function releaseOperatingCash(uint256 amount) external onlyOnSpokeChain onlyManager nonReentrant {
+        SpokeCrossChainLib.releaseOperatingCash(_s, baseToken, amount);
+    }
+
     // ---------------------------------------------------------------------------------------------------------------
     // Cross-chain (Spoke Chains)
     // ---------------------------------------------------------------------------------------------------------------
@@ -453,25 +459,7 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         if (messageFundId != fundId) revert WrongFund(messageFundId);
         if (originChainId != hubChainId) revert SpokeVaultTypes.UnexpectedOriginChain(originChainId);
 
-        if (kind == TransferKind.Principal) {
-            _s.unallocated[tokenSent] += amount;
-            _s.cumulativeReceived += amount;
-            uint256 before = _s.arrivals[transitId];
-            _s.arrivals[transitId] = before + amount;
-            // Listed when its total first reaches the minimum and, security review S-13, again on every credit of at
-            // least the minimum: an id a stranger pre-listed (ids are predictable) and flushed out of the window comes
-            // back with the real fill, while flushing the window still costs the minimum per entry.
-            if (
-                amount >= SpokeVaultTypes.MIN_LISTED_ARRIVAL
-                    || (before < SpokeVaultTypes.MIN_LISTED_ARRIVAL
-                        && before + amount >= SpokeVaultTypes.MIN_LISTED_ARRIVAL)
-            ) {
-                _s.recentArrivals[_s.arrivalCount % SpokeVaultTypes.ARRIVAL_WINDOW] = transitId;
-                ++_s.arrivalCount;
-            }
-        } else {
-            _s.collectedIncome[tokenSent] += amount;
-        }
+        SpokeCrossChainLib.creditArrival(_s, tokenSent, transitId, kind, amount);
         _requireBacked(tokenSent);
         emit TransitArrived(transitId, originChainId, tokenSent, amount, kind);
         _topUpOperatingCash();
@@ -1005,15 +993,7 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
     ///      DEC-041: the expense is booked with its payer, Share Assets. Spoke Chains only (on the hub, Operating Cash
     ///      lives in the Core Vault). Never reverts, so it never blocks an exit (DEC-056).
     function _topUpOperatingCash() internal {
-        if (onHubChain) return;
-        uint256 cash = _s.operatingCash;
-        if (cash >= _s.operatingCashFloor) return;
-        uint256 amount = Math.min(_s.operatingCashTopUp, _s.unallocated[baseToken]);
-        if (amount == 0) return;
-        _s.unallocated[baseToken] -= amount;
-        _s.operatingCash = cash + amount;
-        emit OperatingCashToppedUp(amount, cash + amount);
-        emit OperatingExpensePaid(chainId, address(0), OPERATING_CASH_TOP_UP, amount, ExpensePayer.ShareAssets);
+        if (!onHubChain) SpokeCrossChainLib.topUpOperatingCash(_s, baseToken, chainId);
     }
 
     function _payCoreVaultIdle(uint256 amount) internal {
