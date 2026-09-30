@@ -232,8 +232,8 @@ contract MockPositionAdapter is AdapterGuard, IAdapter {
         Pool memory pool = pools[p.poolKey];
         v.poolKey = p.poolKey;
         v.poolId = keccak256(abi.encode(p.poolKey));
-        v.tickLower = -600;
-        v.tickUpper = 600;
+        // A ledger mock, not a concentrated-liquidity position: no range (ticks 0), so the Core Vault values the
+        // principal it reports as is (security review S-1 recomputes only a real range at the price-source price).
         v.liquidity = uint128(p.principal0 + p.principal1);
         v.token0 = pool.token0;
         v.token1 = pool.token1;

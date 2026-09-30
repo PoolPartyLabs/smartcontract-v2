@@ -928,8 +928,8 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         assertEq(pr.adapter, address(spokeUni));
         assertEq(pr.poolKey, SPOKE_POOL);
         assertEq(pr.poolId, keccak256(abi.encode(SPOKE_POOL)));
-        assertEq(pr.tickLower, -600);
-        assertEq(pr.tickUpper, 600);
+        assertEq(pr.tickLower, 0);
+        assertEq(pr.tickUpper, 0);
         assertEq(pr.token0, address(weth));
         assertEq(pr.token1, address(usdg));
         assertEq(pr.principal0, 0.2e18);

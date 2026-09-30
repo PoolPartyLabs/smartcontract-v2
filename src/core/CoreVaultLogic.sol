@@ -5,6 +5,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
+import {SqrtPriceMath} from "@uniswap/v4-core/src/libraries/SqrtPriceMath.sol";
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {IValueReportReceiver} from "../interfaces/IValueReportReceiver.sol";
@@ -232,6 +234,9 @@ library CoreVaultLogic {
     }
 
     /// @notice Unallocated Balance plus position principal of a report, in USDC (DEC-079: income excluded).
+    /// @dev Security review S-1 (DEC-067 "guarded pool price", Q57 (b) alternative 2): a price-dependent position is
+    ///      valued from its liquidity and range at the price the price source gives, never from the token amounts at
+    ///      the pool's spot price (`_oracleComposition`).
     function _positionsPrincipal(
         CoreVaultState storage s,
         CoreVaultWiring memory w,
@@ -243,8 +248,57 @@ library CoreVaultLogic {
         }
         for (uint256 i; i < r.positions.length; ++i) {
             ReportCodec.PositionReport memory pos = r.positions[i];
-            value += _usdcValue(s, w, p, pos.token0, pos.principal0) + _usdcValue(s, w, p, pos.token1, pos.principal1);
+            (uint256 amount0, uint256 amount1) = _oracleComposition(s, w, p, pos);
+            value += _usdcValue(s, w, p, pos.token0, amount0) + _usdcValue(s, w, p, pos.token1, amount1);
         }
+    }
+
+    /// @notice The token amounts a concentrated-liquidity position holds at the price-source price.
+    /// @dev Security review S-1: the amounts a range position holds at pool price P, valued at an outside price P*,
+    ///      are worth the least at P = P* (dV/dP = x'(P) (P* - P), x' < 0), so taking them at a spot price anyone can
+    ///      move within a transaction (a Uniswap V4 `slot0` read by `positionValue`, on the hub inside `claimPayout`,
+    ///      on a spoke inside the permissionless `report()`) and pricing them at the oracle only ever overstates Share
+    ///      Assets. The position is recomputed instead from its `liquidity`, `tickLower` and `tickUpper` (which a price
+    ///      move does not change) at sqrtPriceX96 = sqrt(price(token0) / price(token1)) * 2^96, with the pool's own
+    ///      formulas (`SqrtPriceMath`, rounded down as on removal). A single-token or exact-value position (Aave V3:
+    ///      `token1 == address(0)`, ticks 0) keeps its reported principal, which no pool price moves; so does a position
+    ///      whose token was never priced in a PAYOUT fallback (value 0, CS-OQ-4).
+    function _oracleComposition(
+        CoreVaultState storage s,
+        CoreVaultWiring memory w,
+        Prices memory p,
+        ReportCodec.PositionReport memory pos
+    ) private view returns (uint256 amount0, uint256 amount1) {
+        if (pos.token1 == address(0) || pos.tickLower >= pos.tickUpper || pos.liquidity == 0) {
+            return (pos.principal0, pos.principal1);
+        }
+        uint256 price0 = _unitPrice(s, w, p, pos.token0);
+        uint256 price1 = _unitPrice(s, w, p, pos.token1);
+        if (price0 == 0 || price1 == 0) return (pos.principal0, pos.principal1);
+        // price(token1 per token0) in Q96 under the root, then shifted to Q96: sqrt(r * 2^96) * 2^48 = sqrt(r) * 2^96.
+        uint256 sqrtPrice = Math.sqrt(Math.mulDiv(price0, 1 << 96, price1)) << 48;
+        uint160 sqrtLower = TickMath.getSqrtPriceAtTick(pos.tickLower);
+        uint160 sqrtUpper = TickMath.getSqrtPriceAtTick(pos.tickUpper);
+        if (sqrtPrice <= sqrtLower) {
+            amount0 = SqrtPriceMath.getAmount0Delta(sqrtLower, sqrtUpper, pos.liquidity, false);
+        } else if (sqrtPrice < sqrtUpper) {
+            // casting to 'uint160' is safe because sqrtPrice < sqrtUpper, a uint160
+            // forge-lint: disable-next-line(unsafe-typecast)
+            uint160 sqrtP = uint160(sqrtPrice);
+            amount0 = SqrtPriceMath.getAmount0Delta(sqrtP, sqrtUpper, pos.liquidity, false);
+            amount1 = SqrtPriceMath.getAmount1Delta(sqrtLower, sqrtP, pos.liquidity, false);
+        } else {
+            amount1 = SqrtPriceMath.getAmount1Delta(sqrtLower, sqrtUpper, pos.liquidity, false);
+        }
+    }
+
+    /// @notice price1e18 of `token` for this valuation; USDC is 1e18 by definition (IPriceSource scale).
+    function _unitPrice(CoreVaultState storage s, CoreVaultWiring memory w, Prices memory p, address token)
+        private
+        view
+        returns (uint256)
+    {
+        return token == w.usdc ? 1e18 : _price(s, w, p, token);
     }
 
     function _positionsIncome(

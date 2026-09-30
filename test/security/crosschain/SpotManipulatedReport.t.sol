@@ -16,40 +16,18 @@ import {MockPermit2} from "../../mocks/v4/MockPermit2.sol";
 import {MockV4} from "../../mocks/v4/MockV4.sol";
 import {CrossChainFixture} from "./helpers/CrossChainFixture.sol";
 
-/// @title PoC: a report taken while the spoke pool's spot price is pushed overstates Share Assets on the hub
-/// @notice Finding (high). Lens: cross-chain messaging and bridging (what a spoke payload can do to the hub).
+/// @title Regression (security review S-1): a report taken while the spoke pool's spot price is pushed no longer
+///        overstates Share Assets on the hub
+/// @notice Was PoC `test_POC_spotManipulatedReportInflatesPayout` (high, cross-chain lens): `SpokeVault.report()` is
+///         permissionless and snapshots every Uniswap V4 position at the pool's CURRENT `slot0` composition; the hub
+///         priced those amounts with its oracle, so a report taken while the pool was pushed out of the range read up
+///         to `(k + 1) / 2` times the position and a Shareholder's Payout was paid above the shares' worth.
 ///
-/// Root cause: `SpokeVault.report()` is permissionless and snapshots every Uniswap V4 position's token amounts at the
-/// pool's CURRENT `slot0` price (`UniswapV4Adapter.positionValue` -> `_principal`). The hub then prices those amounts
-/// with its own oracle (`CoreVaultLogic._positionsPrincipal` through `IPriceSource`). A liquidity position's
-/// composition at the true price is the cheapest one on its curve, so the composition at ANY other pool price, valued
-/// at the true price, is worth more: whoever moves the pool price inside the transaction that calls `report()` makes
-/// the hub overstate the position. The report also carries `tickLower`, `tickUpper` and `liquidity`, which would let
-/// the hub derive the amounts at the oracle price, but it does not use them, and the variation band (Q57 (d)) is not
-/// enforced. The accepted report then prices every mint until the next report, and every Payout for as long as it is
-/// the latest one (a Payout never checks the report's age).
-///
-/// Attack (a Shareholder with a Standard Payout Request whose term has ended, or any Shareholder using an Instant
-/// Payout when the overstatement exceeds the 2% Payout Fee):
-/// 1. In one transaction on Robinhood: swap in the fund's WETH/USDG pool until the price leaves the position's range,
-///    call `SpokeVault.report()`, swap back. The cost is the pool's swap fee on the round trip; no price risk.
-/// 2. When the guardians have signed the finalized message, deliver the VAA (`ValueReportReceiver.deliver`) and call
-///    `CoreVault.claimPayout` in the same transaction.
-///
-/// Impact: here the fund keeps 899,550 USDG of its 1,196,550 USDC on the spoke in a position spanning about -33% to
-/// +50% around the price. The manipulated report raises Share Assets by about 99,900 USDC (8.3%), and the attacker's
-/// Payout takes about 16,600 USDC more than the shares are worth, out of Idle, at the expense of the remaining
-/// Shareholder (an Instant Payout would still clear its 2% fee). The overstatement is `(k + 1) / 2` of the position
-/// for a range from `1 / k^2` to `k^2` times the price pushed to either bound, so it grows without limit with the
-/// range's width: a position ranging from 1/100 to 100 times the price reads 5.5 times its worth, enough to empty Free
-/// Idle. The same
-/// read happens for hub positions inside `claimPayout` itself (`ISpokeVault.buildReport` on the hub Spoke Vault), where
-/// the manipulation and the claim fit in one transaction.
-///
-/// Fix: on the hub, derive each position's amounts from the reported `liquidity`, `tickLower` and `tickUpper` at the
-/// oracle price (`sqrtPrice` from `IPriceSource`) instead of trusting `principal0` / `principal1` as read at spot; or
-/// reject a report whose implied pool price deviates from the oracle price beyond a band (the Q57 (d) anomaly lock).
-/// `setTick` on the pool stand-in plays the attacker's two swaps: moving `slot0` is all a swap does to this read.
+/// Fix (S-1, `CoreVaultLogic._oracleComposition`): the hub recomputes every range position from the reported
+/// `liquidity`, `tickLower` and `tickUpper` at the price-source price and ignores the spot amounts. The test runs the
+/// same attack (push, report, push back, deliver, claim) and asserts it now FAILS: Share Assets and the Payout are
+/// those of the honest report and the remaining Shareholder keeps its value. `setTick` on the pool stand-in plays the
+/// attacker's two swaps: moving `slot0` is all a swap does to this read.
 contract SpotManipulatedReportPoC is CrossChainFixture {
     int24 internal constant RANGE = 4050; // 1.0001^4050 = 1.4993: the range spans -33% to +50% around the price.
 
@@ -101,7 +79,7 @@ contract SpotManipulatedReportPoC is CrossChainFixture {
         return (adapter, poolId);
     }
 
-    function test_POC_spotManipulatedReportInflatesPayout() public {
+    function test_SEC_S1_spotManipulatedReportNoLongerInflatesPayout() public {
         // Two Shareholders. The attacker holds one sixth of the shares.
         _deposit(alice, 1_000_000e6);
         (uint256 attackerShares,) = _deposit(attacker, 200_000e6);
@@ -115,14 +93,13 @@ contract SpotManipulatedReportPoC is CrossChainFixture {
         uint256 honestAssets = core.shareAssets();
         assertApproxEqRel(honestAssets, 1_196_550e6, 0.001e18, "Idle 297,000 + spoke 899,550");
 
-        // The attacker opens a Standard Payout Request for more than the shares are worth (DEC-020: the claim then
-        // burns every share at the claim's Share Price) and waits for the term.
         vm.prank(attacker);
         core.requestPayout(250_000e6, ICoreVault.PayoutMode.Standard);
         skip(72 hours);
         _reportAndDeliver(900);
         assertApproxEqRel(core.shareAssets(), honestAssets, 0.0001e18, "nothing moved in 72 hours");
         uint256 fairValue = attackerShares / 1e18 * core.sharePrice() / 1e18;
+        uint256 aliceValueBefore = aliceShares / 1e18 * core.sharePrice() / 1e18;
 
         // 1. One transaction on the spoke: push the pool price out of the position's range, report, push it back.
         vm.chainId(SPOKE);
@@ -132,23 +109,20 @@ contract SpotManipulatedReportPoC is CrossChainFixture {
         uint256 manipulated = spokeWormhole.publishedCount() - 1;
         vm.chainId(HUB);
 
-        // 2. Once the guardians signed it: deliver and claim in one transaction. The oracle price never moved.
+        // 2. Deliver and claim in one transaction. The oracle price never moved.
         skip(900);
         _deliver(manipulated);
-        uint256 inflatedAssets = core.shareAssets();
-        assertGt(inflatedAssets, honestAssets + 99_000e6, "Share Assets overstated by more than 99,000 USDC");
+        assertApproxEqRel(core.shareAssets(), honestAssets, 0.00001e18, "S-1: the pushed report reads the honest value");
         vm.prank(attacker);
         ICoreVault.PayoutReceipt memory receipt = core.claimPayout("");
 
-        // The attacker's shares were paid about 16,600 USDC above their worth.
-        assertEq(receipt.sharesBurned, attackerShares, "every share burned at the inflated price");
-        assertGt(receipt.usdcGross, fairValue + 16_000e6, "paid above the shares' worth");
+        assertEq(receipt.sharesBurned, attackerShares, "every share burned");
+        assertLe(receipt.usdcGross, fairValue + 10e6, "S-1: paid no more than the shares' worth");
 
-        // The next honest report shows who paid: Alice's shares lost what the attacker took in excess.
+        // The next honest report: Alice's shares kept their value.
         _reportAndDeliver(900);
         uint256 aliceValueAfter = aliceShares / 1e18 * core.sharePrice() / 1e18;
-        uint256 aliceValueBefore = aliceShares / 1e18 * (honestAssets * 1e36 / (aliceShares + attackerShares)) / 1e18;
-        assertLt(aliceValueAfter + 16_000e6, aliceValueBefore, "taken from the remaining Shareholder");
+        assertGe(aliceValueAfter + 10e6, aliceValueBefore, "S-1: nothing taken from the remaining Shareholder");
     }
 
     /// @dev The manager swaps half of the USDG into WETH and opens one position over `tick0 +- RANGE`.
