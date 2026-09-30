@@ -469,4 +469,21 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         assertEq(usdc.balanceOf(address(vault)), _ledgerUsdc());
         assertEq(vault.sweepExcess(address(usdc)), 0);
     }
+
+    /// @dev Security review S-20 (DEC-080): the hub's Across callback credits nothing the SpokePool did not transfer
+    ///      first; an unbacked call reverts `UnbackedCredit` and moves no base.
+    function test_SEC_S20_hubAcrossCallbackRequiresTheTokensAboveTheLedger() public {
+        bytes32 homeId = keccak256("home-unbacked");
+        bytes memory message = TransitMessage.encode(FUND_ID, SPOKE, homeId, TransferKind.Principal);
+        uint256 idleBefore = vault.idle();
+        vm.prank(address(pool));
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.UnbackedCredit.selector, address(usdc), 500e6, 0));
+        vault.handleV3AcrossMessage(address(usdc), 500e6, address(this), message);
+        assertEq(vault.unmatchedArrivals(), 0);
+        assertEq(vault.idle(), idleBefore);
+
+        // The same arrival, transferred first as the SpokePool does, is held apart as before.
+        pool.fill(address(vault), address(usdc), 500e6, message);
+        assertEq(vault.unmatchedArrivals(), 500e6);
+    }
 }
