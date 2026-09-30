@@ -40,8 +40,9 @@ import {CrossChainFixture} from "./helpers/CrossChainFixture.sol";
 /// +50% around the price. The manipulated report raises Share Assets by about 99,900 USDC (8.3%), and the attacker's
 /// Payout takes about 16,600 USDC more than the shares are worth, out of Idle, at the expense of the remaining
 /// Shareholder (an Instant Payout would still clear its 2% fee). The overstatement is `(k + 1) / 2` of the position
-/// for a range reaching `k^2` times the price, so it grows without bound with the range's width: a full-range
-/// position pushed 100 times over reads 5.5 times its worth, enough to empty Free Idle. The same
+/// for a range from `1 / k^2` to `k^2` times the price pushed to either bound, so it grows without limit with the
+/// range's width: a position ranging from 1/100 to 100 times the price reads 5.5 times its worth, enough to empty Free
+/// Idle. The same
 /// read happens for hub positions inside `claimPayout` itself (`ISpokeVault.buildReport` on the hub Spoke Vault), where
 /// the manipulation and the claim fit in one transaction.
 ///
