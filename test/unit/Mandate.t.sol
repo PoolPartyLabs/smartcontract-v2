@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {ShareMath} from "../../src/libraries/ShareMath.sol";
 import {
     Mandate,
     MandateLib,
@@ -417,7 +418,7 @@ contract MandateTest is Test {
     function test_DEC006_payoutFeeAboveHundredPercentReverts() public {
         Mandate memory m = _valid();
         m.payoutFeeBps = 10_001;
-        vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsAboveMax.selector, 10_001, 10_000));
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsAboveMax.selector, 10_001, MandateLib.MAX_PAYOUT_FEE_BPS));
         h.validate(m);
     }
 
@@ -425,6 +426,22 @@ contract MandateTest is Test {
         Mandate memory m = _valid();
         m.maxBridgeFeeBps = 10_001;
         vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsAboveMax.selector, 10_001, MandateLib.MAX_BRIDGE_FEE_BPS));
+        h.validate(m);
+    }
+
+    /// @dev Security review S-17: the Payout Fee plus the largest flow fee never exceeds 100%, so the Instant Payout
+    ///      arithmetic `usdcGross - payoutFee - flowFee` can never underflow.
+    function test_SEC_S17_payoutFeePlusTheFlowFeeCapStaysWithinOneHundredPercent() public {
+        Mandate memory m = _valid();
+        assertEq(uint256(MandateLib.MAX_PAYOUT_FEE_BPS) + ShareMath.MAX_FLOW_FEE_BPS, 10_000);
+        m.payoutFeeBps = MandateLib.MAX_PAYOUT_FEE_BPS;
+        h.validate(m);
+        m.payoutFeeBps = MandateLib.MAX_PAYOUT_FEE_BPS + 1;
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MandateLib.BpsAboveMax.selector, MandateLib.MAX_PAYOUT_FEE_BPS + 1, MandateLib.MAX_PAYOUT_FEE_BPS
+            )
+        );
         h.validate(m);
     }
 

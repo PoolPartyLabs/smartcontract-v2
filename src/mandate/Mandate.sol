@@ -121,6 +121,12 @@ library MandateLib {
     /// @notice Cap on the management fee, per year. OPEN (LC-57): value proposed by research, not decided.
     uint16 internal constant MAX_MANAGEMENT_FEE_BPS = 200;
 
+    /// @notice Cap on the Payout Fee: 100% less the core cap on the flow fee (`ShareMath.MAX_FLOW_FEE_BPS`, 100).
+    /// @dev Security review S-17: an Instant Payout pays `usdcGross - payoutFee - flowFee`; a Payout Fee above this
+    ///      cap made that subtraction underflow and every Instant claim of the fund revert for its whole life, while
+    ///      DEC-024 forbids switching an open Instant request to Standard. Only the 100% bound was checked.
+    uint16 internal constant MAX_PAYOUT_FEE_BPS = 9900;
+
     /// @notice Cap on `maxBridgeFeeBps`: 1% of the amount sent.
     /// @dev Security review S-9 (QA19 leaves the per-fund value OPEN; DEC-110 makes fee caps core constants): with
     ///      `maxBridgeFeeBps` allowed up to 100% a Mandate the factory accepted let one send deliver 1 base unit for
@@ -165,7 +171,7 @@ library MandateLib {
     ///      - every spoke has at least one bridge adapter on the hub side and one on the spoke side (DEC-089: a chain
     ///        is supported only through a live bridge adapter); no address listed twice as an adapter on one chain;
     ///      - Operating Cash entries on known chains, one per chain (DEC-096);
-    ///      - fees: Payout Fee at most 100%; bridge fee at most `MAX_BRIDGE_FEE_BPS` (security review S-9);
+    ///      - fees: Payout Fee at most `MAX_PAYOUT_FEE_BPS` (S-17); bridge fee at most `MAX_BRIDGE_FEE_BPS` (S-9);
     ///        performance fee within the OPEN cap; management fee 0 in the MVP (DEC-108, LC-144, LC-57).
     ///      A Mandate without spokes (hub-only fund) is accepted: no decision requires a spoke.
     function validate(Mandate memory m) internal pure {
@@ -180,7 +186,7 @@ library MandateLib {
         _validateBridgeAdapters(m);
         _validateOperatingCash(m);
 
-        if (m.payoutFeeBps > BPS) revert BpsAboveMax(m.payoutFeeBps, BPS);
+        if (m.payoutFeeBps > MAX_PAYOUT_FEE_BPS) revert BpsAboveMax(m.payoutFeeBps, MAX_PAYOUT_FEE_BPS);
         if (m.maxBridgeFeeBps > MAX_BRIDGE_FEE_BPS) revert BpsAboveMax(m.maxBridgeFeeBps, MAX_BRIDGE_FEE_BPS);
         if (m.performanceFeeBps > MAX_PERFORMANCE_FEE_BPS) {
             revert BpsAboveMax(m.performanceFeeBps, MAX_PERFORMANCE_FEE_BPS);
