@@ -170,54 +170,26 @@ contract Fork_TransferHome is XChainBase {
         core.recoverUnlistedArrival(0, home);
     }
 
-    /// @notice STILL_PRESENT, new residual of the S-4 recovery rule. After an outage longer than `HUB_BOUND_RETENTION`
-    ///         the transfer is in no value base until `recoverUnlistedArrival` runs; the rule waits for a report built
-    ///         one lifetime after the LAST unlisted arrival under the id, and anyone can make a new one: a 1-unit
-    ///         `fillRelay` of a relay no deposit backs, on the live Arbitrum pool, before each recovery attempt (here
-    ///         right after each report is published). For 1 base unit and one fill per report lifetime the stranger
-    ///         keeps the gap open while mints stay open, and an entrant buys at the depressed price.
-    function test_POC_REVIEW_H02_strangerDustHoldsTheRecoveryOffAfterAMultiDayOutage() public {
+    /// @notice FIXED (S-64). Found by this port: any unlisted arrival restarted the S-45 recovery clock, so after an
+    ///         outage longer than the retention a stranger who bridged 1 unit under the id before each report held the
+    ///         recovery off while mints stayed open (an entrant's 10,000 became 12,467.83, Ana fell from 9,963.40 to
+    ///         7,468.57; cost 1 unit per report lifetime). Now only an arrival at least as large as what is held restarts
+    ///         it, so the dust changes nothing and the first report after the retention opens the recovery.
+    function test_REVIEW_H02_strangerDustNoLongerHoldsTheRecoveryOff() public {
         uint256 principal = _setUpSpokeHoldsPrincipal();
         (bytes32 home,,) = _sendHomeFilled(principal);
         _onRobinhood();
         Transit memory t = spokeVault.hubBoundTransit(home);
         _advance(uint256(t.fillDeadline) + ReportCodec.HUB_BOUND_RETENTION + 1 - block.timestamp);
 
-        uint256 cycles = 3;
-        for (uint256 i; i < cycles; ++i) {
-            if (i != 0) {
-                _onRobinhood();
-                _advance(20 minutes); // the keeper's next report
-            }
-            (bytes memory payload, uint64 whSeq) = _publish();
-            _fabricatedFillOnArbitrum(home, 1, TransferKind.Principal, stranger); // the report is public on Robinhood
-            _advance(FINALITY);
-            _deliver(payload, whSeq);
-            assertEq(_latest().inFlightToHub.length, 0, "past the retention: no longer listed");
-            vm.prank(keeper);
-            vm.expectPartialRevert(ICoreVault.RecoveryNotReady.selector);
-            core.recoverUnlistedArrival(0, home);
-        }
-        uint256 assetsInGap = core.shareAssets();
-        uint256 priceInGap = core.sharePrice();
-        uint256 brunoShares = _depositAs(bruno, 10_000e6); // reports are fresh: mints are open
-
-        // The stranger stops; the keeper's next report opens the recovery.
-        _onRobinhood();
-        _advance(20 minutes);
-        _report();
+        (bytes memory payload, uint64 whSeq) = _publish();
+        _fabricatedFillOnArbitrum(home, 1, TransferKind.Principal, stranger); // the stranger's dust, as before
+        _advance(FINALITY);
+        _deliver(payload, whSeq);
+        assertEq(_latest().inFlightToHub.length, 0, "past the retention: no longer listed");
         vm.prank(keeper);
-        assertEq(core.recoverUnlistedArrival(0, home), principal - HOME_FEE + cycles, "the transfer and the dust");
-        uint256 brunoValue = ShareMath.usdcFor(brunoShares, core.sharePrice());
-        uint256 anaValue = ShareMath.usdcFor(IERC20(shareToken).balanceOf(ana), core.sharePrice());
-        _log("Share Assets while the recovery is held off", assetsInGap);
-        _log("Share Price in the gap (1e24 = 1 USDC)", priceInGap);
-        _log("Bruno paid 10,000 in the gap; worth after the recovery", brunoValue);
-        _log("Ana's value before the send home", assetsBefore);
-        _log("Ana's value after", anaValue);
-        assertApproxEqAbs(assetsBefore - assetsInGap, principal, 1, "the transfer in no value base");
-        assertGt(brunoValue, 12_000e6, "the entrant gains more than 20%");
-        assertLt(anaValue, assetsBefore * 80 / 100, "the holder loses more than 20%");
+        assertEq(core.recoverUnlistedArrival(0, home), principal - HOME_FEE + 1, "the transfer and the dust, at once");
+        assertApproxEqAbs(core.shareAssets(), assetsBefore - HOME_FEE + 1, 2, "back in Share Assets but for the fee");
     }
 
     // -----------------------------------------------------------------------------------------------------------------

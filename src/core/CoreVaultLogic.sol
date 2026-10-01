@@ -568,10 +568,14 @@ library CoreVaultLogic {
     ) public {
         HubBoundTransfer storage h = s.hubBound[hubBoundKey(originChainId, transitId)];
         if (h.listed == 0) {
-            // Cross-check of the independent review: the recovery clock follows the LAST unlisted arrival, so dust
-            // bridged early under a predictable id cannot start it before the fund's own transfer arrives.
-            h.pendingSince = uint64(block.timestamp);
-            h.pending += amount;
+            // Cross-check of the independent review (S-45, S-64): the recovery clock restarts at an arrival at least as
+            // large as what is already held for the id. Dust bridged early under a predictable id is outweighed by the
+            // fund's own transfer, which restarts it (S-45); dust after the transfer cannot restart it, so a stranger
+            // can hold the recovery off only by bridging at least the held amount again each time (S-64), which the
+            // recovery then credits to the fund.
+            uint256 pending = h.pending;
+            if (amount >= pending) h.pendingSince = uint64(block.timestamp);
+            h.pending = pending + amount;
             s.unmatchedArrivals += amount;
             emit ICoreVault.TransitReceived(transitId, originChainId, kind, amount, false);
             return;

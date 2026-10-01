@@ -68,6 +68,44 @@ contract StaticReviewFindingsTest is CoreVaultFixture {
         assertEq(vault.idle(), idleBefore + HOME_ARRIVES);
     }
 
+    /// @dev Cross-check S-64: dust bridged under the id after the transfer (a stranger holding the recovery off) does not
+    ///      restart the clock; an arrival at least as large as what is held does, so holding it off costs the whole
+    ///      held amount again, which the recovery then credits to the fund.
+    function test_SEC_S64_dustAfterTheTransferDoesNotRestartTheRecoveryClock() public {
+        bytes32 id = _send(SENT, ARRIVES);
+        _deliver(_arrived(_spokeReport(ARRIVES, ARRIVES), id, ARRIVES));
+        bytes32 homeId = keccak256("home-3");
+        pool.fill(
+            address(vault),
+            address(usdc),
+            HOME_ARRIVES,
+            TransitMessage.encode(FUND_ID, SPOKE, homeId, TransferKind.Principal)
+        );
+        vm.warp(block.timestamp + 6 hours + 3 days + 1);
+        pool.fill(
+            address(vault), address(usdc), 1, TransitMessage.encode(FUND_ID, SPOKE, homeId, TransferKind.Principal)
+        );
+        _deliver(_spokeReport(ARRIVES - HOME, ARRIVES));
+        assertEq(vault.recoverUnlistedArrival(0, homeId), HOME_ARRIVES + 1, "the dust did not hold it off");
+
+        // A second id: an arrival as large as the held amount restarts the clock.
+        bytes32 otherId = keccak256("home-4");
+        pool.fill(
+            address(vault), address(usdc), 100e6, TransitMessage.encode(FUND_ID, SPOKE, otherId, TransferKind.Principal)
+        );
+        vm.warp(block.timestamp + 2 * uint256(MAX_REPORT_AGE));
+        pool.fill(
+            address(vault), address(usdc), 100e6, TransitMessage.encode(FUND_ID, SPOKE, otherId, TransferKind.Principal)
+        );
+        uint256 restartedAt = block.timestamp;
+        vm.warp(block.timestamp + 10);
+        _deliver(_spokeReport(ARRIVES - HOME, ARRIVES));
+        vm.expectRevert(
+            abi.encodeWithSelector(ICoreVault.RecoveryNotReady.selector, otherId, restartedAt + uint256(MAX_REPORT_AGE))
+        );
+        vault.recoverUnlistedArrival(0, otherId);
+    }
+
     /// @dev S-4: only an arrival no accepted report listed can be recovered; a listed one is credited by the report.
     function test_SEC_S4_listedOrUnknownArrivalCannotBeRecovered() public {
         bytes32 homeId = keccak256("home-2");

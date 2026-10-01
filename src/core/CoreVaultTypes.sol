@@ -76,8 +76,8 @@ struct SpokeBook {
 /// @param credited Amount credited to Idle or collected income against `listed`.
 /// @param pending Arrived before any report listed it; held apart (DEC-080, OQ-01).
 /// @param kind Kind the report listed (CV-OQ-1): an arrival is credited by it, never by the Across message's claim.
-/// @param pendingSince When the last arrival held apart without a listing reached the hub; `recoverUnlistedArrival`
-///        needs a spoke report built after it (security review S-4).
+/// @param pendingSince When the last arrival held apart without a listing, at least as large as what was already held,
+///        reached the hub; `recoverUnlistedArrival` needs a spoke report built after it (security review S-4, S-45, S-64).
 struct HubBoundTransfer {
     uint256 listed;
     uint256 credited;
