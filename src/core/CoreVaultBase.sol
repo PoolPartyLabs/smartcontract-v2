@@ -56,7 +56,8 @@ abstract contract CoreVaultBase is ICoreVault, ReentrancyGuardTransient {
     CoreVaultState internal _s;
 
     /// @dev Set while the Core Vault waits on `ISpokeVault.unwindForPayout`, so the hub Spoke Vault may call back
-    ///      `returnToIdle` and `receiveCollectedIncome` from inside a payout.
+    ///      `returnToIdle` from inside a payout. `receiveCollectedIncome` takes the reentrancy guard and is never called
+    ///      back from an unwind (the unwind's income stays in the hub Spoke Vault's collected bucket).
     bool internal transient _unwinding;
 
     // ---------------------------------------------------------------------------------------------------------------

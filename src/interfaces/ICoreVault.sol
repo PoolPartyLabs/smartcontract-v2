@@ -305,7 +305,8 @@ interface ICoreVault is IAcrossMessageHandler {
     ///      amount before pricing (MVP reading, OPEN). DEC-035: shares are `floor(net / sharePrice)` whole shares and
     ///      only `shares * sharePrice` (truncated) is charged; the rest stays in the wallet; revert below one share or
     ///      below `minShares`. DEC-014, Q60: income checkpoint before the mint. Q57 reading (OPEN): reverts with
-    ///      `StaleSpokeReport` when a spoke's last accepted report is past its max age.
+    ///      `StaleSpokeReport` when a spoke's last accepted report is past its max age, and with `StalePrice` when a
+    ///      price is older than its feed's `maxPriceAge` (OQ-10).
     /// @return shares Whole shares minted, in base units.
     /// @return usdcCharged USDC pulled from the depositor: `usdcForShares + flowFee`.
     function deposit(uint256 usdcAmount, uint256 minShares) external returns (uint256 shares, uint256 usdcCharged);
@@ -327,7 +328,8 @@ interface ICoreVault is IAcrossMessageHandler {
     ///         requester. Unlike an ERC-7540 claim, it runs the missing unwind and pays in the same transaction.
     /// @dev Idle first (Instant: Free Idle only, never the Payout Reserve; Standard: its reserve, then Free Idle,
     ///      DEC-095); otherwise automatic unwind in Mandate order of the shortfall plus 2% (DEC-069, DEC-081, DEC-097),
-    ///      then a post-unwind report on the unwound spoke before burning (DEC-105). Burns
+    ///      of hub positions only, so no post-unwind spoke report is needed before burning (DEC-105, erratum 11 reading);
+    ///      the claim is priced again after the unwind. Burns
     ///      `ShareMath.sharesToBurn(outstanding, sharePrice)` capped at the balance (DEC-020, DEC-077). A full burn
     ///      pays all Attributed Income payable now in the same transaction (DEC-045). Partial Payout when not
     ///      everything can be paid (DEC-068). When the outstanding amount is below one share's price at the claim's
