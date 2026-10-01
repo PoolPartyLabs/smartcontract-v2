@@ -461,6 +461,8 @@ interface ICoreVault is IAcrossMessageHandler {
 
     function fundId() external view returns (bytes32);
     function mandateHash() external view returns (bytes32);
+    /// @notice The Mandate as created. Its `performanceFeeBps` keeps the creation value after `decreaseManagerFee`;
+    ///         the fee in force is `performanceFeeBps()` (independent review I-05).
     function mandate() external view returns (Mandate memory);
     function manager() external view returns (address);
     function usdc() external view returns (address);
