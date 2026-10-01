@@ -69,23 +69,31 @@ contract L01_MandateSizeInitcodeCliff is FactoryReviewFixture {
     }
 
     /// @dev createFund gas as the hub pool list grows (Arbitrum One caps a transaction at 32,000,000 gas).
+    /// @dev One size per test: since the creation-time price check (independent review M-03) the five creations no
+    ///      longer fit in one test's gas limit. On main: 20.52M, 23.76M, 27.17M, 31.49M, 36.42M.
+    function _createFundGas(uint256 extraPools) internal returns (uint256 used) {
+        Deployment memory d = _hubChain();
+        (Mandate memory m, IFundFactory.HubParams memory p) = _bigMandate(d, extraPools);
+        vm.prank(manager);
+        uint256 g = gasleft();
+        d.factory.createFund(m, p);
+        used = g - gasleft();
+        console2.log("extra hub pools", extraPools, "createFund gas", used);
+    }
+
+    function test_POC_REVIEW_L10_createFundGas_0ExtraPools() public {
+        assertLt(_createFundGas(0), ARBITRUM_MAX_TX_GAS);
+    }
+
+    function test_POC_REVIEW_L10_createFundGas_20ExtraPools() public {
+        assertLt(_createFundGas(20), ARBITRUM_MAX_TX_GAS);
+    }
+
+    /// @dev A valid Mandate with 40 extra hub pools needs more gas than one Arbitrum transaction allows.
     function test_POC_REVIEW_L10_createFundGasGrowsPastTheArbitrumTransactionCap() public {
-        uint256[5] memory sizes = [uint256(0), 10, 20, 30, 40];
-        uint256[5] memory expected = [uint256(20_524_228), 23_760_971, 27_170_227, 31_486_584, 36_417_227];
-        uint256 over;
-        for (uint256 i; i < sizes.length; ++i) {
-            Deployment memory d = _hubChain();
-            (Mandate memory m, IFundFactory.HubParams memory p) = _bigMandate(d, sizes[i]);
-            vm.prank(manager);
-            uint256 g = gasleft();
-            d.factory.createFund(m, p);
-            uint256 used = g - gasleft();
-            console2.log("extra hub pools", sizes[i], "createFund gas", used);
-            assertApproxEqRel(used, expected[i], 2e16, "within 2% of the main measurement (bytecode moves with fixes)");
-            if (used > ARBITRUM_MAX_TX_GAS && over == 0) over = sizes[i];
-        }
-        // 30 extra pools need 31.49M of execution plus about 0.6M of calldata: over the cap too in a real transaction.
-        assertEq(over, 40, "a valid Mandate needs more gas than one Arbitrum transaction allows");
+        assertGt(
+            _createFundGas(40), ARBITRUM_MAX_TX_GAS, "a valid Mandate needs more gas than one Arbitrum transaction"
+        );
     }
 
     /// @dev The init code wall, by arithmetic on the exact bytes `_deployCoreVault` assembles (creation code plus

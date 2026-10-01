@@ -2,6 +2,8 @@
 pragma solidity 0.8.28;
 
 import {Test, console2} from "forge-std/Test.sol";
+// Imported so the build always emits the probe's artifact (it is otherwise only read by name).
+import {OracleAwareV4AdapterProbe} from "./OracleAwareV4AdapterProbe.sol";
 
 /// @notice (adapters review I-01, ported to fix/pp-sc-fix-independent-review) MEASUREMENT: the runtime bytecode the
 ///         oracle-aware views of `OracleAwareV4AdapterProbe` add, next to today's adapter and the contracts an
