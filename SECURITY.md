@@ -13,6 +13,10 @@ What has been done, as of 2026-09-30:
   re-verified. Method and numbers: [`docs/security/README.md`](docs/security/README.md).
 - 44 findings registered, 16 fixed with regression tests, 3 waiting for a founder decision, 25 acknowledged with
   their reasoning: [`docs/security/FINDINGS.md`](docs/security/FINDINGS.md).
+- An independent model-driven review (2026-09-30, 121 proofs of concept) and a test and formal verification plan were
+  cross-checked against the code on 2026-10-01: every proof of concept now runs in `test/review/`, a regression in the
+  sweep's own S-4 fix was found and fixed, and thirteen further items were fixed
+  ([`docs/security/CROSS-CHECK-2026-10-01.md`](docs/security/CROSS-CHECK-2026-10-01.md)).
 - The open items and residual risks a deployer must know: [`docs/security/KNOWN-LIMITATIONS.md`](docs/security/KNOWN-LIMITATIONS.md).
 
 ## Reporting a vulnerability
@@ -45,3 +49,6 @@ the off-chain keeper in `local-e2e/` (a development harness, not a production co
 | [`docs/security/KNOWN-LIMITATIONS.md`](docs/security/KNOWN-LIMITATIONS.md) | Open decisions, residual risks, operational constraints |
 | [`docs/security/PRE-MAINNET-CHECKLIST.md`](docs/security/PRE-MAINNET-CHECKLIST.md) | What must happen before real value |
 | [`docs/security/reports/`](docs/security/reports/) | Raw tool outputs and the two pre-fix analysis snapshots |
+| [`docs/security/CROSS-CHECK-2026-10-01.md`](docs/security/CROSS-CHECK-2026-10-01.md) | Every finding of the independent review and the verification plan against the current code |
+| [`docs/security/VERIFICATION-PLAN.md`](docs/security/VERIFICATION-PLAN.md) | The test and formal verification plan: tiers, tools, what has happened, the founder's decisions |
+| [`docs/security/independent-review-2026-09-30/`](docs/security/independent-review-2026-09-30/), [`docs/security/verification-plan-2026-09-30/`](docs/security/verification-plan-2026-09-30/) | The two documents as delivered (snapshots at `e5c778a`) |
