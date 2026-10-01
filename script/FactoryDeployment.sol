@@ -8,6 +8,7 @@ import {Create3Deployer} from "../src/factory/Create3Deployer.sol";
 import {CodeStore} from "../src/factory/CodeStore.sol";
 import {ManagerRegistry} from "../src/core/ManagerRegistry.sol";
 import {ChainlinkPriceSource} from "../src/report/ChainlinkPriceSource.sol";
+import {IImmutableState} from "@uniswap/v4-periphery/src/interfaces/IImmutableState.sol";
 
 /// @title FactoryDeployment
 /// @notice The protocol operator's deployment steps for one chain, shared by `script/DeployFactory.s.sol` and the fork
@@ -75,6 +76,12 @@ abstract contract FactoryDeployment is CommonBase {
     error UnsupportedChain(uint256 chainId);
     error DeterministicDeploymentFailed(bytes32 salt);
 
+    /// @notice A protocol address of the wiring holds no code on this chain.
+    error WiringHasNoCode(string role, address target);
+
+    /// @notice The Uniswap V4 addresses of the wiring do not belong to one deployment.
+    error V4WiringMismatch(string role, address reported, address expected);
+
     /// @notice What one chain's deployment produced.
     struct Deployment {
         address create3Deployer;
@@ -103,7 +110,40 @@ abstract contract FactoryDeployment is CommonBase {
             w.managerRegistry = d.managerRegistry;
             w.priceSource = d.priceSource;
         }
+        _checkWiring(w);
         d = _deployFactory(w, hub, d);
+    }
+
+    /// @notice Refuses a wiring the factory would accept but no fund could use (independent verification plan F-12,
+    ///         FF-10, SF-1, CF-V4-10): every protocol address holds code on this chain, and the PositionManager and
+    ///         StateView answer for the PoolManager given, the PositionManager for the Permit2 given. A codeless
+    ///         registry reverts every income collection; a PoolManager of another deployment lets positions open while
+    ///         every swap reverts. The factory itself checks only for zero addresses (its unit tests wire mocks).
+    function _checkWiring(IFundFactory.ProtocolWiring memory w) internal view {
+        _requireCode("baseToken", w.baseToken);
+        _requireCode("acrossSpokePool", w.acrossSpokePool);
+        _requireCode("wormholeCore", w.wormholeCore);
+        _requireCode("uniswapV4PoolManager", w.uniswapV4PoolManager);
+        _requireCode("uniswapV4PositionManager", w.uniswapV4PositionManager);
+        _requireCode("uniswapV4StateView", w.uniswapV4StateView);
+        _requireCode("permit2", w.permit2);
+        if (w.aaveV3Pool != address(0)) _requireCode("aaveV3Pool", w.aaveV3Pool);
+        if (w.managerRegistry != address(0)) _requireCode("managerRegistry", w.managerRegistry);
+        if (w.priceSource != address(0)) _requireCode("priceSource", w.priceSource);
+        address manager = address(IImmutableState(w.uniswapV4PositionManager).poolManager());
+        if (manager != w.uniswapV4PoolManager) {
+            revert V4WiringMismatch("positionManager.poolManager", manager, w.uniswapV4PoolManager);
+        }
+        manager = address(IImmutableState(w.uniswapV4StateView).poolManager());
+        if (manager != w.uniswapV4PoolManager) {
+            revert V4WiringMismatch("stateView.poolManager", manager, w.uniswapV4PoolManager);
+        }
+        address permit2 = address(IPositionManagerPermit2(w.uniswapV4PositionManager).permit2());
+        if (permit2 != w.permit2) revert V4WiringMismatch("positionManager.permit2", permit2, w.permit2);
+    }
+
+    function _requireCode(string memory role, address target) private view {
+        if (target.code.length == 0) revert WiringHasNoCode(role, target);
     }
 
     /// @notice Steps 1, 2, 4 and 5 with the wiring given (the unit tests pass mock protocol addresses).
@@ -223,4 +263,9 @@ abstract contract FactoryDeployment is CommonBase {
         }
         return string(out);
     }
+}
+
+/// @notice The PositionManager's Permit2 getter (`Permit2Forwarder.permit2`).
+interface IPositionManagerPermit2 {
+    function permit2() external view returns (address);
 }
