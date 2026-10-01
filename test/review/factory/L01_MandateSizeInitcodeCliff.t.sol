@@ -81,7 +81,7 @@ contract L01_MandateSizeInitcodeCliff is FactoryReviewFixture {
             d.factory.createFund(m, p);
             uint256 used = g - gasleft();
             console2.log("extra hub pools", sizes[i], "createFund gas", used);
-            assertApproxEqRel(used, expected[i], 1e15, "within 0.1% of the main measurement");
+            assertApproxEqRel(used, expected[i], 2e16, "within 2% of the main measurement (bytecode moves with fixes)");
             if (used > ARBITRUM_MAX_TX_GAS && over == 0) over = sizes[i];
         }
         // 30 extra pools need 31.49M of execution plus about 0.6M of calldata: over the cap too in a real transaction.
@@ -117,7 +117,7 @@ contract L01_MandateSizeInitcodeCliff is FactoryReviewFixture {
         console2.log("abi.encode(Mandate) bytes      ", abi.encode(m).length);
         console2.log("Core Vault init code bytes     ", initCode);
         assertEq(abi.encode(m).length, 14_528);
-        assertEq(initCode, 50_602, "above EIP-3860: the Core Vault can never be created from this valid Mandate");
+        assertGt(initCode, 49_152, "above EIP-3860: the Core Vault can never be created from this valid Mandate");
 
         // Where the wall now sits: each extra hub pool adds the same bytes, so solve from the 66-pool point.
         uint256 perPool = (initCode - (p.coreVaultCreationCode.length + abi.encode(_mandateOnly(d), c).length)) / 66;
@@ -125,7 +125,7 @@ contract L01_MandateSizeInitcodeCliff is FactoryReviewFixture {
         console2.log("bytes per extra hub pool", perPool);
         console2.log("first extra-pool count above EIP-3860", wall);
         assertEq(perPool, 192);
-        assertEq(wall, 59);
+        assertLe(wall, 59, "the wall moves earlier as the Core Vault grows");
     }
 
     function _mandateOnly(Deployment memory d) internal view returns (Mandate memory m) {
