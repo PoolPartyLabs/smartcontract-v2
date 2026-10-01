@@ -3,20 +3,26 @@ pragma solidity 0.8.28;
 
 import {console2} from "forge-std/console2.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {SpokeBFixture} from "./SpokeBFixture.sol";
 
 /// @notice Lead 1, what breaks first: once a large report is stored (grown in steps, each delivery adding what it can
 ///         afford), a later delivery rewrites mostly unchanged words (about 2,200 gas each) while a payout reads them
-///         cold (about 2,100 each). Setup stores a 400-position report (about 4,800 words) through four deliveries;
-///         the test measures one more delivery of the same size against an Instant claim and a deposit.
+///         cold (about 2,100 each). On main the setup stored a 400-position report (about 4,800 words); since
+///         MAX_OPEN_POSITIONS a report holds at most 32, so the setup stores the largest report the caps allow (32
+///         positions, 64 Income sends home, 256 listed arrivals) and the test measures one more delivery of it against
+///         an Instant claim and a deposit.
 contract Measure_SteadyStateReadVsWrite is SpokeBFixture {
     function setUp() public override {
         super.setUp();
         _deposit(alice, 1_000_000e6);
         bytes32 out = _sendToSpoke(100_000e6, 99_950e6);
         _fillOnSpoke(out, 99_950e6);
-        for (uint256 step; step < 4; ++step) {
-            _dustPositions(100);
+        _dustPositions(32);
+        _incomeArrival(64);
+        _dustSendsHome(64, TransferKind.Income);
+        _dustArrivals(256);
+        {
             (bytes memory payload, uint64 seq) = _publishPayload();
             vm.prank(keeper);
             receiver.deliver(_vaa(payload, seq));
@@ -42,7 +48,8 @@ contract Measure_SteadyStateReadVsWrite is SpokeBFixture {
         console2.log("steady-state deliver + intrinsic", deliverGas);
         console2.log("Instant claim (reads it cold) ", claimGas);
         console2.log("deposit (reads it cold)       ", depositGas);
-        assertGt(deliverGas, claimGas, "a delivery costs more per word than a payout's read");
+        assertLt(deliverGas, 32_000_000, "the largest report the caps allow delivers in one transaction");
+        assertLt(claimGas, 32_000_000, "and a payout reads it within one transaction");
     }
 }
 
