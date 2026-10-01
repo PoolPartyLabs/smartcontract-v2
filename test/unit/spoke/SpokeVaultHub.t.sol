@@ -234,6 +234,29 @@ contract SpokeVaultHubTest is SpokeVaultTestBase {
         assertEq(core.unwind(vault, 400e6, ""), 384e6, "no hint: the vault's own floor");
     }
 
+    /// Independent review H-04 (S-11 residual): about 145 dust positions made every report undeliverable within
+    /// Arbitrum's 32M gas per transaction and about 110 exhausted an unwind; the vault now holds at most
+    /// MAX_OPEN_POSITIONS open at once, and a closed position frees its slot.
+    function test_REVIEW_H04_openPositionsAreBounded() public {
+        uint256 cap = SpokeVaultTypes.MAX_OPEN_POSITIONS;
+        assertEq(cap, 32);
+        core.allocate(vault, 1000e6);
+        vm.startPrank(manager);
+        bytes32 first;
+        for (uint256 i; i < cap; ++i) {
+            (bytes32 key,,) = vault.openPosition(address(hubUni), HUB_POOL, 0, 1e6, "");
+            if (i == 0) first = key;
+        }
+        assertEq(vault.positions().length, cap);
+        vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.OpenPositionLimit.selector, cap));
+        vault.openPosition(address(hubUni), HUB_POOL, 0, 1e6, "");
+
+        vault.closePosition(address(hubUni), first, "");
+        vault.openPosition(address(hubUni), HUB_POOL, 0, 1e6, "");
+        vm.stopPrank();
+        assertEq(vault.positions().length, cap);
+    }
+
     function test_DEC069_illiquidStepRevertsInsteadOfSkipping() public {
         _twoPositions();
         hubUni.setRevertOnExit(true);

@@ -264,6 +264,9 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         if (_s.positionSlot[adapter][positionKey] != 0) {
             revert SpokeVaultTypes.PositionAlreadyRegistered(adapter, positionKey);
         }
+        if (_s.positions.length >= SpokeVaultTypes.MAX_OPEN_POSITIONS) {
+            revert SpokeVaultTypes.OpenPositionLimit(SpokeVaultTypes.MAX_OPEN_POSITIONS);
+        }
         _s.positions.push(PositionRef(adapter, positionKey, poolKey));
         _s.positionSlot[adapter][positionKey] = _s.positions.length;
         _requireBacked(p);

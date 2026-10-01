@@ -40,6 +40,14 @@ library SpokeVaultTypes {
     ///      period (about 20 a day). OPEN value (security review parameter, to confirm with the founder).
     uint256 internal constant MAX_HUB_BOUND_IN_FLIGHT = 64;
 
+    /// @notice Most positions a Spoke Vault holds open at once; `openPosition` reverts above it.
+    /// @dev Independent review H-04 (security review S-11 residual): every open position is walked and encoded by
+    ///      `report()` and `buildReport()`, stored by the hub on every delivery (about 0.2M gas each through the real
+    ///      Wormhole Core) and visited by the automatic unwind. Unbounded, about 145 dust positions pushed a delivery
+    ///      past Arbitrum's 32M gas per transaction, which froze the hub's view of the spoke, and about 110 exhausted an
+    ///      unwind. At 32, a full arrival window, 64 sends home and 32 positions stay well under the limit. OPEN value.
+    uint256 internal constant MAX_OPEN_POSITIONS = 32;
+
     /// @notice Tokens of a Mandate pool on this chain, as the adapter's `poolTokens` returned them at creation
     ///         (OQ-12: a hooked Uniswap V4 pool makes that call revert, so it can never be listed).
     struct PoolTokens {
@@ -169,6 +177,8 @@ library SpokeVaultTypes {
     error OperatingCashNotReleasable(uint256 amount, uint256 releasable);
     /// @notice `MAX_HUB_BOUND_IN_FLIGHT` sends home are already listed (security review S-11).
     error HubBoundInFlightLimit(uint256 limit);
+    /// @notice `MAX_OPEN_POSITIONS` positions are already open (independent review H-04).
+    error OpenPositionLimit(uint256 limit);
 
     /// @notice Encodes the `unwindHints` argument of `ISpokeVault.unwindForPayout`.
     function encodeHints(UnwindHint[] memory hints) internal pure returns (bytes memory) {
