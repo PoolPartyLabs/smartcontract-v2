@@ -17,6 +17,7 @@ import {Mandate, MandateLib} from "../../../src/mandate/Mandate.sol";
 import {IAcrossSpokePool} from "../../../src/interfaces/external/IAcrossSpokePool.sol";
 import {TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
+import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {EndToEndScenario} from "../../fork/e2e/EndToEnd.t.sol";
 
 /// @notice Current Across relay data as the live SpokePools take it (bytes32 addresses, uint256 deposit id).
@@ -194,6 +195,31 @@ abstract contract XChainBase is EndToEndScenario {
     function _fillOnArbitrum(LiveRelayData memory r, address relayer_) internal {
         _onArbitrum();
         _fill(ARB_ACROSS_SPOKE_POOL, ARB_USDC, r, relayer_);
+    }
+
+    /// @dev Anyone: a relay that no Robinhood deposit backs, filled on the live Arbitrum SpokePool to the Core Vault
+    ///      (the relayer pays `amount` and is never repaid). Its message names `transitId` as a Robinhood send home.
+    function _fabricatedFillOnArbitrum(bytes32 id, uint256 amount, TransferKind kind, address relayer_)
+        internal
+        returns (LiveRelayData memory r)
+    {
+        _onArbitrum();
+        r.depositor = bytes32(uint256(uint160(relayer_)));
+        r.recipient = bytes32(uint256(uint160(address(core))));
+        r.inputToken = bytes32(uint256(uint160(RH_USDG)));
+        r.outputToken = bytes32(uint256(uint160(ARB_USDC)));
+        r.inputAmount = amount;
+        r.outputAmount = amount;
+        r.originChainId = ROBINHOOD;
+        r.depositId = uint256(keccak256(abi.encode("integration-xchain fabricated relay", ++freshIdNonce)));
+        r.fillDeadline = uint32(block.timestamp + 1 hours);
+        r.message = TransitMessage.encode(fundId, ROBINHOOD, id, kind);
+        _fill(ARB_ACROSS_SPOKE_POOL, ARB_USDC, r, relayer_);
+    }
+
+    /// @dev The id the Robinhood Spoke Vault gives its `nonce`-th send home (`SpokeCrossChainLib.sendToHub`).
+    function _sendHomeId(uint256 nonce) internal view returns (bytes32) {
+        return keccak256(abi.encode(fundId, ROBINHOOD, nonce));
     }
 
     /// @dev The Across refund of an expired deposit, on the selected fork's live SpokePool: the cross-domain admin (the
