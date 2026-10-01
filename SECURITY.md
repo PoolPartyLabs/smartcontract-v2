@@ -6,7 +6,7 @@
 code is a buildathon MVP under active development; do not put real value into any deployment of it until the
 [pre-mainnet checklist](docs/security/PRE-MAINNET-CHECKLIST.md) is complete.
 
-What has been done, as of 2026-09-30:
+What has been done, as of 2026-10-01:
 
 - One internal security sweep of `src/` (static analysis, fuzzing, invariants, symbolic execution, mutation testing
   and five manual review lenses), with every finding verified by an independent reviewer and the fixes
@@ -14,8 +14,9 @@ What has been done, as of 2026-09-30:
 - 44 findings registered, 16 fixed with regression tests, 3 waiting for a founder decision, 25 acknowledged with
   their reasoning: [`docs/security/FINDINGS.md`](docs/security/FINDINGS.md).
 - An independent model-driven review (2026-09-30, 121 proofs of concept) and a test and formal verification plan were
-  cross-checked against the code on 2026-10-01: every proof of concept now runs in `test/review/`, a regression in the
-  sweep's own S-4 fix was found and fixed, and thirteen further items were fixed
+  cross-checked against the code on 2026-10-01: every proof of concept now runs in `test/review/`, two regressions of
+  the sweep's own fixes were found and fixed (S-45 in the S-4 recovery; S-63, the interim Operating Cash release verb,
+  removed because it let a manager and an ally extract the fund), and thirteen further items were fixed
   ([`docs/security/CROSS-CHECK-2026-10-01.md`](docs/security/CROSS-CHECK-2026-10-01.md)).
 - The open items and residual risks a deployer must know: [`docs/security/KNOWN-LIMITATIONS.md`](docs/security/KNOWN-LIMITATIONS.md).
 
@@ -43,7 +44,7 @@ the off-chain keeper in `local-e2e/` (a development harness, not a production co
 |---|---|
 | [`docs/security/README.md`](docs/security/README.md) | The sweep: method, lenses, tools, numbers, how to read the rest |
 | [`docs/security/THREAT-MODEL.md`](docs/security/THREAT-MODEL.md) | Actors, trust assumptions, assets, attack surfaces |
-| [`docs/security/FINDINGS.md`](docs/security/FINDINGS.md) | Register S-1 to S-44, the refuted item, the final verification |
+| [`docs/security/FINDINGS.md`](docs/security/FINDINGS.md) | Register S-1 to S-64, the refuted item, the final verification, the cross-check of 2026-10-01 |
 | [`docs/security/INVARIANTS.md`](docs/security/INVARIANTS.md) | Properties the suites hold, and where each is checked |
 | [`docs/security/TOOLING.md`](docs/security/TOOLING.md) | Tools, versions, commands, resource limits, how to re-run |
 | [`docs/security/KNOWN-LIMITATIONS.md`](docs/security/KNOWN-LIMITATIONS.md) | Open decisions, residual risks, operational constraints |
