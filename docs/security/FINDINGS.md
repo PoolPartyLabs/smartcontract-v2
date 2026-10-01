@@ -531,7 +531,7 @@ review's (C, H, M, L, I) or the plan's (CF, T, F, MM, SF). Commits are on `fix/p
 | Id | Severity | Status | Title | Sources | Evidence |
 |---|---|---|---|---|---|
 | S-45 | high | Fixed | The S-4 recovery could be started early with dust under a predictable id, or after a report outage, while the latest report still counted the transfer on the spoke: Idle and that report counted it twice (a claimant was paid 49,850 USDC too much on a 1M fund; an Income send home skipped the fee split) | found while porting H-02 | `231a049`; `test_REVIEW_NEW_S04_*` (3), the S-4 regressions updated |
-| S-46 | high | Fixed | Open positions were unbounded: about 180 dust positions made every report undeliverable within 32M gas, closing mints and freezing the hub's view of the spoke | [H-04], plan T3; S-11 residual | `5ce0bd2` (`MAX_OPEN_POSITIONS` = 32, OPEN); worst report under the caps 25.99M gas |
+| S-46 | high | Fixed | Open positions were unbounded: about 180 dust positions made every report undeliverable within 32M gas, closing mints and freezing the hub's view of the spoke | [H-04], plan T3; S-11 residual | `5ce0bd2`, `d726ed3` (`MAX_OPEN_POSITIONS` = 16, OPEN); worst report under the caps 26.87M gas through the real Wormhole Cores (30.28M at 32) |
 | S-47 | medium | Fixed in part | A Mandate pool's LP fee was unbounded: in a 100% pool one swap turned principal into income and the fees on it | [M-02] | `25ee3e5` (`MAX_POOL_FEE` = 1%); gross versus net is SEC-OQ-7 |
 | S-48 | medium | Fixed | An income token that refused the holder reverted a full-burn claim and with it the exit of the principal | [CF-2], [L-02] | `5f4ed15`; `test_REVIEW_CF2_*` |
 | S-49 | medium | Fixed | A single-asset non-USDC position in the unwind order reverted every automatic unwind that reached it, even with a route hint | [T14], [L-05] | `30b896d`; `test_REVIEW_T14_*` (2), `test_REVIEW_L05_singleAssetWethStepUnwindsThroughTheHintedRoute` |
@@ -552,5 +552,5 @@ review's (C, H, M, L, I) or the plan's (CF, T, F, MM, SF). Commits are on `fix/p
 Status updates of earlier entries: S-4 is corrected by S-45; S-11's residual (positions) is closed by S-46; S-16 is
 superseded by S-53 (hub) and SEC-OQ-9 (spoke); S-25 is closed by S-54 for the upper bound; S-27's single-asset case
 is closed by S-49 (the roll-back of a failing step stays, DEC-069); S-34's exit blocking is closed by S-50; L-04's gas
-starvation of the wrapped hub read needs a `buildReport` above about 9.6M gas, which the 32-position cap rules out.
+starvation of the wrapped hub read needs a `buildReport` above about 9.6M gas, which the 16-position cap rules out.
 

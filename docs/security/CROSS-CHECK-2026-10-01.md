@@ -37,7 +37,7 @@ USDC on a 1M fund), fixed on the branch. Twelve further items are fixed on the b
 | H-01 | Unfilled transfer home in no value base until its refund is reported | Fixed (S-3) | Unchanged | `test_REVIEW_H01_*` (2); residual pinned: a refund after the 3-day retention reopens the gap until `recognizeRefund` |
 | H-02 | Filled transfer home lost when no report lists it in time | Fixed (S-4), but the fix itself had a defect (S-45) | Fixed again: recovery needs a report built after the last arrival | `test_REVIEW_H02_*` (3), `test_REVIEW_NEW_S04_*` (3); residual: an entrant between that report's delivery and the recovery call |
 | H-03 | Spoke Cap stops counting a transit that arrived after a time-only expiry | Fixed (S-13) | Unchanged | `test_REVIEW_H03_*` (3), including the re-attack that releasing a held cap costs the whole amount sent |
-| H-04 | The manager can make every report undeliverable | Half fixed (S-11, sends home); dust positions still froze delivery (200 positions: 35.98M gas) | Fixed: at most 32 open positions; the worst report under both caps delivers in 25.99M gas | `test_REVIEW_H04_worstCaseReportStaysDeliverable`, `test_REVIEW_S11_sendsHomeAreCappedAtSixtyFour` |
+| H-04 | The manager can make every report undeliverable | Half fixed (S-11, sends home); dust positions still froze delivery (200 positions: 35.98M gas) | Fixed: at most 16 open positions; the worst report under both caps (256 arrivals, 64 Income sends home filled before their listing, 16 positions) delivers in 26.87M gas through the real Wormhole Cores | `test_REVIEW_H04_*` (unit and real Cores), `test_REVIEW_S11_sendsHomeAreCappedAtSixtyFour`; on `e5c778a` 160 positions needed 35.31M |
 | H-05 | The hub sends capital to a Spoke Vault that nothing shows exists | Fixed (S-14) | Unchanged | `test_REVIEW_H05_*` (3), including a report from another emitter chain that cannot open the gate |
 | H-06 | A spoke built from another Mandate is accepted end to end | Fixed (S-6, S-9) | Unchanged | `test_REVIEW_H06_*` (3) |
 | H-07 | Deprecating the V4 adapter blocks the unwind and strands WETH | Fixed (S-10) | Unchanged; the guardian's holder is SEC-OQ-8 | `test_REVIEW_H07_*` (3) |
@@ -50,7 +50,7 @@ USDC on a 1M fund), fixed on the branch. Twelve further items are fixed on the b
 | L-01 | Payout Fee plus flow fee above 100% | Fixed (S-17) | Unchanged | `test_REVIEW_L01_*` (2) |
 | L-02 | Pushes to addresses that may refuse | Fees fixed (S-12) | Income on a full exit fixed too (owed to the holder) | `test_REVIEW_CF2_incomeTokenThatRefusesTheHolderNeverBlocksTheExit` |
 | L-03 | A spoke that never reported is never stale | Unreachable since S-14 | Unchanged | |
-| L-04 | Valuation reads every position; a claimant could starve the wrapped read | Measured: starving the hub read needs a `buildReport` above about 9.6M gas | Bounded: 32 positions per Spoke Vault; a claim reading the largest report costs 3.03M | `GasFallbackMeasure`, `Measure_SteadyStateReadVsWrite` |
+| L-04 | Valuation reads every position; a claimant could starve the wrapped read | Measured: starving the hub read needs a `buildReport` above about 9.6M gas | Bounded: 16 positions per Spoke Vault; a claim reading the largest report the caps allow costs 2.54M | `GasFallbackMeasure`, `Measure_SteadyStateReadVsWrite` |
 | L-05 | The unwind cannot reach everything | Open | Single-asset non-USDC step fixed (T14); non-USDC Unallocated Balance and the roll-back of a failing step remain (DEC-069) | `test_REVIEW_L05_singleAssetWethStepUnwindsThroughTheHintedRoute`; `test_POC_REVIEW_L05_*` pins |
 | L-06 | `buildReport` readable mid-verb (read-only reentrancy) | Unreachable with USDC, WETH and hookless pools | Acknowledged | review report 04 |
 | L-07 | Income attribution timing (just-in-time entrant) | Open (S-15) | Unchanged | `test_POC_REVIEW_L07_*` |
@@ -128,7 +128,7 @@ done; R-2 is done by the "exit wins" reading (CF-2); the remaining parts are in 
 | No deposit below one base unit per whole share | MM-3 |
 | Deployment script refuses an unusable wiring | SF-1, CF-V4-10, plan F-12 |
 | Spoke refuses a built fill deadline not in the future | L-09 |
-| At most 32 open positions per Spoke Vault | H-04 (positions) |
+| At most 16 open positions per Spoke Vault (first 32, lowered after the real-Core measurement) | H-04 (positions) |
 | Recovery of an unlisted arrival only against a report built after it | S-45 (new), H-02 |
 | A spoke report lifetime of at most one day | M-04, S-25 |
 | A hub pool token without a price is refused at creation | M-03 (hub half) |

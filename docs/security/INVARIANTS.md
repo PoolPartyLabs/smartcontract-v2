@@ -140,7 +140,7 @@ findings. Where each stands on main after the 2026-10-01 cross-check:
 | 3 | Spoke Cap against what the spoke really holds | `invariant_DEC066_booksAreTheSumOfTheirTransits` (books only); ported H-03 tests on real fills | Partly |
 | 4 | Third-party price independence around a deposit or a claim | `test_SEC_S1_*` (unit and live pool), ported C-02 tests | No: the harness's mock pools have a fixed spot |
 | 5 | Exit under deprecation | `test_SEC_S10_*`, ported H-07 tests | No |
-| 6 | Every published report deliverable within 32M gas | `test_REVIEW_H04_worstCaseReportStaysDeliverable` (25.99M at the caps) | No (a bound, tested at its worst case) |
+| 6 | Every published report deliverable within 32M gas | `test_REVIEW_H04_worstCaseReportStaysDeliverable` (23.14M at the caps, unit), `test_REVIEW_H04_worstCaseWithHeldApartIncomeArrivals` (26.87M through the real Cores) | No (a bound, tested at its worst case) |
 | 7 | Mandate identity of every accepted report | `test_SEC_S6_*`, ported H-06 tests | No |
 | 8 | No value for a fill to an address without code | `test_SEC_S14_*`, ported H-05 tests (the case cannot be constructed) | No |
 | 9 | Zero exclusivity and a bounded fee per send | `test_SEC_S9_*`, ported M-01 tests | No |

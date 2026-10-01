@@ -44,7 +44,7 @@ on main as pins.
 | `MAX_BRIDGE_FEE_BPS` | 100 | `Mandate` | Cap on the Mandate's `maxBridgeFeeBps` (S-9) |
 | `MAX_PAYOUT_FEE_BPS` | 9,900 | `Mandate` | `10,000 - MAX_FLOW_FEE_BPS`, arithmetic bound (S-17) |
 | `MAX_UNWIND_SLIPPAGE_BPS` | 500 | `SpokeVault` | Unwind swap floor under `max(spot, oracle)` (S-2) |
-| `MAX_OPEN_POSITIONS` | 32 | `SpokeVaultTypes` | Open positions per Spoke Vault (S-46): the worst report under this cap, 64 sends home and a full arrival window delivers in 25.99M gas of 32M |
+| `MAX_OPEN_POSITIONS` | 16 | `SpokeVaultTypes` | Open positions per Spoke Vault (S-46): the worst report under this cap, 64 Income sends home filled before their listing and a full arrival window delivers in 26.87M gas of 32M through the real Wormhole Cores (30.28M at 32 positions) |
 | `MAX_POOL_FEE` | 10,000 pips (1%) | `UniswapV4Adapter` | Highest LP fee of a registered hookless pool (S-47) |
 | `MAX_REPORT_AGE` | 1 day | `MandateLib` | Upper bound on a spoke's report lifetime (S-54) |
 | `MAX_PRICE` | 2^128 | `ChainlinkPriceSource` | Highest accepted `price1e18` (S-51; structural, not an economic band) |

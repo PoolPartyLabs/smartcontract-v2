@@ -33,7 +33,7 @@ now, add a per-verb band when API co-signing exists, DEC-002).
 **The Mandate prevents:** calling any adapter, pool or token outside its closed lists (adapter codehashes pinned);
 sending tokens anywhere but the fund's own vaults (bridge recipients fixed); mixing principal and income; entering
 through a paused or deprecated adapter; a Payout Fee above 99% (S-17), a bridge fee above 1% (S-9), an exclusive
-relayer (S-9), a pool LP fee above 1% (M-02), a report lifetime above one day (M-04), more than 32 open positions or
+relayer (S-9), a pool LP fee above 1% (M-02), a report lifetime above one day (M-04), more than 16 open positions or
 64 listed sends home per Spoke Vault (S-11, H-04).
 
 **The Mandate does not prevent** (DEC-027 and DEC-030: no loss limit), measured on `main` by the review's proofs of
@@ -46,7 +46,7 @@ concept as ported on 2026-10-01:
 | Bridge fee | Over-quote up to 1% per send; the fastest relayer, not the manager, earns it | Bounded by S-9 |
 | Operating Cash | Move free capital into Operating Cash, outside Share Assets | Reversible by the same key (`releaseOperatingCash`, S-5 interim); a cap is a founder question |
 | Spoke rules | Create the spoke from other rules | Closed: such a spoke is never accepted nor funded (S-6, S-14) |
-| Reporting | Freeze the hub's view of a spoke with dust | Closed: the worst report under the caps delivers in 25.99M gas (H-04) |
+| Reporting | Freeze the hub's view of a spoke with dust | Closed: the worst report under the caps delivers in 26.87M gas through the real Wormhole Cores (H-04) |
 | Unpriceable token | Close mints and underpay leavers | Hub tokens refused at creation; spoke tokens are a founder question (M-03) |
 
 ## External dependencies and the trust placed in each
