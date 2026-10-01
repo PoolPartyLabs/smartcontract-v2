@@ -68,6 +68,10 @@ contract CoreVault is CoreVaultTransit {
         // gives it no income collected before entry (ruling 2026-09-29: the index moves only at collection).
         (uint256 assets, NavConsolidation memory consolidation) = CoreVaultLogic.recordValuation(_s, _wiring(), true);
         uint256 price = ShareMath.sharePrice(assets, supply);
+        // Independent verification plan MM-3 (DEC-035, DEC-061 residual OPEN): below one base unit per whole share a
+        // deposit's charge rounds to zero for whole shares, and repeated one-unit deposits compounded to more than 99%
+        // of the supply for nothing, a claim on every later recovery of value. Such a fund takes no new money.
+        if (price < ShareMath.PRICE_SCALE) revert SharePriceBelowOneUnit(price);
         uint256 usdcForShares;
         uint256 fee;
         (shares, usdcForShares, fee) = ShareMath.previewDeposit(usdcAmount, flowFeeBps, price);

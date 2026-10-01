@@ -240,6 +240,10 @@ interface ICoreVault is IAcrossMessageHandler {
     error ZeroAmount();
     error BelowMinFirstDeposit(uint256 amount, uint256 minFirstDeposit);
     error DepositBelowOneShare(uint256 usdcNet, uint256 sharePrice);
+
+    /// @notice The Share Price is below one USDC base unit per whole share, where whole shares would be charged nothing
+    ///         (independent verification plan MM-3).
+    error SharePriceBelowOneUnit(uint256 sharePrice);
     error SharesBelowMinimum(uint256 shares, uint256 minShares);
     error StaleSpokeReport(uint256 spokeIndex);
     error StalePrice(address token, uint256 updatedAt);
