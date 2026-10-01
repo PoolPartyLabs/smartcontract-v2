@@ -48,6 +48,8 @@ contract ChainlinkPriceSourceAdversarialTest is Test {
         feedDecimals = uint8(bound(feedDecimals, 0, 18));
         tokenDecimals = uint8(bound(tokenDecimals, 0, 30));
         answer = bound(answer, 1e24, 1e36); // keeps the per-base-unit price above zero for every pair
+        // Prices above MAX_PRICE are refused (CF-R2), see test_REVIEW_CFR2_priceAboveTheBoundIsRefused.
+        vm.assume(answer * 1e24 / 10 ** (uint256(feedDecimals) + tokenDecimals) <= type(uint128).max);
         (ChainlinkPriceSource source,) = _source(feedDecimals, tokenDecimals, int256(answer));
 
         (uint256 value,) = source.usdcValue(TOKEN, 10 ** tokenDecimals);
@@ -82,11 +84,44 @@ contract ChainlinkPriceSourceAdversarialTest is Test {
         source.usdcValue(TOKEN, 1);
     }
 
-    /// @dev type(int256).max on an 8-decimals feed does not overflow the 512-bit intermediate; the result fits.
-    function test_Q57b_maxAnswerDoesNotOverflow() public {
-        (ChainlinkPriceSource source,) = _source(8, 18, type(int256).max);
+    /// @dev Independent verification plan CF-R2: type(int256).max on an 8-decimals feed used to come back as a price of
+    ///      5.8e74, which then overflowed the Core Vault's value sums inside every payout. A price above MAX_PRICE
+    ///      (2^128) is refused, so a payout falls back to the last price instead; MAX_PRICE itself is accepted.
+    function test_REVIEW_CFR2_priceAboveTheBoundIsRefused() public {
+        (ChainlinkPriceSource source, MockAggregator feed) = _source(8, 18, type(int256).max);
+        vm.expectRevert(abi.encodeWithSelector(IPriceSource.InvalidPrice.selector, TOKEN));
+        source.priceInUsdc(TOKEN);
+
+        // price1e18 = answer * 1e24 / 1e26 = answer / 100 on an 8-decimals feed for an 18-decimals token.
+        uint256 atBound = uint256(type(uint128).max) * 100;
+        feed.set(int256(atBound), block.timestamp);
         (uint256 price,) = source.priceInUsdc(TOKEN);
-        assertEq(price, uint256(type(int256).max) / 100);
+        assertEq(price, type(uint128).max);
+        feed.set(int256(atBound + 100), block.timestamp);
+        vm.expectRevert(abi.encodeWithSelector(IPriceSource.InvalidPrice.selector, TOKEN));
+        source.priceInUsdc(TOKEN);
+    }
+
+    /// @dev Independent verification plan CF-R3: the scale is fixed with the feed's decimals at construction; a feed
+    ///      that now reports other decimals would misprice by a power of ten, so the read is refused.
+    function test_REVIEW_CFR3_feedWhoseDecimalsChangedIsRefused() public {
+        (ChainlinkPriceSource source, MockAggregator feed) = _source(8, 18, 2700e8);
+        (uint256 price,) = source.priceInUsdc(TOKEN);
+        assertEq(price, 2.7e9);
+        feed.setDecimals(18);
+        feed.set(2700e18, block.timestamp);
+        vm.expectRevert(abi.encodeWithSelector(IPriceSource.InvalidPrice.selector, TOKEN));
+        source.priceInUsdc(TOKEN);
+    }
+
+    /// @dev An `updatedAt` ahead of the chain's clock is a broken round, never a fresh one: refused.
+    function test_REVIEW_CFR_futureUpdatedAtIsRefused() public {
+        (ChainlinkPriceSource source, MockAggregator feed) = _source(8, 18, 2700e8);
+        feed.set(2700e8, block.timestamp + 1);
+        vm.expectRevert(abi.encodeWithSelector(IPriceSource.InvalidPrice.selector, TOKEN));
+        source.priceInUsdc(TOKEN);
+        feed.set(2700e8, block.timestamp);
+        source.priceInUsdc(TOKEN);
     }
 
     /// @dev A feed that reverts at read time bubbles the revert: there is no silent fallback price (OQ-10 covers
