@@ -56,22 +56,22 @@ contract H02_ReturnTransferStrandedInUnmatched is CoreBCrossChainFixture {
         assertEq(vault.shareAssets(), assetsBefore - (ARRIVES - HOME_OUT), "only the bridge fee is gone");
     }
 
-    /// @dev Re-attack: an outage longer than the retention. The spoke stops listing the send home, the arrival stays
-    ///      held apart, and `recoverUnlistedArrival` (permissionless) credits it to Idle once no report can list it.
+    /// @dev Re-attack: an outage longer than the retention. The spoke stops listing the send home and the arrival stays
+    ///      held apart; since the cross-check fix of S-4, `recoverUnlistedArrival` (permissionless) is refused while the
+    ///      hub's latest report predates the arrival (it still counts the transfer on the spoke), whatever the delay,
+    ///      and opens at once when a report built after the arrival no longer lists it.
     function test_REVIEW_H02_unlistedArrivalIsRecoveredAfterAMultiDayOutage() public {
         Transit memory t = spoke.hubBoundTransit(home);
         vm.warp(uint256(t.fillDeadline) + ReportCodec.HUB_BOUND_RETENTION + 1);
         _refreshPrices();
+        vm.expectRevert(
+            abi.encodeWithSelector(ICoreVault.RecoveryNotReady.selector, home, filledAt + uint256(MAX_REPORT_AGE))
+        );
+        vault.recoverUnlistedArrival(0, home);
+
         _report();
         assertEq(_latest().inFlightToHub.length, 0, "no longer listed");
         assertEq(vault.unmatchedArrivals(), HOME_OUT);
-
-        uint256 readyAt = filledAt + 6 hours + ReportCodec.HUB_BOUND_RETENTION + 2 * uint256(MAX_REPORT_AGE);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.RecoveryNotReady.selector, home, readyAt));
-        vault.recoverUnlistedArrival(0, home);
-
-        vm.warp(readyAt);
-        _refreshPrices();
         vm.prank(bob);
         assertEq(vault.recoverUnlistedArrival(0, home), HOME_OUT);
         assertEq(vault.unmatchedArrivals(), 0);
@@ -80,30 +80,25 @@ contract H02_ReturnTransferStrandedInUnmatched is CoreBCrossChainFixture {
         vault.recoverUnlistedArrival(0, home);
     }
 
-    /// @dev Residual: between the first report after the retention (which no longer lists the transfer) and the
-    ///      recovery delay, the transfer is in no value base while mints are open again (the report is fresh). The gap
-    ///      is `pendingSince - send + 2 x maxReportAge` (about 55 min here) and needs a report outage longer than
-    ///      `fillDeadline + 3 days`; an entrant in it is priced 10% low.
-    function test_POC_REVIEW_H02_entrantBetweenTheRetentionAndTheRecoveryIsPricedLow() public {
+    /// @dev Residual (narrowed by the cross-check fix of S-4): after an outage longer than `fillDeadline + 3 days`,
+    ///      the first report after the retention no longer lists the transfer, so until someone calls the
+    ///      permissionless recovery it is in no value base while mints are open. On main the gap lasted until a delay
+    ///      ran out (3,295 s here); now recovery opens with that report, so the gap is only what separates the
+    ///      delivery from the recovery call. An entrant who lands in between still gains: the keeper should recover
+    ///      right after delivering.
+    function test_POC_REVIEW_H02_entrantBetweenTheReportAndTheRecoveryIsPricedLow() public {
         Transit memory t = spoke.hubBoundTransit(home);
         vm.warp(uint256(t.fillDeadline) + ReportCodec.HUB_BOUND_RETENTION + 1);
         _refreshPrices();
         _report();
         uint256 assetsInGap = vault.shareAssets();
-        console2.log("Share Assets before / in the gap", assetsBefore, assetsInGap);
         assertEq(assetsInGap, 897_500e6, "the transfer is in no value base");
 
         uint256 minted = _deposit(bob, 100_000e6); // the report is fresh: the mint goes through
-
-        uint256 readyAt = filledAt + 6 hours + ReportCodec.HUB_BOUND_RETENTION + 2 * uint256(MAX_REPORT_AGE);
-        console2.log("gap length (s)", readyAt - block.timestamp);
-        assertEq(readyAt - block.timestamp, 3295);
-        vm.warp(readyAt);
-        _refreshPrices();
-        vault.recoverUnlistedArrival(0, home);
+        vault.recoverUnlistedArrival(0, home); // open at once now
         uint256 bobValue = minted * vault.sharePrice() / 1e36;
         console2.log("bob paid 100,000; worth after the recovery", bobValue);
-        assertEq(bobValue, 109_742_302_202, "the entrant gains 9,742 USDC (9.7%)");
+        assertEq(bobValue, 109_742_302_202, "an entrant between the delivery and the recovery gains 9.7%");
     }
 
     /// @dev Control: one report inside the window matches and credits the same arrival to Idle.
