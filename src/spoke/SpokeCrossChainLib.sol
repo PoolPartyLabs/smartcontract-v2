@@ -365,6 +365,8 @@ library SpokeCrossChainLib {
         if (call.amountToArrive != quote.outputAmount) {
             revert SpokeVaultTypes.BridgeAmountMismatch(quote.outputAmount, call.amountToArrive);
         }
+        // forge-lint: disable-next-line(block-timestamp)
+        if (call.fillDeadline <= block.timestamp) revert SpokeVaultTypes.BridgeDeadlineNotInFuture(call.fillDeadline);
     }
 
     /// @dev Books the transit as `Sent`, lists it in flight and grows `cumulativeSentHome` before the external call.

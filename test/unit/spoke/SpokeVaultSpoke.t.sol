@@ -715,6 +715,19 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         vault.sendToHub(10e6, TransferKind.Principal, 0, _quote(9.99e6));
     }
 
+    /// Independent review L-09: the Spoke Vault refuses a built call whose fill deadline is not in the future, as the
+    /// Core Vault does, instead of booking a transit that would be expired at once.
+    function test_REVIEW_L09_builtFillDeadlineNotInTheFutureReverts() public {
+        _disableOperatingCash();
+        _arrive(100e6, ARRIVAL, TransferKind.Principal);
+        spokeBridge.setDeadlineNow(true);
+        vm.prank(manager);
+        vm.expectRevert(
+            abi.encodeWithSelector(SpokeVaultTypes.BridgeDeadlineNotInFuture.selector, uint32(block.timestamp))
+        );
+        vault.sendToHub(10e6, TransferKind.Principal, 0, _quote(9.99e6));
+    }
+
     function test_DEC087_inexactDebitReverts() public {
         _disableOperatingCash();
         _arrive(100e6, ARRIVAL, TransferKind.Principal);
