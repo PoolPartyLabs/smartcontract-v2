@@ -29,6 +29,7 @@ processes). The limits that then worked, and that CI or a re-run should keep:
 | Whole-fund invariants without the liveness assumptions | `SEC_LATE_REFUNDS=true forge test --match-path "test/security/invariants/**"`; likewise `SEC_UNLISTED_SENDS_HOME=true` | pass since S-3 and S-4 (before: `DYN-01`, `DYN-02` counterexamples) |
 | Fork suites | `ARBITRUM_FORK_BLOCK=$((latest-600)) ROBINHOOD_FORK_BLOCK=$((latest-600)) forge test -j 1 --match-path "test/fork/**"` | 57 tests, 0 failed (pins 510469880 / 76852461) |
 | Local two-fork harness | `cd local-e2e && pnpm run up && pnpm scenario --keeper inprocess; pnpm run down` | PASS, 35 steps, 213 assertions |
+| Coverage (2026-10-01) | `forge coverage --ir-minimum -j 2 --no-match-path "test/{fork/**,review/**/*Fork*}" --report summary` | `src/`: lines 97.45% (2,441 of 2,505), branches 85.47% (447 of 523), functions 98.95%; review at `e5c778a`: 97.31% and 83.67%. Lowest branch coverage: `ManagerFeeVault` 33%, `CoreVaultIncome` 60%, `CoreVaultTransit` 64%, `CodeStore` 67%, `SpokeVault` 73%. Five tests fail only under the via-IR coverage build (three capture `block.timestamp` before `vm.warp`, two measure gas). `raw/coverage-2026-10-01.txt` |
 | Sizes | `forge build --sizes` | every contract under 24,576 bytes; `SpokeVault` 24,017 (559 to spare), `CoreVaultLogic` 22,560, `CoreVault` 21,293 |
 
 Fork pins: the public Arbitrum and Robinhood RPCs serve recent state only (about one hour and about ten minutes).
