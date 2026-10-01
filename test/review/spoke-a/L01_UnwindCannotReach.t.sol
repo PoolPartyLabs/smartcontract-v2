@@ -67,7 +67,10 @@ contract L05_SingleAssetNonUsdcStep is SpokeAHubFixture {
         m.unwindOrder = order;
     }
 
-    function test_POC_REVIEW_L05_singleAssetWethStepRevertsTheUnwindEvenWithARouteHint() public {
+    /// @dev Fixed on fix/pp-sc-fix-independent-review (plan T14): the single-asset WETH step used to revert
+    ///      `UnexpectedToken` with or without a route hint, rolling back the V4 exit before it. It now takes the hinted
+    ///      Mandate route; without a hint it is refused by name, and the claim then falls back to Idle as before.
+    function test_REVIEW_L05_singleAssetWethStepUnwindsThroughTheHintedRoute() public {
         _deposit(alice, 1_000_000e6);
         _deposit(mallory, 300_000e6);
         _managerOpensHubPosition(100_000e6); // V4 first: ~100,000 USDC of value
@@ -79,36 +82,31 @@ contract L05_SingleAssetNonUsdcStep is SpokeAHubFixture {
         uint256 wethIn = hubVault.swapExactInput(address(adapter), poolId, address(usdc), 10_000e6, 0, "");
         vm.prank(manager);
         hubVault.openPosition(address(exact), EXACT_WETH, wethIn, 0, "");
-        _managerSuppliesExact(1_140_000e6); // exact-value USDC third: liquid, but never reached
+        _managerSuppliesExact(1_140_000e6); // exact-value USDC third
         _unwindSwapsAtOracle();
         assertEq(hubVault.positions().length, 3);
 
-        // A target the V4 step alone cannot cover reaches the WETH step: the unwind reverts there.
+        // Without a route for WETH the step is refused by name.
         vm.prank(address(vault));
-        vm.expectRevert(abi.encodeWithSelector(ISpokeVault.UnexpectedToken.selector, address(weth)));
+        vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.MissingUnwindSwap.selector, address(weth)));
         hubVault.unwindForPayout(150_000e6, "");
 
-        // Same with a hint naming the Mandate's WETH/USDC route for the WETH step (second position visited).
+        // With a hint naming the Mandate's WETH/USDC route for the WETH step (second position visited) the unwind
+        // walks all three steps and reaches the target.
         SpokeVaultTypes.UnwindHint[] memory hints = new SpokeVaultTypes.UnwindHint[](2);
         hints[1].swaps = new SpokeVaultTypes.UnwindSwap[](1);
         hints[1].swaps[0] = SpokeVaultTypes.UnwindSwap(address(adapter), poolId, address(weth), 0, "");
+        uint256 snap = vm.snapshotState();
         vm.prank(address(vault));
-        vm.expectRevert(abi.encodeWithSelector(ISpokeVault.UnexpectedToken.selector, address(weth)));
-        hubVault.unwindForPayout(150_000e6, SpokeVaultTypes.encodeHints(hints));
+        assertEq(hubVault.unwindForPayout(150_000e6, SpokeVaultTypes.encodeHints(hints)), 150_000e6);
+        vm.revertToState(snap);
 
-        // Through a claim needing ~248,000 of unwind: the Core Vault catches the revert and pays Free Idle only; the
-        // V4 exit (~100,000) is rolled back too and the liquid exact-value USDC step is never reached.
+        // Through a claim needing ~248,000 of unwind, with the hint: paid in full.
         _request(mallory, 290_000e6, ICoreVault.PayoutMode.Instant);
-        uint256 freeIdle = vault.freeIdle();
-        assertLt(freeIdle, 50_000e6);
-        vm.expectEmit(false, false, false, false, address(vault));
-        emit ICoreVault.UnwindForPayoutFailed(0);
-        ICoreVault.PayoutReceipt memory r = _claim(mallory);
-        console2.log("free idle", freeIdle);
-        console2.log("paid gross", r.usdcGross);
-        assertEq(r.unwindProceeds, 0);
-        assertEq(hubVault.positions().length, 3, "the V4 exit was rolled back with the failing step");
-        assertLe(r.usdcGross, freeIdle, "paid from Idle only");
-        assertTrue(vault.payoutRequest(mallory).open);
+        vm.prank(mallory);
+        ICoreVault.PayoutReceipt memory r = vault.claimPayout(SpokeVaultTypes.encodeHints(hints));
+        console2.log("unwind proceeds", r.unwindProceeds);
+        assertGt(r.unwindProceeds, 200_000e6, "the unwind ran through the WETH step");
+        assertFalse(vault.payoutRequest(mallory).open, "the request closed");
     }
 }
