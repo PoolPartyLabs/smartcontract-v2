@@ -98,6 +98,7 @@ abstract contract SpokeAHubFixture is Test {
         escrowImpl = new TransitEscrow();
         exact = new MockPositionAdapter(guardian, true);
         exact.addPool(EXACT_USDC, address(usdc), address(0));
+        _extraPools();
 
         // Pool WETH/USDC, fee 500, spacing 10, no hooks, initialized at the oracle price.
         wethIsToken0 = address(weth) < address(usdc);
@@ -143,7 +144,10 @@ abstract contract SpokeAHubFixture is Test {
         usdc.mint(address(v4), 100_000_000e6);
     }
 
-    function _mandate(address adapter_, address exact_) internal view returns (Mandate memory m) {
+    /// @dev Port hook: a variant registers more mock pools before the vaults read `poolTokens` at construction.
+    function _extraPools() internal virtual {}
+
+    function _mandate(address adapter_, address exact_) internal view virtual returns (Mandate memory m) {
         m.manager = manager;
         m.hubChainId = HUB;
         m.usdc = address(usdc);
