@@ -46,6 +46,8 @@ actor keys below, and read every address from `local-e2e/.state/deployment.json`
 | `pnpm warp <duration> [--no-report]` | Advances **both** clocks (`3600`, `90s`, `30m`, `72h`, `3d`; `0` just refreshes), re-stamps Chainlink and publishes a fresh report from every spoke, delivered by the running keeper or directly |
 | `pnpm status` | Nodes, keeper, deployment, fund books, report and price freshness, actor balances |
 | `pnpm abis` | Re-exports `abis/*.json` from `forge build` (commit the result when the contracts change) |
+| `pnpm api` | A minimal read-and-build API over both forks on `127.0.0.1:8787` (see [API probe](#api-probe)) |
+| `pnpm api:probe` | Starts that API in-process with the keeper and checks, over HTTP, the concepts the product API relies on; run it on a fresh `up` |
 | `pnpm exec tsx src/fund-accounts.ts` | Tops every actor up again (idempotent) |
 | `pnpm exec tsx src/guardian.ts` | Re-applies the guardian override (idempotent) and self-tests a VAA |
 
@@ -222,6 +224,30 @@ pnpm run up && pnpm scenario --keeper inprocess; status=$?; pnpm down; exit $sta
 The scenario needs an unused fund: on a deployment whose fund already has shares it creates a fresh one through
 `script/CreateFund.s.sol` (`--new-fund` forces that), so it can run any number of times on the same nodes.
 
+## API probe
+
+`src/api.ts` is the smallest API that shows what the product API needs from the contracts: it reads chain state and
+builds unsigned transactions, never holds a key, and every number it returns is read from the contracts or obtained by
+`eth_call` against the fork's state. Routes:
+
+| Route | What it returns |
+|---|---|
+| `GET /health` | both nodes, clocks, the spoke report's age against its lifetime, the WETH price's age against its feed bound, `mintsOpen` (a spoke that never reported does not close mints), `payoutsOpen` |
+| `GET /fund` | identity, the value bases (Share Assets, Gross Assets, Idle, Free Idle, Payout Reserve, In-flight Value, Operating Cash, held-apart arrivals), the Share Price, Spoke Cap usage, fee parameters in force |
+| `GET /holders/:address` | shares, their value at the Share Price, Attributed Income and owed transfers per income token, the open Payout Request |
+| `GET /quote/deposit?from=&amount=` | the exact shares and USDC charged, by simulating `deposit`, or the decoded revert (`StaleSpokeReport`, `StalePrice`, `SharePriceBelowOneUnit`, ...) |
+| `GET /quote/claim?from=` | the exact payout receipt by simulating `claimPayout` with the API's hints |
+| `GET /quote/swap?tokenIn=&amountIn=` | a manager swap minimum: the oracle value less 1% (the vault enforces none: security review S-8, open) |
+| `POST /tx/deposit`, `/tx/request`, `/tx/claim`, `/tx/swap` | unsigned transactions (approval first when needed); `/tx/deposit` answers 409 while mints are closed |
+| `GET /events?fromBlock=` | the Core Vault's events, decoded |
+
+`pnpm api:probe` (on a fresh `pnpm run up`) drives those routes and checks: the deposit quote equals the minted shares;
+the keeper's first report makes the spoke count; past the report lifetime with no new report `/health` shows mints
+closed, the chain reverts `StaleSpokeReport` and the API refuses to build a deposit, while an Instant payout from Idle
+still executes and pays exactly what `/quote/claim` said; a fresh report reopens mints; a 1,000 USDC hub swap built by
+the API respects its oracle minimum on the live pool and the same swap at 0 bps reverts `InsufficientOutput`; every
+step ended with an event the indexer served; a holder's value equals shares times the Share Price.
+
 ## Environment
 
 | Variable | Default | Used by |
@@ -229,6 +255,7 @@ The scenario needs an unused fund: on a deployment whose fund already has shares
 | `ARBITRUM_RPC_URL`, `ROBINHOOD_RPC_URL` | the repo `.env`, else the public endpoints | the forks' upstreams |
 | `ARBITRUM_FORK_BLOCK`, `ROBINHOOD_FORK_BLOCK` | latest | fork blocks, **process environment only** (the repo `.env` pins old blocks for the forge fork suites, which a public RPC no longer serves) |
 | `LOCAL_E2E_ARBITRUM_PORT`, `LOCAL_E2E_ROBINHOOD_PORT` | 8545, 8546 | every script |
+| `LOCAL_E2E_API_PORT` | 8787 | `pnpm api`, `pnpm api:probe` |
 | `LOCAL_E2E_ANVIL_CUPS`, `LOCAL_E2E_ANVIL_RETRIES`, `LOCAL_E2E_ANVIL_BACKOFF_MS` | 150, 10, 1000 | anvil's upstream rate limit, retries and backoff |
 | `LOCAL_E2E_HARDFORK` | prague | both nodes |
 | `SPOKE_CAP`, `MIN_FIRST_DEPOSIT`, `PERFORMANCE_FEE_BPS`, `MAX_BRIDGE_FEE_BPS` | 4,000 USDC, 100 USDC, 2000, 4 | the funds `up` and `scenario` create |
@@ -304,5 +331,6 @@ local-e2e/
   src/scenario.ts       the end-to-end scenario
   src/uniswap.ts        TickMath, adapter params, trader swings
   src/up.ts, status.ts  the up and status commands
+  src/api.ts            the minimal read-and-build API; src/api-probe.ts drives it over HTTP
   .state/               pids, logs, deployment.json, broadcast files (gitignored)
 ```
