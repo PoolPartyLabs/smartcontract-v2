@@ -52,8 +52,8 @@ disclosure).
 
 Cross-check of 2026-10-01 against an independent review and a verification plan
 ([`CROSS-CHECK-2026-10-01.md`](CROSS-CHECK-2026-10-01.md)): 20 more entries (S-45 to S-64), among them two regressions
-of the sweep's own fixes (S-45 in the S-4 recovery, S-63 in the S-5 interim verb, both high, both fixed), 15 more
-fixed; the suites now count 854 non-fork tests and 136 fork tests, the review's 121 proofs of concept included.
+of the sweep's own fixes (S-45 in the S-4 recovery, S-63 in the S-5 interim verb, both high, both fixed), 13 more
+fixed (two in part); the suites now count 854 non-fork tests and 136 fork tests, the review's 121 proofs of concept included.
 
 ## How to read the rest
 
