@@ -120,7 +120,9 @@ library SpokeCrossChainLib {
     /// @dev Security review S-3: walks the hub-bound list once. An expired send whose refund has landed is recognized
     ///      (the same effects as `recognizeRefund`, so a report never drops a refunded transfer from every value
     ///      base while nobody has called it); a send past `fillDeadline + ReportCodec.HUB_BOUND_RETENTION` leaves the
-    ///      list. Iterates from the end, so the swap-and-pop removal never skips an entry.
+    ///      list. Only a listed send is walked: a refund that lands after the retention is no longer seen here and
+    ///      waits for the permissionless `recognizeRefund` (independent review cross-check, S-3 residual). Iterates
+    ///      from the end, so the swap-and-pop removal never skips an entry.
     function _sweepInFlight(SpokeVaultTypes.State storage s, address baseToken) private {
         for (uint256 i = s.inFlightIds.length; i > 0; --i) {
             bytes32 id = s.inFlightIds[i - 1];
