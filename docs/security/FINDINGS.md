@@ -133,7 +133,7 @@ Severity: high. Status: Open, founder decision. Interim commit: `23c317a`.
 
 **Question:** should the floor and top-up get a protocol cap (DEC-100 says none on the floor), and which verb returns or spends Operating Cash before fund close (DEC-096)?
 
-**Interim mitigation:** releaseOperatingCash(amount), manager only, returns Operating Cash above the floor to Idle or Unallocated Balance, so a mistake is reversible.
+**Interim mitigation:** releaseOperatingCash(amount), manager only, returned Operating Cash above the floor to Idle or Unallocated Balance. **Removed on 2026-10-01 (S-63):** a reversible sink with no cap is a price lever for a manager and an ally.
 
 **Regression tests:** test_SEC_S5_* on hub and spoke. The PoCs stay as pins.
 
@@ -513,7 +513,7 @@ runs at fresh pins, Slither diffed against the pre-fix baseline) and added two p
 | S-8 open | high | `SpokeVault.swapExactInput`, `swapCollectedIncome` | A compromised or buggy manager key moves the Unallocated Balance out in one sandwiched swap at a self-set price; `test_POC_managerSwapsUnallocatedBalanceAtAPriceItSet` still passes (891,000 of 900,000 USDC leave in one call on the fixture). Not defensible for real customer funds with autonomous managers; needs the founder's ruling ([`KNOWN-LIMITATIONS.md`](KNOWN-LIMITATIONS.md)) |
 | S-2 residual | medium | `SpokeVault._unwindSwap` | Inside the 5% floor a claimant still makes the fund sell under the external price: on the S-2 fixture 25.8 WETH sold for 61,736 USDC against 64,490 fair, the holder who stays loses 1,887 USDC, the claimant gains 1,352 USDC over an honest claim; repeatable with Standard Payouts (no Payout Fee). Pinned by `5c33042` |
 | S-15 open | medium | `SpokeVault.forwardIncomeToCoreVault` | Just-in-time capture pays whenever uncollected income exceeds about 0.5% of Share Assets (two flow fees). Defensible only with an operational rule of frequent collection |
-| S-5 interim | medium | `CoreVaultBase.setOperatingCashParameters` | A mis-set floor freezes Share Assets at about 0 until the same manager key calls `releaseOperatingCash`; nothing lets anyone take Operating Cash. Defensible as an interim, not as a final state |
+| S-5 interim (refuted by the cross-check, S-63) | medium | `CoreVaultBase.setOperatingCashParameters` | A mis-set floor freezes Share Assets at about 0 until the same manager key calls `releaseOperatingCash`; nothing lets anyone take Operating Cash. Defensible as an interim, not as a final state |
 | S-4 kind | low | `CoreVaultLogic.recoverUnlistedArrival` | An unlisted arrival's kind is unknowable (the Across message is unauthenticated), so an Income send home recovered after an outage longer than `HUB_BOUND_RETENTION` enters Idle as Principal: no performance fee, no protocol slice, no accumulator. Pinned by `0dbaa59`; needs a multi-day report outage |
 | S-26 / S-28 | low | `CoreVaultLogic` PAYOUT mode | A payout never checks price age or sequencer uptime (OQ-10 stance): during an outage claimants are paid at the old price. Unforceable by an attacker; needs an explicit founder acceptance against Q57 (b) |
 | S-17 | info | `Mandate.MAX_PAYOUT_FEE_BPS` | 9,900 is an arithmetic bound only; a 99% Payout Fee is a valid, immutable, visible Mandate value (disclosure) |
@@ -548,8 +548,10 @@ review's (C, H, M, L, I) or the plan's (CF, T, F, MM, SF). Commits are on `fix/p
 | S-60 | low | Acknowledged | A transfer fee switched on by an issuer after positions exist blocks every exit of that pool (fails closed) | [CF-V4-11] | plan card 05 |
 | S-61 | low | Acknowledged | Aave answering outside its published behaviour (short `withdraw(max)`, zero scaled balance, payment reported but not made, falling index) | [F2], [F9], [F10], [F11] | plan card 06; the vault's backing checks fail closed |
 | S-62 | info | Open | A successful but wrong price answer below `MAX_PRICE` is taken as is | [CF-12] | SEC-OQ-10 |
+| S-63 | high | Fixed | The sweep's interim `releaseOperatingCash` made the uncapped Operating Cash sink reversible, a price lever: the manager sank Free Idle (0.01 USDC of Share Assets left), an ally minted 10,000 at that price, the manager released the cash and the ally's payout was 19,900.11 while the holder kept 0.02 of 9,975; on a spoke, sink and release left 11,995.20 on a 4,000 Spoke Cap | found while porting the review's cross-chain PoCs | `9984009` (the verb removed on hub and spoke; S-5 stays open, one-way); `test_REVIEW_S63_*` (live forks), `test_SEC_S63_*` |
+| S-64 | medium | Fixed | After an outage longer than a send home's retention, a stranger bridging 1 unit under the id before each report restarted the S-45 recovery clock and held the recovery off while mints stayed open (an entrant's 10,000 became 12,467.83, the holder fell from 9,963.40 to 7,468.57) | found while porting the review's cross-chain PoCs | `bc1a13e` (the clock restarts only at an arrival at least as large as what is held); `test_SEC_S64_*`, `test_REVIEW_H02_strangerDustNoLongerHoldsTheRecoveryOff` |
 
-Status updates of earlier entries: S-4 is corrected by S-45; S-11's residual (positions) is closed by S-46; S-16 is
+Status updates of earlier entries: S-5's interim mitigation is removed (S-63), so S-5 is a one-way sink again (open, SEC-OQ-2); S-4 is corrected by S-45 and S-64; S-11's residual (positions) is closed by S-46; S-16 is
 superseded by S-53 (hub) and SEC-OQ-9 (spoke); S-25 is closed by S-54 for the upper bound; S-27's single-asset case
 is closed by S-49 (the roll-back of a failing step stays, DEC-069); S-34's exit blocking is closed by S-50; L-04's gas
 starvation of the wrapped hub read needs a `buildReport` above about 9.6M gas, which the 16-position cap rules out.

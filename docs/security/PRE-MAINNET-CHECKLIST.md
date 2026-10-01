@@ -10,8 +10,8 @@ unless marked "recommended". The state on 2026-09-30 is noted where it is known.
       the Unallocated Balance out today.
 - [ ] S-15 ruled (CS-OQ-1): income attribution across an entry, either a contract rule or a written operational rule
       with the keeper cadence that enforces it.
-- [ ] S-5 ruled: a protocol cap on the Operating Cash floor and top-up, or an explicit acceptance of the interim
-      `releaseOperatingCash` path.
+- [ ] S-5 ruled: a protocol cap on the Operating Cash floor and top-up (and, only with it, a verb that returns cash
+      above the floor; the interim release was removed as S-63), or an explicit acceptance of the one-way sink.
 - [ ] S-13 reading of DEC-066 A2 confirmed (a time-attested expiry keeps the Spoke Cap held until the refund or
       the confirmation).
 - [ ] The OPEN parameters introduced by the sweep and its cross-check given values by ruling and recorded as DEC

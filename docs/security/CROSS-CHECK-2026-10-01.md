@@ -24,7 +24,9 @@ party**.
 Result: of the review's 2 critical and 8 high findings, the sweep had fixed all but H-08 (Operating Cash, interim) and
 the dust-positions half of H-04; the fix branch closes H-04. Porting H-02 found a **new high-severity defect in the
 sweep's own S-4 fix** (a pre-seeded or outage-delayed recovery counted a transfer twice; a claimant was overpaid 49,850
-USDC on a 1M fund), fixed on the branch. Twelve further items are fixed on the branch (section 4).
+USDC on a 1M fund), fixed on the branch. Porting the cross-chain proofs of concept then found that the sweep's interim
+Operating Cash release was itself an extraction lever (S-63: a manager and an ally took the fund) and that dust could
+hold the corrected recovery off (S-64); both are fixed. Twelve further items are fixed on the branch (section 4).
 
 ## 2. The review's findings
 
@@ -41,7 +43,7 @@ USDC on a 1M fund), fixed on the branch. Twelve further items are fixed on the b
 | H-05 | The hub sends capital to a Spoke Vault that nothing shows exists | Fixed (S-14) | Unchanged | `test_REVIEW_H05_*` (3), including a report from another emitter chain that cannot open the gate |
 | H-06 | A spoke built from another Mandate is accepted end to end | Fixed (S-6, S-9) | Unchanged | `test_REVIEW_H06_*` (3) |
 | H-07 | Deprecating the V4 adapter blocks the unwind and strands WETH | Fixed (S-10) | Unchanged; the guardian's holder is SEC-OQ-8 | `test_REVIEW_H07_*` (3) |
-| H-08 | Operating Cash: unbounded parameters, no outflow | Interim (S-5): `releaseOperatingCash` reverses it | Unchanged; the cap is the founder's (SEC-OQ-2) | `test_POC_REVIEW_H08_*` pins, `test_REVIEW_H08/S5_*` |
+| H-08 | Operating Cash: unbounded parameters, no outflow | Interim (S-5): `releaseOperatingCash` reverses it, which the cross-check found to be an extraction lever (S-63) | The release verb is removed (S-63): one-way again; the cap is the founder's (SEC-OQ-2) | `test_REVIEW_S63_*`, `test_SEC_S63_*`, `test_POC_REVIEW_H08_*` pins, `test_REVIEW_H08/S5_*` |
 | M-01 | Bridge fee becomes manager revenue through the exclusive relayer; the Mandate accepted 100% | Fixed (S-9) | Unchanged | `test_REVIEW_M01_*` (2); residual pinned: an over-quote at the 1% cap is paid to the fastest relayer |
 | M-02 | Principal becomes performance-fee income through the fund's own range; a pool's fee was unbounded | Open | Fixed in part: a hookless pool above a 1% LP fee is refused; gross versus net is SEC-OQ-7 | `test_REVIEW_M02_constructorRejectsAPoolFeeAboveOnePercent`; wash-trade numbers: §5 |
 | M-03 | A Mandate token the price source cannot price | Open (S-16, acknowledged) | Hub half fixed (refused at creation); spoke half is SEC-OQ-9 | `test_REVIEW_M03_hubPoolTokenWithoutAPriceIsRefusedAtCreation`; `test_POC_REVIEW_M03_*` (spoke) |
@@ -130,11 +132,13 @@ done; R-2 is done by the "exit wins" reading (CF-2); the remaining parts are in 
 | Spoke refuses a built fill deadline not in the future | L-09 |
 | At most 16 open positions per Spoke Vault (first 32, lowered after the real-Core measurement) | H-04 (positions) |
 | Recovery of an unlisted arrival only against a report built after it | S-45 (new), H-02 |
+| Dust cannot restart the recovery clock | S-64 (new) |
+| The interim `releaseOperatingCash` removed | S-63 (new), H-08 |
 | A spoke report lifetime of at most one day | M-04, S-25 |
 | A hub pool token without a price is refused at creation | M-03 (hub half) |
 
-Runtime sizes after the branch: SpokeVault 24,080 bytes (496 to spare), CoreVault 21,573, CoreVaultLogic 22,812, all
-under EIP-170.
+Runtime sizes after the branch: SpokeVault 23,722 bytes (854 to spare), CoreVault 21,261, CoreVaultLogic 22,812,
+SpokeCrossChainLib 11,853, all under EIP-170.
 
 ## 5. Residuals measured on the branch
 
@@ -185,9 +189,32 @@ did in one. Charging the performance fee net of the fund's own swap fees (SEC-OQ
   (griefing only, reasoned, not tested).
 - Pool depth on the live Arbitrum WETH/USDC 0.05% pool: 46.79 WETH to the bottom of the full downside, a round trip of
   150.64 USDC; the 0.3% pool is still empty; Robinhood WETH/USDG 0.05%: 55.05 WETH, 177.20 USDG.
-- Bytecode: UniswapV4Adapter 18,079 bytes, SpokeVault 24,080 (496 to spare), CoreVaultLogic 22,812 (1,764 to spare),
-  SpokeCrossChainLib 12,121 (12,455 to spare).
+- Bytecode at the time of that run: UniswapV4Adapter 18,079 bytes, SpokeVault 24,080 (496 to spare); after S-63
+  removed the release verb, SpokeVault 23,722 (854 to spare), CoreVaultLogic 22,812 (1,764), SpokeCrossChainLib
+  11,853 (12,723).
 
-### 5.4 Conservation walk
+### 5.4 Conservation walk (both live forks)
 
-(Filled in from `test/review/integration-xchain/Fork_ConservationWalk.t.sol`.)
+`test/review/integration-xchain/Fork_ConservationWalk.t.sol` walks a factory-created fund through every flow of the
+scenario plus a send home of each kind, a refund in each direction and a donation, with real `fillRelay` fills, real
+refund relays and real Wormhole delivery, and compares after every step what the fund holds on both chains (token
+balances, escrows, aUSDC, V4 positions, unresolved deposits) with what its books say (Share Assets, Operating Cash,
+collected and uncollected income, held-apart arrivals). D is holdings minus books in USDC, the S-1 basis (spot versus
+oracle composition, 0.07 to 0.16) removed; "fresh" is D after a fresh report.
+
+| Step | D | D fresh | Cause | On `e5c778a` |
+|---|---|---|---|---|
+| W0 to W3, W6 to W11, W14 to W19, W21, W22, W25, W27, W28, W31 | at most 0.000002 | at most 0.000002 | agrees | same |
+| W4 fill on Robinhood | −10.00 | 0 | I-15: the arrival's Operating Cash top-up counted twice until the next report | same |
+| W5 spoke swap | −11.4 to −12.4 | 0 | I-15 plus the report lag of the swap | −11.83 |
+| W12 sends home | +0.37 to +0.40 | +0.57 to +0.60 | I-14: Income in flight home is in no base | +0.35 / +0.55 |
+| W13 both filled, held apart | −500.00 | 0 | documented hold-apart until the listing report | same |
+| W20 hub refund lands | +0.16 | +0.16 | refunded bridge fee until `recognizeRefund` | same |
+| W23 past `fillDeadline + maxReportAge` | 0 | 0 | S-3: still listed | **+299.88 / +299.88 (H-01)** |
+| W24 spoke refund lands | +0.12 | 0 | recognized by the next `report()` | **+300.00 / +300.00 (H-01)** |
+| W26 donation | +1,234.00 | +1,234.00 | unledgered until swept (DEC-080) | same |
+| W29 (added) past the 3-day retention | +199.92 | +199.92 | S-3 residual: the send home left the list | |
+| W30 (added) a refund after the retention | +200.00 | +200.00 | only `recognizeRefund` restores it | |
+
+Income owed never exceeded income collected at any step. The scenario's own `_sumOfBuckets` still equals Share Assets
+at W13 while the books double-count (I-17), so that check is wiring only ([`INVARIANTS.md`](INVARIANTS.md)).
