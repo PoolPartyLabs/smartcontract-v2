@@ -1,0 +1,33 @@
+# forge coverage --ir-minimum -j 2 --no-match-path "test/{fork/**,review/**/*Fork*}" --report summary
+# forge 1.7.1, branch fix/pp-sc-fix-independent-review, 2026-10-01. src/ only. src totals: lines 97.45% (2441/2505),
+# statements 95.94% (3073/3203), branches 85.47% (447/523), functions 98.95% (377/381).
+# Five tests fail only under the --ir-minimum build: three S-4 tests that capture block.timestamp before vm.warp
+# (via-IR reorders the read) and two gas measurements; they pass in the normal build.
+| File                                                                    | % Lines             | % Statements        | % Branches        | % Funcs            |
+| src/adapters/AaveV3Adapter.sol                                          | 96.86% (185/191)    | 97.45% (229/235)    | 90.70% (39/43)    | 100.00% (26/26)    |
+| src/adapters/AcrossBridgeAdapter.sol                                    | 100.00% (29/29)     | 100.00% (39/39)     | 100.00% (6/6)     | 100.00% (6/6)      |
+| src/adapters/AdapterGuard.sol                                           | 100.00% (15/15)     | 100.00% (12/12)     | 100.00% (5/5)     | 100.00% (5/5)      |
+| src/adapters/UniswapV4Adapter.sol                                       | 99.18% (243/245)    | 98.50% (329/334)    | 92.11% (35/38)    | 100.00% (33/33)    |
+| src/core/CoreVault.sol                                                  | 98.25% (112/114)    | 96.43% (135/140)    | 90.32% (28/31)    | 100.00% (7/7)      |
+| src/core/CoreVaultBase.sol                                              | 98.04% (150/153)    | 97.35% (184/189)    | 82.35% (14/17)    | 96.77% (30/31)     |
+| src/core/CoreVaultIncome.sol                                            | 100.00% (55/55)     | 92.73% (51/55)      | 60.00% (6/10)     | 100.00% (14/14)    |
+| src/core/CoreVaultLogic.sol                                             | 95.77% (340/355)    | 93.56% (465/497)    | 83.95% (68/81)    | 92.50% (37/40)     |
+| src/core/CoreVaultTransit.sol                                           | 95.56% (43/45)      | 88.24% (45/51)      | 63.64% (7/11)     | 100.00% (9/9)      |
+| src/core/ManagerFeeVault.sol                                            | 100.00% (11/11)     | 85.71% (12/14)      | 33.33% (1/3)      | 100.00% (3/3)      |
+| src/core/ManagerRegistry.sol                                            | 100.00% (17/17)     | 100.00% (18/18)     | 100.00% (3/3)     | 100.00% (5/5)      |
+| src/core/ShareToken.sol                                                 | 100.00% (19/19)     | 100.00% (17/17)     | 100.00% (4/4)     | 100.00% (8/8)      |
+| src/core/TransitEscrow.sol                                              | 100.00% (11/11)     | 100.00% (14/14)     | 100.00% (4/4)     | 100.00% (3/3)      |
+| src/factory/CodeStore.sol                                               | 89.29% (25/28)      | 90.24% (37/41)      | 66.67% (2/3)      | 100.00% (2/2)      |
+| src/factory/Create3.sol                                                 | 90.00% (18/20)      | 83.33% (20/24)      | 60.00% (3/5)      | 100.00% (5/5)      |
+| src/factory/Create3Deployer.sol                                         | 100.00% (7/7)       | 100.00% (6/6)       | 100.00% (0/0)     | 100.00% (3/3)      |
+| src/factory/FundFactory.sol                                             | 97.24% (211/217)    | 96.39% (267/277)    | 81.58% (31/38)    | 100.00% (24/24)    |
+| src/libraries/IncomeAccumulator.sol                                     | 100.00% (91/91)     | 100.00% (95/95)     | 100.00% (20/20)   | 100.00% (11/11)    |
+| src/libraries/ReportCodec.sol                                           | 100.00% (9/9)       | 100.00% (11/11)     | 100.00% (2/2)     | 100.00% (3/3)      |
+| src/libraries/ShareMath.sol                                             | 100.00% (26/26)     | 100.00% (30/30)     | 100.00% (6/6)     | 100.00% (9/9)      |
+| src/libraries/TransitMessage.sol                                        | 100.00% (6/6)       | 100.00% (7/7)       | 100.00% (1/1)     | 100.00% (2/2)      |
+| src/mandate/Mandate.sol                                                 | 100.00% (118/118)   | 99.52% (208/209)    | 97.44% (38/39)    | 100.00% (16/16)    |
+| src/report/ChainlinkPriceSource.sol                                     | 100.00% (42/42)     | 96.92% (63/65)      | 85.71% (12/14)    | 100.00% (6/6)      |
+| src/report/ValueReportReceiver.sol                                      | 100.00% (74/74)     | 99.00% (99/100)     | 94.12% (16/17)    | 100.00% (14/14)    |
+| src/spoke/SpokeCrossChainLib.sol                                        | 97.17% (206/212)    | 97.27% (249/256)    | 93.94% (31/33)    | 100.00% (22/22)    |
+| src/spoke/SpokeVault.sol                                                | 95.67% (376/393)    | 92.26% (429/465)    | 73.03% (65/89)    | 100.00% (73/73)    |
+| src/spoke/SpokeVaultTypes.sol                                           | 100.00% (2/2)       | 100.00% (2/2)       | 100.00% (0/0)     | 100.00% (1/1)      |

@@ -57,18 +57,20 @@ contract SendHomeStrandedPoC is CrossChainFixture {
         _fillOnHub(homeDeposit);
         uint256 filledAt = block.timestamp;
 
-        // No report is accepted until the spoke has stopped listing the send home.
+        // Cross-check of the independent review: while the hub's latest report predates the arrival it still counts
+        // the 40,000 on the spoke, so recovering now would count them twice; recovery is refused, at any delay.
         skip(FILL_DEADLINE + 3 days + MAX_REPORT_AGE + 1);
+        vm.expectRevert(
+            abi.encodeWithSignature(
+                "RecoveryNotReady(bytes32,uint256)", homeTransit, filledAt + uint256(MAX_REPORT_AGE)
+            )
+        );
+        core.recoverUnlistedArrival(0, homeTransit);
+
+        // Reports flow again once the spoke has stopped listing the send home: built after the arrival, it no longer
+        // lists it nor counts it on the spoke, so recovery opens at once.
         _reportAndDeliver(900);
         assertEq(core.unmatchedArrivals(), 39_980e6, "no report lists it any more");
-
-        // Recovery opens once no acceptable report can list it; before that it reverts.
-        uint256 readyAt = filledAt + 6 hours + 3 days + 2 * uint256(MAX_REPORT_AGE);
-        if (block.timestamp < readyAt) {
-            vm.expectRevert();
-            core.recoverUnlistedArrival(0, homeTransit);
-            vm.warp(readyAt);
-        }
         vm.prank(attacker);
         assertEq(core.recoverUnlistedArrival(0, homeTransit), 39_980e6, "S-4: anyone recovers it");
         assertEq(core.unmatchedArrivals(), 0);

@@ -233,7 +233,9 @@ contract FundSystemPoCTest is FundSystemFixture {
         sys.usdc.mint(bruno, 1000e6);
         vm.startPrank(bruno);
         sys.usdc.approve(address(sys.core), 1000e6);
-        vm.expectRevert(ShareMath.ZeroSharePrice.selector);
+        // Since the independent verification plan's MM-3 guard, a deposit below one base unit per share is refused
+        // before pricing (at zero Share Assets the price is 0).
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.SharePriceBelowOneUnit.selector, 0));
         sys.core.deposit(1000e6, 0);
         vm.stopPrank();
     }

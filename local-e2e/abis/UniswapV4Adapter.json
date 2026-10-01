@@ -69,6 +69,19 @@
   },
   {
     "type": "function",
+    "name": "MAX_POOL_FEE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint24",
+        "internalType": "uint24"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "closePosition",
     "inputs": [
       {
@@ -1093,6 +1106,22 @@
         "name": "amountIn",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "PoolFeeTooHigh",
+    "inputs": [
+      {
+        "name": "poolId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "fee",
+        "type": "uint24",
+        "internalType": "uint24"
       }
     ]
   },

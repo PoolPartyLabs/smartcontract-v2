@@ -1,0 +1,54 @@
+check	Format	﻿2026-09-30T12:20:40.8142702Z ##[group]Run forge fmt --check
+check	Format	2026-09-30T12:20:40.8143058Z ^[[36;1mforge fmt --check^[[0m
+check	Format	2026-09-30T12:20:41.2419190Z shell: /usr/bin/bash -e {0}
+check	Format	2026-09-30T12:20:41.2419521Z env:
+check	Format	2026-09-30T12:20:41.2419741Z   FOUNDRY_PROFILE: ci
+check	Format	2026-09-30T12:20:41.2420056Z   ARBITRUM_RPC_URL: https://arb1.arbitrum.io/rpc
+check	Format	2026-09-30T12:20:41.2420497Z   ROBINHOOD_RPC_URL: https://rpc.mainnet.chain.robinhood.com
+check	Format	2026-09-30T12:20:41.2420891Z ##[endgroup]
+check	Format	2026-09-30T12:20:41.3128385Z Diff in test/mocks/across/AcrossFillSimulator.sol:
+check	Format	2026-09-30T12:20:41.3137518Z 33  33   |         bytes memory message
+check	Format	2026-09-30T12:20:41.3138001Z 34  34   |     ) internal {
+check	Format	2026-09-30T12:20:41.3138568Z 35  35   |         uint256 balance = IERC20(outputToken).balanceOf(recipient);
+check	Format	2026-09-30T12:20:41.3139477Z 36       |-        store.target(outputToken).sig(IERC20.balanceOf.selector).with_key(recipient)
+check	Format	2026-09-30T12:20:41.3140411Z     36   |+        store.target(outputToken)
+check	Format	2026-09-30T12:20:41.3140949Z     37   |+            .sig(IERC20.balanceOf.selector)
+check	Format	2026-09-30T12:20:41.3141540Z     38   |+            .with_key(recipient)
+check	Format	2026-09-30T12:20:41.3142065Z 37  39   |             .checked_write(balance + outputAmount);
+check	Format	2026-09-30T12:20:41.3142582Z 38  40   |         if (message.length == 0) return;
+check	Format	2026-09-30T12:20:41.3142907Z 39  41   |         VM.prank(spokePool);
+check	Format	2026-09-30T12:20:41.3143105Z 
+check	Format	2026-09-30T12:20:41.3143499Z Diff in test/fork/across/AcrossFill.fork.t.sol:
+check	Format	2026-09-30T12:20:41.3143845Z 78  78   |         IAcrossSpokePoolFill(spokePool)
+check	Format	2026-09-30T12:20:41.3144144Z 79  79   |             .fillRelay(
+check	Format	2026-09-30T12:20:41.3144455Z 80  80   |                 IAcrossSpokePoolFill.V3RelayDataBytes32({
+check	Format	2026-09-30T12:20:41.3144846Z 81       |-                depositor: _word(makeAddr("escrow")),
+check	Format	2026-09-30T12:20:41.3145182Z 82       |-                recipient: _word(address(real)),
+check	Format	2026-09-30T12:20:41.3145526Z 83       |-                exclusiveRelayer: bytes32(0),
+check	Format	2026-09-30T12:20:41.3145877Z 84       |-                inputToken: _word(makeAddr("originToken")),
+check	Format	2026-09-30T12:20:41.3146232Z 85       |-                outputToken: _word(outputToken),
+check	Format	2026-09-30T12:20:41.3146551Z 86       |-                inputAmount: INPUT_AMOUNT,
+check	Format	2026-09-30T12:20:41.3146863Z 87       |-                outputAmount: OUTPUT_AMOUNT,
+check	Format	2026-09-30T12:20:41.3147183Z 88       |-                originChainId: originChainId,
+check	Format	2026-09-30T12:20:41.3147488Z 89       |-                depositId: 123_456_789,
+check	Format	2026-09-30T12:20:41.3147824Z 90       |-                fillDeadline: uint32(block.timestamp) + 21_600,
+check	Format	2026-09-30T12:20:41.3148172Z 91       |-                exclusivityDeadline: 0,
+check	Format	2026-09-30T12:20:41.3148473Z 92       |-                message: message
+check	Format	2026-09-30T12:20:41.3148730Z 93       |-            }),
+check	Format	2026-09-30T12:20:41.3148993Z     81   |+                    depositor: _word(makeAddr("escrow")),
+check	Format	2026-09-30T12:20:41.3149340Z     82   |+                    recipient: _word(address(real)),
+check	Format	2026-09-30T12:20:41.3149672Z     83   |+                    exclusiveRelayer: bytes32(0),
+check	Format	2026-09-30T12:20:41.3150020Z     84   |+                    inputToken: _word(makeAddr("originToken")),
+check	Format	2026-09-30T12:20:41.3150374Z     85   |+                    outputToken: _word(outputToken),
+check	Format	2026-09-30T12:20:41.3150694Z     86   |+                    inputAmount: INPUT_AMOUNT,
+check	Format	2026-09-30T12:20:41.3151006Z     87   |+                    outputAmount: OUTPUT_AMOUNT,
+check	Format	2026-09-30T12:20:41.3151324Z     88   |+                    originChainId: originChainId,
+check	Format	2026-09-30T12:20:41.3151628Z     89   |+                    depositId: 123_456_789,
+check	Format	2026-09-30T12:20:41.3151964Z     90   |+                    fillDeadline: uint32(block.timestamp) + 21_600,
+check	Format	2026-09-30T12:20:41.3152320Z     91   |+                    exclusivityDeadline: 0,
+check	Format	2026-09-30T12:20:41.3152615Z     92   |+                    message: message
+check	Format	2026-09-30T12:20:41.3152883Z     93   |+                }),
+check	Format	2026-09-30T12:20:41.3153119Z 94  94   |                 block.chainid,
+check	Format	2026-09-30T12:20:41.3153878Z 95  95   |                 _word(relayer)
+check	Format	2026-09-30T12:20:41.3154348Z 96  96   |             );
+check	Format	2026-09-30T12:20:41.3167067Z ##[error]Process completed with exit code 1.

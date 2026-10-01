@@ -9,6 +9,8 @@ import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {MockHubSpokeVault} from "../../mocks/core/MockHubSpokeVault.sol";
 import {ReenteringIncomeToken} from "../../mocks/core/ReenteringIncomeToken.sol";
+import {IPriceSource} from "../../../src/interfaces/IPriceSource.sol";
+import {CoreMockToken} from "../../mocks/core/CoreMockTokens.sol";
 import {CoreVaultFixture} from "./CoreVaultFixture.sol";
 
 /// @notice Adversarial verification of the Core Vault (round 1): ordering attacks, reentrancy through an income
@@ -174,6 +176,7 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
 
     function _deployWithReenteringToken() internal returns (ReenteringIncomeToken mal) {
         mal = new ReenteringIncomeToken();
+        prices.setPrice(address(mal), 1e18); // a hub pool token must be priced at creation (independent review M-03)
         CoreVaultConfig memory c = _config(25);
         c.incomeTokens = new address[](2);
         c.incomeTokens[0] = address(weth);
@@ -182,6 +185,22 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         _deposit(alice, 10_000e6);
         hubVault.forwardIncome(address(mal), 100e18); // 80 to Alice, 20 of fees transferred out at once
         assertApproxEqAbs(vault.attributedIncome(alice, address(mal)), 80e18, 1);
+    }
+
+    /// Independent review M-03 (hub half): a hub pool token the price source cannot price used to be accepted, and
+    /// once the fund held it every mint reverted and every payout valued it at 0. Creation now refuses it.
+    function test_REVIEW_M03_hubPoolTokenWithoutAPriceIsRefusedAtCreation() public {
+        CoreMockToken unpriced = new CoreMockToken("Unpriced", "UNP", 18);
+        CoreVaultConfig memory c = _config(25);
+        c.incomeTokens = new address[](2);
+        c.incomeTokens[0] = address(weth);
+        c.incomeTokens[1] = address(unpriced);
+        vm.expectRevert(abi.encodeWithSelector(IPriceSource.UnsupportedToken.selector, address(unpriced)));
+        this.deployWith(c);
+    }
+
+    function deployWith(CoreVaultConfig memory c) external {
+        _deploy(_mandate(2000), c);
     }
 
     function test_Reentrancy_incomeTokenReenteringWithdrawIncomeIsRefused() public {
@@ -194,6 +213,8 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         assertEq(vault.collectedIncome(address(mal)), 80e18);
     }
 
+    /// The re-entry is refused by the guard. Since the independent review's CF-2 fix (DEC-021) the refused income
+    /// transfer no longer reverts the exit: the burn and the USDC payment stand, the token's income is owed to alice.
     function test_Reentrancy_incomeTokenReenteringDepositDuringFullBurnIsRefused() public {
         ReenteringIncomeToken mal = _deployWithReenteringToken();
         usdc.mint(alice, 1000e6);
@@ -201,11 +222,14 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         usdc.approve(address(vault), 1000e6);
         mal.arm(address(vault), abi.encodeCall(ICoreVault.deposit, (1000e6, 0)));
         _request(alice, 20_000e6, ICoreVault.PayoutMode.Instant); // more than the balance: full burn (DEC-020)
+        uint256 owed = vault.attributedIncome(alice, address(mal));
+        assertGt(owed, 0);
         vm.prank(alice);
-        vm.expectRevert(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector);
-        vault.claimPayout("");
-        assertEq(shares.balanceOf(alice), 9975e18, "the burn was rolled back with the payment");
-        assertEq(vault.idle(), 9975e6);
+        ICoreVault.PayoutReceipt memory r = vault.claimPayout("");
+        assertEq(shares.balanceOf(alice), 0, "the exit completed");
+        assertEq(usdc.balanceOf(alice), 1000e6 + r.usdcPaid, "the re-entering deposit never ran");
+        assertEq(vault.owedFees(address(mal), alice), owed, "the refused income is owed to alice");
+        assertEq(vault.idle(), 0);
     }
 
     // ---------------------------------------------------------------------------------------------------------------

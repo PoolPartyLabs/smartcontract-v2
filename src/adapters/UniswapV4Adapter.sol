@@ -136,6 +136,13 @@ contract UniswapV4Adapter is IAdapter, AdapterGuard, ReentrancyGuard, IUnlockCal
     /// @dev Upper bound on the actions of one `modifyLiquidities` call built here.
     uint256 private constant MAX_ACTIONS = 6;
 
+    /// @notice Highest LP fee a hookless pool may charge to be registered, in hundredths of a bip (1%; value OPEN).
+    /// @dev Independent review M-02: the fund's own swaps pay the LP fee to whoever is in range, the fund's own
+    ///      positions included, and that fee growth is reported as income, which pays the performance fee (DEC-107).
+    ///      In a pool at V4's maximum fee (100%) one swap turned principal into income and the fees on it. The bound keeps
+    ///      that channel at an ordinary pool's fee. A hookless pool's fee is static (a dynamic fee needs a hook).
+    uint24 public constant MAX_POOL_FEE = 10_000;
+
     /// @inheritdoc IAdapter
     address public immutable vault;
 
@@ -172,6 +179,9 @@ contract UniswapV4Adapter is IAdapter, AdapterGuard, ReentrancyGuard, IUnlockCal
 
     /// @notice A constructor pool key is listed twice.
     error DuplicatePool(bytes32 poolId);
+
+    /// @notice A constructor hookless pool charges an LP fee above `MAX_POOL_FEE`.
+    error PoolFeeTooHigh(bytes32 poolId, uint24 fee);
 
     /// @notice The liquidity of an open, increase or decrease is zero or not below the position's liquidity.
     error InvalidLiquidity(uint256 liquidity, uint256 positionLiquidity);
@@ -231,6 +241,7 @@ contract UniswapV4Adapter is IAdapter, AdapterGuard, ReentrancyGuard, IUnlockCal
             bytes32 poolId = PoolId.unwrap(key.toId());
             if (key.tickSpacing <= 0 || Currency.unwrap(key.currency0) == address(0)) revert InvalidPoolKey(poolId);
             if (_pools[poolId].tickSpacing != 0) revert DuplicatePool(poolId);
+            if (address(key.hooks) == address(0) && key.fee > MAX_POOL_FEE) revert PoolFeeTooHigh(poolId, key.fee);
             _pools[poolId] = key;
             emit PoolRegistered(
                 poolId,

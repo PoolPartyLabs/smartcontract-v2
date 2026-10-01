@@ -15,6 +15,7 @@ contract MockBridgeAdapter is AdapterGuard, IBridgeAdapter {
 
     address public builtTargetOverride;
     uint256 public amountToArriveDelta;
+    bool public deadlineNow;
 
     constructor(address guardian_, address target_) AdapterGuard(guardian_) {
         target = target_;
@@ -26,6 +27,11 @@ contract MockBridgeAdapter is AdapterGuard, IBridgeAdapter {
 
     function setBuiltTargetOverride(address target_) external {
         builtTargetOverride = target_;
+    }
+
+    /// @notice Builds a call whose fill deadline is the current block (a faulty adapter).
+    function setDeadlineNow(bool value) external {
+        deadlineNow = value;
     }
 
     function setAmountToArriveDelta(uint256 delta) external {
@@ -66,6 +72,6 @@ contract MockBridgeAdapter is AdapterGuard, IBridgeAdapter {
         );
         call.transitRef = bytes32(uint256(IAcrossSpokePool(target).numberOfDeposits()));
         call.amountToArrive = req.outputAmount + amountToArriveDelta;
-        call.fillDeadline = fillDeadline;
+        call.fillDeadline = deadlineNow ? uint32(block.timestamp) : fillDeadline;
     }
 }

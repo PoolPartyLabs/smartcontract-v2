@@ -11,6 +11,11 @@ contract MockAggregator {
         decimals = decimals_;
     }
 
+    /// @notice Simulates a proxy re-pointed to an aggregator with other decimals.
+    function setDecimals(uint8 decimals_) external {
+        decimals = decimals_;
+    }
+
     function set(int256 answer_, uint256 updatedAt_) external {
         answer = answer_;
         updatedAt = updatedAt_;

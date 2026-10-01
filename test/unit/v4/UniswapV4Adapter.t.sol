@@ -98,6 +98,29 @@ contract UniswapV4AdapterTest is Test {
         _deploy(address(vault), _keys(noSpacing, key));
     }
 
+    /// Independent review M-02: a hookless Mandate pool above a 1% LP fee is refused at creation; 1% itself registers.
+    function test_REVIEW_M02_constructorRejectsAPoolFeeAboveOnePercent() public {
+        PoolKey memory dear = key;
+        dear.fee = 10_001;
+        vm.expectRevert(
+            abi.encodeWithSelector(UniswapV4Adapter.PoolFeeTooHigh.selector, PoolId.unwrap(dear.toId()), uint24(10_001))
+        );
+        _deploy(address(vault), _keys(dear, hookedKey));
+
+        dear.fee = 1_000_000;
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                UniswapV4Adapter.PoolFeeTooHigh.selector, PoolId.unwrap(dear.toId()), uint24(1_000_000)
+            )
+        );
+        _deploy(address(vault), _keys(dear, hookedKey));
+
+        dear.fee = 10_000;
+        UniswapV4Adapter ok = _deploy(address(vault), _keys(dear, hookedKey));
+        (address t0,) = ok.poolTokens(PoolId.unwrap(dear.toId()));
+        assertEq(t0, address(token0));
+    }
+
     function test_DEC058_constructorRejectsZeroAddresses() public {
         vm.expectRevert(UniswapV4Adapter.ZeroAddress.selector);
         _deploy(address(0), _keys(key, hookedKey));

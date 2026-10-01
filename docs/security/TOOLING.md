@@ -29,6 +29,7 @@ processes). The limits that then worked, and that CI or a re-run should keep:
 | Whole-fund invariants without the liveness assumptions | `SEC_LATE_REFUNDS=true forge test --match-path "test/security/invariants/**"`; likewise `SEC_UNLISTED_SENDS_HOME=true` | pass since S-3 and S-4 (before: `DYN-01`, `DYN-02` counterexamples) |
 | Fork suites | `ARBITRUM_FORK_BLOCK=$((latest-600)) ROBINHOOD_FORK_BLOCK=$((latest-600)) forge test -j 1 --match-path "test/fork/**"` | 57 tests, 0 failed (pins 510469880 / 76852461) |
 | Local two-fork harness | `cd local-e2e && pnpm run up && pnpm scenario --keeper inprocess; pnpm run down` | PASS, 35 steps, 213 assertions |
+| Coverage (2026-10-01) | `forge coverage --ir-minimum -j 2 --no-match-path "test/{fork/**,review/**/*Fork*}" --report summary` | `src/`: lines 97.45% (2,441 of 2,505), branches 85.47% (447 of 523), functions 98.95%; review at `e5c778a`: 97.31% and 83.67%. Lowest branch coverage: `ManagerFeeVault` 33%, `CoreVaultIncome` 60%, `CoreVaultTransit` 64%, `CodeStore` 67%, `SpokeVault` 73%. Five tests fail only under the via-IR coverage build (three capture `block.timestamp` before `vm.warp`, two measure gas). `raw/coverage-2026-10-01.txt` |
 | Sizes | `forge build --sizes` | every contract under 24,576 bytes; `SpokeVault` 24,017 (559 to spare), `CoreVaultLogic` 22,560, `CoreVault` 21,293 |
 
 Fork pins: the public Arbitrum and Robinhood RPCs serve recent state only (about one hour and about ten minutes).
@@ -40,13 +41,14 @@ Compute the pins from the latest block at run time, as above, or use archive end
 | Tool | Version | Command | Last result |
 |---|---|---|---|
 | Slither | 0.11.6 | `slither . --filter-paths "lib\|test\|script"` (`--json <file>` for the machine-readable form) | Pre-fix 174 results (8 high, 68 medium, 77 low, 19 info, 2 optimization), one low true positive (S-21's `distribute` result ignored) and hygiene (S-44). After the fixes 191 results (8 / 70 / 91 / 20 / 2); the 32 added instances are moved code and the same false-positive classes (escrow release in a bounded loop, zero-price sentinel, timestamp windows, cyclomatic complexity of `swapExactInput`); no new true positive |
+| Slither, cross-check branch (2026-10-01) | 0.11.6 | same command | 195 results (8 / 73 / 93 / 19 / 2); against the 191 after the sweep, 6 added and 2 removed (moved code). The 6 added: `calls-loop` and `unused-return` in the Core Vault constructor (the creation-time price read of each hub pool token, M-03: the call is the check), `incorrect-equality` in `_payAllIncome` (zero-amount guard), `timestamp` in `_buildCall` and `priceInUsdc` (the fill-deadline and future-round checks), `unused-return` in `recoverUnlistedArrival` (only the report of `latestReport` is needed). No true positive |
 | Slither printers | 0.11.6 | `--print human-summary`, `--print contract-summary` | `reports/raw/slither-*.txt` |
 | slither-check-erc | 0.11.6 | `slither-check-erc . ShareToken --erc ERC20` | Signatures, return types and events pass; `transfer`, `transferFrom`, `approve` never emit because they always revert (DEC-004) |
 | Aderyn | 0.6.8 | `npx --yes @cyfrin/aderyn . -s src -o docs/security/reports/raw/aderyn.md` | 6 high-classified (21 instances), all false positives; 15 low-classified (114 instances), one is S-21, two hygiene |
 | Semgrep, registry pack | 1.178.0 | `semgrep scan --metrics=off --config p/smart-contracts --json --output <file> src` | 228 results, all performance category, none security |
 | Semgrep, Decurity rules | 1.178.0, rules at `2e878a8` | clone `Decurity/semgrep-smart-contracts` outside the repo, `semgrep scan --metrics=off --config <clone>/solidity src` | 16 security-category hits: 1 arbitrary low-level call accepted by design (the vault executes the adapter-built bridge call), 15 false positives |
 | Solhint | 6.2.4 | `npx --yes solhint -c docs/security/reports/raw/solhint.config.json --noPoster -f unix 'src/**/*.sol'` | 0 errors; 43 security-rule warnings all accepted by design (`not-rely-on-time`, `no-inline-assembly`, `avoid-low-level-calls`); 1,010 style |
-| Mythril | 0.24.8 | `uv tool install mythril --with "setuptools<81"`; solc 0.8.28 on `PATH`; `myth analyze <file>:<Contract> --solc-json docs/security/reports/raw/mythril-solc.json --execution-timeout 300 -t 3` | `TransitEscrow`, `ManagerRegistry`, `ShareToken`: no issues; `ManagerFeeVault`: 2 SWC-107 results, one false positive (the `ReentrancyGuard` flag write after the transfer), one accepted by design (`withdraw` is manager-only and names its own token) |
+| Mythril | 0.24.8 | `uv tool install mythril --with "setuptools<81"`; solc 0.8.28 on `PATH`; `myth analyze <file>:<Contract> --solc-json docs/security/reports/raw/mythril-solc.json --execution-timeout 300 -t 3` | `TransitEscrow`, `ManagerRegistry`: no issues; `ShareToken`: no issues, but **not evidence**: its runtime contains one MCOPY, which Mythril 0.24.8 cannot execute (verification plan 2.1 row 5), so paths through it were not explored; `ChainlinkPriceSource` (MCOPY-free, added 2026-10-01, `--execution-timeout 600`): no issues (`raw/mythril-chainlink-price-source.txt`); `ManagerFeeVault`: 2 SWC-107 results, one false positive (the `ReentrancyGuard` flag write after the transfer), one accepted by design (`withdraw` is manager-only and names its own token) |
 | forge lint | 1.7.1 | part of `forge build` | Warnings only in test mocks (`unsafe-typecast`, `erc20-unchecked-transfer`); `src/` clean since `8e97994` |
 
 Install notes: Slither, Semgrep, Mythril and Halmos through `uv tool install` (`~/.local/bin`); Aderyn and Solhint
@@ -73,4 +75,20 @@ through `npx --yes`; Medusa through Homebrew.
 5. Fork suites with fresh pins, then the local two-fork harness.
 6. Record the numbers in this file and any new finding in [`FINDINGS.md`](FINDINGS.md).
 
-CI (`.github/workflows/test.yml`) runs `forge fmt --check`, `forge build --sizes`, the non-fork suite and the fork suite; the analysis tools above are run by hand.
+CI (`.github/workflows/test.yml`) runs, with Foundry pinned to v1.7.1, `forge fmt --check`, `forge build --sizes` and the
+non-fork suite in one job, and the fork suites (including the ported review PoCs whose file names contain `Fork`) in
+another, with the fork blocks pinned to the latest block minus 300 at run time. Until 2026-10-01 every CI run failed
+at `forge fmt --check` (an unpinned `stable` forge formatted two test files differently) and the fork suites could not
+start (no block pins); the independent review found both. The analysis tools above are run by hand; the verification
+plan's CI target (static-analysis ratchets, coverage, nightly fuzz and formal jobs) is in
+[`VERIFICATION-PLAN.md`](VERIFICATION-PLAN.md).
+
+## The independent review and the verification plan (2026-09-30)
+
+The independent review ([`independent-review-2026-09-30/`](independent-review-2026-09-30/)) ran Slither, Aderyn,
+Solhint and `forge coverage --ir-minimum` at `e5c778a` (coverage 97.31% lines, 83.67% branches; raw outputs in its
+`raw/`) and 121 proof-of-concept tests, all ported onto main in `test/review/` on 2026-10-01 (see
+[`CROSS-CHECK-2026-10-01.md`](CROSS-CHECK-2026-10-01.md)). The verification plan
+([`verification-plan-2026-09-30/`](verification-plan-2026-09-30/)) assigns each of the 13 tools the founder listed to
+each contract; Wake, Echidna, hevm, Kontrol and Scribble have not been run on this repository yet, and Manticore is
+excluded (archived, no PUSH0, MCOPY or TLOAD support).

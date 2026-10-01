@@ -92,7 +92,7 @@ abstract contract CoreVaultTransit is CoreVaultIncome {
         nonReentrant
         returns (uint256 amount)
     {
-        return CoreVaultLogic.recoverUnlistedArrival(_s, spokeIndex, transitId);
+        return CoreVaultLogic.recoverUnlistedArrival(_s, _wiring(), spokeIndex, transitId);
     }
 
     // ---------------------------------------------------------------------------------------------------------------

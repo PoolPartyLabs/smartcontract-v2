@@ -291,6 +291,19 @@ contract MandateTest is Test {
         h.validate(m);
     }
 
+    /// Independent review M-04 (S-25): a report lifetime above one day is refused; one day is accepted.
+    function test_REVIEW_M04_maxReportAgeAboveOneDayReverts() public {
+        Mandate memory m = _valid();
+        m.spokes[0].maxReportAge = 1 days + 1;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.InvalidSpoke.selector, SPOKE));
+        h.validate(m);
+        m.spokes[0].maxReportAge = type(uint32).max;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.InvalidSpoke.selector, SPOKE));
+        h.validate(m);
+        m.spokes[0].maxReportAge = 1 days;
+        h.validate(m);
+    }
+
     function test_DEC031_spokeByChainIdFindsSpokeAndRevertsOtherwise() public {
         (uint256 index, SpokeConfig memory s) = h.spokeByChainId(_valid(), SPOKE);
         assertEq(index, 0);

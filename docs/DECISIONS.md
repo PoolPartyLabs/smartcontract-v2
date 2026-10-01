@@ -277,6 +277,7 @@ Measured facts referenced by the decisions (not decisions themselves):
 |---|---|---|
 | Across API default fill deadline | quote + 7,200 s (2 h) | DEC-063 |
 | Across expired-deposit refund | 45 to 80 min after `fillDeadline` from Arbitrum; 55 to 90 min from Robinhood; paid to `depositor`, full `inputAmount`; HubPool liveness 30 min, bundles about 31 min | DEC-063 |
+| Across expired-deposit refund from Robinhood, measured on chain (independent review, 2026-09-30) | about 53 to 107 min after `fillDeadline` (bundles every 24 to 39 min, relayed 50 to 56 min after the proposal, refund leaves 3 to 13 min later), longer than the 55 to 90 min above; the 3-day `HUB_BOUND_RETENTION` (security review S-3) covers it | DEC-063 |
 | Across partial fills | none per deposit; `fillRelayWithUpdatedDeposit` can deliver less if the depositor signs, so the depositing vault must be keyless; a transfer split over several deposits can arrive partially, track each deposit id | DEC-066 |
 | Across route fee | about 0.06%, fixed per deposit at quote time | DEC-034, DEC-085 |
 | Across per-deposit limits (2026-09-17) | 173,664 outbound; return 139,012 instant, 520,076 short delay | DEC-063 |

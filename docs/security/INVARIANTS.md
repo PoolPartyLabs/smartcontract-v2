@@ -112,6 +112,42 @@ proof must fail on the mutant).
 ShareMath 45 caught by the baseline suites, 5 more by the 13 kill tests, 10 equivalent survivors;
 IncomeAccumulator 47 caught, 10 more killed, 3 equivalent. The RR and CR classes were not run (mutant limit).
 
+## Which checks can fail on a cross-chain defect (independent review I-17)
+
+The independent review showed that two DEC-104 checks cannot fail on any cross-chain failure mode, because they
+rebuild Share Assets from the vault's own views: the unit invariant `invariant_DEC104_shareAssetsEqualBuckets`
+(`_bucketSum` reads `inFlightValue()` and `spokeCapUsage()`) and the fork scenario's `_sumOfBuckets` (its walk showed
+both still passing with 500 USDC counted twice and with 299.88 USDC in no base). The same holds for the local two-fork
+harness's bucket check (`local-e2e/src/scenario.ts`), which recomputes the valuation formula independently but reads
+the same bases. Read them as wiring checks.
+
+The checks that compare the books with something the vault does not compute are: the whole-fund suites of
+`test/security/invariants/` (the handler keeps ghost state of every transit, arrival, refund and donation, and
+`invariant_DEC104_atRestNothingIsCountedTwiceOrLost` compares the ledgers with the principal that went in less what went
+out), and the review's conservation walk (`test/review/integration-xchain/Fork_ConservationWalk.t.sol`, real fills,
+refunds and Wormhole delivery on both forks), which compares token holdings on both chains with the books after every
+step.
+
+## The review's nine harness properties
+
+Report 09 of the independent review specifies the properties a whole-system harness needs to catch each of its
+findings. Where each stands on main after the 2026-10-01 cross-check:
+
+| # | Property | Where it is checked | As an invariant? |
+|---|---|---|---|
+| 1 | Conservation against a ghost ledger, with `unmatchedArrivals` holding only stranger value | `invariant_DEC104_atRestNothingIsCountedTwiceOrLost`, `invariant_DEC085_withAFreshReportEveryTransferIsInExactlyOneBase`; the ported conservation walk on forks | Yes (mocked protocols); the walk is a fork test |
+| 2 | Recoverability at quiescence: every holder exits with Share Assets less fees, Operating Cash at protocol scale | `invariant_DEC104_noActorEndsWithMoreThanTheyPutIn` (one direction only); S-5 pins | Partly: Operating Cash has no cap (S-5 open) |
+| 3 | Spoke Cap against what the spoke really holds | `invariant_DEC066_booksAreTheSumOfTheirTransits` (books only); ported H-03 tests on real fills | Partly |
+| 4 | Third-party price independence around a deposit or a claim | `test_SEC_S1_*` (unit and live pool), ported C-02 tests | No: the harness's mock pools have a fixed spot |
+| 5 | Exit under deprecation | `test_SEC_S10_*`, ported H-07 tests | No |
+| 6 | Every published report deliverable within 32M gas | `test_REVIEW_H04_worstCaseReportStaysDeliverable` (23.14M at the caps, unit), `test_REVIEW_H04_worstCaseWithHeldApartIncomeArrivals` (26.87M through the real Cores) | No (a bound, tested at its worst case) |
+| 7 | Mandate identity of every accepted report | `test_SEC_S6_*`, ported H-06 tests | No |
+| 8 | No value for a fill to an address without code | `test_SEC_S14_*`, ported H-05 tests (the case cannot be constructed) | No |
+| 9 | Zero exclusivity and a bounded fee per send | `test_SEC_S9_*`, ported M-01 tests | No |
+
+Adding a moved spot price, deprecation and a 32M-gas delivery call to the whole-fund handler is the remaining harness
+work (plan phase 2).
+
 ## What is not covered by an invariant
 
 - Manager swap prices (S-8): no property bounds what the manager gets for a swap, by design of the current rules.

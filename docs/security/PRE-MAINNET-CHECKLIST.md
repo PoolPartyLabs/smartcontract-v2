@@ -10,13 +10,17 @@ unless marked "recommended". The state on 2026-09-30 is noted where it is known.
       the Unallocated Balance out today.
 - [ ] S-15 ruled (CS-OQ-1): income attribution across an entry, either a contract rule or a written operational rule
       with the keeper cadence that enforces it.
-- [ ] S-5 ruled: a protocol cap on the Operating Cash floor and top-up, or an explicit acceptance of the interim
-      `releaseOperatingCash` path.
+- [ ] S-5 ruled: a protocol cap on the Operating Cash floor and top-up (and, only with it, a verb that returns cash
+      above the floor; the interim release was removed as S-63), or an explicit acceptance of the one-way sink.
 - [ ] S-13 reading of DEC-066 A2 confirmed (a time-attested expiry keeps the Spoke Cap held until the refund or
       the confirmation).
-- [ ] The seven OPEN parameters introduced by the sweep given values by ruling and recorded as DEC entries
-      ([`KNOWN-LIMITATIONS.md`](KNOWN-LIMITATIONS.md) §3): `HUB_BOUND_RETENTION`, `MAX_HUB_BOUND_IN_FLIGHT`,
-      `MAX_BRIDGE_FEE_BPS`, `MAX_PAYOUT_FEE_BPS`, `MAX_UNWIND_SLIPPAGE_BPS`, `FILL_WINDOW`, `UNLISTED_ARRIVAL_DELAY`.
+- [ ] The OPEN parameters introduced by the sweep and its cross-check given values by ruling and recorded as DEC
+      entries ([`KNOWN-LIMITATIONS.md`](KNOWN-LIMITATIONS.md) §3, OPEN-QUESTIONS SEC-OQ-5): `HUB_BOUND_RETENTION`,
+      `MAX_HUB_BOUND_IN_FLIGHT`, `MAX_OPEN_POSITIONS`, `MAX_BRIDGE_FEE_BPS`, `MAX_PAYOUT_FEE_BPS`,
+      `MAX_UNWIND_SLIPPAGE_BPS` (SEC-OQ-12), `MAX_POOL_FEE`, `MandateLib.MAX_REPORT_AGE`, `MAX_PRICE`.
+- [ ] The independent review's open questions ruled (OPEN-QUESTIONS SEC-OQ-7 to SEC-OQ-14): performance fee net of the
+      fund's own swap fees, the guardian's holder, spoke pool tokens in the Mandate, price bands, Mandate exit bounds,
+      the unwind band, the ETH / USD price age, a second bridge route.
 - [ ] S-26 / S-28 accepted explicitly against Q57 (b) / OQ-10 (payouts without a price-age or sequencer check), or
       a sequencer-uptime feed added to the price source.
 - [ ] Pricing of every token a Mandate may hold decided (ARCHITECTURE §5 is OPEN): only WETH (Chainlink) and USDG
@@ -28,7 +32,11 @@ unless marked "recommended". The state on 2026-09-30 is noted where it is known.
 ## B. Independent review
 
 - [ ] An external audit of `src/` at the release commit by a firm with Uniswap V4, Across and Wormhole
-      experience, scoped with [`THREAT-MODEL.md`](THREAT-MODEL.md) and [`FINDINGS.md`](FINDINGS.md) as input.
+      experience, scoped with [`THREAT-MODEL.md`](THREAT-MODEL.md) and [`FINDINGS.md`](FINDINGS.md) as input. The
+      independent model-driven review of 2026-09-30 ([`independent-review-2026-09-30/`](independent-review-2026-09-30/))
+      does not replace it.
+- [ ] The verification plan's scope decided (F-1, F-2, F-14 in [`VERIFICATION-PLAN.md`](VERIFICATION-PLAN.md)):
+      the plan's own lean order is rulings, one fix batch, an external audit, then formal phases on the audited code.
 - [ ] Every audit finding fixed or accepted in writing, with regression tests in the `test_SEC_*` pattern.
 - [ ] Recommended: a public bug bounty with a defined disclosure contact ([`SECURITY.md`](../../SECURITY.md)
       still has a placeholder).
@@ -37,8 +45,13 @@ unless marked "recommended". The state on 2026-09-30 is noted where it is known.
 
 - [x] Contract sizes under EIP-170 with margin recorded (`SpokeVault` 559 bytes to spare; any change to it must
       re-check).
-- [x] Non-fork suite, fork suite and the local two-fork harness green on the release commit (750 / 57 / 35 steps
-      on main at `64c6461`).
+- [x] Non-fork suite, fork suite, the ported review proofs of concept, the local two-fork harness and the API probe
+      green on the cross-check branch (2026-10-01; numbers in [`CROSS-CHECK-2026-10-01.md`](CROSS-CHECK-2026-10-01.md)).
+- [x] CI green on `main` (it had never passed before 2026-10-01: an unpinned forge and unset fork blocks).
+- [ ] Coverage measured on the release commit and a per-file ratchet in CI (the review measured 97.31% lines and
+      83.67% branches at `e5c778a`; the verification plan lists 81 zero-hit branches).
+- [ ] Static-analysis ratchets in CI (Slither, Aderyn, Solhint against the committed triage), per the verification
+      plan section 7.
 - [ ] Deep campaign re-run on the release commit ([`TOOLING.md`](TOOLING.md): 5,000 fuzz runs x 3 seeds,
       invariants 256 x 64, both liveness switches).
 - [ ] Slither diff against `reports/raw/slither.json` triaged; Aderyn, Semgrep, Solhint counts compared.
@@ -59,7 +72,10 @@ unless marked "recommended". The state on 2026-09-30 is noted where it is known.
 - [ ] Wormhole chain ids and emitter addresses of every spoke recorded and cross-checked with the Mandate
       (S-24).
 - [ ] Keys: the adapter guardian, the Manager Registry owner and the factory deployer on hardware or a multisig,
-      with a written procedure for `setPaused`, `deprecate` and the registry's `Ownable2Step` transfer.
+      with a written procedure for `setPaused`, `deprecate` and the registry's `Ownable2Step` transfer. The guardian is
+      one immutable address for every adapter of every fund of a factory (SEC-OQ-8).
+- [x] The deployment script refuses a wiring with a codeless address or Uniswap V4 contracts of different
+      deployments (`FactoryDeployment._checkWiring`, plan F-12).
 - [ ] Source verified on the block explorers of both chains; linked library addresses published.
 - [ ] Linked libraries (`CoreVaultLogic`, `SpokeCrossChainLib`) deployed once per chain and their addresses
       pinned in the factory wiring (ARCHITECTURE §1.1).
@@ -69,8 +85,10 @@ unless marked "recommended". The state on 2026-09-30 is noted where it is known.
 - [ ] A production keeper (not `local-e2e/`) that: calls `report()` on every spoke within the report lifetime and
       delivers the VAA; delivers a new spoke's first report before the first `sendToSpoke` (S-14); calls
       `recognizeRefund`, `attestExpiry`, `recoverUnlistedArrival`, `claimOwedFees`, `forwardIncomeToCoreVault`
-      when their conditions hold; collects and forwards income on the cadence the S-15 rule requires; quotes
-      Across without exclusivity (S-9).
+      when their conditions hold (`recoverUnlistedArrival` right after delivering the first report built after an
+      unlisted arrival, so no entrant prices in between); collects and forwards income on the cadence the S-15 rule
+      requires; quotes Across without exclusivity (S-9); computes every manager swap minimum from the oracle (S-8
+      open; `local-e2e/src/api.ts` shows how).
 - [ ] Monitoring and alerts on: report age per spoke, transits past their fill deadline, `unmatchedArrivals`,
       `owedFees`, Operating Cash above its floor, Share Price moves above a threshold within one block,
       Chainlink staleness and sequencer status.

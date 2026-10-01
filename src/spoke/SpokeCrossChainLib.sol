@@ -120,7 +120,9 @@ library SpokeCrossChainLib {
     /// @dev Security review S-3: walks the hub-bound list once. An expired send whose refund has landed is recognized
     ///      (the same effects as `recognizeRefund`, so a report never drops a refunded transfer from every value
     ///      base while nobody has called it); a send past `fillDeadline + ReportCodec.HUB_BOUND_RETENTION` leaves the
-    ///      list. Iterates from the end, so the swap-and-pop removal never skips an entry.
+    ///      list. Only a listed send is walked: a refund that lands after the retention is no longer seen here and
+    ///      waits for the permissionless `recognizeRefund` (independent review cross-check, S-3 residual). Iterates
+    ///      from the end, so the swap-and-pop removal never skips an entry.
     function _sweepInFlight(SpokeVaultTypes.State storage s, address baseToken) private {
         for (uint256 i = s.inFlightIds.length; i > 0; --i) {
             bytes32 id = s.inFlightIds[i - 1];
@@ -178,18 +180,6 @@ library SpokeCrossChainLib {
         emit ISpokeVault.OperatingExpensePaid(
             chainId, address(0), OPERATING_CASH_TOP_UP, amount, ExpensePayer.ShareAssets
         );
-    }
-
-    /// @notice ISpokeVault.releaseOperatingCash (security review S-5, interim mitigation pending a DEC-100 ruling):
-    ///         Operating Cash above the floor back to the base token's Unallocated Balance.
-    function releaseOperatingCash(SpokeVaultTypes.State storage s, address baseToken, uint256 amount) external {
-        uint256 cash = s.operatingCash;
-        uint256 floor = s.operatingCashFloor;
-        uint256 releasable = cash > floor ? cash - floor : 0;
-        if (amount == 0 || amount > releasable) revert SpokeVaultTypes.OperatingCashNotReleasable(amount, releasable);
-        s.operatingCash = cash - amount;
-        s.unallocated[baseToken] += amount;
-        emit ISpokeVault.OperatingCashReleased(amount, cash - amount);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -365,6 +355,8 @@ library SpokeCrossChainLib {
         if (call.amountToArrive != quote.outputAmount) {
             revert SpokeVaultTypes.BridgeAmountMismatch(quote.outputAmount, call.amountToArrive);
         }
+        // forge-lint: disable-next-line(block-timestamp)
+        if (call.fillDeadline <= block.timestamp) revert SpokeVaultTypes.BridgeDeadlineNotInFuture(call.fillDeadline);
     }
 
     /// @dev Books the transit as `Sent`, lists it in flight and grows `cumulativeSentHome` before the external call.

@@ -264,6 +264,9 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         if (_s.positionSlot[adapter][positionKey] != 0) {
             revert SpokeVaultTypes.PositionAlreadyRegistered(adapter, positionKey);
         }
+        if (_s.positions.length >= SpokeVaultTypes.MAX_OPEN_POSITIONS) {
+            revert SpokeVaultTypes.OpenPositionLimit(SpokeVaultTypes.MAX_OPEN_POSITIONS);
+        }
         _s.positions.push(PositionRef(adapter, positionKey, poolKey));
         _s.positionSlot[adapter][positionKey] = _s.positions.length;
         _requireBacked(p);
@@ -370,12 +373,6 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         _s.operatingCashFloor = floor;
         _s.operatingCashTopUp = topUp;
         emit OperatingCashParametersSet(floor, topUp);
-    }
-
-    /// @inheritdoc ISpokeVault
-    /// @dev Security review S-5; body in SpokeCrossChainLib (bytecode margin).
-    function releaseOperatingCash(uint256 amount) external onlyOnSpokeChain onlyManager nonReentrant {
-        SpokeCrossChainLib.releaseOperatingCash(_s, baseToken, amount);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -866,6 +863,9 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
     ///      position's own pool when it pairs `token` with USDC (a hint for `token` must then name that same route);
     ///      otherwise the hint's route, which must be a Mandate pool of a Mandate adapter pairing `token` with USDC.
     ///      The hint entry's `minAmountOut` and `params` travel with the route.
+    /// @dev Independent verification plan T14: a single-asset position (`token1` zero, an Aave reserve) has no pair of
+    ///      its own, so a non-USDC one takes the hint's route; asking its one-token pool for the other token reverted
+    ///      every unwind that reached the step.
     function _unwindRoute(
         address adapter,
         bytes32 poolKey,
@@ -878,7 +878,7 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         for (uint256 i; i < swaps.length; ++i) {
             if (swaps[i].tokenIn == token) r = swaps[i];
         }
-        if (_otherToken(p, token) == usdc) {
+        if (p.token1 != address(0) && _otherToken(p, token) == usdc) {
             if (r.adapter != address(0) && (r.adapter != adapter || r.poolKey != poolKey)) {
                 revert SpokeVaultTypes.InvalidUnwindSwap(r.adapter, r.poolKey, token);
             }

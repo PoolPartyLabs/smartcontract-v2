@@ -1,0 +1,392 @@
+// A minimal read-and-build API over the two forks: what the product API needs from the contracts, in one file, so
+// its concepts can be exercised against the real protocols before the product API is written. It only reads chain
+// state and builds unsigned transactions; it never holds a key. Run: `pnpm api` (after `pnpm run up`).
+//
+//   GET  /health                         nodes, clocks, report and price freshness, whether mints are open
+//   GET  /fund                           identity, value bases, Share Price, Spoke Cap usage, latest spoke report
+//   GET  /holders/:address               shares, value, Attributed Income per token, open Payout Request, owed transfers
+//   GET  /quote/deposit?from=&amount=    exact deposit outcome by eth_call (shares, USDC charged) or the decoded revert
+//   GET  /quote/claim?from=              exact claim outcome by eth_call (the receipt) or the decoded revert
+//   GET  /quote/swap?amountIn=&tokenIn=  hub swap minimum from the oracle less the API's slippage (security review S-8)
+//   POST /tx/deposit      {from, amount, minShares?}      approve + deposit, unsigned
+//   POST /tx/request      {from, amount, mode}            requestPayout, unsigned
+//   POST /tx/claim        {from}                          claimPayout with the unwind route hints the API computes
+//   POST /tx/swap         {amountIn, tokenIn, slippageBps?} manager swap on the hub Spoke Vault with an oracle minimum
+//   GET  /events?fromBlock=                 Core Vault events, decoded (the indexer a server would run)
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { decodeErrorResult, encodeAbiParameters, encodeFunctionData, type Abi, type Address, type Hex } from "viem";
+import {
+  allErrorsAbi,
+  chainlinkPriceSourceAbi,
+  coreVaultAbi,
+  erc20Abi,
+  spokeVaultAbi,
+  valueReportReceiverAbi,
+} from "./abis.ts";
+import { nodes, nodesUp, read, type Side } from "./chain.ts";
+import { ARBITRUM, HUB_POOL_ID, isMain } from "./config.ts";
+import { readState, type DeploymentState } from "./state.ts";
+
+export const API_PORT = Number(process.env.LOCAL_E2E_API_PORT ?? 8787);
+
+/** The API's own slippage bound on manager swaps and unwind routes, tighter than the vault's 5% floor (QA3, S-2). */
+export const API_SLIPPAGE_BPS = 100n;
+
+const SHARE = 10n ** 18n;
+const PRICE_SCALE = 10n ** 18n;
+
+export interface UnsignedTx {
+  chainId: number;
+  to: Address;
+  data: Hex;
+  description: string;
+}
+
+class HttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+    readonly detail?: unknown,
+  ) {
+    super(message);
+  }
+}
+
+function hub(state: DeploymentState) {
+  return state.fund;
+}
+
+function addressParam(value: string | undefined, name: string): Address {
+  if (!value || !/^0x[0-9a-fA-F]{40}$/.test(value)) throw new HttpError(400, `${name} must be an address`);
+  return value as Address;
+}
+
+function amountParam(value: string | undefined, name: string): bigint {
+  if (!value || !/^[0-9]+$/.test(value)) throw new HttpError(400, `${name} must be an integer in base units`);
+  return BigInt(value);
+}
+
+/** USDC base units as a decimal string, for humans; every value is also returned in base units. */
+function usdc(value: bigint): string {
+  const whole = value / 1_000_000n;
+  const frac = (value % 1_000_000n).toString().padStart(6, "0");
+  return `${whole}.${frac}`;
+}
+
+/** A revert as the API returns it: the custom error's name and arguments, decoded against every protocol ABI. */
+export function decodeRevert(err: unknown): { error: string; args: unknown[] } | undefined {
+  let cursor: unknown = err;
+  for (let i = 0; cursor && i < 8; ++i) {
+    const data = (cursor as { data?: unknown }).data;
+    const raw = typeof data === "string" ? data : (data as { data?: unknown } | undefined)?.data;
+    if (typeof raw === "string" && raw.startsWith("0x") && raw.length >= 10) {
+      try {
+        const decoded = decodeErrorResult({ abi: [...coreVaultAbi, ...spokeVaultAbi, ...allErrorsAbi] as Abi, data: raw as Hex });
+        return { error: decoded.errorName, args: [...(decoded.args ?? [])] };
+      } catch {
+        return { error: "unknown", args: [raw] };
+      }
+    }
+    const name = (cursor as { data?: { errorName?: string; args?: unknown[] } }).data?.errorName;
+    if (name) return { error: name, args: [...((cursor as { data?: { args?: unknown[] } }).data?.args ?? [])] };
+    cursor = (cursor as { cause?: unknown }).cause;
+  }
+  return undefined;
+}
+
+async function simulate<T>(
+  side: Side,
+  from: Address,
+  address: Address,
+  abi: Abi,
+  functionName: string,
+  args: unknown[],
+): Promise<{ ok: true; result: T } | { ok: false; revert: { error: string; args: unknown[] } | undefined }> {
+  try {
+    const { result } = await nodes[side].client.simulateContract({
+      account: from,
+      address,
+      abi: [...abi, ...allErrorsAbi] as Abi,
+      functionName,
+      args,
+    } as never);
+    return { ok: true, result: result as T };
+  } catch (err) {
+    return { ok: false, revert: decodeRevert(err) };
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Reads
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** Freshness of everything a mint depends on (Q57 reading, OQ-10): the spoke report against its lifetime, the WETH
+ *  price against its feed's bound. Payouts depend on neither. */
+export async function health(state: DeploymentState) {
+  const fund = hub(state);
+  const up = await nodesUp();
+  const now = {
+    arbitrum: (await nodes.arbitrum.client.getBlock()).timestamp,
+    robinhood: (await nodes.robinhood.client.getBlock()).timestamp,
+  };
+  const receiver = fund.hub.valueReportReceiver;
+  const spokeIndex = BigInt(fund.spoke.spokeIndex);
+  const hasReport = await read<boolean>("arbitrum", { address: receiver, abi: valueReportReceiverAbi, functionName: "hasReport", args: [spokeIndex] });
+  const maxReportAge = await read<number>("arbitrum", { address: receiver, abi: valueReportReceiverAbi, functionName: "maxReportAge", args: [spokeIndex] });
+  let reportAge: bigint | undefined;
+  let reportSequence: bigint | undefined;
+  if (hasReport) {
+    const [r] = await read<readonly [{ timestamp: bigint; sequence: bigint }, bigint, bigint]>("arbitrum", {
+      address: receiver,
+      abi: valueReportReceiverAbi,
+      functionName: "latestReport",
+      args: [spokeIndex],
+    });
+    reportAge = now.arbitrum > r.timestamp ? now.arbitrum - r.timestamp : 0n;
+    reportSequence = r.sequence;
+  }
+  const priceSource = state.protocol.arbitrum.priceSource;
+  const [, updatedAt] = await read<readonly [bigint, bigint]>("arbitrum", { address: priceSource, abi: chainlinkPriceSourceAbi, functionName: "priceInUsdc", args: [ARBITRUM.weth] });
+  const maxPriceAge = await read<bigint>("arbitrum", { address: priceSource, abi: chainlinkPriceSourceAbi, functionName: "maxPriceAge", args: [ARBITRUM.weth] });
+  const priceAge = now.arbitrum - updatedAt;
+  // A spoke with no accepted report counts nothing on the hub, so it never closes mints (CoreVaultLogic._spokeValue).
+  const reportFresh = !hasReport || (reportAge !== undefined && reportAge <= BigInt(maxReportAge));
+  const priceFresh = priceAge <= maxPriceAge;
+  return {
+    nodes: up,
+    clocks: now,
+    spokeReport: { hasReport, reportSequence, ageSeconds: reportAge, maxReportAge, fresh: reportFresh },
+    wethPrice: { ageSeconds: priceAge, maxPriceAge, fresh: priceFresh },
+    mintsOpen: reportFresh && priceFresh,
+    payoutsOpen: true,
+  };
+}
+
+export async function fundState(state: DeploymentState) {
+  const fund = hub(state);
+  const core = fund.hub.coreVault;
+  const view = <T>(functionName: string, args: unknown[] = []) => read<T>("arbitrum", { address: core, abi: coreVaultAbi, functionName, args });
+  const [shareAssets, sharePrice, grossAssets, idle, freeIdle, payoutReserve, inFlightValue, operatingCash, unmatched] =
+    await Promise.all([
+      view<bigint>("shareAssets"),
+      view<bigint>("sharePrice"),
+      view<bigint>("grossAssets"),
+      view<bigint>("idle"),
+      view<bigint>("freeIdle"),
+      view<bigint>("payoutReserve"),
+      view<bigint>("inFlightValue"),
+      view<bigint>("operatingCash"),
+      view<bigint>("unmatchedArrivals"),
+    ]);
+  const [spokeValue, inFlightSent, inFlightToHub, cap] = await view<readonly [bigint, bigint, bigint, bigint]>("spokeCapUsage", [BigInt(fund.spoke.spokeIndex)]);
+  const supply = await read<bigint>("arbitrum", { address: fund.hub.shareToken, abi: erc20Abi, functionName: "totalSupply" });
+  return {
+    fundId: fund.fundId,
+    coreVault: core,
+    shareToken: fund.hub.shareToken,
+    // DEC-084, DEC-098, DEC-103: the published price is the Share Price; Gross Assets, never AUM or TVL.
+    sharePrice: { raw: sharePrice, usdcPerShare: usdc(sharePrice / PRICE_SCALE) },
+    totalShares: supply,
+    bases: { shareAssets, grossAssets, idle, freeIdle, payoutReserve, inFlightValue, operatingCash, unmatchedArrivals: unmatched },
+    spokeCap: { spokeValue, inFlightSent, inFlightToHub, cap, used: spokeValue + inFlightSent + inFlightToHub },
+    fees: {
+      performanceFeeBps: await view<number>("performanceFeeBps"),
+      flowFeeBps: await view<number>("flowFeeBps"),
+      payoutFeeBps: await view<number>("payoutFeeBps"),
+      standardPayoutTermSeconds: await view<number>("standardPayoutTerm"),
+    },
+  };
+}
+
+export async function holderState(state: DeploymentState, holder: Address) {
+  const fund = hub(state);
+  const core = fund.hub.coreVault;
+  const view = <T>(functionName: string, args: unknown[] = []) => read<T>("arbitrum", { address: core, abi: coreVaultAbi, functionName, args });
+  const shares = await read<bigint>("arbitrum", { address: fund.hub.shareToken, abi: erc20Abi, functionName: "balanceOf", args: [holder] });
+  const price = await view<bigint>("sharePrice");
+  const tokens = await view<readonly Address[]>("incomeTokens");
+  const income: Record<string, { attributed: bigint; owedTransfer: bigint }> = {};
+  for (const token of tokens) {
+    income[token] = {
+      attributed: await view<bigint>("attributedIncome", [holder, token]),
+      owedTransfer: await view<bigint>("owedFees", [token, holder]),
+    };
+  }
+  const request = await view<Record<string, unknown>>("payoutRequest", [holder]);
+  return {
+    holder,
+    shares,
+    // Whole shares times the Share Price (USDC base units x 1e18 per whole share), rounded down.
+    value: (shares * price) / (SHARE * PRICE_SCALE),
+    attributedIncome: income,
+    payoutRequest: request,
+  };
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Quotes: exact, by simulation against the fork's state
+// ---------------------------------------------------------------------------------------------------------------------
+
+export async function quoteDeposit(state: DeploymentState, from: Address, amount: bigint) {
+  const core = hub(state).hub.coreVault;
+  const allowance = await read<bigint>("arbitrum", { address: ARBITRUM.usdc, abi: erc20Abi, functionName: "allowance", args: [from, core] });
+  if (allowance < amount) {
+    // The simulation needs the allowance the approve transaction would give; state overrides are not used so the
+    // quote reflects the real contracts only. Report the missing approval instead.
+    const fresh = await health(state);
+    return { needsApproval: true, mintsOpen: fresh.mintsOpen };
+  }
+  const sim = await simulate<readonly [bigint, bigint]>("arbitrum", from, core, coreVaultAbi, "deposit", [amount, 0n]);
+  if (!sim.ok) return { ok: false, revert: sim.revert };
+  const [shares, charged] = sim.result;
+  return { ok: true, shares, wholeShares: shares / SHARE, usdcCharged: charged, leftInWallet: amount - charged };
+}
+
+export async function quoteClaim(state: DeploymentState, from: Address) {
+  const core = hub(state).hub.coreVault;
+  const hints = await unwindHints(state);
+  const sim = await simulate<Record<string, bigint | boolean>>("arbitrum", from, core, coreVaultAbi, "claimPayout", [hints]);
+  if (!sim.ok) return { ok: false, revert: sim.revert };
+  return { ok: true, receipt: sim.result, hints };
+}
+
+/** A manager swap minimum the API will sign off on: the oracle value of `amountIn` less the API slippage. The vault
+ *  itself accepts any minimum, zero included (security review S-8, open), so this bound lives off chain until the
+ *  founder rules. */
+export async function quoteSwap(state: DeploymentState, tokenIn: Address, amountIn: bigint, slippageBps = API_SLIPPAGE_BPS) {
+  const priceSource = state.protocol.arbitrum.priceSource;
+  const [value] = await read<readonly [bigint, bigint]>("arbitrum", { address: priceSource, abi: chainlinkPriceSourceAbi, functionName: "usdcValue", args: [tokenIn, amountIn] });
+  if (tokenIn.toLowerCase() === ARBITRUM.usdc.toLowerCase()) {
+    // USDC in: the minimum is in WETH, the oracle value of amountIn in WETH less the slippage.
+    const [wethPrice] = await read<readonly [bigint, bigint]>("arbitrum", { address: priceSource, abi: chainlinkPriceSourceAbi, functionName: "priceInUsdc", args: [ARBITRUM.weth] });
+    const wethOut = (amountIn * 10n ** 18n) / wethPrice;
+    return { tokenOut: ARBITRUM.weth, oracleAmountOut: wethOut, minAmountOut: (wethOut * (10_000n - slippageBps)) / 10_000n, slippageBps };
+  }
+  return { tokenOut: ARBITRUM.usdc, oracleAmountOut: value, minAmountOut: (value * (10_000n - slippageBps)) / 10_000n, slippageBps };
+}
+
+/** Unwind hints for a claim. The vault sizes and floors every step itself; a hint is needed only to give a route to
+ *  a position whose own pool does not pair its token with USDC (a single-asset non-USDC reserve, plan T14). The
+ *  MVP Mandate has none (hub V4 WETH/USDC pairs with USDC, Aave is USDC), so the hints are empty; the function shows
+ *  where the API would add them. */
+async function unwindHints(state: DeploymentState): Promise<Hex> {
+  const positions = await read<readonly { adapter: Address; positionKey: Hex; poolKey: Hex }[]>("arbitrum", {
+    address: hub(state).hub.spokeVault,
+    abi: spokeVaultAbi,
+    functionName: "positions",
+  });
+  const needsRoute = positions.some((p) => p.adapter.toLowerCase() !== hub(state).hub.uniswapV4Adapter.toLowerCase() && p.poolKey.toLowerCase() !== `0x${ARBITRUM.usdc.slice(2).toLowerCase().padStart(64, "0")}`);
+  if (!needsRoute) return "0x";
+  // One hint per position visited, routing a non-USDC single asset through the hub WETH/USDC pool.
+  const hints = positions.map(() => ({ swaps: [{ adapter: hub(state).hub.uniswapV4Adapter, poolKey: HUB_POOL_ID, tokenIn: ARBITRUM.weth, minAmountOut: 0n, params: "0x" as Hex }] }));
+  return encodeAbiParameters(
+    [{ type: "tuple[]", components: [{ name: "swaps", type: "tuple[]", components: [{ name: "adapter", type: "address" }, { name: "poolKey", type: "bytes32" }, { name: "tokenIn", type: "address" }, { name: "minAmountOut", type: "uint256" }, { name: "params", type: "bytes" }] }] }],
+    [hints],
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Transaction builders: unsigned, the client signs
+// ---------------------------------------------------------------------------------------------------------------------
+
+export async function buildDeposit(state: DeploymentState, from: Address, amount: bigint, minShares: bigint): Promise<UnsignedTx[]> {
+  const core = hub(state).hub.coreVault;
+  const fresh = await health(state);
+  if (!fresh.mintsOpen) throw new HttpError(409, "mints are closed: a spoke report or a price is stale; the keeper must deliver first", fresh);
+  const txs: UnsignedTx[] = [];
+  const allowance = await read<bigint>("arbitrum", { address: ARBITRUM.usdc, abi: erc20Abi, functionName: "allowance", args: [from, core] });
+  if (allowance < amount) {
+    txs.push({ chainId: nodes.arbitrum.chain.id, to: ARBITRUM.usdc, data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [core, amount] }), description: "approve USDC for the Core Vault" });
+  }
+  txs.push({ chainId: nodes.arbitrum.chain.id, to: core, data: encodeFunctionData({ abi: coreVaultAbi, functionName: "deposit", args: [amount, minShares] }), description: "deposit" });
+  return txs;
+}
+
+export function buildRequest(state: DeploymentState, amount: bigint, mode: "instant" | "standard"): UnsignedTx[] {
+  const core = hub(state).hub.coreVault;
+  return [{ chainId: nodes.arbitrum.chain.id, to: core, data: encodeFunctionData({ abi: coreVaultAbi, functionName: "requestPayout", args: [amount, mode === "instant" ? 0 : 1] }), description: `requestPayout (${mode})` }];
+}
+
+export async function buildClaim(state: DeploymentState): Promise<UnsignedTx[]> {
+  const core = hub(state).hub.coreVault;
+  return [{ chainId: nodes.arbitrum.chain.id, to: core, data: encodeFunctionData({ abi: coreVaultAbi, functionName: "claimPayout", args: [await unwindHints(state)] }), description: "claimPayout" }];
+}
+
+export async function buildSwap(state: DeploymentState, tokenIn: Address, amountIn: bigint, slippageBps: bigint): Promise<UnsignedTx[]> {
+  const fund = hub(state);
+  const quote = await quoteSwap(state, tokenIn, amountIn, slippageBps);
+  const deadline = (await nodes.arbitrum.client.getBlock()).timestamp + 600n;
+  const params = encodeAbiParameters([{ type: "tuple", components: [{ name: "sqrtPriceLimitX96", type: "uint160" }, { name: "deadline", type: "uint256" }] }], [{ sqrtPriceLimitX96: 0n, deadline }]);
+  return [
+    {
+      chainId: nodes.arbitrum.chain.id,
+      to: fund.hub.spokeVault,
+      data: encodeFunctionData({ abi: spokeVaultAbi, functionName: "swapExactInput", args: [fund.hub.uniswapV4Adapter, HUB_POOL_ID, tokenIn, amountIn, quote.minAmountOut, params] }),
+      description: `swap ${amountIn} of ${tokenIn} with minimum ${quote.minAmountOut} (oracle less ${slippageBps} bps)`,
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Indexer
+// ---------------------------------------------------------------------------------------------------------------------
+
+export async function coreEvents(state: DeploymentState, fromBlock: bigint) {
+  const logs = await nodes.arbitrum.client.getContractEvents({ address: hub(state).hub.coreVault, abi: coreVaultAbi as Abi, fromBlock, toBlock: "latest" });
+  return logs.map((l) => ({ block: l.blockNumber, tx: l.transactionHash, logIndex: l.logIndex, event: l.eventName, args: l.args }));
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// HTTP
+// ---------------------------------------------------------------------------------------------------------------------
+
+const routes: { method: string; pattern: RegExp; handler: (state: DeploymentState, m: RegExpMatchArray, url: URL, body: Record<string, string>) => Promise<unknown> }[] = [
+  { method: "GET", pattern: /^\/health$/, handler: (s) => health(s) },
+  { method: "GET", pattern: /^\/fund$/, handler: (s) => fundState(s) },
+  { method: "GET", pattern: /^\/holders\/(0x[0-9a-fA-F]{40})$/, handler: (s, m) => holderState(s, m[1] as Address) },
+  { method: "GET", pattern: /^\/quote\/deposit$/, handler: (s, _m, u) => quoteDeposit(s, addressParam(u.searchParams.get("from") ?? undefined, "from"), amountParam(u.searchParams.get("amount") ?? undefined, "amount")) },
+  { method: "GET", pattern: /^\/quote\/claim$/, handler: (s, _m, u) => quoteClaim(s, addressParam(u.searchParams.get("from") ?? undefined, "from")) },
+  { method: "GET", pattern: /^\/quote\/swap$/, handler: (s, _m, u) => quoteSwap(s, addressParam(u.searchParams.get("tokenIn") ?? undefined, "tokenIn"), amountParam(u.searchParams.get("amountIn") ?? undefined, "amountIn")) },
+  { method: "POST", pattern: /^\/tx\/deposit$/, handler: (s, _m, _u, b) => buildDeposit(s, addressParam(b.from, "from"), amountParam(b.amount, "amount"), b.minShares ? amountParam(b.minShares, "minShares") : 0n) },
+  { method: "POST", pattern: /^\/tx\/request$/, handler: async (s, _m, _u, b) => buildRequest(s, amountParam(b.amount, "amount"), b.mode === "standard" ? "standard" : "instant") },
+  { method: "POST", pattern: /^\/tx\/claim$/, handler: (s) => buildClaim(s) },
+  { method: "POST", pattern: /^\/tx\/swap$/, handler: (s, _m, _u, b) => buildSwap(s, addressParam(b.tokenIn, "tokenIn"), amountParam(b.amountIn, "amountIn"), b.slippageBps ? amountParam(b.slippageBps, "slippageBps") : API_SLIPPAGE_BPS) },
+  { method: "GET", pattern: /^\/events$/, handler: (s, _m, u) => coreEvents(s, BigInt(u.searchParams.get("fromBlock") ?? hub(s).hub.createdInBlock)) },
+];
+
+function json(res: ServerResponse, status: number, payload: unknown) {
+  res.writeHead(status, { "content-type": "application/json" });
+  res.end(JSON.stringify(payload, (_k, v) => (typeof v === "bigint" ? v.toString() : v), 2));
+}
+
+async function readBody(req: IncomingMessage): Promise<Record<string, string>> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(chunk as Buffer);
+  if (chunks.length === 0) return {};
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    throw new HttpError(400, "body must be JSON");
+  }
+}
+
+export function startApi(port = API_PORT) {
+  const server = createServer(async (req, res) => {
+    const url = new URL(req.url ?? "/", `http://127.0.0.1:${port}`);
+    const route = routes.find((r) => r.method === req.method && r.pattern.test(url.pathname));
+    if (!route) return json(res, 404, { error: "not found" });
+    try {
+      const state = readState();
+      const body = req.method === "POST" ? await readBody(req) : {};
+      json(res, 200, await route.handler(state, url.pathname.match(route.pattern)!, url, body));
+    } catch (err) {
+      if (err instanceof HttpError) return json(res, err.status, { error: err.message, detail: err.detail });
+      json(res, 500, { error: (err as Error).message, revert: decodeRevert(err) });
+    }
+  });
+  return new Promise<typeof server>((resolve) => server.listen(port, "127.0.0.1", () => resolve(server)));
+}
+
+if (isMain(import.meta.url)) {
+  startApi().then(() => console.log(`local-e2e API on http://127.0.0.1:${API_PORT}`));
+}

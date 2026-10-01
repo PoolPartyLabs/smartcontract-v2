@@ -21,6 +21,13 @@ contract ChainlinkPriceSource is IPriceSource {
     /// @notice Decimals of hub USDC, the unit every price is expressed in.
     uint8 public constant USDC_DECIMALS = 6;
 
+    /// @notice Highest `price1e18` accepted from a feed.
+    /// @dev Independent verification plan CF-R2 (assumption A-PRICE): nothing bounded the answer, so a garbage answer
+    ///      such as 2^200 passed here and later overflowed the consumer's value sums, a panic inside every payout. A
+    ///      price above 2^128 (orders of magnitude beyond any asset) is refused instead, which a payout turns into its
+    ///      last-price fallback. This is a structural bound, not an economic band (Q57 (d) stays OPEN).
+    uint256 public constant MAX_PRICE = type(uint128).max;
+
     /// @notice A Chainlink-priced token.
     /// @param token Token address as it appears in reports or hub positions.
     /// @param tokenDecimals Decimals of `token` on its own chain.
@@ -48,6 +55,7 @@ contract ChainlinkPriceSource is IPriceSource {
         uint8 kind;
         address aggregator;
         uint32 maxPriceAge;
+        uint8 feedDecimals;
         uint256 scaleNumerator;
         uint256 scaleDenominator;
     }
@@ -72,10 +80,11 @@ contract ChainlinkPriceSource is IPriceSource {
 
     /// @param feeds Chainlink-priced tokens.
     /// @param fixedTokens Tokens held at 1:1 with USDC, with their decimals (USDC, USDG; QB9 OPEN).
-    /// @dev Feed decimals are read once here and baked into the scale. Assumption: a Chainlink proxy keeps its
-    ///      `decimals()` constant across aggregator upgrades (it does in practice); a proxy that changed it would need a
-    ///      new price source, which is how any pricing change is made (ruling 2026-09-29). No L2 sequencer-uptime check
-    ///      and no min/max-answer awareness: the consumer's staleness signal is `updatedAt` (OQ-10).
+    /// @dev Feed decimals are read once here and baked into the scale; every read checks the feed still reports them
+    ///      (independent verification plan CF-R3: a proxy re-pointed to an aggregator with other decimals would misprice
+    ///      by a power of ten silently), and a changed feed needs a new price source, which is how any pricing change is
+    ///      made (ruling 2026-09-29). No L2 sequencer-uptime check and no min/max-answer awareness: the consumer's
+    ///      staleness signal is `updatedAt` (OQ-10).
     constructor(FeedConfig[] memory feeds, FixedConfig[] memory fixedTokens) {
         for (uint256 i; i < feeds.length; ++i) {
             FeedConfig memory f = feeds[i];
@@ -90,6 +99,9 @@ contract ChainlinkPriceSource is IPriceSource {
                 kind: KIND_FEED,
                 aggregator: f.aggregator,
                 maxPriceAge: f.maxPriceAge,
+                // casting to 'uint8' is safe because `feedDecimals + tokenDecimals` is at most 60 here
+                // forge-lint: disable-next-line(unsafe-typecast)
+                feedDecimals: uint8(feedDecimals),
                 scaleNumerator: 10 ** (USDC_DECIMALS + 18),
                 scaleDenominator: 10 ** denominatorDecimals
             });
@@ -106,6 +118,7 @@ contract ChainlinkPriceSource is IPriceSource {
                 kind: KIND_FIXED,
                 aggregator: address(0),
                 maxPriceAge: 0,
+                feedDecimals: 0,
                 scaleNumerator: 10 ** (USDC_DECIMALS + 18 - decimals),
                 scaleDenominator: 0
             });
@@ -113,8 +126,9 @@ contract ChainlinkPriceSource is IPriceSource {
     }
 
     /// @inheritdoc IPriceSource
-    /// @dev Reverts with `InvalidPrice` on a zero or negative answer; never on age (OQ-10). A fixed token returns its
-    ///      constant price (1e18 for 6 decimals) with `updatedAt = block.timestamp`.
+    /// @dev Reverts with `InvalidPrice` on a zero or negative answer, an `updatedAt` in the future, a feed whose
+    ///      decimals differ from those fixed at construction (CF-R3) and a price above `MAX_PRICE` (CF-R2); never on age
+    ///      (OQ-10). A fixed token returns its constant price (1e18 for 6 decimals) with `updatedAt = block.timestamp`.
     function priceInUsdc(address token) public view returns (uint256 price1e18, uint256 updatedAt) {
         Price storage p = _prices[token];
         uint8 kind = p.kind;
@@ -122,11 +136,12 @@ contract ChainlinkPriceSource is IPriceSource {
         if (kind == KIND_NONE) revert UnsupportedToken(token);
         int256 answer;
         (, answer,, updatedAt,) = IChainlinkAggregatorV3(p.aggregator).latestRoundData();
-        if (answer <= 0) revert InvalidPrice(token);
+        if (answer <= 0 || updatedAt > block.timestamp) revert InvalidPrice(token);
+        if (IChainlinkAggregatorV3(p.aggregator).decimals() != p.feedDecimals) revert InvalidPrice(token);
         // casting to 'uint256' is safe because `answer` is strictly positive here
         // forge-lint: disable-next-line(unsafe-typecast)
         price1e18 = Math.mulDiv(uint256(answer), p.scaleNumerator, p.scaleDenominator);
-        if (price1e18 == 0) revert InvalidPrice(token);
+        if (price1e18 == 0 || price1e18 > MAX_PRICE) revert InvalidPrice(token);
     }
 
     /// @inheritdoc IPriceSource

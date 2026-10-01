@@ -43,6 +43,7 @@ src/
 test/
   unit/        Pure unit and fuzz tests, no network (invariant suites next to their contract)
   security/    Regression tests of the security findings, whole-fund invariants, symbolic and mutation suites
+  review/      The independent review's proofs of concept, ported: regressions of what is fixed, pins of what is not
   fork/        Mainnet fork tests against Arbitrum One and Robinhood Chain (never testnets)
 script/        Deployment scripts (fork first, then mainnet)
 docs/          DECISIONS.md, OPEN-QUESTIONS.md, ARCHITECTURE.md, INTEGRATIONS.md, DEPLOYMENT.md
@@ -95,8 +96,11 @@ troubleshooting (public RPCs serve fork state for minutes only; an archive RPC i
 
 **Not audited by a third party.** One internal security sweep (static, dynamic, symbolic, mutation and five manual
 lenses) ran on 2026-09-30: 44 findings, 16 fixed with regression tests, 3 waiting for a founder decision, 25
-acknowledged. Read `SECURITY.md` for the disclosure policy and `docs/security/` for the threat model, the register,
-the invariants, the tooling and the pre-mainnet checklist.
+acknowledged. An independent model-driven review and a verification plan (2026-09-30) were cross-checked against the
+code on 2026-10-01 (`docs/security/CROSS-CHECK-2026-10-01.md`; their proofs of concept run in `test/review/`). The
+Mandate fixes where a manager may trade and where tokens may go, not the price of a manager's trade
+(`docs/security/THREAT-MODEL.md`). Read `SECURITY.md` for the disclosure policy and `docs/security/` for the threat
+model, the register, the invariants, the tooling and the pre-mainnet checklist.
 
 ## Canonical vocabulary
 

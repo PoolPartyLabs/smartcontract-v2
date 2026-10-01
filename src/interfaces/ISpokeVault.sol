@@ -92,9 +92,6 @@ interface ISpokeVault is IAcrossMessageHandler {
     /// @notice The manager changed the Operating Cash floor and top-up (DEC-096).
     event OperatingCashParametersSet(uint256 floor, uint256 topUp);
 
-    /// @notice The manager returned Operating Cash above the floor to Unallocated Balance (security review S-5).
-    event OperatingCashReleased(uint256 amount, uint256 balance);
-
     /// @notice Hub only: the Core Vault allocated USDC to this vault's Unallocated Balance (DEC-017, DEC-072).
     event ReceivedFromCoreVault(uint256 amount);
 
@@ -241,12 +238,6 @@ interface ISpokeVault is IAcrossMessageHandler {
     /// @notice Sets the Operating Cash floor and top-up of this chain. Manager only (DEC-096; no protocol cap on the
     ///         floor, DEC-100).
     function setOperatingCashParameters(uint256 floor, uint256 topUp) external;
-
-    /// @notice Returns `amount` of this chain's Operating Cash above its floor to the base token's Unallocated
-    ///         Balance. Manager only, Spoke Chains only.
-    /// @dev Security review S-5, interim mitigation pending a founder ruling on DEC-100: see
-    ///      `ICoreVault.releaseOperatingCash`. Reverts `OperatingCashNotReleasable` above `operatingCash - floor`.
-    function releaseOperatingCash(uint256 amount) external;
 
     // ---------------------------------------------------------------------------------------------------------------
     // Cross-chain (Spoke Chains)

@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
 import {IBridgeAdapter} from "../interfaces/IBridgeAdapter.sol";
+import {IPriceSource} from "../interfaces/IPriceSource.sol";
 import {Transit, ExpensePayer} from "../interfaces/FundTypes.sol";
 import {Mandate, MandateLib, SpokeConfig, BridgeAdapterConfig} from "../mandate/Mandate.sol";
 import {ShareMath} from "../libraries/ShareMath.sol";
@@ -56,7 +57,8 @@ abstract contract CoreVaultBase is ICoreVault, ReentrancyGuardTransient {
     CoreVaultState internal _s;
 
     /// @dev Set while the Core Vault waits on `ISpokeVault.unwindForPayout`, so the hub Spoke Vault may call back
-    ///      `returnToIdle` and `receiveCollectedIncome` from inside a payout.
+    ///      `returnToIdle` from inside a payout. `receiveCollectedIncome` takes the reentrancy guard and is never called
+    ///      back from an unwind (the unwind's income stays in the hub Spoke Vault's collected bucket).
     bool internal transient _unwinding;
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -104,9 +106,15 @@ abstract contract CoreVaultBase is ICoreVault, ReentrancyGuardTransient {
         _pinBridgeAdapters(m);
 
         // Q60: closed list of income tokens; USDC always, then the hub pool tokens the factory derived.
+        // Independent review M-03 (plan R-12, hub half): every hub pool token must be priced by the price source, or
+        // once the fund holds it every mint reverts and every payout values it at 0; the read reverts here instead
+        // (`UnsupportedToken`). Spoke pool tokens are not visible on the hub (founder question, DEC-089).
         _s.income.registerToken(c.usdc);
         for (uint256 i; i < c.incomeTokens.length; ++i) {
-            if (c.incomeTokens[i] != c.usdc) _s.income.registerToken(c.incomeTokens[i]);
+            address token = c.incomeTokens[i];
+            if (token == c.usdc) continue;
+            IPriceSource(c.priceSource).priceInUsdc(token);
+            _s.income.registerToken(token);
         }
 
         // Q59 OPEN: name and symbol are factory strings; the Core Vault deploys and owns its Share token.
@@ -271,21 +279,15 @@ abstract contract CoreVaultBase is ICoreVault, ReentrancyGuardTransient {
 
     /// @inheritdoc ICoreVault
     /// @dev DEC-096: the manager may adjust floor and top-up on a live fund; DEC-100: no protocol cap on the floor.
+    /// @dev Security review S-5 (open, SEC-OQ-2): without a cap the top-up can move Free Idle into Operating Cash, which
+    ///      nothing spends or returns in the MVP. The sweep's interim `releaseOperatingCash` was removed after the
+    ///      cross-check of 2026-10-01: a reversible sink let a manager depress the Share Price, have an ally mint at it
+    ///      and release the cash back to Share Assets (the ally took 19,900 for a 10,000 deposit). A release is safe only
+    ///      together with a cap on the floor and top-up, which is the founder's ruling.
     function setOperatingCashParameters(uint256 floor, uint256 topUp) external onlyManager {
         _s.operatingCashFloor = floor;
         _s.operatingCashTopUp = topUp;
         emit OperatingCashParametersSet(floor, topUp);
-    }
-
-    /// @inheritdoc ICoreVault
-    function releaseOperatingCash(uint256 amount) external onlyManager nonReentrant {
-        uint256 cash = _s.operatingCash;
-        uint256 floor = _s.operatingCashFloor;
-        uint256 releasable = cash > floor ? cash - floor : 0;
-        if (amount == 0 || amount > releasable) revert OperatingCashNotReleasable(amount, releasable);
-        _s.operatingCash = cash - amount;
-        _s.idle += amount;
-        emit OperatingCashReleased(amount, cash - amount);
     }
 
     /// @notice DEC-096, DEC-100, DEC-041: when hub Operating Cash is below its floor, the value-moving operation that

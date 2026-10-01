@@ -1354,19 +1354,6 @@
   },
   {
     "type": "function",
-    "name": "releaseOperatingCash",
-    "inputs": [
-      {
-        "name": "amount",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "report",
     "inputs": [],
     "outputs": [
@@ -1789,25 +1776,6 @@
       },
       {
         "name": "topUp",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "OperatingCashReleased",
-    "inputs": [
-      {
-        "name": "amount",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "balance",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -2742,6 +2710,17 @@
     "type": "error",
     "name": "NotOnSpokeChain",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "OpenPositionLimit",
+    "inputs": [
+      {
+        "name": "limit",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",

@@ -40,6 +40,16 @@ library SpokeVaultTypes {
     ///      period (about 20 a day). OPEN value (security review parameter, to confirm with the founder).
     uint256 internal constant MAX_HUB_BOUND_IN_FLIGHT = 64;
 
+    /// @notice Most positions a Spoke Vault holds open at once; `openPosition` reverts above it.
+    /// @dev Independent review H-04 (security review S-11 residual): every open position is walked and encoded by
+    ///      `report()` and `buildReport()`, stored by the hub on every delivery (about 0.2M gas each through the real
+    ///      Wormhole Core) and visited by the automatic unwind. Unbounded, about 145 to 180 dust positions pushed a
+    ///      delivery past Arbitrum's 32M gas per transaction, which froze the hub's view of the spoke, and about 110
+    ///      exhausted an unwind. Measured through the real Cores (cross-check port), a full arrival window, 64 Income
+    ///      sends home filled before their listing and 32 positions needed 30.28M, too close to the limit with the L1
+    ///      data component left out; 16 positions take about 3.3M off that. OPEN value.
+    uint256 internal constant MAX_OPEN_POSITIONS = 16;
+
     /// @notice Tokens of a Mandate pool on this chain, as the adapter's `poolTokens` returned them at creation
     ///         (OQ-12: a hooked Uniswap V4 pool makes that call revert, so it can never be listed).
     struct PoolTokens {
@@ -146,6 +156,10 @@ library SpokeVaultTypes {
     error UnknownBridgeRank(uint256 bridgeRank);
     error BridgeTargetMismatch(address bridgeAdapter, address pinned, address built);
     error BridgeAmountMismatch(uint256 quoted, uint256 built);
+
+    /// @notice The bridge adapter built a call whose fill deadline is not in the future (independent review L-09,
+    ///         parity with the Core Vault's `BridgeCallMismatch`).
+    error BridgeDeadlineNotInFuture(uint32 fillDeadline);
     error BridgeDebitMismatch(uint256 expected, uint256 debited);
     error InvalidQuoteAmount(uint256 amount, uint256 outputAmount);
     /// @notice A quote named an exclusive relayer or an exclusivity period (security review S-9).
@@ -161,10 +175,10 @@ library SpokeVaultTypes {
     error InvalidUnwindSwap(address adapter, bytes32 poolKey, address tokenIn);
     /// @notice The vault did not receive exactly what a refund escrow held when it was released (DEC-066, DEC-080).
     error RefundReleaseMismatch(uint256 held, uint256 received);
-    /// @notice Only Operating Cash above the floor can be returned (security review S-5).
-    error OperatingCashNotReleasable(uint256 amount, uint256 releasable);
     /// @notice `MAX_HUB_BOUND_IN_FLIGHT` sends home are already listed (security review S-11).
     error HubBoundInFlightLimit(uint256 limit);
+    /// @notice `MAX_OPEN_POSITIONS` positions are already open (independent review H-04).
+    error OpenPositionLimit(uint256 limit);
 
     /// @notice Encodes the `unwindHints` argument of `ISpokeVault.unwindForPayout`.
     function encodeHints(UnwindHint[] memory hints) internal pure returns (bytes memory) {

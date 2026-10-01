@@ -49,6 +49,35 @@ contract CoreVaultDepositTest is CoreVaultFixture {
         vm.stopPrank();
     }
 
+    /// Independent verification plan MM-3: after a collapse leaves Share Assets at 3 base units behind 1,000,000
+    /// shares, a deposit of one base unit priced 333,333 whole shares for a charge of zero, and repeated deposits took
+    /// over the supply for nothing. Below one base unit per whole share the fund now takes no deposit; exits still work.
+    function test_REVIEW_MM3_noDepositBelowOneBaseUnitPerShare() public {
+        _deployFeeless();
+        _deposit(alice, 1_000_000e6);
+        vm.prank(manager);
+        vault.allocateToHubSpokeVault(1_000_000e6);
+        hubVault.moveToPosition(1_000_000e6);
+        hubVault.setPosition(address(usdc), 3); // the position collapsed to 3 base units
+        assertEq(vault.shareAssets(), 3);
+        uint256 price = vault.sharePrice();
+        assertLt(price, ShareMath.PRICE_SCALE, "below one base unit per whole share");
+
+        usdc.mint(bob, 1);
+        vm.startPrank(bob);
+        usdc.approve(address(vault), 1);
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.SharePriceBelowOneUnit.selector, price));
+        vault.deposit(1, 0);
+        vm.stopPrank();
+
+        // At exactly one base unit per whole share a deposit is charged in full again.
+        hubVault.setPosition(address(usdc), 1_000_000);
+        assertEq(vault.sharePrice(), ShareMath.PRICE_SCALE);
+        (uint256 minted, uint256 charged) = _deposit(bob, 5);
+        assertEq(minted, 5e18);
+        assertEq(charged, 5);
+    }
+
     function test_DEC035_depositBelowMinSharesReverts() public {
         usdc.mint(alice, 1000e6);
         vm.startPrank(alice);

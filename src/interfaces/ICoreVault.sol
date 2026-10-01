@@ -166,9 +166,6 @@ interface ICoreVault is IAcrossMessageHandler {
     /// @notice The manager changed the hub Operating Cash floor and top-up (DEC-096).
     event OperatingCashParametersSet(uint256 floor, uint256 topUp);
 
-    /// @notice The manager returned Operating Cash above the floor to Idle (security review S-5).
-    event OperatingCashReleased(uint256 amount, uint256 balance);
-
     /// @notice Free Idle was moved to the hub Spoke Vault's Unallocated Balance (DEC-017, DEC-072).
     event AllocatedToHubSpokeVault(uint256 amount);
 
@@ -184,8 +181,9 @@ interface ICoreVault is IAcrossMessageHandler {
         address indexed token, uint256 amount, uint256 managerFee, uint256 protocolSlice, uint16 protocolSliceBps
     );
 
-    /// @notice A fee transfer to `recipient` (the Protocol Recipient or the ManagerFeeVault) failed, so the amount is
-    ///         owed to it and waits in the Core Vault, outside every value base (security review S-12).
+    /// @notice A transfer to `recipient` failed, so the amount is owed to it and waits in the Core Vault, outside every
+    ///         value base: a fee to the Protocol Recipient or the ManagerFeeVault (security review S-12), or a full
+    ///         exit's income to the holder (independent review, plan CF-2).
     event FeeAccrued(address indexed token, address indexed recipient, uint256 amount);
 
     /// @notice An owed fee was paid to its recipient (security review S-12).
@@ -239,6 +237,10 @@ interface ICoreVault is IAcrossMessageHandler {
     error ZeroAmount();
     error BelowMinFirstDeposit(uint256 amount, uint256 minFirstDeposit);
     error DepositBelowOneShare(uint256 usdcNet, uint256 sharePrice);
+
+    /// @notice The Share Price is below one USDC base unit per whole share, where whole shares would be charged nothing
+    ///         (independent verification plan MM-3).
+    error SharePriceBelowOneUnit(uint256 sharePrice);
     error SharesBelowMinimum(uint256 shares, uint256 minShares);
     error StaleSpokeReport(uint256 spokeIndex);
     error StalePrice(address token, uint256 updatedAt);
@@ -260,16 +262,16 @@ interface ICoreVault is IAcrossMessageHandler {
     error FillDeadlineNotReached(bytes32 transitId, uint32 fillDeadline);
     error ExpiryNotProvable(bytes32 transitId);
     error NoRefund(bytes32 transitId);
-    /// @notice Only Operating Cash above the floor can be returned (security review S-5).
-    error OperatingCashNotReleasable(uint256 amount, uint256 releasable);
     /// @notice The hub has accepted no report from that spoke yet, so it may not fund it (security review S-14).
     error SpokeNotReporting(uint256 spokeIndex);
     /// @notice A quote named an exclusive relayer or an exclusivity period (security review S-9).
     error ExclusiveRelayerNotAllowed(address exclusiveRelayer);
     /// @notice No arrival of that transit is held apart without a listing (security review S-4).
     error NothingToRecover(bytes32 transitId);
-    /// @notice A report could still list the transit; recovery opens at `readyAt` (security review S-4).
-    error RecoveryNotReady(bytes32 transitId, uint256 readyAt);
+    /// @notice No accepted report of the spoke was built after `builtAfter` (the last unlisted arrival plus one report
+    ///         lifetime), so a report could still list the transit or still counts it on the spoke (security review
+    ///         S-4).
+    error RecoveryNotReady(bytes32 transitId, uint256 builtAfter);
     error WrongFund(bytes32 fundId);
     /// @notice A report came from a Spoke Vault running another Mandate than the Core Vault's (security review S-6).
     error WrongMandate(bytes32 mandateHash);
@@ -304,7 +306,8 @@ interface ICoreVault is IAcrossMessageHandler {
     ///      amount before pricing (MVP reading, OPEN). DEC-035: shares are `floor(net / sharePrice)` whole shares and
     ///      only `shares * sharePrice` (truncated) is charged; the rest stays in the wallet; revert below one share or
     ///      below `minShares`. DEC-014, Q60: income checkpoint before the mint. Q57 reading (OPEN): reverts with
-    ///      `StaleSpokeReport` when a spoke's last accepted report is past its max age.
+    ///      `StaleSpokeReport` when a spoke's last accepted report is past its max age, and with `StalePrice` when a
+    ///      price is older than its feed's `maxPriceAge` (OQ-10).
     /// @return shares Whole shares minted, in base units.
     /// @return usdcCharged USDC pulled from the depositor: `usdcForShares + flowFee`.
     function deposit(uint256 usdcAmount, uint256 minShares) external returns (uint256 shares, uint256 usdcCharged);
@@ -326,7 +329,8 @@ interface ICoreVault is IAcrossMessageHandler {
     ///         requester. Unlike an ERC-7540 claim, it runs the missing unwind and pays in the same transaction.
     /// @dev Idle first (Instant: Free Idle only, never the Payout Reserve; Standard: its reserve, then Free Idle,
     ///      DEC-095); otherwise automatic unwind in Mandate order of the shortfall plus 2% (DEC-069, DEC-081, DEC-097),
-    ///      then a post-unwind report on the unwound spoke before burning (DEC-105). Burns
+    ///      of hub positions only, so no post-unwind spoke report is needed before burning (DEC-105, erratum 11 reading);
+    ///      the claim is priced again after the unwind. Burns
     ///      `ShareMath.sharesToBurn(outstanding, sharePrice)` capped at the balance (DEC-020, DEC-077). A full burn
     ///      pays all Attributed Income payable now in the same transaction (DEC-045). Partial Payout when not
     ///      everything can be paid (DEC-068). When the outstanding amount is below one share's price at the claim's
@@ -340,11 +344,13 @@ interface ICoreVault is IAcrossMessageHandler {
     ///      (OPEN): pays `min(owed, collectedIncome(token))`.
     function withdrawIncome(address token) external returns (uint256 amount);
 
-    /// @notice Pays `recipient` every fee in `token` that could not be transferred to it when charged. Permissionless.
+    /// @notice Pays `recipient` every transfer in `token` that could not be made to it when due: a fee, or a full
+    ///         exit's Attributed Income. Permissionless.
     /// @dev Security review S-12 (DEC-106, DEC-107, DEC-109): the flow fee, the protocol slice and the manager fee are
     ///      transferred when charged; a transfer that fails (a USDC blocklist entry on the fee wallet, a reverting
     ///      recipient) no longer reverts the Shareholder's deposit, claim or the income collection but is owed here.
-    ///      Reverts if the transfer still fails.
+    ///      Independent review (plan CF-2, DEC-021): the same holds for the income a full burn pays in each token
+    ///      (DEC-045); the holder is then the recipient. Reverts if the transfer still fails.
     function claimOwedFees(address token, address recipient) external returns (uint256 amount);
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -372,11 +378,14 @@ interface ICoreVault is IAcrossMessageHandler {
     /// @dev Security review S-4 (DEC-080, DEC-104, OQ-01): a send home is filled within minutes and credited only
     ///      against a listing, but a spoke lists it only until `fillDeadline + ReportCodec.HUB_BOUND_RETENTION`; if no
     ///      report built in that window is accepted (keeper, guardian or sequencer outage) the fund's own USDC would
-    ///      stay in `unmatchedArrivals` for good. Recovery opens `UNLISTED_ARRIVAL_DELAY` plus twice the spoke's
-    ///      report lifetime after the first unlisted arrival for that id, when no acceptable report can list it. The
-    ///      amount is added to the transit's credited total, so a later listing of the same id nets it out and nothing
-    ///      is counted twice; an Income transfer recovered this way reaches holders as Principal (no fee split).
-    ///      Reverts `UnknownSpoke`, `NothingToRecover` or `RecoveryNotReady`.
+    ///      stay in `unmatchedArrivals` for good. Recovery opens once the spoke's latest accepted report was built more
+    ///      than one report lifetime (clock-skew margin) after the last unlisted arrival for that id and still does
+    ///      not list it: the transfer is then past the spoke's listing retention (or was never the spoke's) and that
+    ///      report's principal no longer counts it, so crediting Idle counts it once (cross-check of the independent
+    ///      review: a delay counted from the first arrival could be started early with dust, and a report outage left
+    ///      the transfer counted on the spoke and in Idle at once). The amount is added to the transit's credited
+    ///      total, so a later listing of the same id nets it out; an Income transfer recovered this way reaches holders
+    ///      as Principal (no fee split). Reverts `UnknownSpoke`, `NothingToRecover` or `RecoveryNotReady`.
     function recoverUnlistedArrival(uint256 spokeIndex, bytes32 transitId) external returns (uint256 amount);
 
     /// @notice Sends `balanceOf(token)` minus every ledger amount of `token` to the excess recipient. Permissionless.
@@ -412,14 +421,6 @@ interface ICoreVault is IAcrossMessageHandler {
     /// @notice Sets the hub Operating Cash floor and top-up. Manager only (DEC-096, DEC-100).
     function setOperatingCashParameters(uint256 floor, uint256 topUp) external;
 
-    /// @notice Returns `amount` of hub Operating Cash above its floor to Idle. Manager only.
-    /// @dev Security review S-5, interim mitigation pending a founder ruling on DEC-100: the floor and top-up have no
-    ///      protocol cap and nothing spends or returns Operating Cash in the MVP, so a mis-set parameter (or a
-    ///      compromised key) moved Free Idle out of Share Assets for good. Returning it to Idle only moves value back to
-    ///      the Shareholders (DEC-096 sends Operating Cash to them at fund close); it never lets the manager take it.
-    ///      Reverts `OperatingCashNotReleasable` above `operatingCash - floor`.
-    function releaseOperatingCash(uint256 amount) external;
-
     // ---------------------------------------------------------------------------------------------------------------
     // Callbacks from the fund's own contracts (DEC-090: transitions only from the Mandate's contracts)
     // ---------------------------------------------------------------------------------------------------------------
@@ -452,6 +453,8 @@ interface ICoreVault is IAcrossMessageHandler {
 
     function fundId() external view returns (bytes32);
     function mandateHash() external view returns (bytes32);
+    /// @notice The Mandate as created. Its `performanceFeeBps` keeps the creation value after `decreaseManagerFee`;
+    ///         the fee in force is `performanceFeeBps()` (independent review I-05).
     function mandate() external view returns (Mandate memory);
     function manager() external view returns (address);
     function usdc() external view returns (address);
@@ -544,7 +547,8 @@ interface ICoreVault is IAcrossMessageHandler {
     ///         alone (security review S-13).
     function spokeCapHeld(bytes32 transitId) external view returns (bool);
 
-    /// @notice Fees in `token` owed to `recipient` because their transfer failed when charged (security review S-12).
+    /// @notice Amount in `token` owed to `recipient` because its transfer failed when due (fees, S-12; full-exit
+    ///         income, plan CF-2).
     function owedFees(address token, address recipient) external view returns (uint256);
 
     /// @notice Accumulator state of an income token: index (Q128), remainder, ownerless, distributed and taken totals

@@ -1288,19 +1288,6 @@
   },
   {
     "type": "function",
-    "name": "releaseOperatingCash",
-    "inputs": [
-      {
-        "name": "amount",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "reportReceiver",
     "inputs": [],
     "outputs": [
@@ -1999,25 +1986,6 @@
       },
       {
         "name": "topUp",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "OperatingCashReleased",
-    "inputs": [
-      {
-        "name": "amount",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "balance",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -3234,22 +3202,6 @@
   },
   {
     "type": "error",
-    "name": "OperatingCashNotReleasable",
-    "inputs": [
-      {
-        "name": "amount",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "releasable",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ]
-  },
-  {
-    "type": "error",
     "name": "PayoutBelowOneShare",
     "inputs": [
       {
@@ -3312,7 +3264,7 @@
         "internalType": "bytes32"
       },
       {
-        "name": "readyAt",
+        "name": "builtAfter",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -3331,6 +3283,17 @@
         "name": "token",
         "type": "address",
         "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SharePriceBelowOneUnit",
+    "inputs": [
+      {
+        "name": "sharePrice",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ]
   },

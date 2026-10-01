@@ -26,8 +26,8 @@ contract StaticReviewFindingsTest is CoreVaultFixture {
 
     /// @dev Was PoC `test_POC_SA02_transferHomeNoAcceptedReportListedIsLockedForGood`: an arrival no accepted report
     ///      ever listed stayed in `unmatchedArrivals` for good once the spoke stopped listing it. Fix (S-4):
-    ///      `recoverUnlistedArrival` credits it to Idle as Principal once no acceptable report can list it any more
-    ///      (`UNLISTED_ARRIVAL_DELAY` plus twice the report lifetime after the first unlisted arrival).
+    ///      `recoverUnlistedArrival` credits it to Idle as Principal once a report built after the arrival (plus one
+    ///      report lifetime of clock-skew margin) no longer lists it.
     function test_SEC_S4_SA02_transferHomeNoAcceptedReportListedIsRecovered() public {
         bytes32 id = _send(SENT, ARRIVES);
         _deliver(_arrived(_spokeReport(ARRIVES, ARRIVES), id, ARRIVES));
@@ -44,17 +44,18 @@ contract StaticReviewFindingsTest is CoreVaultFixture {
         uint256 arrivedAt = block.timestamp;
         assertEq(vault.unmatchedArrivals(), HOME_ARRIVES, "held apart until a report lists it");
 
-        // The spoke stopped listing it (past fillDeadline + HUB_BOUND_RETENTION): its report shows the lower
-        // Unallocated Balance and an empty inFlightToHub.
+        // Cross-check of the independent review: the latest accepted report predates the arrival and still counts
+        // the transfer on the spoke, so recovery is refused whatever the delay.
         vm.warp(block.timestamp + 6 hours + 3 days + 1);
-        _deliver(_spokeReport(ARRIVES - HOME, ARRIVES));
-        assertEq(vault.unmatchedArrivals(), HOME_ARRIVES);
-
-        uint256 readyAt = arrivedAt + 6 hours + 3 days + 2 * uint256(MAX_REPORT_AGE);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.RecoveryNotReady.selector, homeId, readyAt));
+        vm.expectRevert(
+            abi.encodeWithSelector(ICoreVault.RecoveryNotReady.selector, homeId, arrivedAt + uint256(MAX_REPORT_AGE))
+        );
         vault.recoverUnlistedArrival(0, homeId);
 
-        vm.warp(readyAt);
+        // The spoke stopped listing it (past fillDeadline + HUB_BOUND_RETENTION): its report, built after the arrival,
+        // shows the lower Unallocated Balance and an empty inFlightToHub, so recovery opens at once.
+        _deliver(_spokeReport(ARRIVES - HOME, ARRIVES));
+        assertEq(vault.unmatchedArrivals(), HOME_ARRIVES);
         assertEq(vault.recoverUnlistedArrival(0, homeId), HOME_ARRIVES, "S-4: recovered, permissionless");
         assertEq(vault.unmatchedArrivals(), 0);
         assertEq(vault.idle(), idleBefore + HOME_ARRIVES, "S-4: in Idle");
@@ -65,6 +66,44 @@ contract StaticReviewFindingsTest is CoreVaultFixture {
         _deliver(_inFlightToHub(_spokeReport(ARRIVES - HOME, ARRIVES), homeId, HOME_ARRIVES));
         assertEq(vault.inFlightValue(), 0, "S-4: the listing counts nothing beyond what was credited");
         assertEq(vault.idle(), idleBefore + HOME_ARRIVES);
+    }
+
+    /// @dev Cross-check S-64: dust bridged under the id after the transfer (a stranger holding the recovery off) does not
+    ///      restart the clock; an arrival at least as large as what is held does, so holding it off costs the whole
+    ///      held amount again, which the recovery then credits to the fund.
+    function test_SEC_S64_dustAfterTheTransferDoesNotRestartTheRecoveryClock() public {
+        bytes32 id = _send(SENT, ARRIVES);
+        _deliver(_arrived(_spokeReport(ARRIVES, ARRIVES), id, ARRIVES));
+        bytes32 homeId = keccak256("home-3");
+        pool.fill(
+            address(vault),
+            address(usdc),
+            HOME_ARRIVES,
+            TransitMessage.encode(FUND_ID, SPOKE, homeId, TransferKind.Principal)
+        );
+        vm.warp(block.timestamp + 6 hours + 3 days + 1);
+        pool.fill(
+            address(vault), address(usdc), 1, TransitMessage.encode(FUND_ID, SPOKE, homeId, TransferKind.Principal)
+        );
+        _deliver(_spokeReport(ARRIVES - HOME, ARRIVES));
+        assertEq(vault.recoverUnlistedArrival(0, homeId), HOME_ARRIVES + 1, "the dust did not hold it off");
+
+        // A second id: an arrival as large as the held amount restarts the clock.
+        bytes32 otherId = keccak256("home-4");
+        pool.fill(
+            address(vault), address(usdc), 100e6, TransitMessage.encode(FUND_ID, SPOKE, otherId, TransferKind.Principal)
+        );
+        vm.warp(block.timestamp + 2 * uint256(MAX_REPORT_AGE));
+        pool.fill(
+            address(vault), address(usdc), 100e6, TransitMessage.encode(FUND_ID, SPOKE, otherId, TransferKind.Principal)
+        );
+        uint256 restartedAt = block.timestamp;
+        vm.warp(block.timestamp + 10);
+        _deliver(_spokeReport(ARRIVES - HOME, ARRIVES));
+        vm.expectRevert(
+            abi.encodeWithSelector(ICoreVault.RecoveryNotReady.selector, otherId, restartedAt + uint256(MAX_REPORT_AGE))
+        );
+        vault.recoverUnlistedArrival(0, otherId);
     }
 
     /// @dev S-4: only an arrival no accepted report listed can be recovered; a listed one is credited by the report.
@@ -131,36 +170,19 @@ contract StaticReviewFindingsTest is CoreVaultFixture {
         assertEq(vault.shareAssets(), vault.idle());
     }
 
-    /// @dev Security review S-5 (interim mitigation pending a DEC-100 ruling): the sweep of SA-03 is reversible. The
-    ///      manager lowers the floor and returns Operating Cash above it to Idle; Share Assets and the holder's claim
-    ///      are restored. Nobody else can call it, and it never pays anyone: it only moves value back to Share Assets.
-    function test_SEC_S5_operatingCashAboveTheFloorReturnsToIdle() public {
+    /// @dev Security review S-5 (open) with S-63: the sweep's interim `releaseOperatingCash` let a manager depress the
+    ///      Share Price with the sink, have an ally mint at it and release the cash back, so it was removed; the sink is
+    ///      one-way until the founder rules on a cap (SEC-OQ-2). Nothing returns the cash and it is never swept.
+    function test_SEC_S63_operatingCashSinkHasNoReleaseVerb() public {
         uint256 free = vault.freeIdle();
-        uint256 assetsBefore = vault.shareAssets();
         vm.startPrank(manager);
         vault.setOperatingCashParameters(type(uint256).max, free - 1e6);
         vault.allocateToHubSpokeVault(1e6);
-        vm.stopPrank();
-        assertEq(vault.operatingCash(), free - 1e6);
-
-        // Nothing is above an unbounded floor; a stranger can never call it.
-        vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.OperatingCashNotReleasable.selector, 1, 0));
-        vault.releaseOperatingCash(1);
-        vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.NotManager.selector, alice));
-        vault.releaseOperatingCash(1);
-
-        // The manager restores a sane floor and returns the rest.
-        vm.startPrank(manager);
         vault.setOperatingCashParameters(3e6, 3e6);
-        vault.releaseOperatingCash(free - 1e6 - 3e6);
+        (bool released,) = address(vault).call(abi.encodeWithSignature("releaseOperatingCash(uint256)", 1));
         vm.stopPrank();
-        assertEq(vault.operatingCash(), 3e6);
-        assertEq(vault.shareAssets(), assetsBefore - 3e6, "S-5: Share Assets restored but for the floor");
+        assertFalse(released, "no release verb");
+        assertEq(vault.operatingCash(), free - 1e6);
         assertEq(vault.sweepExcess(address(usdc)), 0);
-
-        _request(alice, 9000e6, ICoreVault.PayoutMode.Instant);
-        assertEq(_claim(alice).usdcOutstanding, 0, "S-5: the holder is paid again");
     }
 }
