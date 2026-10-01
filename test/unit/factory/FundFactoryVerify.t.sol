@@ -25,6 +25,7 @@ import {MockAaveV3Pool} from "../../mocks/aave/MockAaveV3Pool.sol";
 import {MockWormholeCore} from "../../mocks/spoke/MockWormholeCore.sol";
 import {FactoryDeployment} from "../../../script/FactoryDeployment.sol";
 import {FundMandate} from "../../../script/FundMandate.sol";
+import {AnyPriceSource} from "../../mocks/core/AnyPriceSource.sol";
 
 /// @notice Adversarial verification of the factory stage (round 1). The hub and the spoke factory are two deployments at
 ///         the same address, one per simulated chain, as in FundFactory.t.sol.
@@ -51,7 +52,7 @@ contract FundFactoryVerifyTest is Test, FactoryDeployment, FundMandate {
     address internal recipient = makeAddr("protocolRecipient");
     address internal guardian = makeAddr("guardian");
     address internal registry = makeAddr("managerRegistry");
-    address internal prices = makeAddr("priceSource");
+    address internal prices = address(new AnyPriceSource());
 
     uint256 internal cleanState;
     FundFactory internal factory;

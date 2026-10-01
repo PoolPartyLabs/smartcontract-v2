@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
 import {IBridgeAdapter} from "../interfaces/IBridgeAdapter.sol";
+import {IPriceSource} from "../interfaces/IPriceSource.sol";
 import {Transit, ExpensePayer} from "../interfaces/FundTypes.sol";
 import {Mandate, MandateLib, SpokeConfig, BridgeAdapterConfig} from "../mandate/Mandate.sol";
 import {ShareMath} from "../libraries/ShareMath.sol";
@@ -105,9 +106,15 @@ abstract contract CoreVaultBase is ICoreVault, ReentrancyGuardTransient {
         _pinBridgeAdapters(m);
 
         // Q60: closed list of income tokens; USDC always, then the hub pool tokens the factory derived.
+        // Independent review M-03 (plan R-12, hub half): every hub pool token must be priced by the price source, or
+        // once the fund holds it every mint reverts and every payout values it at 0; the read reverts here instead
+        // (`UnsupportedToken`). Spoke pool tokens are not visible on the hub (founder question, DEC-089).
         _s.income.registerToken(c.usdc);
         for (uint256 i; i < c.incomeTokens.length; ++i) {
-            if (c.incomeTokens[i] != c.usdc) _s.income.registerToken(c.incomeTokens[i]);
+            address token = c.incomeTokens[i];
+            if (token == c.usdc) continue;
+            IPriceSource(c.priceSource).priceInUsdc(token);
+            _s.income.registerToken(token);
         }
 
         // Q59 OPEN: name and symbol are factory strings; the Core Vault deploys and owns its Share token.

@@ -83,6 +83,8 @@ abstract contract FactoryReviewFixture is Test, FactoryDeployment, FundMandate {
         hubCore = new MockCoreBridge();
         spokeCore = new MockWormholeCore();
         prices = new MockPriceSource();
+        // The Core Vault refuses a hub pool token its price source cannot price (independent review M-03).
+        _refreshPrices();
         registry = new ManagerRegistry(protocolAdmin);
         cleanState = vm.snapshotState();
     }
