@@ -291,6 +291,40 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         assertEq(vault.attributedIncome(alice, address(usdc)), 0);
     }
 
+    /// Independent review (verification plan CF-2; DEC-021, DEC-045): an income token that refuses the transfer to the
+    /// holder (paused, blocklisting it) used to revert the full-burn claim and with it the exit of the principal. The
+    /// claim now completes; that token's income is owed to the holder and paid by the permissionless claimOwedFees.
+    function test_REVIEW_CF2_incomeTokenThatRefusesTheHolderNeverBlocksTheExit() public {
+        _deployFeeless();
+        _deposit(alice, 1000e6);
+        _deposit(bob, 1000e6);
+        hubVault.forwardIncome(address(usdc), 200e6);
+        hubVault.forwardIncome(address(weth), 0.5e18);
+        _request(alice, 1000e6, INSTANT);
+        uint256 owedUsdc = vault.attributedIncome(alice, address(usdc));
+        uint256 owedWeth = vault.attributedIncome(alice, address(weth));
+        assertApproxEqAbs(owedWeth, 0.25e18, 1);
+
+        // WETH refuses every transfer to alice (a pause or a blocklist entry of the token's issuer).
+        vm.mockCallRevert(address(weth), abi.encodeWithSignature("transfer(address,uint256)", alice), "paused");
+        vm.expectEmit(address(vault));
+        emit ICoreVault.FeeAccrued(address(weth), alice, owedWeth);
+        ICoreVault.PayoutReceipt memory r = _claim(alice);
+
+        assertEq(r.sharesBurned, 1000e18, "the exit completed");
+        assertEq(usdc.balanceOf(alice), 980e6 + owedUsdc, "principal and USDC income paid");
+        assertEq(weth.balanceOf(alice), 0, "the refused token was not paid");
+        assertEq(vault.owedFees(address(weth), alice), owedWeth, "and is owed to the holder");
+        assertEq(vault.attributedIncome(alice, address(weth)), 0);
+
+        // Once the token transfers again, anyone pays it to the holder.
+        vm.clearMockedCalls();
+        vm.prank(bob);
+        vault.claimOwedFees(address(weth), alice);
+        assertEq(weth.balanceOf(alice), owedWeth);
+        assertEq(vault.owedFees(address(weth), alice), 0);
+    }
+
     function test_DEC045_partialBurnKeepsIncomeAttributed() public {
         _deployFeeless();
         _deposit(alice, 1000e6);

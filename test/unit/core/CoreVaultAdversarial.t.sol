@@ -194,6 +194,8 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         assertEq(vault.collectedIncome(address(mal)), 80e18);
     }
 
+    /// The re-entry is refused by the guard. Since the independent review's CF-2 fix (DEC-021) the refused income
+    /// transfer no longer reverts the exit: the burn and the USDC payment stand, the token's income is owed to alice.
     function test_Reentrancy_incomeTokenReenteringDepositDuringFullBurnIsRefused() public {
         ReenteringIncomeToken mal = _deployWithReenteringToken();
         usdc.mint(alice, 1000e6);
@@ -201,11 +203,14 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         usdc.approve(address(vault), 1000e6);
         mal.arm(address(vault), abi.encodeCall(ICoreVault.deposit, (1000e6, 0)));
         _request(alice, 20_000e6, ICoreVault.PayoutMode.Instant); // more than the balance: full burn (DEC-020)
+        uint256 owed = vault.attributedIncome(alice, address(mal));
+        assertGt(owed, 0);
         vm.prank(alice);
-        vm.expectRevert(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector);
-        vault.claimPayout("");
-        assertEq(shares.balanceOf(alice), 9975e18, "the burn was rolled back with the payment");
-        assertEq(vault.idle(), 9975e6);
+        ICoreVault.PayoutReceipt memory r = vault.claimPayout("");
+        assertEq(shares.balanceOf(alice), 0, "the exit completed");
+        assertEq(usdc.balanceOf(alice), 1000e6 + r.usdcPaid, "the re-entering deposit never ran");
+        assertEq(vault.owedFees(address(mal), alice), owed, "the refused income is owed to alice");
+        assertEq(vault.idle(), 0);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
