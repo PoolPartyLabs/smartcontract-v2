@@ -491,8 +491,12 @@ contract AaveV3Adapter is IAdapter, AdapterGuard, ReentrancyGuard {
         if (withdrawn != amount) revert UnexpectedWithdrawnAmount(amount, withdrawn);
         uint256 burned = scaledBefore - aToken.scaledBalanceOf(address(this));
         uint256 scaledBalance = l.scaledBalance;
-        if (burned > scaledBalance) revert LedgerUnderflow(burned, scaledBalance);
-        l.scaledBalance = scaledBalance - burned;
+        // Independent verification plan F1 (review L-08): Aave rounds a burn up, so withdrawing what is left of the
+        // ledger can burn one scaled unit more than it holds. Without foreign aTokens Aave refuses that withdrawal;
+        // with any foreign aTokens in the adapter it takes the unit from them, and reverting here blocked the whole
+        // exit. That one unit empties the ledger; anything more is still an anomaly and fails closed.
+        if (burned > scaledBalance + 1) revert LedgerUnderflow(burned, scaledBalance);
+        l.scaledBalance = burned > scaledBalance ? 0 : scaledBalance - burned;
         return true;
     }
 
