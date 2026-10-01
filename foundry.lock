@@ -29,6 +29,12 @@
       "rev": "e50237c43811bd9b526eff40f26772152a42daba"
     }
   },
+  "lib/v4-periphery": {
+    "branch": {
+      "name": "main",
+      "rev": "9969eec44cfdf07e24b41de47f40276a58401976"
+    }
+  },
   "lib/wormhole-solidity-sdk": {
     "tag": {
       "name": "v1.0.0",
