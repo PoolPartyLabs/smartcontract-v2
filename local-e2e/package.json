@@ -14,7 +14,9 @@
     "scenario": "tsx src/scenario.ts",
     "warp": "tsx src/warp.ts",
     "abis": "bash scripts/export-abis.sh",
-    "status": "tsx src/status.ts"
+    "status": "tsx src/status.ts",
+    "api": "tsx src/api.ts",
+    "api:probe": "tsx src/api-probe.ts"
   },
   "dependencies": {
     "viem": "^2.57.0"
