@@ -26,8 +26,8 @@ contract StaticReviewFindingsTest is CoreVaultFixture {
 
     /// @dev Was PoC `test_POC_SA02_transferHomeNoAcceptedReportListedIsLockedForGood`: an arrival no accepted report
     ///      ever listed stayed in `unmatchedArrivals` for good once the spoke stopped listing it. Fix (S-4):
-    ///      `recoverUnlistedArrival` credits it to Idle as Principal once no acceptable report can list it any more
-    ///      (`UNLISTED_ARRIVAL_DELAY` plus twice the report lifetime after the first unlisted arrival).
+    ///      `recoverUnlistedArrival` credits it to Idle as Principal once a report built after the arrival (plus one
+    ///      report lifetime of clock-skew margin) no longer lists it.
     function test_SEC_S4_SA02_transferHomeNoAcceptedReportListedIsRecovered() public {
         bytes32 id = _send(SENT, ARRIVES);
         _deliver(_arrived(_spokeReport(ARRIVES, ARRIVES), id, ARRIVES));
@@ -44,17 +44,18 @@ contract StaticReviewFindingsTest is CoreVaultFixture {
         uint256 arrivedAt = block.timestamp;
         assertEq(vault.unmatchedArrivals(), HOME_ARRIVES, "held apart until a report lists it");
 
-        // The spoke stopped listing it (past fillDeadline + HUB_BOUND_RETENTION): its report shows the lower
-        // Unallocated Balance and an empty inFlightToHub.
+        // Cross-check of the independent review: the latest accepted report predates the arrival and still counts
+        // the transfer on the spoke, so recovery is refused whatever the delay.
         vm.warp(block.timestamp + 6 hours + 3 days + 1);
-        _deliver(_spokeReport(ARRIVES - HOME, ARRIVES));
-        assertEq(vault.unmatchedArrivals(), HOME_ARRIVES);
-
-        uint256 readyAt = arrivedAt + 6 hours + 3 days + 2 * uint256(MAX_REPORT_AGE);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.RecoveryNotReady.selector, homeId, readyAt));
+        vm.expectRevert(
+            abi.encodeWithSelector(ICoreVault.RecoveryNotReady.selector, homeId, arrivedAt + uint256(MAX_REPORT_AGE))
+        );
         vault.recoverUnlistedArrival(0, homeId);
 
-        vm.warp(readyAt);
+        // The spoke stopped listing it (past fillDeadline + HUB_BOUND_RETENTION): its report, built after the arrival,
+        // shows the lower Unallocated Balance and an empty inFlightToHub, so recovery opens at once.
+        _deliver(_spokeReport(ARRIVES - HOME, ARRIVES));
+        assertEq(vault.unmatchedArrivals(), HOME_ARRIVES);
         assertEq(vault.recoverUnlistedArrival(0, homeId), HOME_ARRIVES, "S-4: recovered, permissionless");
         assertEq(vault.unmatchedArrivals(), 0);
         assertEq(vault.idle(), idleBefore + HOME_ARRIVES, "S-4: in Idle");

@@ -273,8 +273,10 @@ interface ICoreVault is IAcrossMessageHandler {
     error ExclusiveRelayerNotAllowed(address exclusiveRelayer);
     /// @notice No arrival of that transit is held apart without a listing (security review S-4).
     error NothingToRecover(bytes32 transitId);
-    /// @notice A report could still list the transit; recovery opens at `readyAt` (security review S-4).
-    error RecoveryNotReady(bytes32 transitId, uint256 readyAt);
+    /// @notice No accepted report of the spoke was built after `builtAfter` (the last unlisted arrival plus one report
+    ///         lifetime), so a report could still list the transit or still counts it on the spoke (security review
+    ///         S-4).
+    error RecoveryNotReady(bytes32 transitId, uint256 builtAfter);
     error WrongFund(bytes32 fundId);
     /// @notice A report came from a Spoke Vault running another Mandate than the Core Vault's (security review S-6).
     error WrongMandate(bytes32 mandateHash);
@@ -381,11 +383,14 @@ interface ICoreVault is IAcrossMessageHandler {
     /// @dev Security review S-4 (DEC-080, DEC-104, OQ-01): a send home is filled within minutes and credited only
     ///      against a listing, but a spoke lists it only until `fillDeadline + ReportCodec.HUB_BOUND_RETENTION`; if no
     ///      report built in that window is accepted (keeper, guardian or sequencer outage) the fund's own USDC would
-    ///      stay in `unmatchedArrivals` for good. Recovery opens `UNLISTED_ARRIVAL_DELAY` plus twice the spoke's
-    ///      report lifetime after the first unlisted arrival for that id, when no acceptable report can list it. The
-    ///      amount is added to the transit's credited total, so a later listing of the same id nets it out and nothing
-    ///      is counted twice; an Income transfer recovered this way reaches holders as Principal (no fee split).
-    ///      Reverts `UnknownSpoke`, `NothingToRecover` or `RecoveryNotReady`.
+    ///      stay in `unmatchedArrivals` for good. Recovery opens once the spoke's latest accepted report was built more
+    ///      than one report lifetime (clock-skew margin) after the last unlisted arrival for that id and still does
+    ///      not list it: the transfer is then past the spoke's listing retention (or was never the spoke's) and that
+    ///      report's principal no longer counts it, so crediting Idle counts it once (cross-check of the independent
+    ///      review: a delay counted from the first arrival could be started early with dust, and a report outage left
+    ///      the transfer counted on the spoke and in Idle at once). The amount is added to the transit's credited
+    ///      total, so a later listing of the same id nets it out; an Income transfer recovered this way reaches holders
+    ///      as Principal (no fee split). Reverts `UnknownSpoke`, `NothingToRecover` or `RecoveryNotReady`.
     function recoverUnlistedArrival(uint256 spokeIndex, bytes32 transitId) external returns (uint256 amount);
 
     /// @notice Sends `balanceOf(token)` minus every ledger amount of `token` to the excess recipient. Permissionless.
