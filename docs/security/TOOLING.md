@@ -46,7 +46,7 @@ Compute the pins from the latest block at run time, as above, or use archive end
 | Semgrep, registry pack | 1.178.0 | `semgrep scan --metrics=off --config p/smart-contracts --json --output <file> src` | 228 results, all performance category, none security |
 | Semgrep, Decurity rules | 1.178.0, rules at `2e878a8` | clone `Decurity/semgrep-smart-contracts` outside the repo, `semgrep scan --metrics=off --config <clone>/solidity src` | 16 security-category hits: 1 arbitrary low-level call accepted by design (the vault executes the adapter-built bridge call), 15 false positives |
 | Solhint | 6.2.4 | `npx --yes solhint -c docs/security/reports/raw/solhint.config.json --noPoster -f unix 'src/**/*.sol'` | 0 errors; 43 security-rule warnings all accepted by design (`not-rely-on-time`, `no-inline-assembly`, `avoid-low-level-calls`); 1,010 style |
-| Mythril | 0.24.8 | `uv tool install mythril --with "setuptools<81"`; solc 0.8.28 on `PATH`; `myth analyze <file>:<Contract> --solc-json docs/security/reports/raw/mythril-solc.json --execution-timeout 300 -t 3` | `TransitEscrow`, `ManagerRegistry`, `ShareToken`: no issues; `ManagerFeeVault`: 2 SWC-107 results, one false positive (the `ReentrancyGuard` flag write after the transfer), one accepted by design (`withdraw` is manager-only and names its own token) |
+| Mythril | 0.24.8 | `uv tool install mythril --with "setuptools<81"`; solc 0.8.28 on `PATH`; `myth analyze <file>:<Contract> --solc-json docs/security/reports/raw/mythril-solc.json --execution-timeout 300 -t 3` | `TransitEscrow`, `ManagerRegistry`: no issues; `ShareToken`: no issues, but **not evidence**: its runtime contains one MCOPY, which Mythril 0.24.8 cannot execute (verification plan 2.1 row 5), so paths through it were not explored; `ManagerFeeVault`: 2 SWC-107 results, one false positive (the `ReentrancyGuard` flag write after the transfer), one accepted by design (`withdraw` is manager-only and names its own token) |
 | forge lint | 1.7.1 | part of `forge build` | Warnings only in test mocks (`unsafe-typecast`, `erc20-unchecked-transfer`); `src/` clean since `8e97994` |
 
 Install notes: Slither, Semgrep, Mythril and Halmos through `uv tool install` (`~/.local/bin`); Aderyn and Solhint
@@ -73,4 +73,20 @@ through `npx --yes`; Medusa through Homebrew.
 5. Fork suites with fresh pins, then the local two-fork harness.
 6. Record the numbers in this file and any new finding in [`FINDINGS.md`](FINDINGS.md).
 
-CI (`.github/workflows/test.yml`) runs `forge fmt --check`, `forge build --sizes`, the non-fork suite and the fork suite; the analysis tools above are run by hand.
+CI (`.github/workflows/test.yml`) runs, with Foundry pinned to v1.7.1, `forge fmt --check`, `forge build --sizes` and the
+non-fork suite in one job, and the fork suites (including the ported review PoCs whose file names contain `Fork`) in
+another, with the fork blocks pinned to the latest block minus 300 at run time. Until 2026-10-01 every CI run failed
+at `forge fmt --check` (an unpinned `stable` forge formatted two test files differently) and the fork suites could not
+start (no block pins); the independent review found both. The analysis tools above are run by hand; the verification
+plan's CI target (static-analysis ratchets, coverage, nightly fuzz and formal jobs) is in
+[`VERIFICATION-PLAN.md`](VERIFICATION-PLAN.md).
+
+## The independent review and the verification plan (2026-09-30)
+
+The independent review ([`independent-review-2026-09-30/`](independent-review-2026-09-30/)) ran Slither, Aderyn,
+Solhint and `forge coverage --ir-minimum` at `e5c778a` (coverage 97.31% lines, 83.67% branches; raw outputs in its
+`raw/`) and 121 proof-of-concept tests, all ported onto main in `test/review/` on 2026-10-01 (see
+[`CROSS-CHECK-2026-10-01.md`](CROSS-CHECK-2026-10-01.md)). The verification plan
+([`verification-plan-2026-09-30/`](verification-plan-2026-09-30/)) assigns each of the 13 tools the founder listed to
+each contract; Wake, Echidna, hevm, Kontrol and Scribble have not been run on this repository yet, and Manticore is
+excluded (archived, no PUSH0, MCOPY or TLOAD support).
