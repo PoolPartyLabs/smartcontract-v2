@@ -3312,7 +3312,7 @@
         "internalType": "bytes32"
       },
       {
-        "name": "readyAt",
+        "name": "builtAfter",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -3331,6 +3331,17 @@
         "name": "token",
         "type": "address",
         "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SharePriceBelowOneUnit",
+    "inputs": [
+      {
+        "name": "sharePrice",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ]
   },

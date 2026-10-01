@@ -2745,6 +2745,17 @@
   },
   {
     "type": "error",
+    "name": "OpenPositionLimit",
+    "inputs": [
+      {
+        "name": "limit",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "PoolAdapterNotListed",
     "inputs": [
       {
