@@ -20,8 +20,8 @@ on main as pins.
 | Id | Residual | Bound |
 |---|---|---|
 | S-2 | The unwind swap floor is `max(spot, oracle) - 5%` (`MAX_UNWIND_SLIPPAGE_BPS`, OPEN under QA3). A claimant who pushes the pool up to 5% under the oracle still makes the fund sell under the external price and keeps part of the difference; with a Standard Payout the only cost is the 0.25% flow fee. On the fixture: 4.3% under fair, holder who stays loses 1,887 USDC, claimant gains 1,352 USDC over an honest claim | Bounded by 5% of the unwound amount per claim; needs capital to move the pool. Lowering the bound raises the chance an honest unwind reverts on a thin pool (S-32) |
-| S-3 | A send home stays listed for `HUB_BOUND_RETENTION` (3 days) after its fill deadline. An Across refund that lands later than that reopens the valuation gap until `recognizeRefund` runs | Across refunds within hours in practice; a keeper that calls `recognizeRefund` closes it |
-| S-4 | An arrival that no report listed is recovered permissionlessly after `pendingSince + 6 h + 3 days + 2 x maxReportAge`, but its kind is unknowable, so an Income send home recovered this way enters Idle as Principal (no fee split, no accumulator) | Needs a report outage of several days; no value leaves the fund |
+| S-3 | A send home stays listed for `HUB_BOUND_RETENTION` (3 days) after its fill deadline. An Across refund that lands later than that is no longer seen by `report()` or `sendToHub` (the entry has left the list) and the transfer stays in no value base until someone calls the permissionless `recognizeRefund` (pinned: `test_POC_REVIEW_H01_refundAfterTheRetentionReopensTheGap`) | Across refunds within about 53 to 107 minutes on chain; a keeper that calls `recognizeRefund` closes it |
+| S-4, S-45 | An arrival that no report listed is recovered permissionlessly once the hub has accepted a spoke report built more than one report lifetime after the last unlisted arrival for that id that no longer lists it. Between that report's delivery and the recovery call the transfer is in no value base while mints are open: an entrant who lands in between gained 9.7% in the review's scenario (`test_POC_REVIEW_H02_entrantBetweenTheReportAndTheRecoveryIsPricedLow`). Its kind is unknowable, so an Income transfer recovered this way enters Idle as Principal | Needs a report outage longer than `fillDeadline + 3 days`; the keeper must recover in the same cycle as that delivery |
 | S-1 | In the PAYOUT fallback a token the price source never priced (CS-OQ-4) keeps its position at the reported spot composition for the USDC leg | Only reachable for a fund whose mints never worked |
 | S-11 with S-3 | At most 64 sends home listed at once (`MAX_HUB_BOUND_IN_FLIGHT`), each listed for `fillDeadline + 3 days`: sends home are rate-limited to 64 per about 3.25 days per spoke | Manager-only, recoverable by waiting; batch sends home |
 | S-26, S-28 | Payouts never check price age or sequencer uptime (OQ-10 stance); during an outage a claimant is paid at the old price | Unforceable by an attacker; bounded by the price move during the outage. Needs an explicit founder acceptance against Q57 (b) |
@@ -29,13 +29,13 @@ on main as pins.
 | S-19, S-38 | A matured Standard Payout never expires; its reserve stays locked until claimed | Bounded by the requester's own value (DEC-024, DEC-060, FV-OQ-1) |
 | S-27, S-32 | One illiquid step (Aave without liquidity, a thin pool that cannot meet the 5% floor) makes the automatic unwind revert; the claim is paid from Idle and the request stays open (DEC-068, DEC-069) | Order exact-value steps last; keep hub positions small against pool depth; unwinding in slices is future work |
 | S-30, S-31 | A full 256-id arrival window turns off the report path of `attestExpiry`; the report lifetime (1,588 s) equals worst-case Arbitrum finality, so any delay above about 26.5 min stops mints until the next report | Payouts unaffected; the keeper's cadence is the control |
-| S-16, S-24, S-25 | The factory accepts any hookless pool, any per-spoke Wormhole chain id and any `maxReportAge`; a wrong value is a self-DoS (mints revert, the spoke never reports), never a loss | The DEC-089 supported-chain registry is the complete fix |
+| S-24, S-53 | The factory accepts any per-spoke Wormhole chain id and, on a spoke, pool tokens the hub cannot price; a wrong chain id is a self-DoS (the spoke never reports and is never funded); an unpriceable spoke token closes mints and is valued at 0 in payouts (SEC-OQ-9) | Hub pool tokens are refused at creation (S-53); report lifetime at most one day (S-54); the DEC-089 registry is the complete fix |
 | S-35 | USDG is priced 1:1 (ruling 2026-09-29); a depeg goes straight into the Share Price and the Spoke Cap | Accepted by ruling |
 | S-36 | No hub-driven spoke unwind: a dead manager key traps spoke capital | MVP scope; hub-to-spoke instructions are planned to follow the report channel |
 | S-17 | `MAX_PAYOUT_FEE_BPS` = 9,900 only prevents an underflow; a 99% Payout Fee is a valid, immutable Mandate value | Disclosure: read the Mandate before depositing |
 | S-41 | The income index remainder can tip an entrant by one base unit | Dust |
 
-## 3. New protocol parameters introduced by the sweep (all OPEN for a ruling)
+## 3. New protocol parameters introduced by the sweep and its cross-check (all OPEN for a ruling)
 
 | Constant | Value | Where | Purpose |
 |---|---|---|---|
@@ -44,8 +44,13 @@ on main as pins.
 | `MAX_BRIDGE_FEE_BPS` | 100 | `Mandate` | Cap on the Mandate's `maxBridgeFeeBps` (S-9) |
 | `MAX_PAYOUT_FEE_BPS` | 9,900 | `Mandate` | `10,000 - MAX_FLOW_FEE_BPS`, arithmetic bound (S-17) |
 | `MAX_UNWIND_SLIPPAGE_BPS` | 500 | `SpokeVault` | Unwind swap floor under `max(spot, oracle)` (S-2) |
-| `FILL_WINDOW` | 6 h | `CoreVaultLogic` | Fill window assumed for the unlisted-arrival delay (S-4); the adapter's actual window is `min(21,600 s, SpokePool.fillDeadlineBuffer())` (S-23) |
-| `UNLISTED_ARRIVAL_DELAY` | `FILL_WINDOW + HUB_BOUND_RETENTION` | `CoreVaultLogic` | Plus `2 x maxReportAge` before `recoverUnlistedArrival` (S-4) |
+| `MAX_OPEN_POSITIONS` | 32 | `SpokeVaultTypes` | Open positions per Spoke Vault (S-46): the worst report under this cap, 64 sends home and a full arrival window delivers in 25.99M gas of 32M |
+| `MAX_POOL_FEE` | 10,000 pips (1%) | `UniswapV4Adapter` | Highest LP fee of a registered hookless pool (S-47) |
+| `MAX_REPORT_AGE` | 1 day | `MandateLib` | Upper bound on a spoke's report lifetime (S-54) |
+| `MAX_PRICE` | 2^128 | `ChainlinkPriceSource` | Highest accepted `price1e18` (S-51; structural, not an economic band) |
+
+The S-4 recovery delay (`FILL_WINDOW + HUB_BOUND_RETENTION + 2 x maxReportAge`) is gone: recovery now needs a spoke
+report built after the last unlisted arrival (S-45).
 
 ## 4. Operational constraints (keeper and manager runbooks)
 
@@ -58,6 +63,11 @@ on main as pins.
   different Mandate (`WrongMandate`, S-6). Off-chain decoders must follow `ReportCodec`.
 - **Collect and forward income often** (S-15) and **deliver reports within their lifetime** (S-31): both are
   permissionless.
+- **Recover an unlisted arrival in the same cycle as the report that opens it** (S-45): after a report outage longer
+  than a send home's retention, deliver the first report built after the arrival and call `recoverUnlistedArrival` at
+  once, so no deposit is priced in between.
+- **Every manager swap minimum from the oracle** (S-8 open): the vault accepts any minimum, zero included;
+  `local-e2e/src/api.ts` builds swaps with the oracle value less 1%.
 - **Recognize refunds and recover unlisted arrivals**: `recognizeRefund`, `attestExpiry`,
   `recoverUnlistedArrival` and `claimOwedFees` are permissionless liveness verbs a keeper should call when their
   conditions hold.
