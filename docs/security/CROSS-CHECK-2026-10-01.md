@@ -218,3 +218,24 @@ oracle composition, 0.07 to 0.16) removed; "fresh" is D after a fresh report.
 
 Income owed never exceeded income collected at any step. The scenario's own `_sumOfBuckets` still equals Share Assets
 at W13 while the books double-count (I-17), so that check is wiring only ([`INVARIANTS.md`](INVARIANTS.md)).
+
+## 6. Final state of the branch (2026-10-01)
+
+| Check | Result |
+|---|---|
+| Unit, fuzz, invariant, security and ported review suites (no network) | 854 tests, 0 failed |
+| Fork suites and the ported review fork proofs of concept (Arbitrum 510,529,289, Robinhood 77,022,281) | 136 tests, 0 failed |
+| Local two-fork harness (`pnpm scenario --keeper inprocess`) | 35 steps, 213 assertions, both Across fills through the live `fillRelay` |
+| API probe (`pnpm api:probe`) | 9 of 9 concepts |
+| Coverage of `src/` (`--ir-minimum`) | 97.45% lines, 85.47% branches (review at `e5c778a`: 97.31%, 83.67%) |
+| Slither | 6 new results against the sweep's baseline, all benign |
+| Mythril on `ChainlinkPriceSource` | no issues |
+| Sizes | SpokeVault 23,722 (854 to spare), CoreVault 21,261, CoreVaultLogic 22,815, SpokeCrossChainLib 11,853, UniswapV4Adapter 18,079 |
+| `forge fmt --check` | clean |
+
+Open for the founder after this cross-check (all in `docs/OPEN-QUESTIONS.md`): S-8 manager swap prices (SEC-OQ-1), S-5
+Operating Cash cap (SEC-OQ-2, now a one-way sink), S-15 income timing (CS-OQ-1), the unwind band (SEC-OQ-12, sizes in
+§5.1), performance fee net of the fund's own swap fees (SEC-OQ-7, §5.2), the guardian's holder (SEC-OQ-8), spoke pool
+tokens in the Mandate (SEC-OQ-9), price bands (SEC-OQ-10), Mandate exit bounds (SEC-OQ-11), the ETH / USD price age
+(SEC-OQ-13), a second bridge route (SEC-OQ-14), and the values of the OPEN parameters (SEC-OQ-5).
+
