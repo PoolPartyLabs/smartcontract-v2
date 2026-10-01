@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {console2} from "forge-std/console2.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
+import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
 import {SpokeBFixture} from "./SpokeBFixture.sol";
 
 /// @notice Lead 1, what breaks first: once a large report is stored (grown in steps, each delivery adding what it can
@@ -18,7 +19,7 @@ contract Measure_SteadyStateReadVsWrite is SpokeBFixture {
         _deposit(alice, 1_000_000e6);
         bytes32 out = _sendToSpoke(100_000e6, 99_950e6);
         _fillOnSpoke(out, 99_950e6);
-        _dustPositions(32);
+        _dustPositions(SpokeVaultTypes.MAX_OPEN_POSITIONS);
         _incomeArrival(64);
         _dustSendsHome(64, TransferKind.Income);
         _dustArrivals(256);

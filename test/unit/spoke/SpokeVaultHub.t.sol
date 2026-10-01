@@ -239,7 +239,7 @@ contract SpokeVaultHubTest is SpokeVaultTestBase {
     /// MAX_OPEN_POSITIONS open at once, and a closed position frees its slot.
     function test_REVIEW_H04_openPositionsAreBounded() public {
         uint256 cap = SpokeVaultTypes.MAX_OPEN_POSITIONS;
-        assertEq(cap, 32);
+        assertEq(cap, 16);
         core.allocate(vault, 1000e6);
         vm.startPrank(manager);
         bytes32 first;

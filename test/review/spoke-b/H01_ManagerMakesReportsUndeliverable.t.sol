@@ -35,7 +35,7 @@ contract H01_ManagerMakesReportsUndeliverable is SpokeBFixture {
         return _deliverWithGas(vaa, ARBITRUM_MAX_TX_GAS - _intrinsic(vaa));
     }
 
-    /// @notice FIXED on fix/pp-sc-fix-independent-review (MAX_OPEN_POSITIONS = 32): main let 200 dust positions make
+    /// @notice FIXED on fix/pp-sc-fix-independent-review (MAX_OPEN_POSITIONS): main let 200 dust positions make
     ///         every report need 35.98M gas to deliver, freezing the hub's view of the spoke. The 33rd position is now
     ///         refused, and the worst report a manager and a stranger can build together (32 dust positions, 64 Income
     ///         sends home, the whole 256-id arrival window) still delivers in one Arbitrum transaction.

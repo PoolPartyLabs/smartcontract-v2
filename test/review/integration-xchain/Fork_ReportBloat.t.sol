@@ -120,17 +120,14 @@ contract Fork_ReportBloat is XChainBase {
         vm.stopPrank();
     }
 
-    /// @notice FIXED (MAX_OPEN_POSITIONS = 32): the 33rd dust position is refused, and the report of 32 delivers in one
-    ///         transaction (on e5c778a 160 positions needed 35.31M).
+    /// @notice FIXED (MAX_OPEN_POSITIONS, 16): the position after the cap is refused, and the report at the cap delivers
+    ///         in one transaction (on e5c778a 160 positions needed 35.31M).
     function test_REVIEW_H04_dustPositionsStopAtTheCapAndDeliver() public {
         _setUpFund();
-        _dustPositions(16);
-        (, bool fits) = _measure("positions", 16);
-        assertTrue(fits);
-        _dustPositions(SpokeVaultTypes.MAX_OPEN_POSITIONS - 16);
-        uint256 total;
-        (total, fits) = _measure("positions", SpokeVaultTypes.MAX_OPEN_POSITIONS);
-        assertTrue(fits, "32 positions deliver in one transaction");
+        _dustPositions(SpokeVaultTypes.MAX_OPEN_POSITIONS);
+        (uint256 total, bool fits) = _measure("positions", SpokeVaultTypes.MAX_OPEN_POSITIONS);
+        assertTrue(fits, "positions at the cap deliver in one transaction");
+        total;
         _onRobinhood();
         bytes memory params = _dustParams();
         vm.prank(manager);

@@ -43,10 +43,12 @@ library SpokeVaultTypes {
     /// @notice Most positions a Spoke Vault holds open at once; `openPosition` reverts above it.
     /// @dev Independent review H-04 (security review S-11 residual): every open position is walked and encoded by
     ///      `report()` and `buildReport()`, stored by the hub on every delivery (about 0.2M gas each through the real
-    ///      Wormhole Core) and visited by the automatic unwind. Unbounded, about 145 dust positions pushed a delivery
-    ///      past Arbitrum's 32M gas per transaction, which froze the hub's view of the spoke, and about 110 exhausted an
-    ///      unwind. At 32, a full arrival window, 64 sends home and 32 positions stay well under the limit. OPEN value.
-    uint256 internal constant MAX_OPEN_POSITIONS = 32;
+    ///      Wormhole Core) and visited by the automatic unwind. Unbounded, about 145 to 180 dust positions pushed a
+    ///      delivery past Arbitrum's 32M gas per transaction, which froze the hub's view of the spoke, and about 110
+    ///      exhausted an unwind. Measured through the real Cores (cross-check port), a full arrival window, 64 Income
+    ///      sends home filled before their listing and 32 positions needed 30.28M, too close to the limit with the L1
+    ///      data component left out; 16 positions take about 3.3M off that. OPEN value.
+    uint256 internal constant MAX_OPEN_POSITIONS = 16;
 
     /// @notice Tokens of a Mandate pool on this chain, as the adapter's `poolTokens` returned them at creation
     ///         (OQ-12: a hooked Uniswap V4 pool makes that call revert, so it can never be listed).

@@ -68,14 +68,20 @@ contract Measure_ReportBloat is SpokeBFixture {
         _scenario("manager: 64 dust sends home (Income, the cap)", 0, 0, 64, 0);
     }
 
-    /// @dev Since MAX_OPEN_POSITIONS (32) a manager cannot open more; on main 50 and 100 positions cost 9.19M and
+    /// @dev Since MAX_OPEN_POSITIONS (16) a manager cannot open more; on main 50 and 100 positions cost 9.19M and
     ///      18.06M to deliver.
     function test_measure_06_manager32Positions() public {
-        _scenario("manager: 32 dust positions (the cap)", 0, 0, 0, 32);
+        _scenario("manager: dust positions at the cap", 0, 0, 0, SpokeVaultTypes.MAX_OPEN_POSITIONS);
     }
 
     function test_measure_07_worstCase() public {
-        _scenario("stranger 256 arrivals + manager 64 Income sends + 32 positions", 256, 0, 64, 32);
+        _scenario(
+            "stranger 256 arrivals + manager 64 Income sends + positions at the cap",
+            256,
+            0,
+            64,
+            SpokeVaultTypes.MAX_OPEN_POSITIONS
+        );
     }
 
     function test_measure_08_arrivalsPlus64Sends() public {
