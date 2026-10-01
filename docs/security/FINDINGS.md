@@ -521,3 +521,36 @@ runs at fresh pins, Slither diffed against the pre-fix baseline) and added two p
 | S-10 | info | `UniswapV4Adapter.swapExactInput` | A compiler shadowing warning introduced by the fix; removed on main by `8e97994` |
 | local-e2e | info | `local-e2e/` | ABIs regenerated; the harness delivers a spoke report before the first `sendToSpoke` and quotes without exclusivity; its bucket sum follows the S-1 valuation (`64c6461`) |
 | S-1 corner | info | `CoreVaultLogic._oracleComposition` | In the PAYOUT fallback a token that never priced (CS-OQ-4) keeps its position at the spot composition for the USDC leg while the other leg is valued at 0; only reachable for a fund whose mints never worked |
+
+## Cross-check of 2026-10-01 (independent review and verification plan)
+
+The independent review and the verification plan of 2026-09-30 were cross-checked against the code
+([`CROSS-CHECK-2026-10-01.md`](CROSS-CHECK-2026-10-01.md)). New entries continue the numbering; ids in brackets are the
+review's (C, H, M, L, I) or the plan's (CF, T, F, MM, SF). Commits are on `fix/pp-sc-fix-independent-review`.
+
+| Id | Severity | Status | Title | Sources | Evidence |
+|---|---|---|---|---|---|
+| S-45 | high | Fixed | The S-4 recovery could be started early with dust under a predictable id, or after a report outage, while the latest report still counted the transfer on the spoke: Idle and that report counted it twice (a claimant was paid 49,850 USDC too much on a 1M fund; an Income send home skipped the fee split) | found while porting H-02 | `231a049`; `test_REVIEW_NEW_S04_*` (3), the S-4 regressions updated |
+| S-46 | high | Fixed | Open positions were unbounded: about 180 dust positions made every report undeliverable within 32M gas, closing mints and freezing the hub's view of the spoke | [H-04], plan T3; S-11 residual | `5ce0bd2` (`MAX_OPEN_POSITIONS` = 32, OPEN); worst report under the caps 25.99M gas |
+| S-47 | medium | Fixed in part | A Mandate pool's LP fee was unbounded: in a 100% pool one swap turned principal into income and the fees on it | [M-02] | `25ee3e5` (`MAX_POOL_FEE` = 1%); gross versus net is SEC-OQ-7 |
+| S-48 | medium | Fixed | An income token that refused the holder reverted a full-burn claim and with it the exit of the principal | [CF-2], [L-02] | `5f4ed15`; `test_REVIEW_CF2_*` |
+| S-49 | medium | Fixed | A single-asset non-USDC position in the unwind order reverted every automatic unwind that reached it, even with a route hint | [T14], [L-05] | `30b896d`; `test_REVIEW_T14_*` (2), `test_REVIEW_L05_singleAssetWethStepUnwindsThroughTheHintedRoute` |
+| S-50 | medium | Fixed | With foreign aTokens in the Aave adapter, the income step of a fallback full exit over-burned one scaled unit and reverted the whole exit | [F1], [L-08] | `02e48f3`; `test_REVIEW_F1_*` (2) |
+| S-51 | medium | Fixed | The price source took any positive answer (2^200 later panicked every payout) and assumed fixed feed decimals | [CF-R2], [CF-R3] | `610636a` (`MAX_PRICE` = 2^128, decimals checked per read, future rounds refused) |
+| S-52 | medium | Fixed | Below one base unit per whole share, one-unit deposits minted whole shares for nothing and compounded to the supply | [MM-3], plan R-13 | `fd333b6` (`SharePriceBelowOneUnit`) |
+| S-53 | medium | Fixed in part | A Mandate token the price source cannot price closed mints and was worth 0 in payouts; hub tokens are now refused at creation | [M-03], plan R-12; supersedes S-16 for the hub | `aa85f42`; spoke tokens are SEC-OQ-9 (`test_POC_REVIEW_M03_*` pin) |
+| S-54 | low | Fixed | A spoke's report lifetime had no upper bound (mints on reports 136 years old; recovery out of reach) | [M-04]; S-25 | `6522d80` (`MAX_REPORT_AGE` = 1 day); the lower bound needs the DEC-089 registry |
+| S-55 | low | Fixed | The Spoke Vault booked a built fill deadline without checking it is in the future | [L-09] | `76fdd62` |
+| S-56 | low | Fixed | Deployment accepted a codeless registry or price source and Uniswap V4 contracts of different deployments | [SF-1], [CF-V4-10], plan F-12 | `c9dbbf8` (script only) |
+| S-57 | low | Fixed | CI had never passed: an unpinned forge failed `fmt --check` and the fork suites could not start | review process findings | `9375158` |
+| S-58 | low | Acknowledged | A large Mandate pushes `createFund` above 32M gas and then above EIP-3860 | [L-10], [FF-4] | `test_POC_REVIEW_L10_*` |
+| S-59 | low | Acknowledged | `buildReport` readable while a hub verb is half done (read-only reentrancy), unreachable with USDC, WETH and hookless pools | [L-06] | review report 04 |
+| S-60 | low | Acknowledged | A transfer fee switched on by an issuer after positions exist blocks every exit of that pool (fails closed) | [CF-V4-11] | plan card 05 |
+| S-61 | low | Acknowledged | Aave answering outside its published behaviour (short `withdraw(max)`, zero scaled balance, payment reported but not made, falling index) | [F2], [F9], [F10], [F11] | plan card 06; the vault's backing checks fail closed |
+| S-62 | info | Open | A successful but wrong price answer below `MAX_PRICE` is taken as is | [CF-12] | SEC-OQ-10 |
+
+Status updates of earlier entries: S-4 is corrected by S-45; S-11's residual (positions) is closed by S-46; S-16 is
+superseded by S-53 (hub) and SEC-OQ-9 (spoke); S-25 is closed by S-54 for the upper bound; S-27's single-asset case
+is closed by S-49 (the roll-back of a failing step stays, DEC-069); S-34's exit blocking is closed by S-50; L-04's gas
+starvation of the wrapped hub read needs a `buildReport` above about 9.6M gas, which the 32-position cap rules out.
+
