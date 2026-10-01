@@ -394,19 +394,39 @@ abstract contract XChainBase is EndToEndScenario {
 
     address internal predictedSpokeVault;
 
+    /// @dev The protocol on Arbitrum (deployed once), the predicted addresses, and the Mandate and hub parameters
+    ///      `plan` builds for the next `createFund`.
+    function _hubInputs(FundPlan memory plan)
+        internal
+        returns (
+            FundFactory factory,
+            IFundFactory.FundAddresses memory predicted,
+            Mandate memory m,
+            IFundFactory.HubParams memory p
+        )
+    {
+        _onArbitrum();
+        if (address(hubDeployment.factory) == address(0)) {
+            hubDeployment = _deployProtocol(recipient, guardian, registryOwner);
+        }
+        factory = hubDeployment.factory;
+        creationNumber = factory.nextCreationNumber();
+        predicted = factory.predictAddresses(creationNumber, manager, _chainIds());
+        fundId = predicted.fundId;
+        m = _buildMandate(factory, fundId, plan);
+        p = _hubParams(creationNumber, plan, _coreVaultCreationCode(hubDeployment.coreVaultLogic));
+    }
+
     /// @dev Phase 1 on Arbitrum only: protocol, Mandate from `plan`, `createFund`. The Robinhood Spoke Vault is only
     ///      predicted.
     function _createHub(FundPlan memory plan) internal {
-        _onArbitrum();
-        hubDeployment = _deployProtocol(recipient, guardian, registryOwner);
-        FundFactory factory = hubDeployment.factory;
-        creationNumber = factory.nextCreationNumber();
-        IFundFactory.FundAddresses memory predicted = factory.predictAddresses(creationNumber, manager, _chainIds());
-        fundId = predicted.fundId;
-        Mandate memory m = _buildMandate(factory, fundId, plan);
+        (
+            FundFactory factory,
+            IFundFactory.FundAddresses memory predicted,
+            Mandate memory m,
+            IFundFactory.HubParams memory p
+        ) = _hubInputs(plan);
         mandateHash = MandateLib.hash(m);
-        IFundFactory.HubParams memory p =
-            _hubParams(creationNumber, plan, _coreVaultCreationCode(hubDeployment.coreVaultLogic));
         vm.prank(manager);
         IFundFactory.FundAddresses memory a = factory.createFund(m, p);
         core = ICoreVault(a.coreVault);
