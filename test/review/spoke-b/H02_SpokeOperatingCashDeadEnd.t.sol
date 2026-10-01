@@ -11,7 +11,7 @@ import {SpokeBFixture} from "./SpokeBFixture.sol";
 ///         STILL_PRESENT (register S-5, Open, founder decision): `setOperatingCashParameters` is unbounded and any
 ///         arrival, a stranger's 1 USDG fill included, runs the top-up, so one parameter change moves the whole spoke
 ///         Unallocated Balance out of Share Assets and the freed Spoke Cap lets it repeat. FIXED part (S-5 interim):
-///         `releaseOperatingCash` returns it above the floor and the hub re-counts it on the next report.
+///         `releaseOperatingCash` returned it above the floor; that verb was removed (S-63), so the sink is one-way.
 contract H02_SpokeOperatingCashDeadEnd is SpokeBFixture {
     function setUp() public override {
         super.setUp();
@@ -73,32 +73,22 @@ contract H02_SpokeOperatingCashDeadEnd is SpokeBFixture {
         assertEq(vault.shareAssets(), 797_499e6, "a fifth of the fund gone: 99,951 + 99,950 sunk + 50 bridge fee");
     }
 
-    /// @dev Regression (S-5 interim): the manager can bring the sunk cash back, and the hub re-counts it in Share
-    ///      Assets on the next report; a stranger cannot release.
-    function test_REVIEW_S5_releaseOperatingCashReturnsItAndTheHubReCountsIt() public {
+    /// @dev The sweep's interim release verb was removed on 2026-10-01 (S-63): a spoke sink followed by a release let
+    ///      the manager free the Spoke Cap, send more, and bring the sunk principal back above the cap (11,995 USDC of
+    ///      spoke value on a 4,000 cap, review port of integration-xchain). The sink is one-way again (SEC-OQ-2).
+    function test_REVIEW_S63_noVerbReturnsTheSunkCash() public {
         uint256 assetsBefore = vault.shareAssets();
         vm.prank(manager);
         spoke.setOperatingCashParameters(type(uint256).max, type(uint256).max);
         _dustArrival();
         _reportNow();
         assertEq(assetsBefore - vault.shareAssets(), 99_951e6, "sunk");
-
-        // A stranger cannot release.
-        address stranger = makeAddr("stranger");
-        vm.prank(stranger);
-        vm.expectRevert(abi.encodeWithSelector(ISpokeVault.NotManager.selector, stranger));
-        spoke.releaseOperatingCash(1);
-
-        // The manager lowers the floor and releases everything above it back to Unallocated Balance.
         uint256 cash = spoke.operatingCash();
         vm.startPrank(manager);
         spoke.setOperatingCashParameters(5e6, 10e6);
-        spoke.releaseOperatingCash(cash - 5e6);
+        (bool released,) = address(spoke).call(abi.encodeWithSignature("releaseOperatingCash(uint256)", cash - 5e6));
         vm.stopPrank();
-        assertEq(spoke.unallocatedBalance(address(usdg)), cash - 5e6);
-
-        // The next report carries the principal again; the hub's Share Assets recover all but the 5 USDG floor.
-        _reportNow();
-        assertEq(assetsBefore - vault.shareAssets(), 5e6, "only the Operating Cash floor stays out of Share Assets");
+        assertFalse(released, "no release verb");
+        assertEq(spoke.operatingCash(), cash);
     }
 }

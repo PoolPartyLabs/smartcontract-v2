@@ -182,18 +182,6 @@ library SpokeCrossChainLib {
         );
     }
 
-    /// @notice ISpokeVault.releaseOperatingCash (security review S-5, interim mitigation pending a DEC-100 ruling):
-    ///         Operating Cash above the floor back to the base token's Unallocated Balance.
-    function releaseOperatingCash(SpokeVaultTypes.State storage s, address baseToken, uint256 amount) external {
-        uint256 cash = s.operatingCash;
-        uint256 floor = s.operatingCashFloor;
-        uint256 releasable = cash > floor ? cash - floor : 0;
-        if (amount == 0 || amount > releasable) revert SpokeVaultTypes.OperatingCashNotReleasable(amount, releasable);
-        s.operatingCash = cash - amount;
-        s.unallocated[baseToken] += amount;
-        emit ISpokeVault.OperatingCashReleased(amount, cash - amount);
-    }
-
     // ---------------------------------------------------------------------------------------------------------------
     // Report (DEC-070, DEC-079, DEC-085, DEC-090, DEC-093, Q60, OQ-09)
     // ---------------------------------------------------------------------------------------------------------------

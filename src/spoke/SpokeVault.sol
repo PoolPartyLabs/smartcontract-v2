@@ -375,12 +375,6 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         emit OperatingCashParametersSet(floor, topUp);
     }
 
-    /// @inheritdoc ISpokeVault
-    /// @dev Security review S-5; body in SpokeCrossChainLib (bytecode margin).
-    function releaseOperatingCash(uint256 amount) external onlyOnSpokeChain onlyManager nonReentrant {
-        SpokeCrossChainLib.releaseOperatingCash(_s, baseToken, amount);
-    }
-
     // ---------------------------------------------------------------------------------------------------------------
     // Cross-chain (Spoke Chains)
     // ---------------------------------------------------------------------------------------------------------------

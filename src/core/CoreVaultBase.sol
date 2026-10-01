@@ -279,21 +279,15 @@ abstract contract CoreVaultBase is ICoreVault, ReentrancyGuardTransient {
 
     /// @inheritdoc ICoreVault
     /// @dev DEC-096: the manager may adjust floor and top-up on a live fund; DEC-100: no protocol cap on the floor.
+    /// @dev Security review S-5 (open, SEC-OQ-2): without a cap the top-up can move Free Idle into Operating Cash, which
+    ///      nothing spends or returns in the MVP. The sweep's interim `releaseOperatingCash` was removed after the
+    ///      cross-check of 2026-10-01: a reversible sink let a manager depress the Share Price, have an ally mint at it
+    ///      and release the cash back to Share Assets (the ally took 19,900 for a 10,000 deposit). A release is safe only
+    ///      together with a cap on the floor and top-up, which is the founder's ruling.
     function setOperatingCashParameters(uint256 floor, uint256 topUp) external onlyManager {
         _s.operatingCashFloor = floor;
         _s.operatingCashTopUp = topUp;
         emit OperatingCashParametersSet(floor, topUp);
-    }
-
-    /// @inheritdoc ICoreVault
-    function releaseOperatingCash(uint256 amount) external onlyManager nonReentrant {
-        uint256 cash = _s.operatingCash;
-        uint256 floor = _s.operatingCashFloor;
-        uint256 releasable = cash > floor ? cash - floor : 0;
-        if (amount == 0 || amount > releasable) revert OperatingCashNotReleasable(amount, releasable);
-        _s.operatingCash = cash - amount;
-        _s.idle += amount;
-        emit OperatingCashReleased(amount, cash - amount);
     }
 
     /// @notice DEC-096, DEC-100, DEC-041: when hub Operating Cash is below its floor, the value-moving operation that

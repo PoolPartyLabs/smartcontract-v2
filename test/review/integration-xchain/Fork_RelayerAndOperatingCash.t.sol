@@ -113,11 +113,10 @@ contract Fork_RelayerAndOperatingCash is XChainBase {
     }
 
     // -----------------------------------------------------------------------------------------------------------------
-    // H-08 (reports 02 H-01, 04 H-02, 05 H-02; S-5 open, releaseOperatingCash interim)
+    // H-08 (reports 02 H-01, 04 H-02, 05 H-02; S-5 open)
     // -----------------------------------------------------------------------------------------------------------------
 
-    /// @notice STILL_PRESENT (S-5 open; reversible only by the same manager key since the interim
-    ///         `releaseOperatingCash`). One parameter change and a 1-unit allocation move all Free Idle but one unit into
+    /// @notice STILL_PRESENT (S-5 open; one-way since the interim release verb was removed, S-63). One parameter change and a 1-unit allocation move all Free Idle but one unit into
     ///         hub Operating Cash; a reserved Standard request is then paid at the collapsed price.
     function test_POC_REVIEW_H08_hubOperatingCashSinksFreeIdle() public {
         _createForks();
@@ -151,14 +150,12 @@ contract Fork_RelayerAndOperatingCash is XChainBase {
         _log("Bruno received", IERC20(ARB_USDC).balanceOf(bruno) - before);
         assertEq(receipt.sharesBurned, brunoShares, "paid at the collapsed price: all his shares burned");
 
-        // The interim exit: only the manager can bring it back.
+        // No verb returns it (the interim release was removed as S-63): the sink is one-way until a cap is ruled.
         uint256 cash = core.operatingCash();
-        vm.prank(bruno);
-        vm.expectRevert();
-        core.releaseOperatingCash(cash);
         vm.prank(manager);
-        core.releaseOperatingCash(cash);
-        assertEq(core.operatingCash(), 0);
+        (bool released,) = address(core).call(abi.encodeWithSignature("releaseOperatingCash(uint256)", cash));
+        assertFalse(released, "no release verb");
+        assertEq(core.operatingCash(), cash);
     }
 
     /// @notice STILL_PRESENT (S-5 open). A stranger's real 1 USDC Across deposit and 1 USDG fill run the spoke's
@@ -206,58 +203,42 @@ contract Fork_RelayerAndOperatingCash is XChainBase {
     }
 
     // -----------------------------------------------------------------------------------------------------------------
-    // New: the S-5 interim exit turns the sink into a lever
+    // S-63: the S-5 interim exit turned the sink into a lever; the verb is gone
     // -----------------------------------------------------------------------------------------------------------------
 
-    /// @notice STILL_PRESENT, new (introduced by the S-5 interim `releaseOperatingCash`). The manager sinks Free Idle
-    ///         into hub Operating Cash, leaving 0.01 USDC of Share Assets (the lowest Share Price a deposit still
-    ///         accepts, one base unit per share), lets an ally deposit at that price, and releases the cash back to Idle.
-    ///         On e5c778a the sink was one way, so the ally would only have bought its own deposit; now the round trip
-    ///         hands it every other holder's value. Four manager calls, one deposit, one payout; no outside capital
-    ///         beyond the ally's deposit, no price source, no other chain.
-    function test_POC_REVIEW_NEW_S05_sinkAndReleaseHandsTheFundToAnEntrant() public {
+    /// @notice FIXED (S-63). With the interim `releaseOperatingCash` the manager sank Free Idle into hub Operating Cash,
+    ///         leaving 0.01 USDC of Share Assets, let an ally deposit 10,000 at that price and released the cash back:
+    ///         the ally was paid 19,900.11 and Ana kept 0.02 of her 9,975. With the verb removed the sink cannot be
+    ///         undone, so the ally buys only its own deposit back.
+    function test_REVIEW_S63_sinkWithoutReleaseHandsTheAllyNothing() public {
         _createForks();
         _phase1CreateFund();
         _phase2AnaDeposits(); // Ana: 9,975 shares, Share Assets 9,975
         address ally = makeAddr("managersAlly");
-        uint256 anaBefore = ShareMath.usdcFor(IERC20(shareToken).balanceOf(ana), core.sharePrice());
 
         uint256 free = core.freeIdle();
         vm.startPrank(manager);
         core.setOperatingCashParameters(type(uint256).max, free - 10_000);
-        core.allocateToHubSpokeVault(1); // a value-moving operation: the top-up runs
+        core.allocateToHubSpokeVault(1);
         core.setOperatingCashParameters(0, 0);
         vm.stopPrank();
         assertEq(core.shareAssets(), 10_000, "0.01 USDC of Share Assets left");
-        uint256 priceLow = core.sharePrice();
 
         uint256 allyShares = _depositAs(ally, 10_000e6);
-
         uint256 cash = core.operatingCash();
         vm.prank(manager);
-        core.releaseOperatingCash(cash);
+        (bool released,) = address(core).call(abi.encodeWithSignature("releaseOperatingCash(uint256)", cash));
+        assertFalse(released, "no release verb");
 
         uint256 allyValue = ShareMath.usdcFor(allyShares, core.sharePrice());
-        vm.prank(ally);
-        core.requestPayout(allyValue, ICoreVault.PayoutMode.Standard);
-        _advance(72 hours);
-        vm.prank(ally);
-        ICoreVault.PayoutReceipt memory r = core.claimPayout("");
-        uint256 anaAfter = ShareMath.usdcFor(IERC20(shareToken).balanceOf(ana), core.sharePrice());
-        _log("Share Price while sunk (1e24 = 1 USDC)", priceLow);
-        _log("ally's shares for 10,000 USDC", allyShares / 1e18);
-        _log("ally received after the release", r.usdcPaid);
-        _log("Ana's value before", anaBefore);
-        _log("Ana's value after", anaAfter);
-        assertGt(r.usdcPaid, 19_800e6, "the ally doubles its 10,000");
-        assertLt(anaAfter, 1e6, "Ana keeps less than 1 USDC of her 9,975");
+        _log("ally's value after its 10,000 deposit", allyValue);
+        assertLe(allyValue, 10_000e6, "the ally owns no more than it paid");
     }
 
-    /// @notice STILL_PRESENT, new (S-5 interim with S-13). The same round trip on a spoke exceeds the Spoke Cap
-    ///         without a stale report or an evicted id: each cap-sized tranche sinks into spoke Operating Cash on
-    ///         arrival, the next report reads the spoke at 0 so the next send passes the cap check, and after the last
-    ///         tranche the manager releases everything back to Unallocated Balance.
-    function test_POC_REVIEW_NEW_S05_spokeSinkAndReleaseExceedsTheSpokeCap() public {
+    /// @notice FIXED (S-63). With the interim release, three cap-sized tranches sunk on arrival and then released left
+    ///         11,995.20 USDC of spoke value on a 4,000 Spoke Cap. Without it the sunk tranches never come back into
+    ///         the spoke's principal.
+    function test_REVIEW_S63_spokeSinkCanNoLongerBeReleasedAboveTheCap() public {
         _createForks();
         _phase1CreateFund();
         _phase2AnaDeposits();
@@ -266,27 +247,20 @@ contract Fork_RelayerAndOperatingCash is XChainBase {
         _onRobinhood();
         vm.prank(manager);
         spokeVault.setOperatingCashParameters(type(uint256).max, type(uint256).max);
-
-        for (uint256 i; i < 3; ++i) {
-            _onArbitrum();
-            assertEq(_capUsed(), 0, "the cap reads empty");
-            (, LiveRelayData memory out) = _sendToSpoke(SPOKE_CAP, _quote(SPOKE_CAP - BRIDGE_FEE));
-            _fillOnRobinhood(out, relayer); // the arrival's top-up sinks the whole tranche
-            _report();
-        }
+        _onArbitrum();
+        (, LiveRelayData memory out) = _sendToSpoke(SPOKE_CAP, _quote(SPOKE_CAP - BRIDGE_FEE));
+        _fillOnRobinhood(out, relayer);
+        _report();
         _onRobinhood();
         uint256 cash = spokeVault.operatingCash();
-        assertEq(cash, 3 * (SPOKE_CAP - BRIDGE_FEE));
         vm.startPrank(manager);
         spokeVault.setOperatingCashParameters(0, 0);
-        spokeVault.releaseOperatingCash(cash);
+        (bool released,) = address(spokeVault).call(abi.encodeWithSignature("releaseOperatingCash(uint256)", cash));
         vm.stopPrank();
+        assertFalse(released, "no release verb");
         _report();
         (uint256 spokeValue,,, uint256 cap) = core.spokeCapUsage(0);
-        _log("spoke value after the release (USDC)", spokeValue);
-        _log("Spoke Cap (USDC)", cap);
-        assertEq(spokeValue, 3 * (SPOKE_CAP - BRIDGE_FEE), "three cap-sized tranches on the spoke");
-        assertGt(spokeValue, 2 * cap + cap / 2);
+        assertLe(spokeValue, cap, "the spoke never holds value above its cap");
     }
 
     /// @dev A stranger deposits 1 USDC on Arbitrum to the Spoke Vault with a fresh id and fills it on Robinhood.

@@ -11,8 +11,8 @@ import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 /// @notice [H-08] (spoke-a report H-02), ported to main. The spoke twin of the Core Vault's Operating Cash sink:
 ///         `setOperatingCashParameters` is still unbounded (S-5, open for a founder decision) and every value-moving
 ///         operation, a stranger's 1-unit arrival included, still moves `min(topUp, Unallocated base)` out of Share
-///         Assets. What changed (S-5 interim, `releaseOperatingCash`): the manager can return Operating Cash above the
-///         floor to Unallocated Balance, so the sink is no longer one-way for the manager's key; nobody else can.
+///         Assets. What changed (S-5 interim, `releaseOperatingCash`, later removed as S-63): the manager could return Operating Cash above the
+///         floor to Unallocated Balance; that verb let a manager and an ally extract the fund and is gone (S-63).
 contract H02_SpokeOperatingCashSink is SpokeVaultTestBase {
     function setUp() public {
         _setUpMocks();
@@ -50,37 +50,21 @@ contract H02_SpokeOperatingCashSink is SpokeVaultTestBase {
         console2.log("spoke Operating Cash (USDG, 1e6)", vault.operatingCash());
     }
 
-    /// @dev Regression (FIXED part, S-5 interim): the manager can bring the sink back; a stranger cannot, and nothing
-    ///      above `operatingCash - floor` is releasable.
-    function test_REVIEW_H08_releaseOperatingCashReturnsTheSinkToUnallocatedBalance() public {
+    /// @dev The sweep's interim release verb was removed on 2026-10-01 (S-63: a reversible sink let a manager and an
+    ///      ally extract the fund). The sink is one-way again until the founder rules on a cap (SEC-OQ-2): nothing
+    ///      returns the cash, and the report keeps it out of the spoke's principal.
+    function test_REVIEW_H08_noVerbReturnsTheSinkSinceS63() public {
         _sink();
         uint256 cash = vault.operatingCash();
-
-        // While the floor is at max nothing is releasable.
-        vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.OperatingCashNotReleasable.selector, 1, 0));
-        vault.releaseOperatingCash(1);
-
-        // A stranger can neither change the parameters nor release.
-        address stranger = makeAddr("stranger");
-        vm.prank(stranger);
-        vm.expectRevert(abi.encodeWithSelector(ISpokeVault.NotManager.selector, stranger));
-        vault.releaseOperatingCash(1);
-
-        // The manager lowers the floor to the DEC-096 value and releases everything above it.
         vm.startPrank(manager);
         vault.setOperatingCashParameters(SPOKE_FLOOR, SPOKE_TOP_UP);
-        vm.expectRevert(
-            abi.encodeWithSelector(SpokeVaultTypes.OperatingCashNotReleasable.selector, cash, cash - SPOKE_FLOOR)
-        );
-        vault.releaseOperatingCash(cash);
-        vault.releaseOperatingCash(cash - SPOKE_FLOOR);
+        (bool released,) =
+            address(vault).call(abi.encodeWithSignature("releaseOperatingCash(uint256)", cash - SPOKE_FLOOR));
         vm.stopPrank();
-
-        assertEq(vault.operatingCash(), SPOKE_FLOOR);
-        assertEq(vault.unallocatedBalance(address(usdg)), cash - SPOKE_FLOOR);
+        assertFalse(released, "no release verb");
+        assertEq(vault.operatingCash(), cash);
         ReportCodec.Report memory r = vault.buildReport();
-        assertEq(r.unallocated[0].amount, 99_995e6 + 1, "the next report carries the principal again");
+        assertEq(r.unallocated[0].amount, 0, "the principal stays outside the report");
     }
 
     function _sink() internal {

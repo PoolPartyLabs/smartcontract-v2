@@ -8,9 +8,9 @@ import {CoreVaultFixture} from "../../unit/core/CoreVaultFixture.sol";
 /// @notice Review port of core-a H01, consolidated finding H-08 (register S-5, Open, founder decision). Hub Operating
 ///         Cash is outside Share Assets and outside `sweepExcess`, and `setOperatingCashParameters` takes any floor and
 ///         any top-up. Still true on main: the manager moves all Free Idle into it with one parameter change and one
-///         allocation of 1 base unit, or lets the next third-party deposit do it. The interim mitigation (`23c317a`,
-///         `releaseOperatingCash`) lets only the same manager key return what is above the floor, so the pins below also
-///         assert that a stranger cannot undo the drain and that a floor at `type(uint256).max` releases nothing.
+///         allocation of 1 base unit, or lets the next third-party deposit do it. The sweep's interim release verb was removed
+///         on 2026-10-01 (it let a manager and an ally extract the fund, S-63), so the sink is one-way again until the
+///         founder rules on a cap (SEC-OQ-2).
 contract H01_OperatingCashSink is CoreVaultFixture {
     address internal stranger = makeAddr("stranger");
 
@@ -37,13 +37,10 @@ contract H01_OperatingCashSink is CoreVaultFixture {
         assertEq(fairPrice, 1e24, "1.00 USDC per share before");
         assertEq(vault.sharePrice(), 500_000_000_001_002_506_265_664, "0.50 USDC per share after");
 
-        // The interim exit is the manager's alone, and a floor at max leaves nothing above it.
-        vm.prank(stranger);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.NotManager.selector, stranger));
-        vault.releaseOperatingCash(1);
+        // No verb returns Operating Cash any more (S-63): the sink is one-way.
         vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.OperatingCashNotReleasable.selector, 1, 0));
-        vault.releaseOperatingCash(1);
+        (bool released,) = address(vault).call(abi.encodeWithSignature("releaseOperatingCash(uint256)", 1));
+        assertFalse(released, "no release verb");
 
         // Bob's reserved Standard Payout is paid at the collapsed price.
         vm.warp(block.timestamp + 72 hours + 1);

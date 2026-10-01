@@ -132,36 +132,19 @@ contract StaticReviewFindingsTest is CoreVaultFixture {
         assertEq(vault.shareAssets(), vault.idle());
     }
 
-    /// @dev Security review S-5 (interim mitigation pending a DEC-100 ruling): the sweep of SA-03 is reversible. The
-    ///      manager lowers the floor and returns Operating Cash above it to Idle; Share Assets and the holder's claim
-    ///      are restored. Nobody else can call it, and it never pays anyone: it only moves value back to Share Assets.
-    function test_SEC_S5_operatingCashAboveTheFloorReturnsToIdle() public {
+    /// @dev Security review S-5 (open) with S-63: the sweep's interim `releaseOperatingCash` let a manager depress the
+    ///      Share Price with the sink, have an ally mint at it and release the cash back, so it was removed; the sink is
+    ///      one-way until the founder rules on a cap (SEC-OQ-2). Nothing returns the cash and it is never swept.
+    function test_SEC_S63_operatingCashSinkHasNoReleaseVerb() public {
         uint256 free = vault.freeIdle();
-        uint256 assetsBefore = vault.shareAssets();
         vm.startPrank(manager);
         vault.setOperatingCashParameters(type(uint256).max, free - 1e6);
         vault.allocateToHubSpokeVault(1e6);
-        vm.stopPrank();
-        assertEq(vault.operatingCash(), free - 1e6);
-
-        // Nothing is above an unbounded floor; a stranger can never call it.
-        vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.OperatingCashNotReleasable.selector, 1, 0));
-        vault.releaseOperatingCash(1);
-        vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.NotManager.selector, alice));
-        vault.releaseOperatingCash(1);
-
-        // The manager restores a sane floor and returns the rest.
-        vm.startPrank(manager);
         vault.setOperatingCashParameters(3e6, 3e6);
-        vault.releaseOperatingCash(free - 1e6 - 3e6);
+        (bool released,) = address(vault).call(abi.encodeWithSignature("releaseOperatingCash(uint256)", 1));
         vm.stopPrank();
-        assertEq(vault.operatingCash(), 3e6);
-        assertEq(vault.shareAssets(), assetsBefore - 3e6, "S-5: Share Assets restored but for the floor");
+        assertFalse(released, "no release verb");
+        assertEq(vault.operatingCash(), free - 1e6);
         assertEq(vault.sweepExcess(address(usdc)), 0);
-
-        _request(alice, 9000e6, ICoreVault.PayoutMode.Instant);
-        assertEq(_claim(alice).usdcOutstanding, 0, "S-5: the holder is paid again");
     }
 }
