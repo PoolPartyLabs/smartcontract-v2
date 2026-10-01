@@ -52,7 +52,7 @@ prove only after phase F.
 | Phase 1: pin every candidate defect | Done differently: the sweep and this cross-check turned each candidate into a regression test (`test_SEC_S<n>_*`, `test_REVIEW_*`) or a pin of a still-open item (`test_POC_*`); mapping in [`CROSS-CHECK-2026-10-01.md`](CROSS-CHECK-2026-10-01.md) |
 | Phase 2: hostile stateful harnesses | Partly: the whole-fund suites in `test/security/invariants/` drive the real Core Vault, both Spoke Vaults and the receiver with an adversarial handler ([`INVARIANTS.md`](INVARIANTS.md)); not yet the plan's per-module harnesses, a moved spot price, deprecation, or the 32M-gas delivery bound |
 | Phase 2: formal calibration | Partly: Halmos on the libraries and codecs (20 of 31 properties proved, the rest timed out on 512-bit `mulDiv`); hevm, Kontrol, Wake, Echidna and Scribble not run |
-| Phase F: fix batch | In progress: the sweep fixed 16 findings and this cross-check 7 more ([`FINDINGS.md`](FINDINGS.md)); several rulings of plan section 10.3 are still open, so no freeze tag exists and phases 3 to 5 have not started |
+| Phase F: fix batch | In progress: the sweep fixed 16 findings and the cross-check 13 more items plus one regression of the sweep (S-45) ([`FINDINGS.md`](FINDINGS.md)); several rulings of plan section 10.3 are still open, so no freeze tag exists and phases 3 to 5 have not started |
 
 **Correction to our own sweep's tool record.** The sweep ran Mythril on `ShareToken`, whose runtime contains one
 MCOPY that Mythril 0.24.8 cannot execute; that "no issues" result is not evidence ([`TOOLING.md`](TOOLING.md)). Its
