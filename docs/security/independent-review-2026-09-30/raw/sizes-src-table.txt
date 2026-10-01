@@ -1,0 +1,50 @@
+rows in forge sizes table: 64
+| Contract | File | Runtime (B) | Initcode (B) | Runtime margin to 24,576 (B) | Initcode margin to 49,152 (B) | Runtime % of limit |
+|---|---|---:|---:|---:|---:|---:|
+| AaveV3Adapter | src/adapters/AaveV3Adapter.sol | 10,133 | 11,795 | 14,443 | 37,357 | 41.2% |
+| AcrossBridgeAdapter | src/adapters/AcrossBridgeAdapter.sol | 2,347 | 2,906 | 22,229 | 46,246 | 9.5% |
+| UniswapV4Adapter | src/adapters/UniswapV4Adapter.sol | 17,854 | 19,482 | 6,722 | 29,670 | 72.6% |
+| CoreVault | src/core/CoreVault.sol | 20,034 | 34,084 | 4,542 | 15,068 | 81.5% |
+| CoreVaultLogic | src/core/CoreVaultLogic.sol | 19,215 | 19,267 | 5,361 | 29,885 | 78.2% |
+| ManagerFeeVault | src/core/ManagerFeeVault.sol | 1,077 | 1,355 | 23,499 | 47,797 | 4.4% |
+| ManagerRegistry | src/core/ManagerRegistry.sol | 1,530 | 1,803 | 23,046 | 47,349 | 6.2% |
+| ShareToken | src/core/ShareToken.sol | 1,822 | 2,603 | 22,754 | 46,549 | 7.4% |
+| TransitEscrow | src/core/TransitEscrow.sol | 894 | 939 | 23,682 | 48,213 | 3.6% |
+| Create3Deployer | src/factory/Create3Deployer.sol | 1,342 | 1,370 | 23,234 | 47,782 | 5.5% |
+| FundFactory | src/factory/FundFactory.sol | 16,084 | 19,969 | 8,492 | 29,183 | 65.4% |
+| ChainlinkPriceSource | src/report/ChainlinkPriceSource.sol | 1,420 | 3,683 | 23,156 | 45,469 | 5.8% |
+| ValueReportReceiver | src/report/ValueReportReceiver.sol | 7,846 | 9,267 | 16,730 | 39,885 | 31.9% |
+| SpokeVault | src/spoke/SpokeVault.sol | 23,644 | 32,630 | 932 | 16,522 | 96.2% |
+
+contracts under src/ present in the forge sizes table: 14
+src/ contracts/interfaces/libraries with an artifact but NOT in the sizes table (no deployable bytecode: interfaces, abstract contracts, ...): 29
+   src/adapters/AdapterGuard.sol AdapterGuard
+   src/core/CoreVaultBase.sol CoreVaultBase
+   src/core/CoreVaultIncome.sol CoreVaultIncome
+   src/core/CoreVaultTransit.sol CoreVaultTransit
+   src/factory/CodeStore.sol CodeStore
+   src/factory/Create3.sol Create3
+   src/interfaces/IAdapter.sol IAdapter
+   src/interfaces/IAdapterGuard.sol IAdapterGuard
+   src/interfaces/IBridgeAdapter.sol IBridgeAdapter
+   src/interfaces/ICoreVault.sol ICoreVault
+   src/interfaces/IFundFactory.sol IFundFactory
+   src/interfaces/IManagerFeeVault.sol IManagerFeeVault
+   src/interfaces/IManagerRegistry.sol IManagerRegistry
+   src/interfaces/IPriceSource.sol IPriceSource
+   src/interfaces/ISpokeVault.sol ISpokeVault
+   src/interfaces/ITransitEscrow.sol ITransitEscrow
+   src/interfaces/IValueReportReceiver.sol IValueReportReceiver
+   src/interfaces/external/IAToken.sol IAToken
+   src/interfaces/external/IAaveV3Pool.sol IAaveV3Pool
+   src/interfaces/external/IAcrossMessageHandler.sol IAcrossMessageHandler
+   src/interfaces/external/IAcrossSpokePool.sol IAcrossSpokePool
+   src/interfaces/external/IChainlinkAggregatorV3.sol IChainlinkAggregatorV3
+   src/libraries/IncomeAccumulator.sol IncomeAccumulator
+   src/libraries/ReportCodec.sol ReportCodec
+   src/libraries/ShareMath.sol ShareMath
+   src/libraries/TransitMessage.sol TransitMessage
+   src/mandate/Mandate.sol MandateLib
+   src/spoke/SpokeCrossChainLib.sol SpokeCrossChainLib
+   src/spoke/SpokeVaultTypes.sol SpokeVaultTypes
+name collisions between src/ and other paths: []

@@ -1,0 +1,52 @@
+### cmd: forge fmt --check
+Wed Sep 30 14:36:37 WEST 2026
+Diff in test/mocks/across/AcrossFillSimulator.sol:
+33  33   |         bytes memory message
+34  34   |     ) internal {
+35  35   |         uint256 balance = IERC20(outputToken).balanceOf(recipient);
+36       |-        store.target(outputToken).sig(IERC20.balanceOf.selector).with_key(recipient)
+    36   |+        store.target(outputToken)
+    37   |+            .sig(IERC20.balanceOf.selector)
+    38   |+            .with_key(recipient)
+37  39   |             .checked_write(balance + outputAmount);
+38  40   |         if (message.length == 0) return;
+39  41   |         VM.prank(spokePool);
+
+Diff in test/fork/across/AcrossFill.fork.t.sol:
+78  78   |         IAcrossSpokePoolFill(spokePool)
+79  79   |             .fillRelay(
+80  80   |                 IAcrossSpokePoolFill.V3RelayDataBytes32({
+81       |-                depositor: _word(makeAddr("escrow")),
+82       |-                recipient: _word(address(real)),
+83       |-                exclusiveRelayer: bytes32(0),
+84       |-                inputToken: _word(makeAddr("originToken")),
+85       |-                outputToken: _word(outputToken),
+86       |-                inputAmount: INPUT_AMOUNT,
+87       |-                outputAmount: OUTPUT_AMOUNT,
+88       |-                originChainId: originChainId,
+89       |-                depositId: 123_456_789,
+90       |-                fillDeadline: uint32(block.timestamp) + 21_600,
+91       |-                exclusivityDeadline: 0,
+92       |-                message: message
+93       |-            }),
+    81   |+                    depositor: _word(makeAddr("escrow")),
+    82   |+                    recipient: _word(address(real)),
+    83   |+                    exclusiveRelayer: bytes32(0),
+    84   |+                    inputToken: _word(makeAddr("originToken")),
+    85   |+                    outputToken: _word(outputToken),
+    86   |+                    inputAmount: INPUT_AMOUNT,
+    87   |+                    outputAmount: OUTPUT_AMOUNT,
+    88   |+                    originChainId: originChainId,
+    89   |+                    depositId: 123_456_789,
+    90   |+                    fillDeadline: uint32(block.timestamp) + 21_600,
+    91   |+                    exclusivityDeadline: 0,
+    92   |+                    message: message
+    93   |+                }),
+94  94   |                 block.chainid,
+95  95   |                 _word(relayer)
+96  96   |             );
+real 0.67
+user 0.09
+sys 0.16
+exit=1
+Wed Sep 30 14:36:37 WEST 2026

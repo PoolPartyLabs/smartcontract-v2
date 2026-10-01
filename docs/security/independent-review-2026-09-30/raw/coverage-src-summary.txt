@@ -1,0 +1,57 @@
+rows in the summary table: 84
+rows per top folder: {'script': 4, 'src': 27, 'test': 53}
+script   lines 44.10% (86/195)  statements 43.72% (94/215)  branches 26.67% (4/15)  funcs 64.71% (11/17)
+src      lines 97.31% (2319/2383)  statements 95.36% (2879/3019)  branches 83.67% (415/496)  funcs 98.90% (359/363)
+test     lines 81.57% (1341/1644)  statements 79.19% (1286/1624)  branches 47.50% (95/200)  funcs 85.57% (332/388)
+ALL      lines 88.73% (3746/4222)  statements 87.67% (4259/4858)  branches 72.29% (514/711)  funcs 91.41% (702/768)
+
+| File | % Lines | % Statements | % Branches | % Funcs |
+|---|---|---|---|---|
+| src/adapters/AaveV3Adapter.sol | 97.38% (186/191) | 95.30% (223/234) | 79.07% (34/43) | 100.00% (26/26) |
+| src/adapters/AcrossBridgeAdapter.sol | 100.00% (25/25) | 96.97% (32/33) | 80.00% (4/5) | 100.00% (5/5) |
+| src/adapters/AdapterGuard.sol | 100.00% (15/15) | 100.00% (12/12) | 100.00% (5/5) | 100.00% (5/5) |
+| src/adapters/UniswapV4Adapter.sol | 99.18% (243/245) | 98.47% (322/327) | 91.89% (34/37) | 100.00% (33/33) |
+| src/core/CoreVault.sol | 98.23% (111/113) | 96.38% (133/138) | 90.32% (28/31) | 100.00% (8/8) |
+| src/core/CoreVaultBase.sol | 97.87% (138/141) | 97.70% (170/174) | 87.50% (14/16) | 96.55% (28/29) |
+| src/core/CoreVaultIncome.sol | 100.00% (41/41) | 92.50% (37/40) | 62.50% (5/8) | 100.00% (12/12) |
+| src/core/CoreVaultLogic.sol | 96.32% (288/299) | 94.40% (388/411) | 87.88% (58/66) | 93.94% (31/33) |
+| src/core/CoreVaultTransit.sol | 95.24% (40/42) | 87.50% (42/48) | 63.64% (7/11) | 100.00% (8/8) |
+| src/core/ManagerFeeVault.sol | 100.00% (11/11) | 85.71% (12/14) | 33.33% (1/3) | 100.00% (3/3) |
+| src/core/ManagerRegistry.sol | 100.00% (18/18) | 100.00% (18/18) | 100.00% (3/3) | 100.00% (6/6) |
+| src/core/ShareToken.sol | 100.00% (19/19) | 100.00% (17/17) | 100.00% (4/4) | 100.00% (8/8) |
+| src/core/TransitEscrow.sol | 100.00% (11/11) | 100.00% (14/14) | 100.00% (4/4) | 100.00% (3/3) |
+| src/factory/CodeStore.sol | 89.29% (25/28) | 90.24% (37/41) | 66.67% (2/3) | 100.00% (2/2) |
+| src/factory/Create3.sol | 90.00% (18/20) | 83.33% (20/24) | 60.00% (3/5) | 100.00% (5/5) |
+| src/factory/Create3Deployer.sol | 100.00% (7/7) | 100.00% (6/6) | n/a (0/0) | 100.00% (3/3) |
+| src/factory/FundFactory.sol | 97.26% (213/219) | 96.03% (266/277) | 78.95% (30/38) | 100.00% (24/24) |
+| src/libraries/IncomeAccumulator.sol | 100.00% (91/91) | 100.00% (95/95) | 100.00% (20/20) | 100.00% (11/11) |
+| src/libraries/ReportCodec.sol | 100.00% (9/9) | 100.00% (11/11) | 100.00% (2/2) | 100.00% (3/3) |
+| src/libraries/ShareMath.sol | 92.31% (24/26) | 90.00% (27/30) | 100.00% (6/6) | 88.89% (8/9) |
+| src/libraries/TransitMessage.sol | 100.00% (6/6) | 100.00% (7/7) | 100.00% (1/1) | 100.00% (2/2) |
+| src/mandate/Mandate.sol | 100.00% (118/118) | 99.52% (206/207) | 97.44% (38/39) | 100.00% (16/16) |
+| src/report/ChainlinkPriceSource.sol | 100.00% (41/41) | 87.93% (51/58) | 46.15% (6/13) | 100.00% (6/6) |
+| src/report/ValueReportReceiver.sol | 100.00% (74/74) | 98.00% (98/100) | 88.24% (15/17) | 100.00% (14/14) |
+| src/spoke/SpokeCrossChainLib.sol | 95.81% (160/167) | 96.04% (194/202) | 86.96% (20/23) | 100.00% (16/16) |
+| src/spoke/SpokeVault.sol | 95.30% (385/404) | 91.65% (439/479) | 76.34% (71/93) | 100.00% (72/72) |
+| src/spoke/SpokeVaultTypes.sol | 100.00% (2/2) | 100.00% (2/2) | n/a (0/0) | 100.00% (1/1) |
+| **src/ subtotal (27 files)** | **97.31% (2319/2383)** | **95.36% (2879/3019)** | **83.67% (415/496)** | **98.90% (359/363)** |
+
+src files under 90% lines:
+  src/factory/CodeStore.sol                        lines 89.29% (25/28)
+src files under 80% branches (0/0 excluded):
+  src/core/ManagerFeeVault.sol                     branches 33.33% (1/3)
+  src/report/ChainlinkPriceSource.sol              branches 46.15% (6/13)
+  src/factory/Create3.sol                          branches 60.00% (3/5)
+  src/core/CoreVaultIncome.sol                     branches 62.50% (5/8)
+  src/core/CoreVaultTransit.sol                    branches 63.64% (7/11)
+  src/factory/CodeStore.sol                        branches 66.67% (2/3)
+  src/spoke/SpokeVault.sol                         branches 76.34% (71/93)
+  src/factory/FundFactory.sol                      branches 78.95% (30/38)
+  src/adapters/AaveV3Adapter.sol                   branches 79.07% (34/43)
+src files with 0/0 branches: ['src/factory/Create3Deployer.sol', 'src/spoke/SpokeVaultTypes.sol']
+
+script/ rows:
+  script/CreateFund.s.sol                  lines 0.00% (0/51) statements 0.00% (0/59) branches 0.00% (0/4) funcs 0.00% (0/2)
+  script/DeployFactory.s.sol               lines 0.00% (0/17) statements 0.00% (0/19) branches n/a (0/0) funcs 0.00% (0/1)
+  script/FactoryDeployment.sol             lines 48.10% (38/79) statements 49.41% (42/85) branches 22.22% (2/9) funcs 70.00% (7/10)
+  script/FundMandate.sol                   lines 100.00% (48/48) statements 100.00% (52/52) branches 100.00% (2/2) funcs 100.00% (4/4)

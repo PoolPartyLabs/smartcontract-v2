@@ -1,0 +1,49 @@
+parsed findings: 1040
+solhint's own total: ('1040', '0', '1040')
+by severity: {'warning': 1040}
+| Rule | Severity | Count |
+|---|---|---:|
+| use-natspec | warning | 717 |
+| gas-indexed-events | warning | 91 |
+| immutable-vars-naming | warning | 69 |
+| import-path-check | warning | 64 |
+| gas-strict-inequalities | warning | 33 |
+| func-visibility | warning | 14 |
+| no-inline-assembly | warning | 13 |
+| use-forbidden-name | warning | 12 |
+| gas-struct-packing | warning | 8 |
+| gas-calldata-parameters | warning | 7 |
+| gas-increment-by-one | warning | 5 |
+| function-max-lines | warning | 4 |
+| avoid-low-level-calls | warning | 3 |
+
+rule -> example message
+  avoid-low-level-calls            Avoid to use low level calls
+  func-visibility                  Explicitly mark visibility in function (Set ignoreConstructors to true if using solidity >=0.7.0)
+  function-max-lines               Function body contains 52 lines but allowed no more than 50 lines
+  gas-calldata-parameters          GC: [message] argument on Function [handleV3AcrossMessage] could be [calldata] if it's not being updated
+  gas-increment-by-one             GC: For [ found ] variable, increment/decrement by 1 using: [ ++variable ] to save gas
+  gas-indexed-events               GC: [delta] on Event [IncomeRecognized] could be Indexed
+  gas-strict-inequalities          GC: Non strict inequality found. Try converting to a strict one
+  gas-struct-packing               GC: For [ State ] struct, packing seems inefficient. Try rearranging to achieve 32bytes slots
+  immutable-vars-naming            Immutable variables name are set to be in capitalized SNAKE_CASE
+  import-path-check                Import in src/spoke/SpokeVault.sol doesn't exist in: @openzeppelin/contracts/token/ERC20/IERC20.sol
+  no-inline-assembly               Avoid to use inline assembly. It is acceptable only in rare cases
+  use-forbidden-name               Avoid to use letters 'I', 'l', 'O' as identifiers
+  use-natspec                      Missing @author tag in contract 'SpokeVaultTypes'
+
+findings per file (top 12):
+    143 src/interfaces/ICoreVault.sol
+    139 src/interfaces/ISpokeVault.sol
+    105 src/core/CoreVaultLogic.sol
+     60 src/libraries/IncomeAccumulator.sol
+     50 src/core/CoreVaultBase.sol
+     47 src/interfaces/IAdapter.sol
+     40 src/spoke/SpokeVault.sol
+     40 src/adapters/UniswapV4Adapter.sol
+     35 src/spoke/SpokeCrossChainLib.sol
+     34 src/factory/FundFactory.sol
+     32 src/adapters/AaveV3Adapter.sol
+     30 src/interfaces/IFundFactory.sol
+gas-* rules total: 144 ; non-gas total: 896
+files with at least one finding: 45

@@ -1,0 +1,577 @@
+#1 [High/High] encode-packed-collision | FundFactory._deployCoreVault(Mandate,IFundFactory.FundAddresses,bytes) | src/factory/FundFactory.sol#460-479
+     FundFactory._deployCoreVault(Mandate,IFundFactory.FundAddresses,bytes) (src/factory/FundFactory.sol#460-479) calls abi.encodePacked() with multiple dynamic arguments:
+     	- Create3.deploy(saltOf(a.fundId,ROLE_CORE_VAULT,chainId),abi.encodePacked(creationCode,abi.encode(m,c))) (src/factory/FundFactory.sol#478)
+
+#2 [High/Medium] reentrancy-balance | CoreVault.claimPayout(bytes) | src/core/CoreVault.sol#144-177
+     Reentrancy in CoreVault.claimPayout(bytes) (src/core/CoreVault.sol#144-177):
+     	External call allowing reentrancy:
+     	- c.proceeds = _unwindForPayout(shortfall + shortfall * UNWIND_MARGIN_BPS / 10_000,unwindHints) (src/core/CoreVault.sol#160)
+     		- ISpokeVault(hubSpokeVault).unwindForPayout(target,hints) (src/core/CoreVault.sol#207-212)
+     	Balance read before the call:
+     	- c.balance = _sharesOf(msg.sender) (src/core/CoreVault.sol#151)
+     	Possible stale balance used after the call in a condition:
+     	- c.shares == 0 (src/core/CoreVault.sol#172)
+     		- stale variable `REF_1211`
+
+#3 [High/Medium] reentrancy-balance | CoreVaultLogic.sendToSpoke(CoreVaultState,CoreVaultWiring,uint256,uint256,uint256,BridgeQuote) | src/core/CoreVaultLogic.sol#576-635
+     Reentrancy in CoreVaultLogic.sendToSpoke(CoreVaultState,CoreVaultWiring,uint256,uint256,uint256,BridgeQuote) (src/core/CoreVaultLogic.sol#576-635):
+     	External call allowing reentrancy:
+     	- (ok,ret) = call.target.call(call.data) (src/core/CoreVaultLogic.sol#626)
+     	Balance read before the call:
+     	- before = token.balanceOf(address(this)) (src/core/CoreVaultLogic.sol#624)
+     	Possible stale balance used after the call in a condition:
+     	- debited != usdcAmount (src/core/CoreVaultLogic.sol#633)
+     		- stale variable `debited`
+
+#4 [High/Medium] reentrancy-balance | CoreVaultLogic.recognizeRefund(CoreVaultState,CoreVaultWiring,bytes32) | src/core/CoreVaultLogic.sol#735-756
+     Reentrancy in CoreVaultLogic.recognizeRefund(CoreVaultState,CoreVaultWiring,bytes32) (src/core/CoreVaultLogic.sol#735-756):
+     	External call allowing reentrancy:
+     	- ITransitEscrow(escrow).release(address(this)) (src/core/CoreVaultLogic.sol#753)
+     	Balance read before the call:
+     	- held = token.balanceOf(escrow) (src/core/CoreVaultLogic.sol#743)
+     	Possible stale balance used after the call in a condition:
+     	- received != held (src/core/CoreVaultLogic.sol#755)
+     		- stale variable `held`
+
+#5 [High/Medium] reentrancy-balance | CoreVaultLogic.recognizeRefund(CoreVaultState,CoreVaultWiring,bytes32) | src/core/CoreVaultLogic.sol#735-756
+     Reentrancy in CoreVaultLogic.recognizeRefund(CoreVaultState,CoreVaultWiring,bytes32) (src/core/CoreVaultLogic.sol#735-756):
+     	External call allowing reentrancy:
+     	- ITransitEscrow(escrow).release(address(this)) (src/core/CoreVaultLogic.sol#753)
+     	Balance read before the call:
+     	- before = token.balanceOf(address(this)) (src/core/CoreVaultLogic.sol#752)
+     	Possible stale balance used after the call in a condition:
+     	- received != held (src/core/CoreVaultLogic.sol#755)
+     		- stale variable `received`
+
+#6 [High/Medium] reentrancy-balance | SpokeCrossChainLib.recognizeRefund(SpokeVaultTypes.State,address,bytes32) | src/spoke/SpokeCrossChainLib.sol#70-91
+     Reentrancy in SpokeCrossChainLib.recognizeRefund(SpokeVaultTypes.State,address,bytes32) (src/spoke/SpokeCrossChainLib.sol#70-91):
+     	External call allowing reentrancy:
+     	- ITransitEscrow(escrow).release(address(this)) (src/spoke/SpokeCrossChainLib.sol#88)
+     	Balance read before the call:
+     	- before = token.balanceOf(address(this)) (src/spoke/SpokeCrossChainLib.sol#87)
+     	Possible stale balance used after the call in a condition:
+     	- received != held (src/spoke/SpokeCrossChainLib.sol#90)
+     		- stale variable `received`
+
+#7 [High/Medium] reentrancy-balance | SpokeCrossChainLib.recognizeRefund(SpokeVaultTypes.State,address,bytes32) | src/spoke/SpokeCrossChainLib.sol#70-91
+     Reentrancy in SpokeCrossChainLib.recognizeRefund(SpokeVaultTypes.State,address,bytes32) (src/spoke/SpokeCrossChainLib.sol#70-91):
+     	External call allowing reentrancy:
+     	- ITransitEscrow(escrow).release(address(this)) (src/spoke/SpokeCrossChainLib.sol#88)
+     	Balance read before the call:
+     	- held = token.balanceOf(escrow) (src/spoke/SpokeCrossChainLib.sol#79)
+     	Possible stale balance used after the call in a condition:
+     	- received != held (src/spoke/SpokeCrossChainLib.sol#90)
+     		- stale variable `held`
+
+#8 [High/Medium] reentrancy-balance | SpokeCrossChainLib._executeBridgeCall(address,address,bytes,uint256) | src/spoke/SpokeCrossChainLib.sol#337-351
+     Reentrancy in SpokeCrossChainLib._executeBridgeCall(address,address,bytes,uint256) (src/spoke/SpokeCrossChainLib.sol#337-351):
+     	External call allowing reentrancy:
+     	- (ok,returned) = target.call(data) (src/spoke/SpokeCrossChainLib.sol#341)
+     	Balance read before the call:
+     	- balanceBefore = token.balanceOf(address(this)) (src/spoke/SpokeCrossChainLib.sol#339)
+     	Possible stale balance used after the call in a condition:
+     	- debited != amount (src/spoke/SpokeCrossChainLib.sol#349)
+     		- stale variable `debited`
+
+#9 [Medium/Medium] divide-before-multiply | CoreVaultLogic._collectIncome(CoreVaultState,CoreVaultWiring,address,uint256) | src/core/CoreVaultLogic.sol#386-397
+     CoreVaultLogic._collectIncome(CoreVaultState,CoreVaultWiring,address,uint256) (src/core/CoreVaultLogic.sol#386-397) performs a multiplication on the result of a division:
+     	- managerFee = amount * s.performanceFeeBps / BPS (src/core/CoreVaultLogic.sol#388)
+     	- slice = managerFee * sliceBps / BPS (src/core/CoreVaultLogic.sol#389)
+
+#10 [Medium/High] incorrect-equality | UniswapV4Adapter.swapExactInput(bytes32,address,uint256,uint256,bytes) | src/adapters/UniswapV4Adapter.sol#516-543
+     UniswapV4Adapter.swapExactInput(bytes32,address,uint256,uint256,bytes) (src/adapters/UniswapV4Adapter.sol#516-543) uses a dangerous strict equality:
+     	- limit == 0 (src/adapters/UniswapV4Adapter.sol#533)
+
+#11 [Medium/High] incorrect-equality | CoreVault.requestPayout(uint256,ICoreVault.PayoutMode) | src/core/CoreVault.sol#98-130
+     CoreVault.requestPayout(uint256,ICoreVault.PayoutMode) (src/core/CoreVault.sol#98-130) uses a dangerous strict equality:
+     	- balance == 0 (src/core/CoreVault.sol#104)
+
+#12 [Medium/High] incorrect-equality | CoreVault.claimPayout(bytes) | src/core/CoreVault.sol#144-177
+     CoreVault.claimPayout(bytes) (src/core/CoreVault.sol#144-177) uses a dangerous strict equality:
+     	- c.shares == 0 (src/core/CoreVault.sol#172)
+
+#13 [Medium/High] incorrect-equality | CoreVault.claimPayout(bytes) | src/core/CoreVault.sol#144-177
+     CoreVault.claimPayout(bytes) (src/core/CoreVault.sol#144-177) uses a dangerous strict equality:
+     	- c.balance == 0 (src/core/CoreVault.sol#152)
+
+#14 [Medium/High] incorrect-equality | CoreVault._executePayout(CoreVault.Claim,ICoreVault.PayoutRequest) | src/core/CoreVault.sol#217-262
+     CoreVault._executePayout(CoreVault.Claim,ICoreVault.PayoutRequest) (src/core/CoreVault.sol#217-262) uses a dangerous strict equality:
+     	- c.shares == c.balance (src/core/CoreVault.sol#261)
+
+#15 [Medium/High] incorrect-equality | CoreVault._executePayout(CoreVault.Claim,ICoreVault.PayoutRequest) | src/core/CoreVault.sol#217-262
+     CoreVault._executePayout(CoreVault.Claim,ICoreVault.PayoutRequest) (src/core/CoreVault.sol#217-262) uses a dangerous strict equality:
+     	- r.closedBelowOneShare = c.complete && c.shares == 0 (src/core/CoreVault.sol#231)
+
+#16 [Medium/High] incorrect-equality | CoreVaultBase._topUpOperatingCash() | src/core/CoreVaultBase.sol#283-296
+     CoreVaultBase._topUpOperatingCash() (src/core/CoreVaultBase.sol#283-296) uses a dangerous strict equality:
+     	- amount == 0 (src/core/CoreVaultBase.sol#291)
+
+#17 [Medium/High] incorrect-equality | CoreVaultIncome._takeIncome(address,address) | src/core/CoreVaultIncome.sol#53-59
+     CoreVaultIncome._takeIncome(address,address) (src/core/CoreVaultIncome.sol#53-59) uses a dangerous strict equality:
+     	- amount == 0 (src/core/CoreVaultIncome.sol#55)
+
+#18 [Medium/High] incorrect-equality | CoreVaultTransit.sweepExcess(address) | src/core/CoreVaultTransit.sol#129-134
+     CoreVaultTransit.sweepExcess(address) (src/core/CoreVaultTransit.sol#129-134) uses a dangerous strict equality:
+     	- amount == 0 (src/core/CoreVaultTransit.sol#131)
+
+#19 [Medium/High] incorrect-equality | ValueReportReceiver.latestReport(uint256) | src/report/ValueReportReceiver.sol#214-223
+     ValueReportReceiver.latestReport(uint256) (src/report/ValueReportReceiver.sol#214-223) uses a dangerous strict equality:
+     	- state.acceptedAt == 0 (src/report/ValueReportReceiver.sol#220)
+
+#20 [Medium/Medium] reentrancy-no-eth | AaveV3Adapter.openPosition(bytes32,bytes) | src/adapters/AaveV3Adapter.sol#164-183
+     Reentrancy in AaveV3Adapter.openPosition(bytes32,bytes) (src/adapters/AaveV3Adapter.sol#164-183):
+     	External calls:
+     	- used0 = _supply(asset,l,params) (src/adapters/AaveV3Adapter.sol#178)
+     		- pool.supply(asset,amount,address(this),0) (src/adapters/AaveV3Adapter.sol#468)
+     	State variables written after the call(s):
+     	- l.principal = used0 (src/adapters/AaveV3Adapter.sol#179)
+     	AaveV3Adapter._ledgers (src/adapters/AaveV3Adapter.sol#75) can be used in cross function reentrancies:
+     	- AaveV3Adapter._listedAsset(bytes32) (src/adapters/AaveV3Adapter.sol#513-517)
+     	- AaveV3Adapter._openAsset(bytes32) (src/adapters/AaveV3Adapter.sol#520-523)
+     	- AaveV3Adapter.constructor(address,address,address,address[]) (src/adapters/AaveV3Adapter.sol#123-138)
+     	- AaveV3Adapter.cumulativeIncome(address) (src/adapters/AaveV3Adapter.sol#317-322)
+     	- AaveV3Adapter.ledger(address) (src/adapters/AaveV3Adapter.sol#359-361)
+     	- AaveV3Adapter.positionKeys() (src/adapters/AaveV3Adapter.sol#325-335)
+     	- AaveV3Adapter.positionValue(bytes32) (src/adapters/AaveV3Adapter.sol#298-308)
+     ... (1 more lines)
+
+#21 [Medium/Medium] reentrancy-no-eth | AaveV3Adapter.increasePosition(bytes32,bytes) | src/adapters/AaveV3Adapter.sol#190-209
+     Reentrancy in AaveV3Adapter.increasePosition(bytes32,bytes) (src/adapters/AaveV3Adapter.sol#190-209):
+     	External calls:
+     	- used0 = _supply(asset,l,params) (src/adapters/AaveV3Adapter.sol#203)
+     		- pool.supply(asset,amount,address(this),0) (src/adapters/AaveV3Adapter.sol#468)
+     	State variables written after the call(s):
+     	- l.principal += used0 (src/adapters/AaveV3Adapter.sol#204)
+     	AaveV3Adapter._ledgers (src/adapters/AaveV3Adapter.sol#75) can be used in cross function reentrancies:
+     	- AaveV3Adapter._listedAsset(bytes32) (src/adapters/AaveV3Adapter.sol#513-517)
+     	- AaveV3Adapter._openAsset(bytes32) (src/adapters/AaveV3Adapter.sol#520-523)
+     	- AaveV3Adapter.constructor(address,address,address,address[]) (src/adapters/AaveV3Adapter.sol#123-138)
+     	- AaveV3Adapter.cumulativeIncome(address) (src/adapters/AaveV3Adapter.sol#317-322)
+     	- AaveV3Adapter.ledger(address) (src/adapters/AaveV3Adapter.sol#359-361)
+     	- AaveV3Adapter.positionKeys() (src/adapters/AaveV3Adapter.sol#325-335)
+     	- AaveV3Adapter.positionValue(bytes32) (src/adapters/AaveV3Adapter.sol#298-308)
+     ... (1 more lines)
+
+#22 [Medium/Medium] reentrancy-no-eth | AaveV3Adapter.increasePosition(bytes32,bytes) | src/adapters/AaveV3Adapter.sol#190-209
+     Reentrancy in AaveV3Adapter.increasePosition(bytes32,bytes) (src/adapters/AaveV3Adapter.sol#190-209):
+     	External calls:
+     	- used0 = _supply(asset,l,params) (src/adapters/AaveV3Adapter.sol#203)
+     		- pool.supply(asset,amount,address(this),0) (src/adapters/AaveV3Adapter.sol#468)
+     	- income0 = _takeIncome(asset,l,index,income,_value(l,index)) (src/adapters/AaveV3Adapter.sol#205)
+     		- paid = pool.withdraw(asset,amount,vault) (src/adapters/AaveV3Adapter.sol#483-487)
+     		- withdrawn = pool.withdraw(asset,amount,vault) (src/adapters/AaveV3Adapter.sol#489)
+     	State variables written after the call(s):
+     	- income0 = _takeIncome(asset,l,index,income,_value(l,index)) (src/adapters/AaveV3Adapter.sol#205)
+     		- l.realizedIncome += take (src/adapters/AaveV3Adapter.sol#446)
+     		- l.principal -= Math.min(l.principal,expected - valueAfter) (src/adapters/AaveV3Adapter.sol#450)
+     		- l.scaledBalance = scaledBalance - burned (src/adapters/AaveV3Adapter.sol#495)
+     	AaveV3Adapter._ledgers (src/adapters/AaveV3Adapter.sol#75) can be used in cross function reentrancies:
+     	- AaveV3Adapter._listedAsset(bytes32) (src/adapters/AaveV3Adapter.sol#513-517)
+     ... (7 more lines)
+
+#23 [Medium/Medium] reentrancy-no-eth | AaveV3Adapter.closePosition(bytes32,bytes) | src/adapters/AaveV3Adapter.sol#250-267
+     Reentrancy in AaveV3Adapter.closePosition(bytes32,bytes) (src/adapters/AaveV3Adapter.sol#250-267):
+     	External calls:
+     	- (amounts,emptied) = _exit(asset,l,type()(uint256).max) (src/adapters/AaveV3Adapter.sol#260)
+     		- paid = pool.withdraw(asset,amount,vault) (src/adapters/AaveV3Adapter.sol#483-487)
+     		- withdrawn = pool.withdraw(asset,amount,vault) (src/adapters/AaveV3Adapter.sol#489)
+     		- withdrawn = pool.withdraw(asset,type()(uint256).max,vault) (src/adapters/AaveV3Adapter.sol#399-416)
+     	State variables written after the call(s):
+     	- l.open = true (src/adapters/AaveV3Adapter.sol#264)
+     	AaveV3Adapter._ledgers (src/adapters/AaveV3Adapter.sol#75) can be used in cross function reentrancies:
+     	- AaveV3Adapter._listedAsset(bytes32) (src/adapters/AaveV3Adapter.sol#513-517)
+     	- AaveV3Adapter._openAsset(bytes32) (src/adapters/AaveV3Adapter.sol#520-523)
+     	- AaveV3Adapter.constructor(address,address,address,address[]) (src/adapters/AaveV3Adapter.sol#123-138)
+     	- AaveV3Adapter.cumulativeIncome(address) (src/adapters/AaveV3Adapter.sol#317-322)
+     	- AaveV3Adapter.ledger(address) (src/adapters/AaveV3Adapter.sol#359-361)
+     ... (3 more lines)
+
+#24 [Medium/Medium] reentrancy-no-eth | AaveV3Adapter._exit(address,AaveV3Adapter.Ledger,uint256) | src/adapters/AaveV3Adapter.sol#382-430
+     Reentrancy in AaveV3Adapter._exit(address,AaveV3Adapter.Ledger,uint256) (src/adapters/AaveV3Adapter.sol#382-430):
+     	External calls:
+     	- withdrawn = pool.withdraw(asset,type()(uint256).max,vault) (src/adapters/AaveV3Adapter.sol#399-416)
+     	- _withdraw(asset,l,principalAmount,false) (src/adapters/AaveV3Adapter.sol#424)
+     		- paid = pool.withdraw(asset,amount,vault) (src/adapters/AaveV3Adapter.sol#483-487)
+     		- withdrawn = pool.withdraw(asset,amount,vault) (src/adapters/AaveV3Adapter.sol#489)
+     	- amounts.income0 = _takeIncome(asset,l,index,income,valueLeft) (src/adapters/AaveV3Adapter.sol#427)
+     		- paid = pool.withdraw(asset,amount,vault) (src/adapters/AaveV3Adapter.sol#483-487)
+     		- withdrawn = pool.withdraw(asset,amount,vault) (src/adapters/AaveV3Adapter.sol#489)
+     	State variables written after the call(s):
+     	- amounts.income0 = _takeIncome(asset,l,index,income,valueLeft) (src/adapters/AaveV3Adapter.sol#427)
+     		- l.realizedIncome += take (src/adapters/AaveV3Adapter.sol#446)
+     		- l.principal -= Math.min(l.principal,expected - valueAfter) (src/adapters/AaveV3Adapter.sol#450)
+     		- l.scaledBalance = scaledBalance - burned (src/adapters/AaveV3Adapter.sol#495)
+     ... (9 more lines)
+
+#25 [Medium/Medium] reentrancy-no-eth | AaveV3Adapter._exit(address,AaveV3Adapter.Ledger,uint256) | src/adapters/AaveV3Adapter.sol#382-430
+     Reentrancy in AaveV3Adapter._exit(address,AaveV3Adapter.Ledger,uint256) (src/adapters/AaveV3Adapter.sol#382-430):
+     	External calls:
+     	- withdrawn = pool.withdraw(asset,type()(uint256).max,vault) (src/adapters/AaveV3Adapter.sol#399-416)
+     	- _withdraw(asset,l,principalAmount,false) (src/adapters/AaveV3Adapter.sol#424)
+     		- paid = pool.withdraw(asset,amount,vault) (src/adapters/AaveV3Adapter.sol#483-487)
+     		- withdrawn = pool.withdraw(asset,amount,vault) (src/adapters/AaveV3Adapter.sol#489)
+     	State variables written after the call(s):
+     	- _withdraw(asset,l,principalAmount,false) (src/adapters/AaveV3Adapter.sol#424)
+     		- l.scaledBalance = scaledBalance - burned (src/adapters/AaveV3Adapter.sol#495)
+     	AaveV3Adapter._ledgers (src/adapters/AaveV3Adapter.sol#75) can be used in cross function reentrancies:
+     	- AaveV3Adapter._listedAsset(bytes32) (src/adapters/AaveV3Adapter.sol#513-517)
+     	- AaveV3Adapter._openAsset(bytes32) (src/adapters/AaveV3Adapter.sol#520-523)
+     	- AaveV3Adapter.constructor(address,address,address,address[]) (src/adapters/AaveV3Adapter.sol#123-138)
+     	- AaveV3Adapter.cumulativeIncome(address) (src/adapters/AaveV3Adapter.sol#317-322)
+     ... (4 more lines)
+
+#26 [Medium/Medium] reentrancy-no-eth | AaveV3Adapter._exit(address,AaveV3Adapter.Ledger,uint256) | src/adapters/AaveV3Adapter.sol#382-430
+     Reentrancy in AaveV3Adapter._exit(address,AaveV3Adapter.Ledger,uint256) (src/adapters/AaveV3Adapter.sol#382-430):
+     	External calls:
+     	- withdrawn = pool.withdraw(asset,type()(uint256).max,vault) (src/adapters/AaveV3Adapter.sol#399-416)
+     	State variables written after the call(s):
+     	- l.realizedIncome += amounts.income0 (src/adapters/AaveV3Adapter.sol#411)
+     	AaveV3Adapter._ledgers (src/adapters/AaveV3Adapter.sol#75) can be used in cross function reentrancies:
+     	- AaveV3Adapter._listedAsset(bytes32) (src/adapters/AaveV3Adapter.sol#513-517)
+     	- AaveV3Adapter._openAsset(bytes32) (src/adapters/AaveV3Adapter.sol#520-523)
+     	- AaveV3Adapter.constructor(address,address,address,address[]) (src/adapters/AaveV3Adapter.sol#123-138)
+     	- AaveV3Adapter.cumulativeIncome(address) (src/adapters/AaveV3Adapter.sol#317-322)
+     	- AaveV3Adapter.ledger(address) (src/adapters/AaveV3Adapter.sol#359-361)
+     	- AaveV3Adapter.positionKeys() (src/adapters/AaveV3Adapter.sol#325-335)
+     	- AaveV3Adapter.positionValue(bytes32) (src/adapters/AaveV3Adapter.sol#298-308)
+     	- AaveV3Adapter.unwindExitParams(bytes32,uint256,uint256) (src/adapters/AaveV3Adapter.sol#340-350)
+     ... (40 more lines)
+
+#27 [Medium/Medium] reentrancy-no-eth | AaveV3Adapter._takeIncome(address,AaveV3Adapter.Ledger,uint256,uint256,uint256) | src/adapters/AaveV3Adapter.sol#439-452
+     Reentrancy in AaveV3Adapter._takeIncome(address,AaveV3Adapter.Ledger,uint256,uint256,uint256) (src/adapters/AaveV3Adapter.sol#439-452):
+     	External calls:
+     	- take != 0 && ! _withdraw(asset,l,take,true) (src/adapters/AaveV3Adapter.sol#445)
+     		- paid = pool.withdraw(asset,amount,vault) (src/adapters/AaveV3Adapter.sol#483-487)
+     		- withdrawn = pool.withdraw(asset,amount,vault) (src/adapters/AaveV3Adapter.sol#489)
+     	State variables written after the call(s):
+     	- l.realizedIncome += take (src/adapters/AaveV3Adapter.sol#446)
+     	AaveV3Adapter._ledgers (src/adapters/AaveV3Adapter.sol#75) can be used in cross function reentrancies:
+     	- AaveV3Adapter._listedAsset(bytes32) (src/adapters/AaveV3Adapter.sol#513-517)
+     	- AaveV3Adapter._openAsset(bytes32) (src/adapters/AaveV3Adapter.sol#520-523)
+     	- AaveV3Adapter.constructor(address,address,address,address[]) (src/adapters/AaveV3Adapter.sol#123-138)
+     	- AaveV3Adapter.cumulativeIncome(address) (src/adapters/AaveV3Adapter.sol#317-322)
+     	- AaveV3Adapter.ledger(address) (src/adapters/AaveV3Adapter.sol#359-361)
+     	- AaveV3Adapter.positionKeys() (src/adapters/AaveV3Adapter.sol#325-335)
+     ... (12 more lines)
+
+#28 [Medium/Medium] reentrancy-no-eth | AaveV3Adapter._supply(address,AaveV3Adapter.Ledger,bytes) | src/adapters/AaveV3Adapter.sol#457-473
+     Reentrancy in AaveV3Adapter._supply(address,AaveV3Adapter.Ledger,bytes) (src/adapters/AaveV3Adapter.sol#457-473):
+     	External calls:
+     	- pool.supply(asset,amount,address(this),0) (src/adapters/AaveV3Adapter.sol#468)
+     	State variables written after the call(s):
+     	- l.scaledBalance += aToken.scaledBalanceOf(address(this)) - scaledBefore (src/adapters/AaveV3Adapter.sol#470)
+     	AaveV3Adapter._ledgers (src/adapters/AaveV3Adapter.sol#75) can be used in cross function reentrancies:
+     	- AaveV3Adapter._listedAsset(bytes32) (src/adapters/AaveV3Adapter.sol#513-517)
+     	- AaveV3Adapter._openAsset(bytes32) (src/adapters/AaveV3Adapter.sol#520-523)
+     	- AaveV3Adapter.constructor(address,address,address,address[]) (src/adapters/AaveV3Adapter.sol#123-138)
+     	- AaveV3Adapter.cumulativeIncome(address) (src/adapters/AaveV3Adapter.sol#317-322)
+     	- AaveV3Adapter.ledger(address) (src/adapters/AaveV3Adapter.sol#359-361)
+     	- AaveV3Adapter.positionKeys() (src/adapters/AaveV3Adapter.sol#325-335)
+     	- AaveV3Adapter.positionValue(bytes32) (src/adapters/AaveV3Adapter.sol#298-308)
+     	- AaveV3Adapter.unwindExitParams(bytes32,uint256,uint256) (src/adapters/AaveV3Adapter.sol#340-350)
+
+#29 [Medium/Medium] reentrancy-no-eth | AaveV3Adapter._withdraw(address,AaveV3Adapter.Ledger,uint256,bool) | src/adapters/AaveV3Adapter.sol#478-497
+     Reentrancy in AaveV3Adapter._withdraw(address,AaveV3Adapter.Ledger,uint256,bool) (src/adapters/AaveV3Adapter.sol#478-497):
+     	External calls:
+     	- paid = pool.withdraw(asset,amount,vault) (src/adapters/AaveV3Adapter.sol#483-487)
+     	- withdrawn = pool.withdraw(asset,amount,vault) (src/adapters/AaveV3Adapter.sol#489)
+     	State variables written after the call(s):
+     	- l.scaledBalance = scaledBalance - burned (src/adapters/AaveV3Adapter.sol#495)
+     	AaveV3Adapter._ledgers (src/adapters/AaveV3Adapter.sol#75) can be used in cross function reentrancies:
+     	- AaveV3Adapter._listedAsset(bytes32) (src/adapters/AaveV3Adapter.sol#513-517)
+     	- AaveV3Adapter._openAsset(bytes32) (src/adapters/AaveV3Adapter.sol#520-523)
+     	- AaveV3Adapter.constructor(address,address,address,address[]) (src/adapters/AaveV3Adapter.sol#123-138)
+     	- AaveV3Adapter.cumulativeIncome(address) (src/adapters/AaveV3Adapter.sol#317-322)
+     	- AaveV3Adapter.ledger(address) (src/adapters/AaveV3Adapter.sol#359-361)
+     	- AaveV3Adapter.positionKeys() (src/adapters/AaveV3Adapter.sol#325-335)
+     	- AaveV3Adapter.positionValue(bytes32) (src/adapters/AaveV3Adapter.sol#298-308)
+     ... (1 more lines)
+
+#30 [Medium/Medium] reentrancy-no-eth | CoreVault.claimPayout(bytes) | src/core/CoreVault.sol#144-177
+     Reentrancy in CoreVault.claimPayout(bytes) (src/core/CoreVault.sol#144-177):
+     	External calls:
+     	- c.proceeds = _unwindForPayout(shortfall + shortfall * UNWIND_MARGIN_BPS / 10_000,unwindHints) (src/core/CoreVault.sol#160)
+     		- ISpokeVault(hubSpokeVault).unwindForPayout(target,hints) (src/core/CoreVault.sol#207-212)
+     	- receipt = _executePayout(c,req) (src/core/CoreVault.sol#174)
+     		- ShareToken(shareToken).burn(msg.sender,c.shares) (src/core/CoreVault.sol#258)
+     	State variables written after the call(s):
+     	- receipt = _executePayout(c,req) (src/core/CoreVault.sol#174)
+     		- _s.collectedIncome[token] -= amount (src/core/CoreVaultIncome.sol#56)
+     		- _s.idle -= r.usdcGross (src/core/CoreVault.sol#239)
+     		- _s.operatingCash += r.payoutFee (src/core/CoreVault.sol#243)
+     		- req.open = false (src/core/CoreVault.sol#246)
+     		- req.usdcOutstanding = 0 (src/core/CoreVault.sol#247)
+     		- req.reserved = 0 (src/core/CoreVault.sol#248)
+     ... (32 more lines)
+
+#31 [Medium/Medium] reentrancy-no-eth | CoreVault._executePayout(CoreVault.Claim,ICoreVault.PayoutRequest) | src/core/CoreVault.sol#217-262
+     Reentrancy in CoreVault._executePayout(CoreVault.Claim,ICoreVault.PayoutRequest) (src/core/CoreVault.sol#217-262):
+     	External calls:
+     	- ShareToken(shareToken).burn(msg.sender,c.shares) (src/core/CoreVault.sol#258)
+     	State variables written after the call(s):
+     	- _payAllIncome(msg.sender) (src/core/CoreVault.sol#261)
+     		- _s.collectedIncome[token] -= amount (src/core/CoreVaultIncome.sol#56)
+     	CoreVaultBase._s (src/core/CoreVaultBase.sol#56) can be used in cross function reentrancies:
+     	- CoreVaultBase._copyMandate(Mandate) (src/core/CoreVaultBase.sol#119-148)
+     	- CoreVaultBase._ledger(address) (src/core/CoreVaultBase.sol#324-327)
+     	- CoreVaultBase._pinBridgeAdapters(Mandate) (src/core/CoreVaultBase.sol#152-161)
+     	- CoreVaultIncome.attributedIncome(address,address) (src/core/CoreVaultIncome.sol#86-89)
+     	- CoreVaultIncome.collectedIncome(address) (src/core/CoreVaultIncome.sol#92-94)
+     	- CoreVaultBase.constructor(Mandate,CoreVaultConfig) (src/core/CoreVaultBase.sol#68-116)
+     	- CoreVaultBase.freeIdle() (src/core/CoreVaultBase.sol#200-202)
+     ... (20 more lines)
+
+#32 [Medium/Medium] reentrancy-no-eth | SpokeVault.openPosition(address,bytes32,uint256,uint256,bytes) | src/spoke/SpokeVault.sol#249-270
+     Reentrancy in SpokeVault.openPosition(address,bytes32,uint256,uint256,bytes) (src/spoke/SpokeVault.sol#249-270):
+     	External calls:
+     	- (positionKey,used0,used1) = a.openPosition(poolKey,params) (src/spoke/SpokeVault.sol#261)
+     	State variables written after the call(s):
+     	- _creditUnused(adapter,p,amount0,used0,amount1,used1) (src/spoke/SpokeVault.sol#262)
+     		- _s.unallocated[p.token0] += sent0 - used0 (src/spoke/SpokeVault.sol#944)
+     		- _s.unallocated[p.token1] += sent1 - used1 (src/spoke/SpokeVault.sol#945)
+     	SpokeVault._s (src/spoke/SpokeVault.sol#93) can be used in cross function reentrancies:
+     	- SpokeVault._copyUnwindOrder(Mandate,uint256) (src/spoke/SpokeVault.sol#211-215)
+     	- SpokeVault._pinAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#188-196)
+     	- SpokeVault._pinBridgeAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#219-229)
+     	- SpokeVault._pinPools(Mandate,uint256) (src/spoke/SpokeVault.sol#199-208)
+     	- SpokeVault._pool(address,bytes32) (src/spoke/SpokeVault.sol#703-706)
+     	- SpokeVault._registerToken(address) (src/spoke/SpokeVault.sol#236-240)
+     ... (82 more lines)
+
+#33 [Medium/Medium] reentrancy-no-eth | SpokeVault.increasePosition(address,bytes32,uint256,uint256,bytes) | src/spoke/SpokeVault.sol#274-292
+     Reentrancy in SpokeVault.increasePosition(address,bytes32,uint256,uint256,bytes) (src/spoke/SpokeVault.sol#274-292):
+     	External calls:
+     	- (used0,used1,income0,income1) = a.increasePosition(positionKey,params) (src/spoke/SpokeVault.sol#287)
+     	State variables written after the call(s):
+     	- _creditUnused(adapter,p,amount0,used0,amount1,used1) (src/spoke/SpokeVault.sol#288)
+     		- _s.unallocated[p.token0] += sent0 - used0 (src/spoke/SpokeVault.sol#944)
+     		- _s.unallocated[p.token1] += sent1 - used1 (src/spoke/SpokeVault.sol#945)
+     	SpokeVault._s (src/spoke/SpokeVault.sol#93) can be used in cross function reentrancies:
+     	- SpokeVault._copyUnwindOrder(Mandate,uint256) (src/spoke/SpokeVault.sol#211-215)
+     	- SpokeVault._pinAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#188-196)
+     	- SpokeVault._pinBridgeAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#219-229)
+     	- SpokeVault._pinPools(Mandate,uint256) (src/spoke/SpokeVault.sol#199-208)
+     	- SpokeVault._pool(address,bytes32) (src/spoke/SpokeVault.sol#703-706)
+     	- SpokeVault._registerToken(address) (src/spoke/SpokeVault.sol#236-240)
+     ... (56 more lines)
+
+#34 [Medium/Medium] reentrancy-no-eth | SpokeVault.unwindForPayout(uint256,bytes) | src/spoke/SpokeVault.sol#524-547
+     Reentrancy in SpokeVault.unwindForPayout(uint256,bytes) (src/spoke/SpokeVault.sol#524-547):
+     	External calls:
+     	- visited = _unwindStep(_s.unwindOrder[s],hints,visited,usdcTarget) (src/spoke/SpokeVault.sol#538)
+     		- amounts = a.decreasePosition(positionKey,params) (src/spoke/SpokeVault.sol#759)
+     		- amounts = a.closePosition(positionKey,params) (src/spoke/SpokeVault.sol#762)
+     		- amounts = a.collectIncome(positionKey) (src/spoke/SpokeVault.sol#770)
+     		- amountOut = a.swapExactInput(poolKey,tokenIn,amountIn,minAmountOut,params) (src/spoke/SpokeVault.sol#799)
+     	State variables written after the call(s):
+     	- _s.unallocated[baseToken] -= usdcProceeds (src/spoke/SpokeVault.sol#543)
+     	SpokeVault._s (src/spoke/SpokeVault.sol#93) can be used in cross function reentrancies:
+     	- SpokeVault._copyUnwindOrder(Mandate,uint256) (src/spoke/SpokeVault.sol#211-215)
+     	- SpokeVault._pinAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#188-196)
+     	- SpokeVault._pinBridgeAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#219-229)
+     	- SpokeVault._pinPools(Mandate,uint256) (src/spoke/SpokeVault.sol#199-208)
+     ... (24 more lines)
+
+#35 [Medium/Medium] reentrancy-no-eth | SpokeVault._exit(address,bytes32,SpokeVaultTypes.ExitKind,bytes) | src/spoke/SpokeVault.sol#752-775
+     Reentrancy in SpokeVault._exit(address,bytes32,SpokeVaultTypes.ExitKind,bytes) (src/spoke/SpokeVault.sol#752-775):
+     	External calls:
+     	- amounts = a.closePosition(positionKey,params) (src/spoke/SpokeVault.sol#762)
+     	State variables written after the call(s):
+     	- _removePosition(adapter,positionKey) (src/spoke/SpokeVault.sol#766)
+     		- _s.positions[slot - 1] = moved (src/spoke/SpokeVault.sol#719)
+     		- _s.positionSlot[moved.adapter][moved.positionKey] = slot (src/spoke/SpokeVault.sol#720)
+     		- _s.positions.pop() (src/spoke/SpokeVault.sol#722)
+     		- delete _s.positionSlot[adapter][positionKey] (src/spoke/SpokeVault.sol#723)
+     	SpokeVault._s (src/spoke/SpokeVault.sol#93) can be used in cross function reentrancies:
+     	- SpokeVault._copyUnwindOrder(Mandate,uint256) (src/spoke/SpokeVault.sol#211-215)
+     	- SpokeVault._pinAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#188-196)
+     	- SpokeVault._pinBridgeAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#219-229)
+     	- SpokeVault._pinPools(Mandate,uint256) (src/spoke/SpokeVault.sol#199-208)
+     ... (24 more lines)
+
+#36 [Medium/Medium] reentrancy-no-eth | SpokeVault._exit(address,bytes32,SpokeVaultTypes.ExitKind,bytes) | src/spoke/SpokeVault.sol#752-775
+     Reentrancy in SpokeVault._exit(address,bytes32,SpokeVaultTypes.ExitKind,bytes) (src/spoke/SpokeVault.sol#752-775):
+     	External calls:
+     	- amounts = a.decreasePosition(positionKey,params) (src/spoke/SpokeVault.sol#759)
+     	- amounts = a.closePosition(positionKey,params) (src/spoke/SpokeVault.sol#762)
+     	- amounts = a.collectIncome(positionKey) (src/spoke/SpokeVault.sol#770)
+     	State variables written after the call(s):
+     	- _credit(p,amounts) (src/spoke/SpokeVault.sol#773)
+     		- _s.unallocated[p.token0] += a.principal0 (src/spoke/SpokeVault.sol#951)
+     		- _s.collectedIncome[p.token0] += a.income0 (src/spoke/SpokeVault.sol#952)
+     		- _s.unallocated[p.token1] += a.principal1 (src/spoke/SpokeVault.sol#954)
+     		- _s.collectedIncome[p.token1] += a.income1 (src/spoke/SpokeVault.sol#955)
+     	SpokeVault._s (src/spoke/SpokeVault.sol#93) can be used in cross function reentrancies:
+     	- SpokeVault._copyUnwindOrder(Mandate,uint256) (src/spoke/SpokeVault.sol#211-215)
+     	- SpokeVault._pinAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#188-196)
+     ... (26 more lines)
+
+#37 [Medium/Medium] reentrancy-no-eth | SpokeVault._swap(IAdapter,SpokeVaultTypes.PoolTokens,bytes32,address,uint256,uint256,bytes,bool) | src/spoke/SpokeVault.sol#779-809
+     Reentrancy in SpokeVault._swap(IAdapter,SpokeVaultTypes.PoolTokens,bytes32,address,uint256,uint256,bytes,bool) (src/spoke/SpokeVault.sol#779-809):
+     	External calls:
+     	- amountOut = a.swapExactInput(poolKey,tokenIn,amountIn,minAmountOut,params) (src/spoke/SpokeVault.sol#799)
+     	State variables written after the call(s):
+     	- _s.collectedIncome[tokenOut] += amountOut (src/spoke/SpokeVault.sol#802)
+     	SpokeVault._s (src/spoke/SpokeVault.sol#93) can be used in cross function reentrancies:
+     	- SpokeVault._copyUnwindOrder(Mandate,uint256) (src/spoke/SpokeVault.sol#211-215)
+     	- SpokeVault._pinAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#188-196)
+     	- SpokeVault._pinBridgeAdapters(Mandate,uint256) (src/spoke/SpokeVault.sol#219-229)
+     	- SpokeVault._pinPools(Mandate,uint256) (src/spoke/SpokeVault.sol#199-208)
+     	- SpokeVault._pool(address,bytes32) (src/spoke/SpokeVault.sol#703-706)
+     	- SpokeVault._registerToken(address) (src/spoke/SpokeVault.sol#236-240)
+     	- SpokeVault.adapterCodehash(address) (src/spoke/SpokeVault.sol#586-588)
+     	- SpokeVault.adapters() (src/spoke/SpokeVault.sol#570-572)
+     ... (50 more lines)
+
+#38 [Medium/Medium] reentrancy-no-eth | SpokeVault._unwindPosition(address,bytes32,bytes32,uint256,SpokeVaultTypes.UnwindSwap[]) | src/spoke/SpokeVault.sol#842-865
+     Reentrancy in SpokeVault._unwindPosition(address,bytes32,bytes32,uint256,SpokeVaultTypes.UnwindSwap[]) (src/spoke/SpokeVault.sol#842-865):
+     	External calls:
+     	- _unwindSwap(r0,amounts.principal0) (src/spoke/SpokeVault.sol#863)
+     		- amountOut = a.swapExactInput(poolKey,tokenIn,amountIn,minAmountOut,params) (src/spoke/SpokeVault.sol#799)
+     	- _unwindSwap(r1,amounts.principal1) (src/spoke/SpokeVault.sol#864)
+     		- amountOut = a.swapExactInput(poolKey,tokenIn,amountIn,minAmountOut,params) (src/spoke/SpokeVault.sol#799)
+     	- (amounts,None) = _exit(adapter,positionKey,SpokeVaultTypes.ExitKind.Close,params) (src/spoke/SpokeVault.sol#860-862)
+     		- amounts = a.decreasePosition(positionKey,params) (src/spoke/SpokeVault.sol#759)
+     		- amounts = a.closePosition(positionKey,params) (src/spoke/SpokeVault.sol#762)
+     		- amounts = a.collectIncome(positionKey) (src/spoke/SpokeVault.sol#770)
+     	- (amounts,None) = _exit(adapter,positionKey,SpokeVaultTypes.ExitKind.Decrease,params) (src/spoke/SpokeVault.sol#860-862)
+     		- amounts = a.decreasePosition(positionKey,params) (src/spoke/SpokeVault.sol#759)
+     		- amounts = a.closePosition(positionKey,params) (src/spoke/SpokeVault.sol#762)
+     		- amounts = a.collectIncome(positionKey) (src/spoke/SpokeVault.sol#770)
+     ... (35 more lines)
+
+#39 [Medium/Medium] reentrancy-no-eth | SpokeVault._unwindPosition(address,bytes32,bytes32,uint256,SpokeVaultTypes.UnwindSwap[]) | src/spoke/SpokeVault.sol#842-865
+     Reentrancy in SpokeVault._unwindPosition(address,bytes32,bytes32,uint256,SpokeVaultTypes.UnwindSwap[]) (src/spoke/SpokeVault.sol#842-865):
+     	External calls:
+     	- _unwindSwap(r0,amounts.principal0) (src/spoke/SpokeVault.sol#863)
+     		- amountOut = a.swapExactInput(poolKey,tokenIn,amountIn,minAmountOut,params) (src/spoke/SpokeVault.sol#799)
+     	- (amounts,None) = _exit(adapter,positionKey,SpokeVaultTypes.ExitKind.Close,params) (src/spoke/SpokeVault.sol#860-862)
+     		- amounts = a.decreasePosition(positionKey,params) (src/spoke/SpokeVault.sol#759)
+     		- amounts = a.closePosition(positionKey,params) (src/spoke/SpokeVault.sol#762)
+     		- amounts = a.collectIncome(positionKey) (src/spoke/SpokeVault.sol#770)
+     	- (amounts,None) = _exit(adapter,positionKey,SpokeVaultTypes.ExitKind.Decrease,params) (src/spoke/SpokeVault.sol#860-862)
+     		- amounts = a.decreasePosition(positionKey,params) (src/spoke/SpokeVault.sol#759)
+     		- amounts = a.closePosition(positionKey,params) (src/spoke/SpokeVault.sol#762)
+     		- amounts = a.collectIncome(positionKey) (src/spoke/SpokeVault.sol#770)
+     	State variables written after the call(s):
+     	- _unwindSwap(r0,amounts.principal0) (src/spoke/SpokeVault.sol#863)
+     ... (33 more lines)
+
+#40 [Medium/Medium] uninitialized-local | AaveV3Adapter.count | src/adapters/AaveV3Adapter.sol#326-326
+     AaveV3Adapter.positionKeys().count (src/adapters/AaveV3Adapter.sol#326) is a local variable never initialized
+
+#41 [Medium/Medium] uninitialized-local | AaveV3Adapter.withdrawn | src/adapters/AaveV3Adapter.sol#481-481
+     AaveV3Adapter._withdraw(address,AaveV3Adapter.Ledger,uint256,bool).withdrawn (src/adapters/AaveV3Adapter.sol#481) is a local variable never initialized
+
+#42 [Medium/Medium] uninitialized-local | CoreVault.reserved | src/core/CoreVault.sol#109-109
+     CoreVault.requestPayout(uint256,ICoreVault.PayoutMode).reserved (src/core/CoreVault.sol#109) is a local variable never initialized
+
+#43 [Medium/Medium] uninitialized-local | CoreVault.c | src/core/CoreVault.sol#150-150
+     CoreVault.claimPayout(bytes).c (src/core/CoreVault.sol#150) is a local variable never initialized
+
+#44 [Medium/Medium] uninitialized-local | CoreVaultLogic.shortfall | src/core/CoreVaultLogic.sol#181-181
+     CoreVaultLogic._valuation(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices).shortfall (src/core/CoreVaultLogic.sol#181) is a local variable never initialized
+
+#45 [Medium/Medium] uninitialized-local | CoreVaultLogic.fellBack | src/core/CoreVaultLogic.sol#331-331
+     CoreVaultLogic._price(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address).fellBack (src/core/CoreVaultLogic.sol#331) is a local variable never initialized
+
+#46 [Medium/Medium] uninitialized-local | CoreVaultLogic.seen | src/core/CoreVaultLogic.sol#698-698
+     CoreVaultLogic._hubBridgeAdapter(CoreVaultState,uint256,uint256,uint256).seen (src/core/CoreVaultLogic.sol#698) is a local variable never initialized
+
+#47 [Medium/Medium] uninitialized-local | FundFactory.matched | src/factory/FundFactory.sol#386-386
+     FundFactory._deployUniswapV4Adapter(Mandate,bytes32,uint256,IFundFactory.ChainAddresses,PoolKey[]).matched (src/factory/FundFactory.sol#386) is a local variable never initialized
+
+#48 [Medium/Medium] uninitialized-local | FundFactory.c | src/factory/FundFactory.sol#462-462
+     FundFactory._deployCoreVault(Mandate,IFundFactory.FundAddresses,bytes).c (src/factory/FundFactory.sol#462) is a local variable never initialized
+
+#49 [Medium/Medium] uninitialized-local | IncomeAccumulator.newRemainder | src/libraries/IncomeAccumulator.sol#200-200
+     IncomeAccumulator.distribute(IncomeAccumulator.State,address,uint256,uint256).newRemainder (src/libraries/IncomeAccumulator.sol#200) is a local variable never initialized
+
+#50 [Medium/Medium] uninitialized-local | IncomeAccumulator.newIndex | src/libraries/IncomeAccumulator.sol#210-210
+     IncomeAccumulator.distribute(IncomeAccumulator.State,address,uint256,uint256).newIndex (src/libraries/IncomeAccumulator.sol#210) is a local variable never initialized
+
+#51 [Medium/Medium] uninitialized-local | MandateLib.seen | src/mandate/Mandate.sol#246-246
+     MandateLib.bridgeAdapterFor(Mandate,uint256,uint256,uint256).seen (src/mandate/Mandate.sol#246) is a local variable never initialized
+
+#52 [Medium/Medium] uninitialized-local | SpokeCrossChainLib.req | src/spoke/SpokeCrossChainLib.sol#250-250
+     SpokeCrossChainLib._buildCall(SpokeVaultTypes.State,SpokeVaultTypes.Config,address,address,uint256,TransferKind,bytes32,BridgeQuote).req (src/spoke/SpokeCrossChainLib.sol#250) is a local variable never initialized
+
+#53 [Medium/Medium] uninitialized-local | SpokeVault.visited | src/spoke/SpokeVault.sol#536-536
+     SpokeVault.unwindForPayout(uint256,bytes).visited (src/spoke/SpokeVault.sol#536) is a local variable never initialized
+
+#54 [Medium/Medium] uninitialized-local | SpokeVault.swaps | src/spoke/SpokeVault.sol#831-831
+     SpokeVault._unwindStep(UnwindStep,SpokeVaultTypes.UnwindHint[],uint256,uint256).swaps (src/spoke/SpokeVault.sol#831) is a local variable never initialized
+
+#55 [Medium/Medium] unused-return | UniswapV4Adapter.unwindExitParams(bytes32,uint256,uint256) | src/adapters/UniswapV4Adapter.sol#316-328
+     UniswapV4Adapter.unwindExitParams(bytes32,uint256,uint256) (src/adapters/UniswapV4Adapter.sol#316-328) ignores return value by (liquidity,None,None) = stateView.getPositionInfo(PoolId.wrap(position.poolId),address(positionManager),position.tickLower,position.tickUpper,positionKey) (src/adapters/Unis
+
+#56 [Medium/Medium] unused-return | UniswapV4Adapter.spotQuote(bytes32,address,uint256) | src/adapters/UniswapV4Adapter.sol#333-340
+     UniswapV4Adapter.spotQuote(bytes32,address,uint256) (src/adapters/UniswapV4Adapter.sol#333-340) ignores return value by (sqrtPriceX96,None,None,None) = stateView.getSlot0(PoolId.wrap(poolKey)) (src/adapters/UniswapV4Adapter.sol#335)
+
+#57 [Medium/Medium] unused-return | UniswapV4Adapter.openPosition(bytes32,bytes) | src/adapters/UniswapV4Adapter.sol#350-382
+     UniswapV4Adapter.openPosition(bytes32,bytes) (src/adapters/UniswapV4Adapter.sol#350-382) ignores return value by _openPositions.add(positionKey) (src/adapters/UniswapV4Adapter.sol#369)
+
+#58 [Medium/Medium] unused-return | UniswapV4Adapter.closePosition(bytes32,bytes) | src/adapters/UniswapV4Adapter.sol#464-490
+     UniswapV4Adapter.closePosition(bytes32,bytes) (src/adapters/UniswapV4Adapter.sol#464-490) ignores return value by _openPositions.remove(positionKey) (src/adapters/UniswapV4Adapter.sol#480)
+
+#59 [Medium/Medium] unused-return | UniswapV4Adapter._principal(UniswapV4Adapter.Position,uint128,bool) | src/adapters/UniswapV4Adapter.sol#621-637
+     UniswapV4Adapter._principal(UniswapV4Adapter.Position,uint128,bool) (src/adapters/UniswapV4Adapter.sol#621-637) ignores return value by (sqrtPriceX96,tick,None,None) = stateView.getSlot0(PoolId.wrap(position.poolId)) (src/adapters/UniswapV4Adapter.sol#626)
+
+#60 [Medium/Medium] unused-return | UniswapV4Adapter._liquidityForAmounts(UniswapV4Adapter.Position,uint256,uint256) | src/adapters/UniswapV4Adapter.sol#639-652
+     UniswapV4Adapter._liquidityForAmounts(UniswapV4Adapter.Position,uint256,uint256) (src/adapters/UniswapV4Adapter.sol#639-652) ignores return value by (sqrtPriceX96,None,None,None) = stateView.getSlot0(PoolId.wrap(position.poolId)) (src/adapters/UniswapV4Adapter.sol#644)
+
+#61 [Medium/Medium] unused-return | CoreVault.requestPayout(uint256,ICoreVault.PayoutMode) | src/core/CoreVault.sol#98-130
+     CoreVault.requestPayout(uint256,ICoreVault.PayoutMode) (src/core/CoreVault.sol#98-130) ignores return value by (assets,None) = CoreVaultLogic.recordValuation(_s,_wiring(),false) (src/core/CoreVault.sol#105)
+
+#62 [Medium/Medium] unused-return | CoreVault._unwindForPayout(uint256,bytes) | src/core/CoreVault.sol#204-214
+     CoreVault._unwindForPayout(uint256,bytes) (src/core/CoreVault.sol#204-214) ignores return value by ISpokeVault(hubSpokeVault).unwindForPayout(target,hints) (src/core/CoreVault.sol#207-212)
+
+#63 [Medium/Medium] unused-return | CoreVaultBase.shareAssets() | src/core/CoreVaultBase.sol#235-237
+     CoreVaultBase.shareAssets() (src/core/CoreVaultBase.sol#235-237) ignores return value by (assets,None) = CoreVaultLogic.shareAssets(_s,_wiring()) (src/core/CoreVaultBase.sol#236)
+
+#64 [Medium/Medium] unused-return | CoreVaultBase.inFlightValue() | src/core/CoreVaultBase.sol#245-247
+     CoreVaultBase.inFlightValue() (src/core/CoreVaultBase.sol#245-247) ignores return value by (None,value) = CoreVaultLogic.shareAssets(_s,_wiring()) (src/core/CoreVaultBase.sol#246)
+
+#65 [Medium/Medium] unused-return | CoreVaultLogic.grossAssets(CoreVaultState,CoreVaultWiring) | src/core/CoreVaultLogic.sol#120-138
+     CoreVaultLogic.grossAssets(CoreVaultState,CoreVaultWiring) (src/core/CoreVaultLogic.sol#120-138) ignores return value by (r,None,None) = receiver.latestReport(i_scope_0) (src/core/CoreVaultLogic.sol#132)
+
+#66 [Medium/Medium] unused-return | CoreVaultLogic.spokeCapUsage(CoreVaultState,CoreVaultWiring,uint256) | src/core/CoreVaultLogic.sol#143-158
+     CoreVaultLogic.spokeCapUsage(CoreVaultState,CoreVaultWiring,uint256) (src/core/CoreVaultLogic.sol#143-158) ignores return value by (r,None,None) = receiver.latestReport(spokeIndex) (src/core/CoreVaultLogic.sol#153)
+
+#67 [Medium/Medium] unused-return | CoreVaultLogic._spokeValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,uint256,ICoreVault.NavConsolidation) | src/core/CoreVaultLogic.sol#194-214
+     CoreVaultLogic._spokeValue(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,uint256,ICoreVault.NavConsolidation) (src/core/CoreVaultLogic.sol#194-214) ignores return value by (r,None,None) = receiver.latestReport(spokeIndex) (src/core/CoreVaultLogic.sol#206)
+
+#68 [Medium/Medium] unused-return | CoreVaultLogic._price(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address) | src/core/CoreVaultLogic.sol#323-349
+     CoreVaultLogic._price(CoreVaultState,CoreVaultWiring,CoreVaultLogic.Prices,address) (src/core/CoreVaultLogic.sol#323-349) ignores return value by (value) = IPriceSource(w.priceSource).priceInUsdc(token) (src/core/CoreVaultLogic.sol#333-338)
+
+#69 [Medium/Medium] unused-return | CoreVaultLogic._collectIncome(CoreVaultState,CoreVaultWiring,address,uint256) | src/core/CoreVaultLogic.sol#386-397
+     CoreVaultLogic._collectIncome(CoreVaultState,CoreVaultWiring,address,uint256) (src/core/CoreVaultLogic.sol#386-397) ignores return value by s.income.distribute(token,net,IERC20(w.shareToken).totalSupply()) (src/core/CoreVaultLogic.sol#393)
+
+#70 [Medium/Medium] unused-return | CoreVaultLogic.applyReport(CoreVaultState,CoreVaultWiring,uint256) | src/core/CoreVaultLogic.sol#417-424
+     CoreVaultLogic.applyReport(CoreVaultState,CoreVaultWiring,uint256) (src/core/CoreVaultLogic.sol#417-424) ignores return value by (r,None,None) = IValueReportReceiver(w.reportReceiver).latestReport(spokeIndex) (src/core/CoreVaultLogic.sol#419)
+
+#71 [Medium/Medium] unused-return | CoreVaultLogic.nonArrivalProvable(CoreVaultState,CoreVaultWiring,uint256,bytes32,uint32) | src/core/CoreVaultLogic.sol#541-560
+     CoreVaultLogic.nonArrivalProvable(CoreVaultState,CoreVaultWiring,uint256,bytes32,uint32) (src/core/CoreVaultLogic.sol#541-560) ignores return value by (r,None,None) = receiver.latestReport(spokeIndex) (src/core/CoreVaultLogic.sol#553)
+
+#72 [Medium/Medium] unused-return | CoreVaultLogic.recognizeRefund(CoreVaultState,CoreVaultWiring,bytes32) | src/core/CoreVaultLogic.sol#735-756
+     CoreVaultLogic.recognizeRefund(CoreVaultState,CoreVaultWiring,bytes32) (src/core/CoreVaultLogic.sol#735-756) ignores return value by ITransitEscrow(escrow).release(address(this)) (src/core/CoreVaultLogic.sol#753)
+
+#73 [Medium/Medium] unused-return | FundFactory.createSpoke(uint256,Mandate,IFundFactory.SpokeParams) | src/factory/FundFactory.sol#184-210
+     FundFactory.createSpoke(uint256,Mandate,IFundFactory.SpokeParams) (src/factory/FundFactory.sol#184-210) ignores return value by (None,spoke) = m.spokeByChainId(chainId) (src/factory/FundFactory.sol#200)
+
+#74 [Medium/Medium] unused-return | FundFactory._deployCoreVault(Mandate,IFundFactory.FundAddresses,bytes) | src/factory/FundFactory.sol#460-479
+     FundFactory._deployCoreVault(Mandate,IFundFactory.FundAddresses,bytes) (src/factory/FundFactory.sol#460-479) ignores return value by Create3.deploy(saltOf(a.fundId,ROLE_CORE_VAULT,chainId),abi.encodePacked(creationCode,abi.encode(m,c))) (src/factory/FundFactory.sol#478)
+
+#75 [Medium/Medium] unused-return | FundFactory._deploy(bytes32,bytes32,uint256,bytes) | src/factory/FundFactory.sol#507-510
+     FundFactory._deploy(bytes32,bytes32,uint256,bytes) (src/factory/FundFactory.sol#507-510) ignores return value by Create3.deploy(saltOf(fundId,role,chainId),abi.encodePacked(CodeStore.read(_codeStores[role]),args)) (src/factory/FundFactory.sol#509)
+
+#76 [Medium/Medium] unused-return | ChainlinkPriceSource.priceInUsdc(address) | src/report/ChainlinkPriceSource.sol#118-130
+     ChainlinkPriceSource.priceInUsdc(address) (src/report/ChainlinkPriceSource.sol#118-130) ignores return value by (None,answer,None,updatedAt,None) = IChainlinkAggregatorV3(p.aggregator).latestRoundData() (src/report/ChainlinkPriceSource.sol#124)
+
+#77 [Medium/Medium] unused-return | SpokeCrossChainLib.recognizeRefund(SpokeVaultTypes.State,address,bytes32) | src/spoke/SpokeCrossChainLib.sol#70-91
+     SpokeCrossChainLib.recognizeRefund(SpokeVaultTypes.State,address,bytes32) (src/spoke/SpokeCrossChainLib.sol#70-91) ignores return value by ITransitEscrow(escrow).release(address(this)) (src/spoke/SpokeCrossChainLib.sol#88)
+
+#78 [Medium/Medium] unused-return | SpokeVault.constructor(Mandate,bytes32,uint256,address,address,address,address,address,address) | src/spoke/SpokeVault.sol#132-185
+     SpokeVault.constructor(Mandate,bytes32,uint256,address,address,address,address,address,address) (src/spoke/SpokeVault.sol#132-185) ignores return value by (None,spoke) = mandate_.spokeByChainId(chainId_) (src/spoke/SpokeVault.sol#155)
+
+count 78
