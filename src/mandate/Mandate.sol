@@ -135,6 +135,15 @@ library MandateLib {
     ///      founder).
     uint16 internal constant MAX_BRIDGE_FEE_BPS = 100;
 
+    /// @notice Cap on a spoke's report lifetime (`maxReportAge`): one day.
+    /// @dev Independent review M-04 (security review S-25): DEC-094 and DEC-099 make the lifetime a property of the
+    ///      spoke chain, which the factory does not hold yet (DEC-089 registry OPEN), and the Mandate took any non-zero
+    ///      value: at `type(uint32).max` mints would price on reports 136 years old and an unlisted arrival could only
+    ///      be recovered after a report built that long after it (S-4). The research value for Robinhood is 1,587 s
+    ///      (ruling 2026-09-29); one day leaves a wide margin. The lower bound (the chain's finality) needs the
+    ///      per-chain registry. OPEN value.
+    uint32 internal constant MAX_REPORT_AGE = 1 days;
+
     error ZeroManager();
     error ZeroUsdc();
     error ZeroHubChainId();
@@ -166,8 +175,8 @@ library MandateLib {
     ///        hub or a spoke (DEC-053, DEC-058);
     ///      - every pool behind a listed adapter on the same chain, no duplicate pool (DEC-030);
     ///      - every unwind step in the pool list, no duplicate step (DEC-069);
-    ///      - spokes on chains other than the hub, unique by EVM and Wormhole chain id, vault, token and report age set
-    ///        (DEC-086, DEC-087, DEC-099);
+    ///      - spokes on chains other than the hub, unique by EVM and Wormhole chain id, vault, token and report age set,
+    ///        the report age at most `MAX_REPORT_AGE` (DEC-086, DEC-087, DEC-099; independent review M-04);
     ///      - every spoke has at least one bridge adapter on the hub side and one on the spoke side (DEC-089: a chain
     ///        is supported only through a live bridge adapter); no address listed twice as an adapter on one chain;
     ///      - Operating Cash entries on known chains, one per chain (DEC-096);
@@ -286,8 +295,9 @@ library MandateLib {
             if (s.chainId == 0 || s.wormholeChainId == 0 || s.spokeVault == bytes32(0) || s.spokeToken == address(0)) {
                 revert InvalidSpoke(s.chainId);
             }
-            // DEC-099: a zero lifetime would reject every report.
-            if (s.maxReportAge == 0) revert InvalidSpoke(s.chainId);
+            // DEC-099: a zero lifetime would reject every report; above MAX_REPORT_AGE stale reports would price
+            // mints (independent review M-04).
+            if (s.maxReportAge == 0 || s.maxReportAge > MAX_REPORT_AGE) revert InvalidSpoke(s.chainId);
             if (s.chainId == m.hubChainId) revert SpokeIsHubChain(s.chainId);
             for (uint256 j; j < i; ++j) {
                 if (m.spokes[j].chainId == s.chainId || m.spokes[j].wormholeChainId == s.wormholeChainId) {

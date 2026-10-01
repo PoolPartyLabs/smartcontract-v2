@@ -10,7 +10,7 @@ import {ValueReportReceiver} from "../../../src/report/ValueReportReceiver.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {IValueReportReceiver} from "../../../src/interfaces/IValueReportReceiver.sol";
 import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
-import {Mandate} from "../../../src/mandate/Mandate.sol";
+import {MandateLib, Mandate} from "../../../src/mandate/Mandate.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {CoreVaultFixture} from "../../unit/core/CoreVaultFixture.sol";
@@ -109,30 +109,19 @@ contract M01_UnreportableSpokeLocksItsCapital is FactoryReviewFixture {
     }
 }
 
-/// @notice The other extreme of M-04 (reasoned in the review, not proven): `maxReportAge` has no upper bound
-///         (S-25), and since S-4 the recovery delay of an arrival no report listed is `6 h + 3 days + 2 x maxReportAge`.
-///         At `type(uint32).max` an unlisted send home (a reporting gap of more than three days after its fill) can
-///         never be recovered, the time path of `attestExpiry` never opens, and mints never see a stale report.
+/// @notice The other extreme of M-04: `maxReportAge` had no upper bound (S-25). On main a lifetime of
+///         `type(uint32).max` was accepted, so mints could price on reports 136 years old and (since S-4) an unlisted
+///         send home could only be recovered 272 years later. Fixed on fix/pp-sc-fix-independent-review: the Mandate
+///         refuses a lifetime above `MandateLib.MAX_REPORT_AGE` (one day), so such a fund cannot be created.
 contract M01_HugeReportLifetime is CoreVaultFixture {
-    function test_POC_REVIEW_M04_hugeReportLifetimePutsTheUnlistedArrivalRecoveryOutOfReach() public {
+    function test_REVIEW_M04_hugeReportLifetimeIsRefusedAtCreation() public {
         Mandate memory m = _mandate(2000);
-        m.spokes[0].maxReportAge = type(uint32).max; // accepted: MandateLib only rejects zero
+        m.spokes[0].maxReportAge = type(uint32).max;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.InvalidSpoke.selector, m.spokes[0].chainId));
+        this.deployFor(m);
+    }
+
+    function deployFor(Mandate memory m) external {
         _deploy(m, _config(25));
-        _deposit(alice, 1_000_000e6);
-        _ensureSpokeReport();
-
-        // A send home lands on the hub before any accepted report lists it.
-        bytes32 home = keccak256("send home");
-        pool.fill(
-            address(vault), address(usdc), 99_900e6, TransitMessage.encode(FUND_ID, SPOKE, home, TransferKind.Principal)
-        );
-        assertEq(vault.unmatchedArrivals(), 99_900e6);
-
-        uint256 readyAt = block.timestamp + 6 hours + ReportCodec.HUB_BOUND_RETENTION + 2 * uint256(type(uint32).max);
-        console2.log("recovery opens after (years)", (readyAt - block.timestamp) / 365 days);
-        vm.warp(block.timestamp + 10 * 365 days);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.RecoveryNotReady.selector, home, readyAt));
-        vault.recoverUnlistedArrival(0, home);
-        assertEq((readyAt - 1_800_000_000) / 365 days, 272, "272 years");
     }
 }
