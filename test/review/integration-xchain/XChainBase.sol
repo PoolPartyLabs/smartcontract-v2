@@ -421,16 +421,25 @@ abstract contract XChainBase is EndToEndScenario {
         spokeVault = ISpokeVault(predictedSpokeVault);
     }
 
+    /// @dev The protocol on Robinhood, deployed once (the factory lands at the hub factory's address, DEC-054).
+    function _robinhoodFactory() internal returns (FundFactory factory) {
+        _onRobinhood();
+        factory = hubDeployment.factory;
+        if (address(factory).code.length == 0) {
+            Deployment memory rd = _deployProtocol(recipient, guardian, registryOwner);
+            require(address(rd.factory) == address(factory), "one factory address on both chains");
+        }
+    }
+
     /// @dev Phase 1 on Robinhood: protocol and `createSpoke` from the Mandate `plan` builds (with its own hash as the
     ///      `mandateHash` argument, which is all `createSpoke` compares). Returns the spoke's Mandate hash.
     function _createSpokeFrom(FundPlan memory plan) internal returns (bytes32 spokeMandateHash) {
-        _onRobinhood();
-        Deployment memory rd = _deployProtocol(recipient, guardian, registryOwner);
-        Mandate memory m = _buildMandate(rd.factory, fundId, plan);
+        FundFactory factory = _robinhoodFactory();
+        Mandate memory m = _buildMandate(factory, fundId, plan);
         spokeMandateHash = MandateLib.hash(m);
         vm.prank(manager);
         IFundFactory.ChainAddresses memory s =
-            rd.factory.createSpoke(creationNumber, m, _spokeParams(spokeMandateHash, plan));
+            factory.createSpoke(creationNumber, m, _spokeParams(spokeMandateHash, plan));
         require(s.spokeVault == predictedSpokeVault, "at the address the hub names");
         spokeVault = ISpokeVault(s.spokeVault);
         spokeUniswap = s.uniswapV4Adapter;
