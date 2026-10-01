@@ -118,10 +118,11 @@ abstract contract AdaptersForkBase is Test {
         hubVault = new SpokeVault(
             m, FUND_ID, HUB, coreAt, USDC, makeAddr("across"), address(0), address(escrowImpl), makeAddr("excess")
         );
+        // Priced before the Core Vault: it refuses a hub pool token its price source cannot price (review M-03).
+        prices.setPrice(WETH, adapter.spotQuote(livePool, WETH, 1e18));
         vault = new CoreVault(m, _config(address(hubVault), address(registry), address(receiver), address(escrowImpl)));
         require(address(hubVault) == hubVaultAt && address(vault) == coreAt, "wiring");
         shares = ShareToken(vault.shareToken());
-        prices.setPrice(WETH, adapter.spotQuote(livePool, WETH, 1e18));
     }
 
     function _depositAs(address who, uint256 amount) internal {

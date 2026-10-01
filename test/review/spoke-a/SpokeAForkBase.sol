@@ -153,12 +153,12 @@ abstract contract SpokeAForkBase is Test {
             address(escrowImpl),
             makeAddr("x")
         );
+        // The oracle agrees with the pool before any action (price1e18 = USDC base units per 1e18 wei); priced before
+        // the Core Vault, which refuses a hub pool token its price source cannot price (review M-03).
+        prices.setPrice(WETH, adapter.spotQuote(poolId, WETH, 1e18));
         vault = new CoreVault(m, _config(address(hubVault), address(registry), address(receiver), address(escrowImpl)));
         require(address(hubVault) == hubVaultAt && address(vault) == coreAt, "wiring");
         shares = ShareToken(vault.shareToken());
-
-        // The oracle agrees with the pool before any action (price1e18 = USDC base units per 1e18 wei).
-        prices.setPrice(WETH, adapter.spotQuote(poolId, WETH, 1e18));
     }
 
     function _depositAs(address who, uint256 amount) internal {

@@ -4,11 +4,12 @@ pragma solidity 0.8.28;
 import {console2} from "forge-std/Test.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {UniswapV4Adapter} from "../../../src/adapters/UniswapV4Adapter.sol";
+import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
 import {SpokeAForkBase} from "./SpokeAForkBase.sol";
 
 /// @notice [L-05] (spoke-a report L-01) measurement on the real Arbitrum V4 contracts, ported to main: the gas one
 ///         automatic unwind spends per small position it visits, so the number of positions that exhausts a
-///         32M-gas transaction can be read off. Main still has no cap on open positions (S-11 bounds sends home only).
+///         32M-gas transaction can be read off. Main had no cap on open positions; the fix branch caps them at 16.
 ///         e5c778a: 3,428,382 gas at 10 dust positions, 12,050,855 at 40 (about 287k per position).
 contract L01_UnwindGasPerPositionFork is SpokeAForkBase {
     address mallory = makeAddr("mallory");
@@ -55,17 +56,12 @@ contract L01_UnwindGasPerPositionFork is SpokeAForkBase {
         console2.log("proceeds", proceeds);
     }
 
-    function test_POC_REVIEW_L05_fork_unwindGas_40_dust() public {
-        (uint256 gasUsed, uint256 proceeds) = _claimGasWithDust(40);
-        console2.log("claim gas with 40 dust positions", gasUsed);
+    /// @dev Since `MAX_OPEN_POSITIONS` (16) a Spoke Vault holds at most 15 dust positions ahead of the value; on
+    ///      e5c778a 160 of them pushed the claim above Arbitrum's 32,000,000 per-transaction gas limit.
+    function test_REVIEW_L05_fork_unwindGasAtThePositionCap() public {
+        (uint256 gasUsed, uint256 proceeds) = _claimGasWithDust(SpokeVaultTypes.MAX_OPEN_POSITIONS - 1);
+        console2.log("claim gas with the cap's dust positions", gasUsed);
         console2.log("proceeds", proceeds);
-    }
-
-    /// @dev Direct check against Arbitrum's 32,000,000 per-transaction gas limit.
-    function test_POC_REVIEW_L05_fork_unwindGas_160_dust() public {
-        (uint256 gasUsed, uint256 proceeds) = _claimGasWithDust(160);
-        console2.log("claim gas with 160 dust positions", gasUsed);
-        console2.log("proceeds", proceeds);
-        assertGt(gasUsed, 32_000_000, "160 positions ahead of the value exceed one Arbitrum transaction");
+        assertLt(gasUsed, 32_000_000, "an unwind over every position the cap allows fits in one transaction");
     }
 }
