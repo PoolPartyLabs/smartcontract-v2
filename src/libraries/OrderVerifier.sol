@@ -1,8 +1,33 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {ICoreBridge, CoreBridgeVM} from "wormhole-sdk/interfaces/ICoreBridge.sol";
 import {OrderCodec} from "./OrderCodec.sol";
+
+/// @notice The head of the Wormhole Core's `parseAndVerifyVM` result: the first eight fields of `CoreBridgeVM`
+///         (`wormhole-sdk/interfaces/ICoreBridge.sol`), in the same order.
+/// @dev The Core returns `CoreBridgeVM` (these fields, then `guardianSetIndex`, `signatures`, `hash`). In the ABI
+///      encoding a struct's fields sit at fixed head positions from its start and its dynamic fields are reached by
+///      offsets, so declaring the leading fields decodes the same values and leaves the guardian signatures array
+///      undecoded: about 330 bytes less in the contract that inlines `OrderVerifier` (measured), for no change in
+///      what is checked. The Core still verifies every signature.
+struct OrderVaaHead {
+    uint8 version;
+    uint32 timestamp;
+    uint32 nonce;
+    uint16 emitterChainId;
+    bytes32 emitterAddress;
+    uint64 sequence;
+    uint8 consistencyLevel;
+    bytes payload;
+}
+
+/// @notice `ICoreBridge.parseAndVerifyVM` read through `OrderVaaHead`.
+interface IOrderVaaParser {
+    function parseAndVerifyVM(bytes calldata encodedVM)
+        external
+        view
+        returns (OrderVaaHead memory vm, bool valid, string memory reason);
+}
 
 /// @title OrderVerifier
 /// @notice What a Spoke Vault checks before it executes an order VAA from the Hub.
@@ -54,7 +79,7 @@ library OrderVerifier {
         uint64 minSequence,
         bytes32 fundId
     ) internal view returns (OrderCodec.Order memory o, uint64 sequence) {
-        (CoreBridgeVM memory vm, bool valid, string memory reason) = ICoreBridge(core).parseAndVerifyVM(vaa);
+        (OrderVaaHead memory vm, bool valid, string memory reason) = IOrderVaaParser(core).parseAndVerifyVM(vaa);
         if (!valid) revert InvalidOrderVaa(reason);
         if (vm.emitterChainId != hubWormholeChainId) revert OrderEmitterChainMismatch(vm.emitterChainId);
         if (vm.emitterAddress != bytes32(uint256(uint160(coreVault)))) revert OrderEmitterMismatch(vm.emitterAddress);

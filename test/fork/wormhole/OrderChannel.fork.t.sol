@@ -2,13 +2,13 @@
 pragma solidity 0.8.28;
 
 import {Test, console2} from "forge-std/Test.sol";
-import {ICoreBridge} from "wormhole-sdk/interfaces/ICoreBridge.sol";
+import {ICoreBridge, CoreBridgeVM} from "wormhole-sdk/interfaces/ICoreBridge.sol";
 import {AdvancedWormholeOverride} from "wormhole-sdk/testing/WormholeOverride.sol";
 import {VaaLib, VaaBody} from "wormhole-sdk/libraries/VaaLib.sol";
 import {CoreBridgeLib} from "wormhole-sdk/libraries/CoreBridge.sol";
 import {toUniversalAddress} from "wormhole-sdk/Utils.sol";
 import {OrderCodec} from "../../../src/libraries/OrderCodec.sol";
-import {OrderVerifier} from "../../../src/libraries/OrderVerifier.sol";
+import {OrderVerifier, OrderVaaHead, IOrderVaaParser} from "../../../src/libraries/OrderVerifier.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {OrderPublisherHarness} from "../../mocks/wormhole/OrderCodecHarness.sol";
 import {OrderReceiverHarness, OrderVerifierHarness} from "../../mocks/wormhole/OrderVerifierHarness.sol";
@@ -98,6 +98,23 @@ contract OrderChannelForkTest is Test {
         return VaaLib.encode(ICoreBridge(RH_WORMHOLE_CORE).sign(pm));
     }
 
+    /// @dev `OrderVerifier` reads the live Core's result through `OrderVaaHead`; every field it declares equals the full
+    ///      `CoreBridgeVM` decode of the same call.
+    function _assertHeadDecodeMatchesFullResult(bytes memory vaa) internal view {
+        (CoreBridgeVM memory full, bool fullValid,) = ICoreBridge(RH_WORMHOLE_CORE).parseAndVerifyVM(vaa);
+        (OrderVaaHead memory head, bool valid,) = IOrderVaaParser(RH_WORMHOLE_CORE).parseAndVerifyVM(vaa);
+        assertTrue(fullValid && valid);
+        assertGt(full.signatures.length, 0);
+        assertEq(head.version, full.version);
+        assertEq(head.timestamp, full.timestamp);
+        assertEq(head.nonce, full.nonce);
+        assertEq(head.emitterChainId, full.emitterChainId);
+        assertEq(head.emitterAddress, full.emitterAddress);
+        assertEq(head.sequence, full.sequence);
+        assertEq(head.consistencyLevel, full.consistencyLevel);
+        assertEq(head.payload, full.payload);
+    }
+
     // -----------------------------------------------------------------------------------------------------------------
     // The channel
     // -----------------------------------------------------------------------------------------------------------------
@@ -128,17 +145,18 @@ contract OrderChannelForkTest is Test {
 
         uint256 gasBefore = gasleft();
         verifier.verify(RH_WORMHOLE_CORE, vaa, WH_ARBITRUM, address(coreVault), 0, FUND);
-        console2.log("OrderVerifier.verify gas (live Robinhood Core, quorum signatures):", gasBefore - gasleft());
+        console2.log("OrderVerifier.verify gas, cold (live Robinhood Core, quorum signatures):", gasBefore - gasleft());
 
         vm.prank(makeAddr("anyone")); // DEC-120 item 2: permissionless delivery
         gasBefore = gasleft();
         (OrderCodec.Order memory d, uint64 sequence) = spokeVault.execute(vaa);
-        console2.log("execute gas (verify + three first-time stores):", gasBefore - gasleft());
+        console2.log("execute gas, Core warm (verify + three first-time stores):", gasBefore - gasleft());
 
         assertEq(keccak256(abi.encode(d)), keccak256(abi.encode(o)), "the order arrives as published");
         assertEq(sequence, expected);
         assertEq(spokeVault.minSequence(), expected + 1);
         assertEq(spokeVault.lastOrderId(), OrderCodec.orderId(o));
+        _assertHeadDecodeMatchesFullResult(vaa);
     }
 
     /// @dev The Core requires exactly its message fee; the publisher forwards the entry's `msg.value`.

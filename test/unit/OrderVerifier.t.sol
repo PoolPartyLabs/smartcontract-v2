@@ -2,8 +2,9 @@
 pragma solidity 0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {CoreBridgeVM, GuardianSignature} from "wormhole-sdk/interfaces/ICoreBridge.sol";
 import {OrderCodec} from "../../src/libraries/OrderCodec.sol";
-import {OrderVerifier} from "../../src/libraries/OrderVerifier.sol";
+import {OrderVerifier, OrderVaaHead, IOrderVaaParser} from "../../src/libraries/OrderVerifier.sol";
 import {ICoreVault} from "../../src/interfaces/ICoreVault.sol";
 import {MockOrderCore} from "../mocks/wormhole/MockOrderCore.sol";
 import {OrderPublisherHarness} from "../mocks/wormhole/OrderCodecHarness.sol";
@@ -177,6 +178,43 @@ contract OrderVerifierTest is Test {
         bytes memory vaa = core.craft(WH_ARBITRUM, _coreVaultEmitter(), 0, 200, abi.encode(OrderCodec.VERSION, o));
         vm.expectRevert(abi.encodeWithSelector(OrderCodec.InvalidOrderFraction.selector, o.fracNum, o.fracDen));
         spokeVault.execute(vaa);
+    }
+
+    /// @dev The verifier reads only the head of the Core's result (`OrderVaaHead`); a full result with a guardian
+    ///      signature array, a guardian set index and a hash after the payload decodes to the same head.
+    function test_headDecodeReadsTheSameFieldsAsTheFullResult() public {
+        OrderCodec.Order memory o = _unwind(1);
+        CoreBridgeVM memory full;
+        full.version = 1;
+        full.timestamp = uint32(block.timestamp);
+        full.nonce = 7;
+        full.emitterChainId = WH_ARBITRUM;
+        full.emitterAddress = _coreVaultEmitter();
+        full.sequence = 41;
+        full.consistencyLevel = 200;
+        full.payload = OrderCodec.encode(o);
+        full.guardianSetIndex = 4;
+        full.signatures = new GuardianSignature[](13);
+        for (uint256 i; i < 13; ++i) {
+            full.signatures[i] = GuardianSignature(keccak256(abi.encode(i)), keccak256(abi.encode(i + 1)), 27, uint8(i));
+        }
+        full.hash = keccak256("hash");
+        bytes memory vaa = abi.encode(full);
+
+        (OrderVaaHead memory head, bool valid,) = IOrderVaaParser(address(core)).parseAndVerifyVM(vaa);
+        assertTrue(valid);
+        assertEq(head.version, full.version);
+        assertEq(head.timestamp, full.timestamp);
+        assertEq(head.nonce, full.nonce);
+        assertEq(head.emitterChainId, full.emitterChainId);
+        assertEq(head.emitterAddress, full.emitterAddress);
+        assertEq(head.sequence, full.sequence);
+        assertEq(head.consistencyLevel, full.consistencyLevel);
+        assertEq(head.payload, full.payload);
+
+        (OrderCodec.Order memory d, uint64 sequence) = spokeVault.execute(vaa);
+        assertEq(sequence, 41);
+        assertEq(keccak256(abi.encode(d)), keccak256(abi.encode(o)));
     }
 
     /// @dev The Core Vault is the only accepted emitter and fixes the level; the verifier does not read it.
