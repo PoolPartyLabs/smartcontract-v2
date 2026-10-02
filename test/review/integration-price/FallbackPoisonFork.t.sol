@@ -8,6 +8,7 @@ import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
 import {IntegrationPriceBase, PoolActor} from "./IntegrationPriceBase.sol";
 
@@ -42,7 +43,7 @@ contract FallbackPoisonFork is IntegrationPriceBase {
         _openAround(hubKey, 500_000, 500_000, 100_000e6);
         _parkRestInAave();
         vm.prank(bruno);
-        core.requestPayout(40_000e6, ICoreVault.PayoutMode.Instant);
+        core.requestPayout(40_000e6, ICoreVaultPayouts.PayoutMode.Instant);
 
         // A stranger deposits 2 USDC while the pool sits out of the fund's +-50% range, inside one unlock.
         PoolActor stranger = new PoolActor(IPoolManager(ARB_V4_POOL_MANAGER));

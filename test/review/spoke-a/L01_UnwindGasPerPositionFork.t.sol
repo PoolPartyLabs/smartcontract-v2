@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {console2} from "forge-std/Test.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {UniswapV4Adapter} from "../../../src/adapters/UniswapV4Adapter.sol";
 import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
 import {SpokeAForkBase} from "./SpokeAForkBase.sol";
@@ -25,7 +26,7 @@ contract L01_UnwindGasPerPositionFork is SpokeAForkBase {
         }
         _openRangeOrder(1_000_000e6 - dust * 5e6, 0);
         vm.prank(mallory);
-        vault.requestPayout(49_000e6, ICoreVault.PayoutMode.Instant);
+        vault.requestPayout(49_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         uint256 g = gasleft();
         vm.prank(mallory);
         ICoreVault.PayoutReceipt memory r = vault.claimPayout("");

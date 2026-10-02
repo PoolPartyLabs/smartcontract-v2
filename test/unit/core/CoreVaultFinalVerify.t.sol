@@ -2,13 +2,14 @@
 pragma solidity 0.8.28;
 
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {CoreVaultFixture} from "./CoreVaultFixture.sol";
 
 /// @notice Final whole-tree verification of the integration branch, hub side. Each test pins a finding by asserting
 ///         the behaviour its fix established.
 contract CoreVaultFinalVerifyTest is CoreVaultFixture {
-    ICoreVault.PayoutMode internal constant INSTANT = ICoreVault.PayoutMode.Instant;
-    ICoreVault.PayoutMode internal constant STANDARD = ICoreVault.PayoutMode.Standard;
+    ICoreVault.PayoutMode internal constant INSTANT = ICoreVaultPayouts.PayoutMode.Instant;
+    ICoreVault.PayoutMode internal constant STANDARD = ICoreVaultPayouts.PayoutMode.Standard;
 
     // ---------------------------------------------------------------------------------------------------------------
     // DEC-072 / DEC-017 / DEC-024 / DEC-065 (final verification finding, fixed): a Standard request reserved

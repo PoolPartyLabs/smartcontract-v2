@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 import {IFundFactory} from "../../../src/interfaces/IFundFactory.sol";
-import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {CoreVault} from "../../../src/core/CoreVault.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {UniswapV4Adapter} from "../../../src/adapters/UniswapV4Adapter.sol";
@@ -59,7 +59,7 @@ contract SpotCompositionExitPoC is AccessFundFixture {
     /// @dev An Instant Payout of `amount` by the attacker; returns the shares burned.
     function _exit(CoreVault core, uint256 amount) internal returns (uint256 burned) {
         vm.startPrank(stranger);
-        core.requestPayout(amount, ICoreVault.PayoutMode.Instant);
+        core.requestPayout(amount, ICoreVaultPayouts.PayoutMode.Instant);
         burned = core.claimPayout("").sharesBurned;
         vm.stopPrank();
     }

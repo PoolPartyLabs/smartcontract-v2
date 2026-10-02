@@ -136,7 +136,7 @@ contract FundFactoryTest is Test, FactoryDeployment, FundMandate, FundSeed {
     }
 
     function _params(uint256 creationNumber) internal view returns (IFundFactory.HubParams memory) {
-        return _hubParams(creationNumber, _plan(), _coreVaultCreationCode(hubDeployment.coreVaultLogic));
+        return _hubParams(creationNumber, _plan(), _coreVaultCreationCode(hubDeployment));
     }
 
     function _createFund() internal returns (IFundFactory.FundAddresses memory a, Mandate memory m) {
@@ -215,7 +215,7 @@ contract FundFactoryTest is Test, FactoryDeployment, FundMandate, FundSeed {
         assertEq(w.aaveV3Pool, address(aave));
         assertEq(w.coreVaultLogic, hubDeployment.coreVaultLogic);
         assertEq(w.spokeCrossChainLib, hubDeployment.spokeCrossChainLib);
-        assertEq(w.coreVaultCreationCodeHash, keccak256(_coreVaultCreationCode(hubDeployment.coreVaultLogic)));
+        assertEq(w.coreVaultCreationCodeHash, keccak256(_coreVaultCreationCode(hubDeployment)));
         assertEq(factory.creationCodeHash(factory.ROLE_CORE_VAULT()), w.coreVaultCreationCodeHash);
         assertEq(
             factory.creationCodeHash(factory.ROLE_SPOKE_VAULT()), keccak256(_spokeVaultCreationCode(hubDeployment))
@@ -337,7 +337,9 @@ contract FundFactoryTest is Test, FactoryDeployment, FundMandate, FundSeed {
         Mandate memory m = _mandate(1);
         IFundFactory.HubParams memory p = _params(1);
         // Same contract linked to another library address: foreign code under this fund id.
-        p.coreVaultCreationCode = _coreVaultCreationCode(address(0xBEEF));
+        Deployment memory foreign = hubDeployment;
+        foreign.coreVaultLogic = address(0xBEEF);
+        p.coreVaultCreationCode = _coreVaultCreationCode(foreign);
         bytes32 role = factory.ROLE_CORE_VAULT();
         bytes memory reason = abi.encodeWithSelector(
             IFundFactory.ForeignCreationCode.selector,
@@ -440,7 +442,7 @@ contract FundFactoryTest is Test, FactoryDeployment, FundMandate, FundSeed {
         plan.spokeChainId = 0;
         plan.hubAaveAsset = address(0);
         Mandate memory m = _buildMandate(factory, factory.fundIdOf(HUB, 1, manager), plan);
-        IFundFactory.HubParams memory p = _hubParams(1, plan, _coreVaultCreationCode(hubDeployment.coreVaultLogic));
+        IFundFactory.HubParams memory p = _hubParams(1, plan, _coreVaultCreationCode(hubDeployment));
         vm.prank(manager);
         IFundFactory.FundAddresses memory a = factory.createFund(m, p);
         assertEq(a.chains[0].acrossBridgeAdapter, address(0));
@@ -636,7 +638,7 @@ contract FundFactoryTest is Test, FactoryDeployment, FundMandate, FundSeed {
         IFundFactory.ProtocolWiring memory w = _wiring(true);
         w.spokeCrossChainLib = hubDeployment.spokeCrossChainLib;
         w.coreVaultLogic = hubDeployment.coreVaultLogic;
-        w.coreVaultCreationCodeHash = keccak256(_coreVaultCreationCode(hubDeployment.coreVaultLogic));
+        w.coreVaultCreationCodeHash = keccak256(_coreVaultCreationCode(hubDeployment));
         // No Aave or receiver code stored: a hub fund cannot be created.
         FundFactory incomplete = new FundFactory(w, _stores());
         factory = incomplete;

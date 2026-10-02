@@ -95,12 +95,13 @@ library SpokeCrossChainLib {
     /// @dev DEC-066, QA6: only after the fill deadline. DEC-063 (docs/DECISIONS.md, Across expired-deposit refund):
     ///      Across refunds the full `inputAmount` to the depositor, so an escrow holding less than `amountSent` holds
     ///      no refund yet: nothing changes (`NoRefund`), the transit stays Sent and in flight, and whatever the escrow
-    ///      holds waits there until the real refund lands and everything is released together (final verification,
-    ///      the same guard as `CoreVaultLogic.recognizeRefund` on the hub, CV-OQ-6). The escrow balance is only a
-    ///      sufficiency check, never a value base (DEC-080): exactly `amountSent` is credited, and anything above it
-    ///      (a donation) reaches the vault unledgered and only `sweepExcess` moves it (DEC-101). Checks-effects-
-    ///      interactions: the transit is marked refunded, leaves the in-flight list and is credited before the escrow
-    ///      is released (Spoke Vault verifier finding); the vault's balance delta must equal what the escrow held.
+    ///      holds waits there until the real refund lands and everything is released together (final verification, the
+    ///      same guard as `CoreVaultTransitLogic.recognizeRefund` on the hub, CV-OQ-6). The escrow balance is only a
+    ///      sufficiency check, never a value base (DEC-080): exactly `amountSent` is credited, and anything above it (a
+    ///      donation) reaches the vault unledgered and only `sweepExcess` moves it (DEC-101).
+    ///      Checks-effects-interactions: the transit is marked refunded, leaves the in-flight list and is credited
+    ///      before the escrow is released (Spoke Vault verifier finding); the vault's balance delta must equal what the
+    ///      escrow held.
     function recognizeRefund(SpokeVaultTypes.State storage s, address baseToken, bytes32 transitId)
         external
         returns (uint256 amount)

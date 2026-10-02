@@ -133,7 +133,7 @@ contract FundFactoryVerifyRound2Test is Test, FactoryDeployment, FundMandate, Fu
 
     function _createFund(Mandate memory m, uint256 n) internal returns (IFundFactory.FundAddresses memory a) {
         vm.prank(manager);
-        a = factory.createFund(m, _hubParams(n, _plan(manager), _coreVaultCreationCode(hubDeployment.coreVaultLogic)));
+        a = factory.createFund(m, _hubParams(n, _plan(manager), _coreVaultCreationCode(hubDeployment)));
     }
 
     /// @dev A Mandate hubbed on SPOKE that names HUB (this hub factory's chain) as its Spoke Chain, every address

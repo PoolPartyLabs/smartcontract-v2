@@ -4,7 +4,7 @@ pragma solidity 0.8.28;
 import {CoreVaultFixture} from "../../unit/core/CoreVaultFixture.sol";
 import {CoreMockToken} from "../../mocks/core/CoreMockTokens.sol";
 import {MockHubSpokeVault} from "../../mocks/core/MockHubSpokeVault.sol";
-import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 
 /// @notice USDC as Circle ships it: `transfer` and `transferFrom` revert when `from` or `to` is blocklisted
 ///         (FiatTokenV2 `notBlacklisted`). Everything else is the fixture's mock token.
@@ -46,9 +46,9 @@ contract POC_ProtocolRecipientBlocklist is CoreVaultFixture {
     function test_SEC_S12_blocklistedProtocolRecipientNoLongerFreezesTheFund() public {
         _deposit(alice, 10_000e6);
         _deposit(bob, 5000e6);
-        _request(alice, 4000e6, ICoreVault.PayoutMode.Standard);
+        _request(alice, 4000e6, ICoreVaultPayouts.PayoutMode.Standard);
         vm.warp(block.timestamp + 72 hours + 1);
-        _request(bob, 1000e6, ICoreVault.PayoutMode.Instant);
+        _request(bob, 1000e6, ICoreVaultPayouts.PayoutMode.Instant);
 
         blocklistUsdc.setBlocklisted(protocol, true);
         uint256 protocolBefore = usdc.balanceOf(protocol);

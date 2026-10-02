@@ -53,8 +53,7 @@ contract FeeTierFork is IntegrationPriceBase {
         creationNumber = factory.nextCreationNumber();
         fundId = factory.fundIdOf(ARBITRUM, creationNumber, manager);
         Mandate memory m = _withExtraHubPools(_buildMandate(factory, fundId, plan), extra, false);
-        IFundFactory.HubParams memory p =
-            _hubParams(creationNumber, plan, _coreVaultCreationCode(hubDeployment.coreVaultLogic));
+        IFundFactory.HubParams memory p = _hubParams(creationNumber, plan, _coreVaultCreationCode(hubDeployment));
         PoolKey[] memory keys = new PoolKey[](2);
         keys[0] = plan.hubPool;
         keys[1] = fullFee;

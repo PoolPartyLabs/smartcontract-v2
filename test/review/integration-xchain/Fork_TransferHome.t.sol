@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {AcrossBridgeAdapter} from "../../../src/adapters/AcrossBridgeAdapter.sol";
 import {Transit, TransitState, TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
@@ -133,7 +134,7 @@ contract Fork_TransferHome is XChainBase {
         uint256 brunoShares = _depositAs(bruno, 10_000e6);
         uint256 brunoRequest = ShareMath.usdcFor(brunoShares, core.sharePrice());
         vm.prank(bruno);
-        core.requestPayout(brunoRequest, ICoreVault.PayoutMode.Standard);
+        core.requestPayout(brunoRequest, ICoreVaultPayouts.PayoutMode.Standard);
 
         bytes32 predicted = _sendHomeId(1);
         LiveRelayData memory seed = _fabricatedFillOnArbitrum(predicted, 1, TransferKind.Principal, stranger);

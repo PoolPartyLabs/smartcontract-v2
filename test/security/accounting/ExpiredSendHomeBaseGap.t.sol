@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {Transit, TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {AccountingPocFixture} from "./AccountingPocFixture.sol";
 
@@ -62,7 +63,7 @@ contract ExpiredSendHomeBaseGapPoC is AccountingPocFixture {
         assertEq(core.shareAssets(), core.idle() + ARRIVES_ON_SPOKE, "the refund replaced the return leg");
 
         vm.startPrank(mallory);
-        core.requestPayout(1_000_000e6, ICoreVault.PayoutMode.Instant);
+        core.requestPayout(1_000_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         ICoreVault.PayoutReceipt memory r = core.claimPayout("");
         vm.stopPrank();
         assertEq(shares.balanceOf(mallory), 0, "full exit");

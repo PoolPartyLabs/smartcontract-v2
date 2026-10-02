@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {console2} from "forge-std/Test.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
 import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
 import {Mandate, PoolConfig, UnwindStep} from "../../../src/mandate/Mandate.sol";
@@ -26,7 +27,7 @@ contract L01_UnwindCannotReach is SpokeAHubFixture {
 
         // Share Assets still count the 400 WETH at the oracle price, so Mallory's shares are worth 49,875 USDC ...
         uint256 value = _valueOf(mallory);
-        _request(mallory, value, ICoreVault.PayoutMode.Instant);
+        _request(mallory, value, ICoreVaultPayouts.PayoutMode.Instant);
         ICoreVault.PayoutReceipt memory r = _claim(mallory);
         console2.log("mallory asked", value);
         console2.log("paid gross", r.usdcGross);
@@ -109,7 +110,7 @@ contract L05_SingleAssetNonUsdcStep is SpokeAHubFixture {
         vm.revertToState(snap);
 
         // Through a claim needing ~248,000 of unwind, with the hint: paid in full.
-        _request(mallory, 290_000e6, ICoreVault.PayoutMode.Instant);
+        _request(mallory, 290_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         vm.prank(mallory);
         ICoreVault.PayoutReceipt memory r = vault.claimPayout(SpokeVaultTypes.encodeHints(hints));
         console2.log("unwind proceeds", r.unwindProceeds);

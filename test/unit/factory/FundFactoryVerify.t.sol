@@ -195,8 +195,7 @@ contract FundFactoryVerifyTest is Test, FactoryDeployment, FundMandate, FundSeed
 
         // The real manager still creates fund n and the number advances.
         Mandate memory m = _buildMandate(factory, fundId, _plan(manager));
-        IFundFactory.HubParams memory p =
-            _hubParams(n, _plan(manager), _coreVaultCreationCode(hubDeployment.coreVaultLogic));
+        IFundFactory.HubParams memory p = _hubParams(n, _plan(manager), _coreVaultCreationCode(hubDeployment));
         vm.prank(manager);
         IFundFactory.FundAddresses memory a = factory.createFund(m, p);
         assertEq(a.chains[0].spokeVault, factory.addressOf(fundId, "SpokeVault", HUB));
@@ -213,7 +212,7 @@ contract FundFactoryVerifyTest is Test, FactoryDeployment, FundMandate, FundSeed
         Mandate memory m = _buildMandate(factory, factory.fundIdOf(HUB, 1, manager), _plan(manager));
         vm.prank(manager);
         IFundFactory.FundAddresses memory a =
-            factory.createFund(m, _hubParams(1, _plan(manager), _coreVaultCreationCode(hubDeployment.coreVaultLogic)));
+            factory.createFund(m, _hubParams(1, _plan(manager), _coreVaultCreationCode(hubDeployment)));
         bytes32 hubMandateHash = MandateLib.hash(m);
         address named = address(uint160(uint256(m.spokes[0].spokeVault)));
 
@@ -265,8 +264,7 @@ contract FundFactoryVerifyTest is Test, FactoryDeployment, FundMandate, FundSeed
         }
         adapters[m.adapters.length] = AdapterConfig(999, factory.addressOf(fundId, "UniswapV4Adapter", 999));
         m.adapters = adapters;
-        IFundFactory.HubParams memory p =
-            _hubParams(1, _plan(manager), _coreVaultCreationCode(hubDeployment.coreVaultLogic));
+        IFundFactory.HubParams memory p = _hubParams(1, _plan(manager), _coreVaultCreationCode(hubDeployment));
 
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(MandateLib.UnknownChain.selector, 999));

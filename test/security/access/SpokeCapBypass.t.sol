@@ -11,10 +11,10 @@ import {CoreVaultFixture} from "../../unit/core/CoreVaultFixture.sol";
 ///         `attestExpiry`'s deadline-plus-lifetime path needs no evidence and released `inFlightSent`, so after a
 ///         6.5 h report outage the manager attested its own filled transit and sent the whole cap again (200,000 USDC
 ///         of principal on a spoke capped at 100,000).
-/// @notice FIX (S-13, `CoreVaultLogic.attestExpiry`): only a report's proof of non-arrival releases the Spoke Cap at
-///         the attestation; on the time path alone the cap stays held (`spokeCapHeld`) until the arrival is confirmed
-///         or the refund recognized. The test asserts the second send now FAILS and the cap is released exactly once,
-///         when the late report confirms the arrival.
+/// @notice FIX (S-13, `CoreVaultTransitLogic.attestExpiry`): only a report's proof of non-arrival releases the Spoke
+///         Cap at the attestation; on the time path alone the cap stays held (`spokeCapHeld`) until the arrival is
+///         confirmed or the refund recognized. The test asserts the second send now FAILS and the cap is released
+///         exactly once, when the late report confirms the arrival.
 /// @dev Real Core Vault and CoreVaultLogic on the repository's unit fixture. SPOKE_CAP is 100,000 USDC.
 contract SpokeCapBypassPoC is CoreVaultFixture {
     function test_SEC_S13_timeBasedExpiryOfAFilledTransitNoLongerReleasesTheSpokeCap() public {

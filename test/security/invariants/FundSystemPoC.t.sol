@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {CoreBridgeVM, GuardianSignature} from "wormhole-sdk/interfaces/ICoreBridge.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {Transit, TransitState, TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
 import {ShareMath} from "../../../src/libraries/ShareMath.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
@@ -71,7 +72,7 @@ contract FundSystemPoCTest is FundSystemFixture {
         // The entrant exits at once (Instant Payout from Idle), paying the 2% Payout Fee and the flow fee.
         uint256 worth = ShareMath.usdcFor(attackerShares, sys.core.sharePrice());
         vm.startPrank(attacker);
-        sys.core.requestPayout(worth, ICoreVault.PayoutMode.Instant);
+        sys.core.requestPayout(worth, ICoreVaultPayouts.PayoutMode.Instant);
         sys.core.claimPayout("");
         vm.stopPrank();
         assertLt(sys.usdc.balanceOf(attacker), 50_000e6, "S-3: the entrant leaves with less than it deposited");
@@ -95,7 +96,7 @@ contract FundSystemPoCTest is FundSystemFixture {
         _report();
 
         vm.startPrank(bruno);
-        sys.core.requestPayout(fairValue, ICoreVault.PayoutMode.Instant);
+        sys.core.requestPayout(fairValue, ICoreVaultPayouts.PayoutMode.Instant);
         ICoreVault.PayoutReceipt memory receipt = sys.core.claimPayout("");
         vm.stopPrank();
         assertEq(sys.shares.balanceOf(bruno), 0, "every share burned");
@@ -169,7 +170,7 @@ contract FundSystemPoCTest is FundSystemFixture {
         // Ana's 99,999 shares, bought for 99,999 USDC, are worth nothing: a payout burns them all and pays zero.
         assertEq(ShareMath.usdcFor(sys.shares.balanceOf(ana), sys.core.sharePrice()), 0);
         vm.startPrank(ana);
-        sys.core.requestPayout(99_999e6, ICoreVault.PayoutMode.Instant);
+        sys.core.requestPayout(99_999e6, ICoreVaultPayouts.PayoutMode.Instant);
         ICoreVault.PayoutReceipt memory receipt = sys.core.claimPayout("");
         vm.stopPrank();
         assertEq(receipt.sharesBurned, 99_999e18);
@@ -204,13 +205,13 @@ contract FundSystemPoCTest is FundSystemFixture {
 
     /// Was PoC `test_POC_zeroShareAssetsRevertEveryPayoutVerb`: with Share Assets at exactly zero and shares
     /// outstanding, `claimPayout`, `requestPayout` and `deposit` all reverted `ZeroSharePrice`, so an open request could
-    /// never be closed. Fix (S-18, `CoreVault._sharesFor`): the claim closes the request with nothing burned or paid
-    /// (`closedBelowOneShare`), the holder keeps its shares; a new request or a deposit still reverts, since nothing
-    /// can be priced until value returns (documented in docs/security/KNOWN-LIMITATIONS.md).
+    /// never be closed. Fix (S-18, `CoreVaultPayoutLogic._sharesFor`): the claim closes the request with nothing burned
+    /// or paid (`closedBelowOneShare`), the holder keeps its shares; a new request or a deposit still reverts, since
+    /// nothing can be priced until value returns (documented in docs/security/KNOWN-LIMITATIONS.md).
     function test_SEC_S18_zeroShareAssetsClaimClosesTheRequest() public {
         _deposit(ana, 100_250e6);
         vm.prank(ana);
-        sys.core.requestPayout(1000e6, ICoreVault.PayoutMode.Instant);
+        sys.core.requestPayout(1000e6, ICoreVaultPayouts.PayoutMode.Instant);
         _deposit(bruno, 10_025e6);
         uint256 anaShares = sys.shares.balanceOf(ana);
 
@@ -230,7 +231,7 @@ contract FundSystemPoCTest is FundSystemFixture {
 
         vm.prank(bruno);
         vm.expectRevert(ShareMath.ZeroSharePrice.selector);
-        sys.core.requestPayout(1e6, ICoreVault.PayoutMode.Instant);
+        sys.core.requestPayout(1e6, ICoreVaultPayouts.PayoutMode.Instant);
         sys.usdc.mint(bruno, 1000e6);
         vm.startPrank(bruno);
         sys.usdc.approve(address(sys.core), 1000e6);

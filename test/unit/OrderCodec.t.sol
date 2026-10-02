@@ -3,7 +3,7 @@ pragma solidity 0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {OrderCodec} from "../../src/libraries/OrderCodec.sol";
-import {ICoreVault} from "../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../src/interfaces/ICoreVaultPayouts.sol";
 import {MockOrderCore} from "../mocks/wormhole/MockOrderCore.sol";
 import {OrderCodecHarness, OrderPublisherHarness} from "../mocks/wormhole/OrderCodecHarness.sol";
 
@@ -33,7 +33,7 @@ contract OrderCodecTest is Test {
         o.fracNum = 1457;
         o.fracDen = 10_000;
         o.maxLossBps = 150;
-        o.payoutMode = uint8(ICoreVault.PayoutMode.Instant);
+        o.payoutMode = uint8(ICoreVaultPayouts.PayoutMode.Instant);
     }
 
     function _same(OrderCodec.Order memory a, OrderCodec.Order memory b) internal pure {
@@ -54,7 +54,7 @@ contract OrderCodecTest is Test {
         assertEq(d.fracNum, 1457);
         assertEq(d.deadline, 1_800_000_000, "doc 32 section 4.2: the deadline travels");
         assertEq(d.maxLossBps, 150, "DEC-140: the requester's maximum travels");
-        assertEq(d.payoutMode, uint8(ICoreVault.PayoutMode.Instant), "DEC-118, DEC-141: the mode travels");
+        assertEq(d.payoutMode, uint8(ICoreVaultPayouts.PayoutMode.Instant), "DEC-118, DEC-141: the mode travels");
     }
 
     function test_DEC161_roundTripOfACollectOrder() public view {
@@ -196,14 +196,14 @@ contract OrderCodecTest is Test {
         h.decode(abi.encode(OrderCodec.VERSION, o));
         vm.expectRevert(abi.encodeWithSelector(OrderCodec.InvalidPayoutMode.selector, 2));
         h.encode(o);
-        o.payoutMode = uint8(ICoreVault.PayoutMode.Standard);
-        assertEq(h.decode(h.encode(o)).payoutMode, uint8(ICoreVault.PayoutMode.Standard));
+        o.payoutMode = uint8(ICoreVaultPayouts.PayoutMode.Standard);
+        assertEq(h.decode(h.encode(o)).payoutMode, uint8(ICoreVaultPayouts.PayoutMode.Standard));
     }
 
     /// @dev Every `ICoreVault.PayoutMode` travels and the next value is refused, read from the enum itself, so this
     ///      test follows the enum when a mode is added.
     function test_everyPayoutModeTravelsAndNoOther() public {
-        uint8 last = uint8(type(ICoreVault.PayoutMode).max);
+        uint8 last = uint8(type(ICoreVaultPayouts.PayoutMode).max);
         assertEq(OrderCodec.MAX_PAYOUT_MODE, last, "the codec's bound is the enum's last value");
         OrderCodec.Order memory o = _unwind();
         for (uint8 mode; mode <= last; ++mode) {

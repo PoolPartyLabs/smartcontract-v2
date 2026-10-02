@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ShareMath} from "../../../src/libraries/ShareMath.sol";
 import {CoreVaultFixture} from "./CoreVaultFixture.sol";
 
@@ -9,7 +10,7 @@ import {CoreVaultFixture} from "./CoreVaultFixture.sol";
 ///         bound under a Share Price away from 1.00, a price that falls before the claim, and a hub valuation that
 ///         fails at request time (DEC-017, DEC-020, DEC-024, DEC-072, DEC-077, FV-OQ-1, OQ-10).
 contract CoreVaultFinalVerifyRound1Test is CoreVaultFixture {
-    ICoreVault.PayoutMode internal constant STANDARD = ICoreVault.PayoutMode.Standard;
+    ICoreVault.PayoutMode internal constant STANDARD = ICoreVaultPayouts.PayoutMode.Standard;
 
     // ---------------------------------------------------------------------------------------------------------------
     // FV-OQ-1 / DEC-017 / DEC-020 / DEC-072: the bound is the share value at the request's price

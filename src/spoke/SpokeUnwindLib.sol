@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
+import {ISpokeVaultUnwind} from "../interfaces/ISpokeVaultUnwind.sol";
 import {IAdapter} from "../interfaces/IAdapter.sol";
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
 import {IPriceSource} from "../interfaces/IPriceSource.sol";
@@ -70,7 +71,7 @@ library SpokeUnwindLib {
             s.unallocated[usdc] -= usdcProceeds;
             SpokeLedger.payCoreVaultIdle(usdc, c.coreVault, usdcProceeds);
         }
-        emit ISpokeVault.UnwoundForPayout(usdcTarget, usdcProceeds);
+        emit ISpokeVaultUnwind.UnwoundForPayout(usdcTarget, usdcProceeds);
     }
 
     /// @dev Every open position of one Mandate unwind step, in registry order, while the target is not reached; the
@@ -177,7 +178,8 @@ library SpokeUnwindLib {
     ///      floor measured against the spot quote alone followed the moved price. The price-source value (Chainlink
     ///      for WETH, the price Share Assets use) cannot be moved in the same block; a pushed-down spot now makes the
     ///      swap revert, the whole unwind reverts and the claim is paid from Idle only (DEC-068). A reverting price
-    ///      source reverts the unwind the same way (the claim itself never reverts, `CoreVault._unwindForPayout`).
+    ///      source reverts the unwind the same way (the claim itself never reverts,
+    ///      `CoreVaultPayoutLogic._unwindForPayout`).
     function _unwindSwap(
         SpokeVaultTypes.State storage s,
         SpokeVaultTypes.Config memory c,

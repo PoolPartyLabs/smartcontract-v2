@@ -4,7 +4,7 @@ pragma solidity 0.8.28;
 import {console2} from "forge-std/console2.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IAdapter} from "../../../src/interfaces/IAdapter.sol";
-import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ShareMath} from "../../../src/libraries/ShareMath.sol";
 import {CoreAHubFixture} from "../core-a/CoreAHubFixture.sol";
 
@@ -55,7 +55,7 @@ contract L01_IncomeTimingCapture is CoreAHubFixture {
         // for more than her balance is worth so the burn is capped at the whole balance (DEC-020; QA23 rounding aside).
         uint256 value = ShareMath.usdcFor(minted, vault.sharePrice());
         vm.prank(mallory);
-        vault.requestPayout(2 * value, ICoreVault.PayoutMode.Standard);
+        vault.requestPayout(2 * value, ICoreVaultPayouts.PayoutMode.Standard);
         vm.warp(block.timestamp + 72 hours);
         uint256 before = usdc.balanceOf(mallory);
         vm.prank(mallory);

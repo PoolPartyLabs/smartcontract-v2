@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ICoreVaultLifecycle} from "../../../src/interfaces/ICoreVaultLifecycle.sol";
 import {CoreVaultFixture} from "./CoreVaultFixture.sol";
 import {MockHubSpokeVault} from "../../mocks/core/MockHubSpokeVault.sol";
@@ -10,8 +11,8 @@ import {MockHubSpokeVault} from "../../mocks/core/MockHubSpokeVault.sol";
 ///         crossing it reverts, telling the manager to close the fund; nothing closes automatically). D-27: the claim's
 ///         burn stops at the base, so the manager never holds less than half of the peak while the fund is Open.
 contract CoreVaultManagerBaseTest is CoreVaultFixture {
-    ICoreVault.PayoutMode internal constant INSTANT = ICoreVault.PayoutMode.Instant;
-    ICoreVault.PayoutMode internal constant STANDARD = ICoreVault.PayoutMode.Standard;
+    ICoreVault.PayoutMode internal constant INSTANT = ICoreVaultPayouts.PayoutMode.Instant;
+    ICoreVault.PayoutMode internal constant STANDARD = ICoreVaultPayouts.PayoutMode.Standard;
 
     /// @dev A feeless fund seeded with the manager's `seed` USDC at 1.00, so shares equal USDC as in the register.
     function _fundSeededWith(uint256 seed) internal {

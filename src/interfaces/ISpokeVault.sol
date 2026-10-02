@@ -2,6 +2,8 @@
 pragma solidity 0.8.28;
 
 import {IAcrossMessageHandler} from "./external/IAcrossMessageHandler.sol";
+import {ISpokeVaultUnwind} from "./ISpokeVaultUnwind.sol";
+import {ISpokeVaultIncome} from "./ISpokeVaultIncome.sol";
 import {IAdapter} from "./IAdapter.sol";
 import {ReportCodec} from "../libraries/ReportCodec.sol";
 import {Transit, TransferKind, ExpensePayer, BridgeQuote} from "./FundTypes.sol";
@@ -20,7 +22,10 @@ import {Transit, TransferKind, ExpensePayer, BridgeQuote} from "./FundTypes.sol"
 ///      (DEC-079, DEC-080).
 /// @dev Every value-moving entry point is `nonReentrant` (OpenZeppelin ReentrancyGuard) and follows
 ///      checks-effects-interactions.
-interface ISpokeVault is IAcrossMessageHandler {
+/// @dev WP-07 A4: the automatic unwind lives in ISpokeVaultUnwind and the collected income verbs in ISpokeVaultIncome;
+///      this interface inherits both, so it still describes the whole Spoke Vault. A member declared in one of them is
+///      named through it in expressions (`ISpokeVaultUnwind.UnwoundForPayout`).
+interface ISpokeVault is IAcrossMessageHandler, ISpokeVaultUnwind, ISpokeVaultIncome {
     /// @notice An open position and the adapter that holds it.
     struct PositionRef {
         address adapter;
@@ -47,16 +52,6 @@ interface ISpokeVault is IAcrossMessageHandler {
     event PositionClosed(address indexed adapter, bytes32 indexed positionKey, IAdapter.Amounts amounts);
     event IncomeCollected(address indexed adapter, bytes32 indexed positionKey, uint256 income0, uint256 income1);
     event Swapped(
-        address indexed adapter,
-        bytes32 indexed poolKey,
-        address tokenIn,
-        address tokenOut,
-        uint256 amountIn,
-        uint256 amountOut
-    );
-
-    /// @notice Collected income was swapped into the base token inside the collected income bucket (CV-OQ-2).
-    event IncomeSwapped(
         address indexed adapter,
         bytes32 indexed poolKey,
         address tokenIn,
@@ -97,12 +92,6 @@ interface ISpokeVault is IAcrossMessageHandler {
 
     /// @notice Hub only: USDC Unallocated Balance was returned to the Core Vault's Idle.
     event ReturnedToCoreVault(uint256 amount);
-
-    /// @notice Hub only: collected income was handed to the Core Vault's Attributed Income bucket.
-    event IncomeForwardedToCoreVault(address indexed token, uint256 amount);
-
-    /// @notice Hub only: an automatic unwind for a payout ran (DEC-069, DEC-081).
-    event UnwoundForPayout(uint256 usdcTarget, uint256 usdcProceeds);
 
     /// @notice Balance above the ledger was swept (DEC-080, DEC-096, DEC-101).
     event ExcessSwept(address indexed token, address indexed recipient, uint256 amount);
@@ -215,26 +204,6 @@ interface ISpokeVault is IAcrossMessageHandler {
         bytes calldata params
     ) external returns (uint256 amountOut);
 
-    /// @notice Swaps collected income of `tokenIn` into the base token through a Mandate pool, inside the collected
-    ///         income bucket. Manager only; Spoke Chains only.
-    /// @dev CV-OQ-2 / Q60 (spoke income tokens) and ruling 2026-09-29: spoke income can only be attributed once it
-    ///      reaches the Core Vault, and it can only get there as USDC through the Transport Route (DEC-031, DEC-055),
-    ///      so income collected in another token (WETH fees) is first swapped into the spoke's base token and then
-    ///      sent with `sendToHub(..., Income, ...)`. Debits and credits the collected income bucket only, never
-    ///      Unallocated Balance (DEC-092); the output must be the base token. The Market Costs of the swap are borne by
-    ///      the income (LC-45 / LC-141 OPEN). The fee is split on the hub when the USDC arrives (DEC-107), so this swap
-    ///      happens before any fee is taken; DEC-109's "no swap by the contract" applies to the fee payment, which
-    ///      stays in kind on the hub. `minAmountOut` bounds slippage; the adapter's own rules apply (OQ-04: blocked
-    ///      when deprecated, never when paused).
-    function swapCollectedIncome(
-        address adapter,
-        bytes32 poolKey,
-        address tokenIn,
-        uint256 amountIn,
-        uint256 minAmountOut,
-        bytes calldata params
-    ) external returns (uint256 amountOut);
-
     /// @notice Sets the Operating Cash floor and top-up of this chain. Manager only (DEC-096; no protocol cap on the
     ///         floor, DEC-100).
     function setOperatingCashParameters(uint256 floor, uint256 topUp) external;
@@ -294,24 +263,6 @@ interface ISpokeVault is IAcrossMessageHandler {
     /// @notice Moves USDC Unallocated Balance back to the Core Vault's Idle (`ICoreVault.returnToIdle`). Manager only;
     ///         hub only.
     function returnToCoreVault(uint256 amount) external;
-
-    /// @notice Hands the collected income bucket of `token` to the Core Vault (`ICoreVault.receiveCollectedIncome`).
-    ///         Permissionless; hub only; the destination is fixed.
-    function forwardIncomeToCoreVault(address token) external returns (uint256 amount);
-
-    /// @notice Automatic unwind in Mandate order until `usdcTarget` USDC is available, then returns the USDC proceeds
-    ///         to the Core Vault's Idle. Core Vault only; hub only.
-    /// @dev DEC-069: Mandate unwind order; DEC-081: `usdcTarget` already includes the 2% margin; DEC-097: the margin's
-    ///      Market Costs are the fund's. Feedback question 2 (OPEN): the MVP unwinds hub positions only. Final
-    ///      verification (QA3 OPEN): the vault sizes every step itself (the shortfall still needed against the
-    ///      position's principal value at the pool's spot price, closing a position only when its whole value is
-    ///      needed) and floors every swap's minimum output at the route's spot quote less `MAX_UNWIND_SLIPPAGE_BPS`.
-    /// @param unwindHints Optional `abi.encode(SpokeVaultTypes.UnwindHint[])` from the claimant: swap tightenings only
-    ///        (a higher minimum output, a price limit or deadline), never an exit size; a hint cannot widen what the
-    ///        vault would do on its own.
-    /// @return usdcProceeds USDC returned to the Core Vault (may be below target: the payout is then partial,
-    ///         DEC-068).
-    function unwindForPayout(uint256 usdcTarget, bytes calldata unwindHints) external returns (uint256 usdcProceeds);
 
     // ---------------------------------------------------------------------------------------------------------------
     // Garbage collector

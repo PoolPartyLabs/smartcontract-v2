@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {console2} from "forge-std/console2.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {IPriceSource} from "../../../src/interfaces/IPriceSource.sol";
 import {SpokeBFixture} from "./SpokeBFixture.sol";
 
@@ -66,7 +67,7 @@ contract M01_UnpriceableSpokeToken is SpokeBFixture {
         uint256 fairAssets = SEED_IDLE + 997_450e6;
         uint256 fairValue = bobShares * fairAssets / shares.totalSupply();
         vm.prank(bob);
-        vault.requestPayout(fairValue, ICoreVault.PayoutMode.Instant);
+        vault.requestPayout(fairValue, ICoreVaultPayouts.PayoutMode.Instant);
         vm.expectEmit(address(vault));
         emit ICoreVault.PriceFallback(address(spokeWeth), 0);
         vm.prank(bob);

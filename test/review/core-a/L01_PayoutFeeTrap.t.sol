@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {console2} from "forge-std/console2.sol";
 import {CoreVault} from "../../../src/core/CoreVault.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {Mandate, MandateLib} from "../../../src/mandate/Mandate.sol";
 import {CoreVaultFixture} from "../../unit/core/CoreVaultFixture.sol";
 
@@ -32,7 +33,7 @@ contract L01_PayoutFeeTrap is CoreVaultFixture {
         _deploy(m, _config(100));
 
         _deposit(alice, 1000e6);
-        _request(alice, 500e6, ICoreVault.PayoutMode.Instant);
+        _request(alice, 500e6, ICoreVaultPayouts.PayoutMode.Instant);
         ICoreVault.PayoutReceipt memory r = _claim(alice);
         console2.log("gross / payout fee / flow fee / paid", r.usdcGross, r.payoutFee, r.flowFee);
         console2.log("paid", r.usdcPaid);
@@ -44,7 +45,7 @@ contract L01_PayoutFeeTrap is CoreVaultFixture {
         assertEq(vault.operatingCash(), 0, "DEC-144: the Payout Fee stays in Idle");
 
         // The holder is free to open a Standard request next (no trap).
-        _request(alice, 400e6, ICoreVault.PayoutMode.Standard);
+        _request(alice, 400e6, ICoreVaultPayouts.PayoutMode.Standard);
         assertTrue(vault.payoutRequest(alice).open);
     }
 }

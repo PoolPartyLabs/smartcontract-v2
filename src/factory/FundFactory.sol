@@ -27,9 +27,14 @@ import {CodeStore} from "./CodeStore.sol";
 ///      CREATE3 address of this factory (Create3), so the hub computes the spoke addresses and the spoke computes the
 ///      hub's (DEC-053, DEC-054).
 /// @dev Linked libraries (docs/ARCHITECTURE.md §1.1): the Core Vault creation code arrives in calldata and must hash to
-///      `coreVaultCreationCodeHash`, the code linked to `coreVaultLogic`, so nobody deploys foreign code under a fund
-///      id; the Spoke Vault creation code is stored on chain (CodeStore) linked to `spokeCrossChainLib`. The adapters
-///      and the receiver are stored the same way. Every stored code hash is fixed at construction.
+///      `coreVaultCreationCodeHash`, the code linked to the Core Vault libraries (`CoreVaultLogic`,
+///      `CoreVaultTransitLogic`, `CoreVaultIncomeLogic`, `CoreVaultPayoutLogic`), so nobody deploys foreign code under
+///      a fund id; the Spoke Vault creation code is stored on chain (CodeStore) linked to the Spoke Vault libraries
+///      (`SpokeCrossChainLib`, `SpokeUnwindLib`). The adapters and the receiver are stored the same way. Every stored
+///      code hash is fixed at construction. The constructor checks code only at `coreVaultLogic` and
+///      `spokeCrossChainLib`: the other libraries are pinned by the hashes alone, so a code hash linked to a library
+///      that was never deployed lets funds be created whose verbs that reach that library revert until the operator
+///      deploys it at its deterministic address.
 /// @dev DEC-022, DEC-058: no owner, no setter, no proxy, no selfdestruct; the only state is the creation counter and
 ///      the fund registry. DEC-001: creation is permissionless.
 contract FundFactory is IFundFactory, ReentrancyGuardTransient {

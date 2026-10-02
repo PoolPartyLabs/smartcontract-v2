@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {console2} from "forge-std/console2.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {CoreAHubFixture} from "./CoreAHubFixture.sol";
 
@@ -59,7 +60,7 @@ contract C01_SpotCompositionValuation is CoreAHubFixture {
 
     /// @dev The claimant's sandwich (push -> claimPayout -> restore) burns exactly the shares an honest claim burns.
     function test_REVIEW_C02_claimAroundASpotMoveBurnsTheFairShares() public {
-        _request(mallory, 300_000e6, ICoreVault.PayoutMode.Standard);
+        _request(mallory, 300_000e6, ICoreVaultPayouts.PayoutMode.Standard);
         vm.warp(block.timestamp + 72 hours + 1);
 
         uint256 snap = vm.snapshotState();

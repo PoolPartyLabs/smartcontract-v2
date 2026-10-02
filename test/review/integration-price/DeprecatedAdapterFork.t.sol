@@ -6,6 +6,7 @@ import {Vm} from "forge-std/Vm.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {IAdapter} from "../../../src/interfaces/IAdapter.sol";
 import {IAdapterGuard} from "../../../src/interfaces/IAdapterGuard.sol";
 import {IPriceSource} from "../../../src/interfaces/IPriceSource.sol";
@@ -40,7 +41,10 @@ contract DeprecatedAdapterFork is EndToEndScenario {
 
     function _sawUnwindFailed(Vm.Log[] memory logs) internal view returns (bool) {
         for (uint256 i; i < logs.length; ++i) {
-            if (logs[i].emitter == address(core) && logs[i].topics[0] == ICoreVault.UnwindForPayoutFailed.selector) {
+            if (
+                logs[i].emitter == address(core)
+                    && logs[i].topics[0] == ICoreVaultPayouts.UnwindForPayoutFailed.selector
+            ) {
                 return true;
             }
         }
@@ -59,7 +63,7 @@ contract DeprecatedAdapterFork is EndToEndScenario {
         //    into USDC through the deprecated adapter and the claim completes.
         InstantPlan memory plan = _planInstant();
         vm.prank(bruno);
-        core.requestPayout(plan.request, ICoreVault.PayoutMode.Instant);
+        core.requestPayout(plan.request, ICoreVaultPayouts.PayoutMode.Instant);
         vm.recordLogs();
         vm.prank(bruno);
         ICoreVault.PayoutReceipt memory r = core.claimPayout("");

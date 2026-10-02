@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {HubStackFixture} from "./HubStackFixture.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 
 /// @title Regression (security review S-1): a claimant who moves the pool price is no longer paid on an LP
 ///        composition marked at the oracle price
@@ -25,7 +26,7 @@ contract POC_CompositionMarking is HubStackFixture {
 
         // Counterfactual: bob exits at the true price.
         uint256 snapshot = vm.snapshotState();
-        _request(bob, 100_000e6, ICoreVault.PayoutMode.Instant);
+        _request(bob, 100_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         ICoreVault.PayoutReceipt memory honest = _claim(bob);
         uint256 aliceAssetsHonest = vault.shareAssets();
         vm.revertToState(snapshot);
@@ -35,7 +36,7 @@ contract POC_CompositionMarking is HubStackFixture {
         assertGt(_markedPositionValue(positionKey), trueValue, "the adapter still reports the pushed spot split");
         assertEq(vault.shareAssets(), trueAssets, "S-1: Share Assets do not follow it");
 
-        _request(bob, 100_000e6, ICoreVault.PayoutMode.Instant);
+        _request(bob, 100_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         ICoreVault.PayoutReceipt memory attack = _claim(bob);
         v4.setTick(poolId, TRUE_TICK);
 

@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {IFundFactory} from "../../../src/interfaces/IFundFactory.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {CoreVault} from "../../../src/core/CoreVault.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {MockToken} from "../../mocks/v4/MockToken.sol";
@@ -70,7 +71,7 @@ contract FeeRecipientLivenessPoC is AccessFundFixture {
     function test_SEC_S12_blacklistedProtocolRecipientNoLongerBlocksDepositsOrPayouts() public {
         // Control: with the recipient reachable, a claim pays out.
         uint256 snapshot = vm.snapshotState();
-        uint256 control = _exitAll(core, alice, ICoreVault.PayoutMode.Instant);
+        uint256 control = _exitAll(core, alice, ICoreVaultPayouts.PayoutMode.Instant);
         vm.revertToState(snapshot);
 
         fiatUsdc.blacklist(recipient);
@@ -85,8 +86,12 @@ contract FeeRecipientLivenessPoC is AccessFundFixture {
         assertEq(core.owedFees(address(usdc), recipient), 2.5e6, "S-12: the deposit's flow fee is owed");
 
         // Alice exits in full, exactly as in the control; Bob's Standard Payout completes after the term.
-        assertEq(_exitAll(core, alice, ICoreVault.PayoutMode.Instant), control, "S-12: Alice is paid as in the control");
-        uint256 bobPaid = _exitAll(core, bob, ICoreVault.PayoutMode.Standard);
+        assertEq(
+            _exitAll(core, alice, ICoreVaultPayouts.PayoutMode.Instant),
+            control,
+            "S-12: Alice is paid as in the control"
+        );
+        uint256 bobPaid = _exitAll(core, bob, ICoreVaultPayouts.PayoutMode.Standard);
         assertGt(bobPaid, 398_000e6, "S-12: Bob's Standard Payout completes");
         assertEq(_balance(usdc, recipient), recipientBefore, "nothing reached the blacklisted recipient");
         uint256 owed = core.owedFees(address(usdc), recipient);
@@ -137,7 +142,7 @@ contract FeeRecipientLivenessPoC is AccessFundFixture {
         uint256 before = _balance(usdc, who);
         vm.startPrank(who);
         core_.requestPayout(1_000_000e6, mode);
-        if (mode == ICoreVault.PayoutMode.Standard) vm.warp(block.timestamp + core_.standardPayoutTerm());
+        if (mode == ICoreVaultPayouts.PayoutMode.Standard) vm.warp(block.timestamp + core_.standardPayoutTerm());
         core_.claimPayout("");
         vm.stopPrank();
         paid = _balance(usdc, who) - before;

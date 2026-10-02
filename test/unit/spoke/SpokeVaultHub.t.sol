@@ -5,6 +5,8 @@ import {SpokeVaultTestBase} from "./SpokeVaultTestBase.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
+import {ISpokeVaultIncome} from "../../../src/interfaces/ISpokeVaultIncome.sol";
+import {ISpokeVaultUnwind} from "../../../src/interfaces/ISpokeVaultUnwind.sol";
 import {IAdapter} from "../../../src/interfaces/IAdapter.sol";
 import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
@@ -134,7 +136,7 @@ contract SpokeVaultHubTest is SpokeVaultTestBase {
         assertEq(vault.collectedIncome(address(usdc)), 7e6);
 
         vm.expectEmit(address(vault));
-        emit ISpokeVault.IncomeForwardedToCoreVault(address(usdc), 7e6);
+        emit ISpokeVaultIncome.IncomeForwardedToCoreVault(address(usdc), 7e6);
         vm.prank(stranger);
         assertEq(vault.forwardIncomeToCoreVault(address(usdc)), 7e6);
         assertEq(core.incomeReceived(address(usdc)), 7e6);
@@ -158,7 +160,7 @@ contract SpokeVaultHubTest is SpokeVaultTestBase {
     function test_DEC059_unallocatedUsdcPaysFirstWithoutUnwinding() public {
         (bytes32 uniKey, bytes32 aaveKey) = _twoPositions();
         vm.expectEmit(address(vault));
-        emit ISpokeVault.UnwoundForPayout(80e6, 80e6);
+        emit ISpokeVaultUnwind.UnwoundForPayout(80e6, 80e6);
         assertEq(core.unwind(vault, 80e6, ""), 80e6);
         assertEq(core.idleReturned(), 80e6);
         assertEq(vault.unallocatedBalance(address(usdc)), 20e6);

@@ -37,8 +37,7 @@ contract CreateFund is Script, FactoryDeployment, FundMandate {
         if (block.chainid == ARBITRUM) {
             uint256 n = factory.nextCreationNumber();
             Mandate memory m = _buildMandate(factory, factory.fundIdOf(ARBITRUM, n, manager), plan);
-            IFundFactory.HubParams memory p =
-                _hubParams(n, plan, _coreVaultCreationCode(factory.wiring().coreVaultLogic));
+            IFundFactory.HubParams memory p = _hubParams(n, plan, _coreVaultCreationCode(_libraryAddresses(true)));
             vm.startBroadcast(manager);
             IERC20(ARB_USDC).approve(address(factory), p.seedAmount);
             IFundFactory.FundAddresses memory a = factory.createFund(m, p);

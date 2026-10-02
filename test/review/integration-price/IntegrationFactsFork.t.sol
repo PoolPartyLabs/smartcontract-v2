@@ -40,8 +40,7 @@ contract IntegrationFactsFork is IntegrationPriceBase {
         Mandate memory m = _buildMandate(
             hubDeployment.factory, hubDeployment.factory.fundIdOf(ARBITRUM, n, otherManager), _pricePlan(SPOKE_CAP)
         );
-        IFundFactory.HubParams memory p =
-            _hubParams(n, _pricePlan(SPOKE_CAP), _coreVaultCreationCode(hubDeployment.coreVaultLogic));
+        IFundFactory.HubParams memory p = _hubParams(n, _pricePlan(SPOKE_CAP), _coreVaultCreationCode(hubDeployment));
         _fundManagerSeed(ARB_USDC, otherManager, address(hubDeployment.factory), p.seedAmount);
         vm.prank(otherManager);
         IFundFactory.FundAddresses memory a = hubDeployment.factory.createFund(m, p);

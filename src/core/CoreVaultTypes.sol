@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {ICoreVault} from "../interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../interfaces/ICoreVaultPayouts.sol";
 import {ICoreVaultLifecycle} from "../interfaces/ICoreVaultLifecycle.sol";
 import {Transit, TransferKind} from "../interfaces/FundTypes.sol";
 import {Mandate} from "../mandate/Mandate.sol";
@@ -49,7 +49,10 @@ struct CoreVaultConfig {
     string shareSymbol;
 }
 
-/// @notice Immutable addresses the Core Vault hands to its external library on every call.
+/// @notice Immutable addresses and terms the Core Vault hands to its external libraries on every call.
+/// @param flowFeeBps ICoreVault.flowFeeBps (DEC-106, DEC-113).
+/// @param payoutFeeBps ICoreVault.payoutFeeBps (DEC-075, DEC-144).
+/// @param standardPayoutTerm ICoreVault.standardPayoutTerm (DEC-060, DEC-095).
 struct CoreVaultWiring {
     bytes32 fundId;
     bytes32 mandateHash;
@@ -65,7 +68,18 @@ struct CoreVaultWiring {
     address managerFeeVault;
     uint256 hubChainId;
     uint16 maxBridgeFeeBps;
+    uint16 flowFeeBps;
+    uint16 payoutFeeBps;
+    uint32 standardPayoutTerm;
 }
+
+/// @dev Transient slot of the Core Vault's unwinding flag: set while the Core Vault waits on
+///      `ISpokeVault.unwindForPayout`, so the hub Spoke Vault may call back `returnToIdle` from inside a payout
+///      (`CoreVaultBase.onlyHubSpokeVaultCallback`). Written by the linked `CoreVaultPayoutLogic`, which runs in the
+///      Core Vault's context, around that call only.
+///      keccak256(abi.encode(uint256(keccak256("pool-party.CoreVault.unwinding")) - 1)) & ~bytes32(uint256(0xff)), the
+///      ERC-7201 derivation OpenZeppelin uses for its own transient reentrancy slot.
+bytes32 constant CORE_VAULT_UNWINDING_SLOT = 0xdf495c1bae34fcef25c7d9217d2909291103a476961a7c969c9c8e77b0605200;
 
 /// @notice Per-spoke transit book.
 /// @param inFlightSent USDC sent to the spoke whose outcome is unknown (state Sent); counts toward the Spoke Cap
@@ -145,7 +159,7 @@ struct CoreVaultState {
     uint256 transitNonce;
     IncomeAccumulator.State income;
     mapping(address token => uint256) collectedIncome;
-    mapping(address shareholder => ICoreVault.PayoutRequest) requests;
+    mapping(address shareholder => ICoreVaultPayouts.PayoutRequest) requests;
     mapping(bytes32 transitId => Transit) transits;
     mapping(bytes32 transitId => uint256) transitSpoke;
     mapping(uint256 spokeIndex => SpokeBook) spokeBooks;

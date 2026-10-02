@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {CoreVaultFixture} from "../../unit/core/CoreVaultFixture.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
 import {Transit, TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
 import {Mandate, AdapterConfig, PoolConfig, BridgeAdapterConfig} from "../../../src/mandate/Mandate.sol";
@@ -126,7 +127,7 @@ contract POC_ReturnLegValuationGap is CoreVaultFixture {
         uint256 snapshot = vm.snapshotState();
         _closeTheGap(homebound);
         _deposit(bob, 1_000_000e6);
-        _request(bob, 2_000_000e6, ICoreVault.PayoutMode.Instant);
+        _request(bob, 2_000_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         uint256 honestPaid = _claim(bob).usdcPaid;
         uint256 aliceValueHonest = _valueOf(aliceShares);
         vm.revertToState(snapshot);
@@ -134,7 +135,7 @@ contract POC_ReturnLegValuationGap is CoreVaultFixture {
         // Bob deposits inside what used to be the window.
         _deposit(bob, 1_000_000e6);
         _closeTheGap(homebound);
-        _request(bob, 2_000_000e6, ICoreVault.PayoutMode.Instant);
+        _request(bob, 2_000_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         ICoreVault.PayoutReceipt memory r = _claim(bob);
         assertLt(r.usdcPaid, 1_000_000e6, "S-3: bob leaves with less than he deposited");
         // The only difference left is the 200 USDC bridge fee the refund returns on top of the 399,800 counted in

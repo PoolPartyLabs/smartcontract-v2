@@ -86,7 +86,7 @@ contract FundFactoryForkTest is Test, FactoryDeployment, FundMandate, FundSeed {
         uint256 n = d.factory.nextCreationNumber();
         IFundFactory.FundAddresses memory predicted = d.factory.predictAddresses(n, manager, _chainIds());
         Mandate memory m = _buildMandate(d.factory, predicted.fundId, plan);
-        IFundFactory.HubParams memory p = _hubParams(n, plan, _coreVaultCreationCode(d.coreVaultLogic));
+        IFundFactory.HubParams memory p = _hubParams(n, plan, _coreVaultCreationCode(d));
         uint256 gasBefore = gasleft();
         _fundManagerSeed(ARB_USDC, manager, address(d.factory), p.seedAmount);
         vm.prank(manager);
@@ -238,7 +238,7 @@ contract FundFactoryForkTest is Test, FactoryDeployment, FundMandate, FundSeed {
         bytes32 predicted = m.spokes[0].spokeVault;
         bytes32 foreign = bytes32(uint256(uint160(makeAddr("foreignSpokeVault"))));
         m.spokes[0].spokeVault = foreign;
-        IFundFactory.HubParams memory p = _hubParams(n, plan, _coreVaultCreationCode(d.coreVaultLogic));
+        IFundFactory.HubParams memory p = _hubParams(n, plan, _coreVaultCreationCode(d));
         _fundManagerSeed(ARB_USDC, manager, address(d.factory), p.seedAmount);
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(IFundFactory.SpokeVaultMismatch.selector, ROBINHOOD, predicted, foreign));
@@ -251,7 +251,8 @@ contract FundFactoryForkTest is Test, FactoryDeployment, FundMandate, FundSeed {
         uint256 n = d.factory.nextCreationNumber();
         Mandate memory m = _buildMandate(d.factory, d.factory.fundIdOf(ARBITRUM, n, manager), plan);
         // The Core Vault linked to another library: same contract, foreign code.
-        bytes memory foreignCode = _coreVaultCreationCode(d.spokeCrossChainLib);
+        d.coreVaultLogic = d.spokeCrossChainLib;
+        bytes memory foreignCode = _coreVaultCreationCode(d);
         IFundFactory.HubParams memory p = _hubParams(n, plan, foreignCode);
         bytes32 role = d.factory.ROLE_CORE_VAULT();
         bytes memory reason = abi.encodeWithSelector(

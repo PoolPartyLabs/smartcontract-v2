@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {MockV4} from "../../mocks/v4/MockV4.sol";
 import {AccountingPocFixture} from "./AccountingPocFixture.sol";
 
@@ -28,7 +29,7 @@ contract FlashExitAttacker {
         pool.setTick(poolId, movedTick);
         // 3. Exit at the inflated Share Price, paid from Idle. No term, no lock (Instant Payout). Asking for exactly
         //    Free Idle keeps the claim Idle-paid (no unwind), so the inflated value is never tested against a sale.
-        core.requestPayout(drainIdle ? core.freeIdle() : 1_000_000_000e6, ICoreVault.PayoutMode.Instant);
+        core.requestPayout(drainIdle ? core.freeIdle() : 1_000_000_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         usdcPaid = core.claimPayout("").usdcPaid;
         // 4. Second leg: bring the pool back.
         pool.setTick(poolId, fairTick);

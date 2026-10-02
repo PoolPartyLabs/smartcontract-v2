@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {CoreVaultFixture} from "../../unit/core/CoreVaultFixture.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 
 /// @title POC: an unbounded Operating Cash top-up moves Free Idle into a bucket nothing can ever spend or return
 /// @notice SEVERITY: medium (irreversible loss of shareholder value from one manager transaction, no cap, no recovery;
@@ -52,7 +53,7 @@ contract POC_OperatingCashFreeze is CoreVaultFixture {
         assertLt(assetsAfter, assetsBefore);
 
         // Alice's full exit is priced at the reduced Share Assets: her 100,000 USDC deposit pays back under half.
-        _request(alice, 200_000e6, ICoreVault.PayoutMode.Instant);
+        _request(alice, 200_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         ICoreVault.PayoutReceipt memory r = _claim(alice);
         assertEq(r.sharesBurned, 99_750e18);
         assertLt(r.usdcGross, 50_000e6);

@@ -8,6 +8,7 @@ import {CoreVault} from "../../../src/core/CoreVault.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {ValueReportReceiver} from "../../../src/report/ValueReportReceiver.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {IValueReportReceiver} from "../../../src/interfaces/IValueReportReceiver.sol";
 import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {MandateLib, Mandate} from "../../../src/mandate/Mandate.sol";
@@ -98,7 +99,7 @@ contract M01_UnreportableSpokeLocksItsCapital is FactoryReviewFixture {
         uint256 value = vault.shareAssets();
         assertEq(value, SEED_IDLE + 997_500e6);
         vm.prank(alice);
-        vault.requestPayout(value, ICoreVault.PayoutMode.Instant);
+        vault.requestPayout(value, ICoreVaultPayouts.PayoutMode.Instant);
         vm.prank(alice);
         ICoreVault.PayoutReceipt memory r = vault.claimPayout("");
         console2.log("Share Assets / paid gross / outstanding", value, r.usdcGross, r.usdcOutstanding);
