@@ -4,10 +4,8 @@ import { chainlinkAggregatorAbi, coreVaultAbi, erc20Abi, shareTokenAbi, valueRep
 import { anvil, explain, latestTimestamp, nodes, read, runMain, type Side } from "./chain.ts";
 import { ARBITRUM, ROBINHOOD, actors, isMain, type ActorName } from "./config.ts";
 import { runningKeeperPid } from "./keeper.ts";
-import { bold, dim, green, red, units, yellow } from "./log.ts";
+import { bold, dim, green, red, redactUrls, units, yellow } from "./log.ts";
 import { tryReadState } from "./state.ts";
-
-const redact = (url?: string) => (url ? url.replace(/^(https?:\/\/[^/]+).*$/, "$1/...") : "?");
 
 async function nodeLine(side: Side): Promise<boolean> {
   const node = nodes[side];
@@ -17,7 +15,7 @@ async function nodeLine(side: Side): Promise<boolean> {
     console.log(
       `  ${green("up")}   ${node.label.padEnd(24)} ${node.rpc}  chain ${node.chain.id}  block ${block.number}  ` +
         `time ${new Date(Number(block.timestamp) * 1000).toISOString()} ${dim(`(${lag >= 0 ? "-" : "+"}${Math.abs(lag)}s vs wall clock)`)}  ` +
-        `fork of ${redact(info.forkConfig?.forkUrl)} at ${info.forkConfig?.forkBlockNumber}  ${info.hardFork}`,
+        `fork of ${redactUrls(info.forkConfig?.forkUrl ?? "?")} at ${info.forkConfig?.forkBlockNumber}  ${info.hardFork}`,
     );
     return true;
   } catch {

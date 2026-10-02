@@ -71,9 +71,7 @@ fail() {
   exit 1
 }
 
-# Keeps the scheme and host of every URL in stdin, never a path or query that may carry an API key (Alchemy:
-# /v2/<key>). anvil repeats its upstream URL in its log ("Endpoint: ...") and in its errors.
-redact_urls() { sed -E 's,(https?://[^/?#[:space:])]+)[/?#][^[:space:])]*,\1/...,g'; }
+source "$HERE/redact-urls.sh"
 redact() { redact_urls <<<"$1"; }
 
 port_in_use() {

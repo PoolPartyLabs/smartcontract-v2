@@ -16,7 +16,7 @@ import { ARBITRUM, HARNESS_DIR, ROBINHOOD, SWAP_ADAPTER_TOKENS, actors, guardian
 import { createFund, deployFactory, forgeBuild, protocolRoles } from "./deploy.ts";
 import { discoverLayouts, discoverMappingSlot, fundAccounts, mappingSlot, storageRead } from "./fund-accounts.ts";
 import { CORES, WORMHOLE_SEQUENCES_SLOT, overrideBothCores, selfTest } from "./guardian.ts";
-import { bold, green, logger, red, type Logger } from "./log.ts";
+import { bold, green, logger, red, redactUrls, type Logger } from "./log.ts";
 import { restampFeed } from "./price-feed.ts";
 import { runScenario } from "./scenario.ts";
 import { tryReadState, writeState, type DeploymentState, type NodeState } from "./state.ts";
@@ -250,7 +250,7 @@ if (isMain(import.meta.url)) {
   }
   try {
     const state = await up(warmUp);
-    console.log(`\n${green(bold("up"))}: Arbitrum One fork ${state.nodes.arbitrum.rpc} (chain 42161), Robinhood Chain fork ${state.nodes.robinhood.rpc} (chain 4663)`);
+    console.log(`\n${green(bold("up"))}: Arbitrum One fork ${redactUrls(state.nodes.arbitrum.rpc)} (chain 42161), Robinhood Chain fork ${redactUrls(state.nodes.robinhood.rpc)} (chain 4663)`);
     console.log(`  FundFactory          ${state.protocol.arbitrum.fundFactory} (both chains)`);
     console.log(`  fund ${state.fund.shareSymbol.padEnd(15)} Core Vault ${state.fund.hub.coreVault}, Spoke Vault (Robinhood) ${state.fund.spoke.spokeVault}`);
     console.log(`  swap adapters        ${state.fund.hub.uniswapV3SwapAdapter} (hub), ${state.fund.spoke.uniswapV3SwapAdapter} (Robinhood)`);
