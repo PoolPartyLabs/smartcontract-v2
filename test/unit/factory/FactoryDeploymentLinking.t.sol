@@ -33,8 +33,10 @@ contract FactoryDeploymentLinkingTest is Test, FactoryDeployment {
         assertTrue(d.coreVaultPayoutLogic.code.length != 0, "CoreVaultPayoutLogic deployed on the hub");
         assertTrue(vm.contains(code, _bareHex(d.coreVaultPayoutLogic)), "CoreVaultPayoutLogic linked");
         assertFalse(vm.contains(code, "__$"), "no placeholder left");
-        // Library into library: the transit and payout libraries call CoreVaultLogic and CoreVaultIncomeLogic through
-        // their own linked addresses.
+        // Library into library: CoreVaultLogic calls CoreVaultIncomeLogic (the valuation hook, WP-07 D2), and the
+        // transit and payout libraries call both, through their own linked addresses.
+        string memory logic = vm.toString(d.coreVaultLogic.code);
+        assertTrue(vm.contains(logic, _bareHex(d.coreVaultIncomeLogic)), "CoreVaultLogic -> CoreVaultIncomeLogic");
         string memory transit = vm.toString(d.coreVaultTransitLogic.code);
         assertTrue(vm.contains(transit, _bareHex(d.coreVaultLogic)), "transit -> CoreVaultLogic");
         assertTrue(vm.contains(transit, _bareHex(d.coreVaultIncomeLogic)), "transit -> CoreVaultIncomeLogic");

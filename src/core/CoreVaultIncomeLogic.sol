@@ -5,18 +5,24 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ICoreVaultIncome} from "../interfaces/ICoreVaultIncome.sol";
 import {IManagerRegistry} from "../interfaces/IManagerRegistry.sol";
 import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
+import {ReportCodec} from "../libraries/ReportCodec.sol";
 import {CoreVaultState, CoreVaultWiring} from "./CoreVaultTypes.sol";
 import {CoreVaultLogic} from "./CoreVaultLogic.sol";
 
 /// @title CoreVaultIncomeLogic
 /// @notice Collected income of the Core Vault: the fee split at collection and the advance of the shareholders'
-///         accumulator, and the income payment of a full exit, as an external library that runs in the Core Vault's
-///         context (DELEGATECALL into the fund's own linked library, never into an adapter).
+///         accumulator, and the income hooks the other paths call at fixed points (valuation, share balance changes),
+///         as an external library that runs in the Core Vault's context (DELEGATECALL into the fund's own linked
+///         library, never into an adapter).
 /// @dev DEC-131 pattern (alternative C) applied to the Core Vault (D-43): moved out of `CoreVaultLogic` unchanged so
 ///      each linked library keeps room under the 24,576-byte limit. It calls no other linked library (the fee transfer
-///      `CoreVaultLogic.payFee` is internal, so it is compiled in); the Core Vault, `CoreVaultTransitLogic` and
-///      `CoreVaultPayoutLogic` call it through its linked address, which is part of the Core Vault's creation code and
-///      trust surface (immutable: no proxy, no upgrade path, DEC-022, DEC-058).
+///      `CoreVaultLogic.payFee` is internal, so it is compiled in); the Core Vault, `CoreVaultLogic`,
+///      `CoreVaultTransitLogic` and `CoreVaultPayoutLogic` call it through its linked address, which is part of the
+///      Core Vault's creation code and trust surface (immutable: no proxy, no upgrade path, DEC-022, DEC-058). It must
+///      never call a public function of those libraries: they link this one, so a link back would make their CREATE2
+///      addresses depend on each other.
+/// @dev WP-07 D2: the hooks keep today's behaviour (a no-op where nothing happened before); the income work (DEC-117,
+///      DEC-122, DEC-145, DEC-161) changes their bodies here without editing the callers.
 /// @dev Events are emitted with the Core Vault as their address; they and the errors are declared in ICoreVaultIncome.
 library CoreVaultIncomeLogic {
     using IncomeAccumulator for IncomeAccumulator.State;
@@ -66,6 +72,21 @@ library CoreVaultIncomeLogic {
             bps = DEFAULT_PROTOCOL_SLICE_BPS;
         }
     }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Valuation hook (WP-07 D2; DEC-117)
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// @notice Called at the end of every recorded valuation (`CoreVaultLogic.recordValuation`: deposits, Payout
+    ///         Requests, claims, management fee bookings) with the hub Spoke Vault's report that valuation read.
+    ///         Nothing to do yet.
+    /// @dev DEC-117: the income work recognizes hub income here, inside the valuation and so before the operation
+    ///      checkpoints any holder. `hubRead` is false when a payout's valuation could not read the hub report (payout
+    ///      liveness, DEC-021, DEC-056), and `hubReport` is then empty; `mint` tells a mint's valuation (every
+    ///      dependency answered, fresh) from a payout's.
+    function onValuation(CoreVaultState storage, CoreVaultWiring memory, ReportCodec.Report memory, bool, bool)
+        public
+        pure {}
 
     // ---------------------------------------------------------------------------------------------------------------
     // Share balance hooks (WP-07 D2; DEC-014, DEC-045, DEC-047, Q60)

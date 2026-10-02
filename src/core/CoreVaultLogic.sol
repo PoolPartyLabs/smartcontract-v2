@@ -16,12 +16,14 @@ import {TransferKind} from "../interfaces/FundTypes.sol";
 import {SpokeConfig} from "../mandate/Mandate.sol";
 import {ReportCodec} from "../libraries/ReportCodec.sol";
 import {CoreVaultState, CoreVaultWiring} from "./CoreVaultTypes.sol";
+import {CoreVaultIncomeLogic} from "./CoreVaultIncomeLogic.sol";
 
 /// @title CoreVaultLogic
 /// @notice Value bases of the Core Vault and the fee transfer helper, as an external library that runs in the Core
 ///         Vault's context (DELEGATECALL into the fund's own linked library, never into an adapter). Report
 ///         application, sends and transit outcomes live in `CoreVaultTransitLogic`, the income split in
-///         `CoreVaultIncomeLogic` (DEC-131 pattern, D-43).
+///         `CoreVaultIncomeLogic` (DEC-131 pattern, D-43). It calls `CoreVaultIncomeLogic` (the valuation hook,
+///         WP-07 D2) through that library's linked address, so its creation code links it.
 /// @dev Exists only to keep the Core Vault's runtime bytecode under the 24,576-byte limit without changing compiler
 ///      settings. The Core Vault applies access control, the reentrancy guard and the Operating Cash top-up before
 ///      calling in. Events are emitted with the Core Vault as their address; the library's own events and errors are
@@ -72,7 +74,7 @@ library CoreVaultLogic {
 
     /// @notice The management fee owed now: what was booked plus what accrued since, at the current prices (DEC-114).
     function managementFeeOwed(CoreVaultState storage s, CoreVaultWiring memory w) public view returns (uint256) {
-        (uint256 gross,,,) = _grossValuation(s, w, _newPrices(VIEW));
+        (uint256 gross,,,,) = _grossValuation(s, w, _newPrices(VIEW));
         return _managementFeeOwed(s, gross);
     }
 
@@ -92,6 +94,9 @@ library CoreVaultLogic {
     ///      the fund's own ValueReportReceiver and only their prices can fail.
     /// @dev DEC-114 (D-33): the management fee accrued since the last valuation is booked here, before the Share Price
     ///      is read, so an entrant pays none of what accrued before it and a leaver bears its share through the price.
+    /// @dev WP-07 D2, DEC-117: ends with the income hook `CoreVaultIncomeLogic.onValuation`, which gets the hub Spoke
+    ///      Vault's report this valuation read (empty when a payout's read failed), so hub income is recognized inside
+    ///      the valuation, before the operation checkpoints any holder.
     function recordValuation(CoreVaultState storage s, CoreVaultWiring memory w, bool mint)
         public
         returns (uint256 assets, ICoreVault.NavConsolidation memory consolidation)
@@ -99,7 +104,8 @@ library CoreVaultLogic {
         Prices memory p = _newPrices(mint ? MINT : PAYOUT);
         uint256 hubValue;
         bool hubRead;
-        (assets, consolidation, hubValue, hubRead) = _grossValuation(s, w, p);
+        ReportCodec.Report memory hubReport;
+        (assets, consolidation, hubValue, hubRead, hubReport) = _grossValuation(s, w, p);
         assets = _bookManagementFee(s, assets);
         if (!hubRead) emit ICoreVault.HubValuationFallback(hubValue);
         else if (!p.anyFallback) s.lastHubValue = hubValue;
@@ -107,6 +113,7 @@ library CoreVaultLogic {
             if (p.fellBack[i]) emit ICoreVault.PriceFallback(p.tokens[i], p.values[i]);
             else s.lastPrice[p.tokens[i]] = p.values[i];
         }
+        CoreVaultIncomeLogic.onValuation(s, w, hubReport, hubRead, mint);
     }
 
     /// @notice Share Assets and In-flight Value now, with the last prices and reports (never reverts on age).
@@ -128,7 +135,7 @@ library CoreVaultLogic {
     ///      the valuation before its deduction.
     function grossAssets(CoreVaultState storage s, CoreVaultWiring memory w) public view returns (uint256 total) {
         Prices memory p = _newPrices(VIEW);
-        (total,,,) = _grossValuation(s, w, p);
+        (total,,,,) = _grossValuation(s, w, p);
         total += s.operatingCash + _positionsIncome(s, w, p, ISpokeVault(w.hubSpokeVault).buildReport());
         address[] memory tokens = s.incomeBook.index.tokens;
         for (uint256 i; i < tokens.length; ++i) {
@@ -185,18 +192,24 @@ library CoreVaultLogic {
         view
         returns (uint256 assets, ICoreVault.NavConsolidation memory consolidation, uint256 hubValue, bool hubRead)
     {
-        (assets, consolidation, hubValue, hubRead) = _grossValuation(s, w, p);
+        (assets, consolidation, hubValue, hubRead,) = _grossValuation(s, w, p);
         uint256 owed = _managementFeeOwed(s, assets);
         assets = assets > owed ? assets - owed : 0;
     }
 
-    /// @notice Share Assets before the management fee (see `_valuation`).
+    /// @notice Share Assets before the management fee (see `_valuation`), and the hub Spoke Vault's report they read.
     function _grossValuation(CoreVaultState storage s, CoreVaultWiring memory w, Prices memory p)
         private
         view
-        returns (uint256 assets, ICoreVault.NavConsolidation memory consolidation, uint256 hubValue, bool hubRead)
+        returns (
+            uint256 assets,
+            ICoreVault.NavConsolidation memory consolidation,
+            uint256 hubValue,
+            bool hubRead,
+            ReportCodec.Report memory hubReport
+        )
     {
-        (hubValue, hubRead) = _hubValue(s, w, p);
+        (hubValue, hubRead, hubReport) = _hubValue(s, w, p);
         uint256 n = s.mandate.spokes.length;
         consolidation.chainsSummed = 1;
         consolidation.reportBlockNumbers = new uint64[](n);
@@ -236,21 +249,23 @@ library CoreVaultLogic {
         if (age > consolidation.oldestReportAge) consolidation.oldestReportAge = age;
     }
 
-    /// @notice The hub Spoke Vault's Unallocated Balance plus position principal, in USDC (same chain, read directly).
+    /// @notice The hub Spoke Vault's Unallocated Balance plus position principal, in USDC (same chain, read directly),
+    ///         and the report it was read from.
     /// @dev PAYOUT mode: a failing `buildReport` (a hub adapter's `positionValue` reverting, for instance) returns the
-    ///      last known value with `read` false.
+    ///      last known value with `read` false and an empty report.
     function _hubValue(CoreVaultState storage s, CoreVaultWiring memory w, Prices memory p)
         private
         view
-        returns (uint256 value, bool read)
+        returns (uint256 value, bool read, ReportCodec.Report memory r)
     {
         if (p.mode != PAYOUT) {
-            return (_positionsPrincipal(s, w, p, ISpokeVault(w.hubSpokeVault).buildReport()), true);
+            r = ISpokeVault(w.hubSpokeVault).buildReport();
+            return (_positionsPrincipal(s, w, p, r), true, r);
         }
-        try ISpokeVault(w.hubSpokeVault).buildReport() returns (ReportCodec.Report memory r) {
-            return (_positionsPrincipal(s, w, p, r), true);
+        try ISpokeVault(w.hubSpokeVault).buildReport() returns (ReportCodec.Report memory built) {
+            return (_positionsPrincipal(s, w, p, built), true, built);
         } catch {
-            return (s.lastHubValue, false);
+            return (s.lastHubValue, false, r);
         }
     }
 
