@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
+import {TransientSlot} from "@openzeppelin/contracts/utils/TransientSlot.sol";
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
 import {ICoreVaultLifecycle} from "../interfaces/ICoreVaultLifecycle.sol";
 import {IBridgeAdapter} from "../interfaces/IBridgeAdapter.sol";
@@ -13,16 +14,19 @@ import {ShareMath} from "../libraries/ShareMath.sol";
 import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 import {ShareToken} from "./ShareToken.sol";
 import {ManagerFeeVault} from "./ManagerFeeVault.sol";
-import {CoreVaultConfig, CoreVaultWiring, CoreVaultState} from "./CoreVaultTypes.sol";
+import {CoreVaultConfig, CoreVaultWiring, CoreVaultState, CORE_VAULT_UNWINDING_SLOT} from "./CoreVaultTypes.sol";
 import {CoreVaultLogic} from "./CoreVaultLogic.sol";
 
 /// @title CoreVaultBase
 /// @notice Wiring, storage, value-base views and Operating Cash of the Core Vault. See ICoreVault.
 /// @dev Split out of CoreVault only to keep each source file reviewable; the abstract layers compile into one
-///      contract, and the heavy report logic lives in the linked external library CoreVaultLogic. Every event and
-///      error, the library's included, is declared in ICoreVault or ICoreVaultLifecycle.
+///      contract, and the heavy logic lives in the linked external libraries (`CoreVaultLogic`,
+///      `CoreVaultTransitLogic`, `CoreVaultIncomeLogic`, `CoreVaultPayoutLogic`). Every event and error, the
+///      libraries' included, is declared in ICoreVault or an interface it inherits (ICoreVaultPayouts,
+///      ICoreVaultIncome, ICoreVaultLifecycle).
 abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGuardTransient {
     using IncomeAccumulator for IncomeAccumulator.State;
+    using TransientSlot for *;
 
     /// @dev Kind tag of the Operating Cash top-up expense (DEC-041, DEC-096).
     bytes32 internal constant OPERATING_CASH_TOP_UP = keccak256("OPERATING_CASH_TOP_UP");
@@ -58,13 +62,9 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
     uint256 internal immutable _minFirstDeposit;
     uint16 internal immutable _maxBridgeFeeBps;
 
-    /// @dev Every mutable value of the Core Vault (see CoreVaultState).
+    /// @dev Every mutable value of the Core Vault (see CoreVaultState). The unwinding flag lives in transient storage
+    ///      at `CORE_VAULT_UNWINDING_SLOT`, written by the linked `CoreVaultPayoutLogic`.
     CoreVaultState internal _s;
-
-    /// @dev Set while the Core Vault waits on `ISpokeVault.unwindForPayout`, so the hub Spoke Vault may call back
-    ///      `returnToIdle` from inside a payout. `receiveCollectedIncome` takes the reentrancy guard and is never called
-    ///      back from an unwind (the unwind's income stays in the hub Spoke Vault's collected bucket).
-    bool internal transient _unwinding;
 
     // ---------------------------------------------------------------------------------------------------------------
     // Construction
@@ -189,11 +189,22 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
     }
 
     /// @dev The hub Spoke Vault callbacks move no value out and make only static calls, so they do not take the guard;
-    ///      they revert while any guarded entry is in progress, except during a payout's automatic unwind.
+    ///      they revert while any guarded entry is in progress, except during a payout's automatic unwind (the flag at
+    ///      `CORE_VAULT_UNWINDING_SLOT`, set only around `ISpokeVault.unwindForPayout`). `receiveCollectedIncome` takes
+    ///      the reentrancy guard and is never called back from an unwind (the unwind's income stays in the hub Spoke
+    ///      Vault's collected bucket).
     modifier onlyHubSpokeVaultCallback() {
         if (msg.sender != hubSpokeVault) revert NotHubSpokeVault(msg.sender);
-        if (_reentrancyGuardEntered() && !_unwinding) revert ReentrancyGuardReentrantCall();
+        if (_reentrancyGuardEntered() && !CORE_VAULT_UNWINDING_SLOT.asBoolean().tload()) {
+            revert ReentrancyGuardReentrantCall();
+        }
         _;
+    }
+
+    /// @dev DEC-147: deposits, Payout Requests and claims need an Open fund.
+    function _requireOpen() internal view {
+        FundState state = _s.fundState;
+        if (state != FundState.Open) revert FundNotOpen(state);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -248,11 +259,6 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
     /// @inheritdoc ICoreVault
     function transit(bytes32 transitId) external view returns (Transit memory) {
         return _s.transits[transitId];
-    }
-
-    /// @inheritdoc ICoreVault
-    function payoutRequest(address shareholder) external view returns (PayoutRequest memory) {
-        return _s.requests[shareholder];
     }
 
     /// @inheritdoc ICoreVault
@@ -343,7 +349,10 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
             protocolRecipient: protocolRecipient,
             managerFeeVault: managerFeeVault,
             hubChainId: _hubChainId,
-            maxBridgeFeeBps: _maxBridgeFeeBps
+            maxBridgeFeeBps: _maxBridgeFeeBps,
+            flowFeeBps: flowFeeBps,
+            payoutFeeBps: payoutFeeBps,
+            standardPayoutTerm: standardPayoutTerm
         });
     }
 

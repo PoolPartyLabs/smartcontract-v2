@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {console2} from "forge-std/console2.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
@@ -39,7 +40,7 @@ contract New_PreSeededUnlistedArrivalRecovery is CoreBCrossChainFixture {
         uint256 fairAssets = vault.shareAssets();
         assertEq(fairAssets, SEED_IDLE + 997_450e6);
         vm.prank(bob);
-        vault.requestPayout(1_000_000e6, ICoreVault.PayoutMode.Standard);
+        vault.requestPayout(1_000_000e6, ICoreVaultPayouts.PayoutMode.Standard);
 
         bytes32 predicted = keccak256(abi.encode(FUND_ID, SPOKE, uint256(1)));
         usdc.mint(address(hubAcross), 1);
@@ -85,7 +86,7 @@ contract New_PreSeededUnlistedArrivalRecovery is CoreBCrossChainFixture {
         _report();
         uint256 fairAssets = vault.shareAssets();
         vm.prank(bob);
-        vault.requestPayout(1_000_000e6, ICoreVault.PayoutMode.Standard);
+        vault.requestPayout(1_000_000e6, ICoreVaultPayouts.PayoutMode.Standard);
 
         vm.prank(manager);
         bytes32 home = spoke.sendToHub(ARRIVES, TransferKind.Principal, 0, _homeQuote(HOME_OUT));

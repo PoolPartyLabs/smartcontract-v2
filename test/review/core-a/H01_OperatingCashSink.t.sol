@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {console2} from "forge-std/console2.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ShareMath} from "../../../src/libraries/ShareMath.sol";
 import {CoreVaultFixture} from "../../unit/core/CoreVaultFixture.sol";
 
@@ -19,7 +20,7 @@ contract H01_OperatingCashSink is CoreVaultFixture {
         _deposit(alice, 500_000e6);
         _deposit(bob, 500_000e6);
         // Bob asks a Standard Payout of his whole position; his reserve is fully funded (DEC-072).
-        _request(bob, 498_750e6, ICoreVault.PayoutMode.Standard);
+        _request(bob, 498_750e6, ICoreVaultPayouts.PayoutMode.Standard);
         uint256 fairPrice = vault.sharePrice();
         assertEq(vault.payoutReserve(), 498_750e6);
 

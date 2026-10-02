@@ -6,8 +6,8 @@ import {ManagerRegistry} from "../../../src/core/ManagerRegistry.sol";
 import {MockHubSpokeVault} from "../../mocks/core/MockHubSpokeVault.sol";
 import {CoreVaultFixture} from "../../unit/core/CoreVaultFixture.sol";
 
-/// @notice Refutation: the registry read in CoreVaultLogic.protocolSliceBps is wrapped in try/catch and falls back to
-///         the 50% default. A caller who controls the gas of the collection (anyone, through the permissionless
+/// @notice Refutation: the registry read in CoreVaultIncomeLogic.protocolSliceBps is wrapped in try/catch and falls
+///         back to the 50% default. A caller who controls the gas of the collection (anyone, through the permissionless
 ///         forward, or the relayer of an Income fill) would profit the protocol at the manager's expense if some gas
 ///         limit made the read run out of gas while the rest of the collection still completed. Sweep every gas limit
 ///         around the minimum that succeeds, with the REAL ManagerRegistry and a 10% slice for the manager.
@@ -15,7 +15,10 @@ import {CoreVaultFixture} from "../../unit/core/CoreVaultFixture.sol";
 ///      sweep also checks that no gas limit turns a fee transfer into an owed fee (an out-of-gas inside the try would
 ///      leave 1/64 of the gas, far too little for the two owed-fee writes). Main: 1,008 successful limits, lowest
 ///      148,250 gas (999 and 150,500 without the fee-vault reads, which warm that account); the review measured 859
-///      successful limits on `e5c778a`. Refutation holds.
+///      successful limits on `e5c778a`. Refutation holds. WP-07 (DEC-131 pattern) moved the income split into its own
+///      linked library, which this sweep reaches cold where `CoreVaultLogic` was warm from the deposit (2,500 gas),
+///      and added three fee terms to the wiring every library call carries: 996 successful limits, lowest 151,250;
+///      every successful one still read the registry.
 contract Refute_RegistryReadGasGriefing is CoreVaultFixture {
     function test_refute_noGasLimitForcesTheDefaultSlice() public {
         ManagerRegistry real = new ManagerRegistry(address(this));
@@ -49,7 +52,7 @@ contract Refute_RegistryReadGasGriefing is CoreVaultFixture {
         }
         console2.log("successful gas limits tried", successes);
         console2.log("lowest successful gas limit ", minGas);
-        assertEq(successes, 1008);
-        assertEq(minGas, 148_250);
+        assertEq(successes, 996);
+        assertEq(minGas, 151_250);
     }
 }

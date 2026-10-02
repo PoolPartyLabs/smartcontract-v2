@@ -10,6 +10,7 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {IStateView} from "@uniswap/v4-periphery/src/interfaces/IStateView.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ShareMath} from "../../../src/libraries/ShareMath.sol";
 import {IntegrationPriceBase, PoolActor} from "./IntegrationPriceBase.sol";
 
@@ -81,15 +82,15 @@ contract SharePriceSpotFork is IntegrationPriceBase {
 
     /// @notice The claim without and with the push (flash accounting), from the same state.
     function _claimBothWays(uint160 pushTo) internal returns (Outcome memory o) {
-        attacker.requestPayout(core, CLAIM, ICoreVault.PayoutMode.Instant);
+        attacker.requestPayout(core, CLAIM, ICoreVaultPayouts.PayoutMode.Instant);
         uint256 snap = vm.snapshotState();
         ICoreVault.PayoutReceipt memory r = attacker.claim(core, "");
         (o.baseShares, o.baseGross, o.baseWealth, o.aliceBase) =
         (r.sharesBurned, r.usdcGross, _wealth(address(attacker)), _holderValue(alice));
         vm.revertToState(snap);
         bytes memory ret =
-            attacker.around(hubKey, true, pushTo, address(core), abi.encodeCall(ICoreVault.claimPayout, ("")));
-        r = abi.decode(ret, (ICoreVault.PayoutReceipt));
+            attacker.around(hubKey, true, pushTo, address(core), abi.encodeCall(ICoreVaultPayouts.claimPayout, ("")));
+        r = abi.decode(ret, (ICoreVaultPayouts.PayoutReceipt));
         (o.atkShares, o.atkGross, o.atkWealth, o.aliceAtk) =
         (r.sharesBurned, r.usdcGross, _wealth(address(attacker)), _holderValue(alice));
         assertEq(r.unwindProceeds, 0, "Idle paid, no unwind");

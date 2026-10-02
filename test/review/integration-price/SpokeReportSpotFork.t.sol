@@ -18,6 +18,7 @@ import {VaaLib, VaaBody, VaaEnvelope} from "wormhole-sdk/libraries/VaaLib.sol";
 import {toUniversalAddress} from "wormhole-sdk/Utils.sol";
 import {IFundFactory} from "../../../src/interfaces/IFundFactory.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
 import {BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
 import {UniswapV4Adapter} from "../../../src/adapters/UniswapV4Adapter.sol";
@@ -262,7 +263,7 @@ contract SpokeReportSpotFork is IntegrationPriceBase {
     /// @notice 3. The claimant's Idle-paid claim at the inflated price, then a depositor within the report lifetime.
     function _claimAndDepositAtTheMovedPrice() internal {
         vm.prank(claimant);
-        core.requestPayout(CLAIM, ICoreVault.PayoutMode.Instant);
+        core.requestPayout(CLAIM, ICoreVaultPayouts.PayoutMode.Instant);
         vm.prank(claimant);
         ICoreVault.PayoutReceipt memory r = core.claimPayout("");
         uint256 fairShares = ShareMath.sharesToBurn(CLAIM, priceFair);

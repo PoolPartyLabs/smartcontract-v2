@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {CoreVault} from "../../../src/core/CoreVault.sol";
 import {ShareToken} from "../../../src/core/ShareToken.sol";
 import {IncomeAccumulator} from "../../../src/libraries/IncomeAccumulator.sol";
@@ -63,7 +64,9 @@ contract CoreVaultHandler is Test {
         // DEC-035 spirit (final verification): a request buys at least one share at the current Share Price.
         amount = bound(amount, (price + 1e18 - 1) / 1e18, 100_000e6);
         vm.prank(who);
-        vault.requestPayout(amount, standard ? ICoreVault.PayoutMode.Standard : ICoreVault.PayoutMode.Instant);
+        vault.requestPayout(
+            amount, standard ? ICoreVaultPayouts.PayoutMode.Standard : ICoreVaultPayouts.PayoutMode.Instant
+        );
     }
 
     function claim(uint256 seed) external trackIndex {

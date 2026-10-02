@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {IAdapter} from "../../../src/interfaces/IAdapter.sol";
 import {MockV4} from "../../mocks/v4/MockV4.sol";
 import {AccountingPocFixture} from "./AccountingPocFixture.sol";
@@ -31,7 +32,7 @@ contract UnwindSandwichAttacker {
     ) external returns (ICoreVault.PayoutReceipt memory receipt) {
         pool.setTick(poolId, movedTick);
         pool.setSwap(movedRate, 10_000);
-        core.requestPayout(1_000_000_000e6, ICoreVault.PayoutMode.Instant);
+        core.requestPayout(1_000_000_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         // No hints: the vault sizes the unwind and floors its swap by itself.
         receipt = core.claimPayout("");
         pool.setTick(poolId, fairTick);

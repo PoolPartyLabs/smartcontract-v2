@@ -28,6 +28,8 @@ contract MockHubSpokeVault {
     UnwindMode public unwindMode;
     bool public buildReverts;
     uint256 public lastUnwindTarget;
+    /// @dev When set, `receiveFromCoreVault` calls back `returnToIdle`: a hub callback outside a payout's unwind.
+    bool public returnOnReceive;
 
     address[] internal _incomeTokens;
     mapping(address => uint256) public cumulativeIncome;
@@ -70,6 +72,10 @@ contract MockHubSpokeVault {
         buildReverts = r;
     }
 
+    function setReturnOnReceive(bool on) external {
+        returnOnReceive = on;
+    }
+
     function setCumulativeIncome(address token, uint256 amount) external {
         bool known;
         for (uint256 i; i < _incomeTokens.length; ++i) {
@@ -95,6 +101,7 @@ contract MockHubSpokeVault {
     function receiveFromCoreVault(uint256 amount) external {
         require(msg.sender == coreVault, "not core");
         unallocatedUsdc += amount;
+        if (returnOnReceive) ICoreVault(coreVault).returnToIdle(amount);
     }
 
     function buildReport() external view returns (ReportCodec.Report memory r) {

@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 import {IFundFactory} from "../../../src/interfaces/IFundFactory.sol";
-import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {FundFactory} from "../../../src/factory/FundFactory.sol";
 import {CoreVault} from "../../../src/core/CoreVault.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
@@ -106,7 +106,7 @@ contract OperatingCashSinkPoC is AccessFundFixture {
     function _exitAll(CoreVault core, address who) internal returns (uint256 paid) {
         uint256 before = _balance(usdc, who);
         vm.startPrank(who);
-        core.requestPayout(1_000_000e6, ICoreVault.PayoutMode.Instant);
+        core.requestPayout(1_000_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         core.claimPayout("");
         vm.stopPrank();
         paid = _balance(usdc, who) - before;

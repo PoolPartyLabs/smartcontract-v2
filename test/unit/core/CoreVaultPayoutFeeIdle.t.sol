@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {CoreVaultFixture} from "./CoreVaultFixture.sol";
 
 /// @notice DEC-144 items 4-5 (corrects DEC-102 items 2-4, DEC-130 closure item 3): the Instant Payout's Payout Fee
@@ -19,7 +20,7 @@ contract CoreVaultPayoutFeeIdleTest is CoreVaultFixture {
         assertEq(vault.sharePrice(), ONE);
 
         uint256 anaBefore = usdc.balanceOf(ana); // the sub-share remainder of her deposit never left her wallet
-        _request(ana, 30_000e6, ICoreVault.PayoutMode.Instant);
+        _request(ana, 30_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         ICoreVault.PayoutReceipt memory r = _claim(ana);
         assertEq(r.usdcGross, 30_000e6);
         assertEq(r.payoutFee, 600e6, "2% Payout Fee");
@@ -38,7 +39,7 @@ contract CoreVaultPayoutFeeIdleTest is CoreVaultFixture {
     function test_DEC144_standardPayoutLeavesTheSharePriceUnchanged() public {
         _deposit(alice, _grossFor(969_999)); // with the manager's seed share: 970,000
         _deposit(ana, _grossFor(30_000));
-        _request(ana, 30_000e6, ICoreVault.PayoutMode.Standard);
+        _request(ana, 30_000e6, ICoreVaultPayouts.PayoutMode.Standard);
         vm.warp(block.timestamp + 72 hours);
         ICoreVault.PayoutReceipt memory r = _claim(ana);
         assertEq(r.payoutFee, 0);

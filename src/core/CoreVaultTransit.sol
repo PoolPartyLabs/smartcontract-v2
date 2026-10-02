@@ -8,7 +8,7 @@ import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {TransferKind} from "../interfaces/FundTypes.sol";
 import {TransitMessage} from "../libraries/TransitMessage.sol";
 import {CoreVaultIncome} from "./CoreVaultIncome.sol";
-import {CoreVaultLogic} from "./CoreVaultLogic.sol";
+import {CoreVaultTransitLogic} from "./CoreVaultTransitLogic.sol";
 
 /// @title CoreVaultTransit
 /// @notice Sends to spokes, the DEC-066 transit state machine, spoke-to-hub arrivals, report application, hub
@@ -54,9 +54,9 @@ abstract contract CoreVaultTransit is CoreVaultIncome {
     // ---------------------------------------------------------------------------------------------------------------
 
     /// @inheritdoc ICoreVault
-    /// @dev Checks, escrow, call building, bookkeeping and the custody-checked call run in CoreVaultLogic.sendToSpoke.
-    ///      DEC-158 (registered reading: the rule holds for the manager too): the manager chooses the spoke, the amount
-    ///      and the bridge rank, never an amount to arrive.
+    /// @dev Checks, escrow, call building, bookkeeping and the custody-checked call run in
+    ///      CoreVaultTransitLogic.sendToSpoke. DEC-158 (registered reading: the rule holds for the manager too): the
+    ///      manager chooses the spoke, the amount and the bridge rank, never an amount to arrive.
     function sendToSpoke(uint256 spokeIndex, uint256 usdcAmount, uint256 bridgeRank, bytes calldata bridgeData)
         external
         onlyManager
@@ -67,7 +67,7 @@ abstract contract CoreVaultTransit is CoreVaultIncome {
         if (spokeIndex >= _s.mandate.spokes.length) revert UnknownSpoke(spokeIndex);
         // DEC-096: Operating Cash top-up before Free Idle is measured.
         _topUpOperatingCash();
-        return CoreVaultLogic.sendToSpoke(_s, _wiring(), spokeIndex, usdcAmount, bridgeRank, bridgeData);
+        return CoreVaultTransitLogic.sendToSpoke(_s, _wiring(), spokeIndex, usdcAmount, bridgeRank, bridgeData);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -76,7 +76,7 @@ abstract contract CoreVaultTransit is CoreVaultIncome {
 
     /// @inheritdoc ICoreVault
     function attestExpiry(bytes32 transitId) external nonReentrant {
-        CoreVaultLogic.attestExpiry(_s, _wiring(), transitId);
+        CoreVaultTransitLogic.attestExpiry(_s, _wiring(), transitId);
     }
 
     /// @inheritdoc ICoreVault
@@ -84,17 +84,17 @@ abstract contract CoreVaultTransit is CoreVaultIncome {
     ///      only once its escrow holds the full amount sent (the Across refund), which is what enters Idle; a surplus
     ///      donated to the escrow becomes sweepable excess (DEC-080). Reverts with `NoRefund` before the refund lands.
     function recognizeRefund(bytes32 transitId) external nonReentrant returns (uint256 amount) {
-        return CoreVaultLogic.recognizeRefund(_s, _wiring(), transitId);
+        return CoreVaultTransitLogic.recognizeRefund(_s, _wiring(), transitId);
     }
 
     /// @inheritdoc ICoreVault
-    /// @dev Security review S-4: see CoreVaultLogic.recoverUnlistedArrival.
+    /// @dev Security review S-4: see CoreVaultTransitLogic.recoverUnlistedArrival.
     function recoverUnlistedArrival(uint256 spokeIndex, bytes32 transitId)
         external
         nonReentrant
         returns (uint256 amount)
     {
-        return CoreVaultLogic.recoverUnlistedArrival(_s, _wiring(), spokeIndex, transitId);
+        return CoreVaultTransitLogic.recoverUnlistedArrival(_s, _wiring(), spokeIndex, transitId);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -102,11 +102,11 @@ abstract contract CoreVaultTransit is CoreVaultIncome {
     // ---------------------------------------------------------------------------------------------------------------
 
     /// @inheritdoc ICoreVault
-    /// @dev Confirms arrived transits and credits matched spoke-to-hub arrivals, in CoreVaultLogic. Never reverts because
-    ///      of an unknown or repeated transit id.
+    /// @dev Confirms arrived transits and credits matched spoke-to-hub arrivals, in CoreVaultTransitLogic. Never
+    ///      reverts because of an unknown or repeated transit id.
     function onReportAccepted(uint256 spokeIndex) external nonReentrant {
         if (msg.sender != reportReceiver) revert NotReportReceiver(msg.sender);
-        CoreVaultLogic.applyReport(_s, _wiring(), spokeIndex);
+        CoreVaultTransitLogic.applyReport(_s, _wiring(), spokeIndex);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -134,7 +134,7 @@ abstract contract CoreVaultTransit is CoreVaultIncome {
         // as the Spoke Vault's handler checks its ledger): the amount the SpokePool states must already sit above the
         // ledger, so a faulty or compromised pool can never credit unbacked Idle or unmatched arrivals.
         _requireUnledgered(usdc, amount);
-        CoreVaultLogic.receiveHubBound(_s, _wiring(), originChainId, transitId, kind, amount);
+        CoreVaultTransitLogic.receiveHubBound(_s, _wiring(), originChainId, transitId, kind, amount);
     }
 
     // ---------------------------------------------------------------------------------------------------------------

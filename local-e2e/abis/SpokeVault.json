@@ -2579,27 +2579,6 @@
   },
   {
     "type": "error",
-    "name": "InvalidUnwindSwap",
-    "inputs": [
-      {
-        "name": "adapter",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "poolKey",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "tokenIn",
-        "type": "address",
-        "internalType": "address"
-      }
-    ]
-  },
-  {
-    "type": "error",
     "name": "LedgerExceedsBalance",
     "inputs": [
       {
@@ -2643,17 +2622,6 @@
         "name": "chainId",
         "type": "uint256",
         "internalType": "uint256"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "MissingUnwindSwap",
-    "inputs": [
-      {
-        "name": "token",
-        "type": "address",
-        "internalType": "address"
       }
     ]
   },

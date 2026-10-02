@@ -18,6 +18,7 @@ CONTRACTS=(
   UniswapV4Adapter.sol:UniswapV4Adapter
   AaveV3Adapter.sol:AaveV3Adapter
   AcrossBridgeAdapter.sol:AcrossBridgeAdapter
+  UniswapV3SwapAdapter.sol:UniswapV3SwapAdapter
   ManagerFeeVault.sol:ManagerFeeVault
   ManagerRegistry.sol:ManagerRegistry
   ChainlinkPriceSource.sol:ChainlinkPriceSource

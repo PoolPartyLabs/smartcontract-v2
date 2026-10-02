@@ -8,7 +8,7 @@
 import { decodeEventLog, type Address, type Hex } from "viem";
 import { fundFactoryAbi, spokeVaultAbi, valueReportReceiverAbi, wormholeCoreAbi } from "./abis.ts";
 import { anvil, explain, latestTimestamp, nodes, read, send } from "./chain.ts";
-import { ARBITRUM, ROBINHOOD, WORMHOLE_ROBINHOOD, isMain } from "./config.ts";
+import { ARBITRUM, ROBINHOOD, WORMHOLE_ROBINHOOD, isMain, type ActorName } from "./config.ts";
 import { signVaa, universal } from "./guardian.ts";
 import { logger, type Logger } from "./log.ts";
 import { restampFeed } from "./price-feed.ts";
@@ -75,9 +75,9 @@ export async function knownSpokes(state: DeploymentState): Promise<SpokeRef[]> {
   return [...spokes.values()];
 }
 
-/** Publishes a report from `spoke` (as the keeper account) and returns its Wormhole message. */
-export async function publishReport(spoke: SpokeRef) {
-  const sent = await send<readonly [bigint, bigint]>("robinhood", "keeper", {
+/** Publishes a report from `spoke` (as the keeper account, or `who`) and returns its Wormhole message. */
+export async function publishReport(spoke: SpokeRef, who: ActorName = "keeper") {
+  const sent = await send<readonly [bigint, bigint]>("robinhood", who, {
     address: spoke.spokeVault,
     abi: spokeVaultAbi,
     functionName: "report",
@@ -127,15 +127,15 @@ export async function waitForDelivery(spoke: SpokeRef, wormholeSequence: bigint,
   );
 }
 
-/** Signs and delivers a published report directly (used when no keeper runs). */
-export async function deliverDirectly(spoke: SpokeRef, message: Parameters<typeof signVaa>[0]): Promise<Hex> {
+/** Signs and delivers a published report directly (used when no keeper runs), as the keeper account or `who`. */
+export async function deliverDirectly(spoke: SpokeRef, message: Parameters<typeof signVaa>[0], who: ActorName = "keeper"): Promise<Hex> {
   const index = await read<number>("arbitrum", {
     address: ARBITRUM.wormholeCore,
     abi: wormholeCoreAbi,
     functionName: "getCurrentGuardianSetIndex",
   });
   const vaa = await signVaa(message, index);
-  const sent = await send("arbitrum", "keeper", { address: spoke.receiver, abi: valueReportReceiverAbi, functionName: "deliver", args: [vaa] });
+  const sent = await send("arbitrum", who, { address: spoke.receiver, abi: valueReportReceiverAbi, functionName: "deliver", args: [vaa] });
   return sent.hash;
 }
 

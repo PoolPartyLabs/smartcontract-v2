@@ -2,6 +2,8 @@
 pragma solidity 0.8.28;
 
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultIncome} from "../../../src/interfaces/ICoreVaultIncome.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ShareMath} from "../../../src/libraries/ShareMath.sol";
 import {MockHubSpokeVault} from "../../mocks/core/MockHubSpokeVault.sol";
 import {CoreVaultFixture} from "./CoreVaultFixture.sol";
@@ -10,8 +12,8 @@ import {Vm} from "forge-std/Vm.sol";
 /// @dev Every fund is seeded at creation (DEC-127, CoreVaultFixture): the manager's one share and its 1 USDC of Idle
 ///      are part of the numbers below.
 contract CoreVaultPayoutTest is CoreVaultFixture {
-    ICoreVault.PayoutMode internal constant INSTANT = ICoreVault.PayoutMode.Instant;
-    ICoreVault.PayoutMode internal constant STANDARD = ICoreVault.PayoutMode.Standard;
+    ICoreVault.PayoutMode internal constant INSTANT = ICoreVaultPayouts.PayoutMode.Instant;
+    ICoreVault.PayoutMode internal constant STANDARD = ICoreVaultPayouts.PayoutMode.Standard;
 
     /// @dev Moves `amount` of Idle into a hub USDC position the hub Spoke Vault can unwind.
     function _allocateToPosition(uint256 amount) internal {
@@ -28,7 +30,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         _deposit(alice, 1000e6);
         _request(alice, 100e6, INSTANT);
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.PayoutRequestAlreadyOpen.selector, alice));
+        vm.expectRevert(abi.encodeWithSelector(ICoreVaultPayouts.PayoutRequestAlreadyOpen.selector, alice));
         vault.requestPayout(50e6, STANDARD);
     }
 
@@ -42,7 +44,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
 
     function test_DEC024_requestWithoutSharesReverts() public {
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.NoShares.selector, alice));
+        vm.expectRevert(abi.encodeWithSelector(ICoreVaultPayouts.NoShares.selector, alice));
         vault.requestPayout(1e6, INSTANT);
     }
 
@@ -78,7 +80,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
 
     function test_DEC065_claimWithoutOpenRequestReverts() public {
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.NoOpenPayoutRequest.selector, alice));
+        vm.expectRevert(abi.encodeWithSelector(ICoreVaultPayouts.NoOpenPayoutRequest.selector, alice));
         vault.claimPayout("");
     }
 
@@ -88,7 +90,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         uint64 ends = uint64(block.timestamp + 72 hours);
         vm.warp(ends - 1);
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.PayoutTermNotEnded.selector, ends));
+        vm.expectRevert(abi.encodeWithSelector(ICoreVaultPayouts.PayoutTermNotEnded.selector, ends));
         vault.claimPayout("");
     }
 
@@ -231,7 +233,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         _allocateToPosition(600e6 + SEED_IDLE); // Idle 400 left, as before the seed
         _request(alice, 800e6, INSTANT);
         vm.expectEmit(address(vault));
-        emit ICoreVault.UnwindForPayoutFailed(408e6);
+        emit ICoreVaultPayouts.UnwindForPayoutFailed(408e6);
         ICoreVault.PayoutReceipt memory r = _claim(alice);
         assertEq(r.sharesBurned, 400e18);
         assertEq(r.usdcGross, 400e6);
@@ -263,8 +265,8 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         bool partialSeen;
         bool fullSeen;
         for (uint256 i; i < logs.length; ++i) {
-            if (logs[i].topics[0] == ICoreVault.PartialPayoutExecuted.selector) partialSeen = true;
-            if (logs[i].topics[0] == ICoreVault.PayoutExecuted.selector) fullSeen = true;
+            if (logs[i].topics[0] == ICoreVaultPayouts.PartialPayoutExecuted.selector) partialSeen = true;
+            if (logs[i].topics[0] == ICoreVaultPayouts.PayoutExecuted.selector) fullSeen = true;
         }
         assertTrue(partialSeen);
         assertFalse(fullSeen);
@@ -292,7 +294,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         uint256 owed = vault.attributedIncome(alice, address(usdc));
         assertApproxEqAbs(owed, 100e6, 1);
         vm.expectEmit(address(vault));
-        emit ICoreVault.IncomeWithdrawn(alice, address(usdc), owed);
+        emit ICoreVaultIncome.IncomeWithdrawn(alice, address(usdc), owed);
         ICoreVault.PayoutReceipt memory r = _claim(alice);
         assertEq(r.sharesBurned, 1000e18);
         // 1,000 gross minus 2% Payout Fee plus the income, in the same transaction.
@@ -317,7 +319,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         // WETH refuses every transfer to alice (a pause or a blocklist entry of the token's issuer).
         vm.mockCallRevert(address(weth), abi.encodeWithSignature("transfer(address,uint256)", alice), "paused");
         vm.expectEmit(address(vault));
-        emit ICoreVault.FeeAccrued(address(weth), alice, owedWeth);
+        emit ICoreVaultIncome.FeeAccrued(address(weth), alice, owedWeth);
         ICoreVault.PayoutReceipt memory r = _claim(alice);
 
         assertEq(r.sharesBurned, 1000e18, "the exit completed");
@@ -374,7 +376,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         _deposit(alice, 1000e6);
         hubVault.setPosition(address(usdc), 100.1e6); // price 1.1 over 1,001 shares (the seed's included)
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.PayoutBelowOneShare.selector, 1e6, 1.1e24));
+        vm.expectRevert(abi.encodeWithSelector(ICoreVaultPayouts.PayoutBelowOneShare.selector, 1e6, 1.1e24));
         vault.requestPayout(1e6, INSTANT);
         _request(alice, 1.1e6, STANDARD); // exactly one share is accepted
         assertEq(vault.payoutRequest(alice).reserved, 1.1e6);
@@ -399,9 +401,9 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bool found;
         for (uint256 i; i < logs.length; ++i) {
-            if (logs[i].topics[0] != ICoreVault.PayoutExecuted.selector) continue;
+            if (logs[i].topics[0] != ICoreVaultPayouts.PayoutExecuted.selector) continue;
             (ICoreVault.PayoutReceipt memory emitted,) =
-                abi.decode(logs[i].data, (ICoreVault.PayoutReceipt, ICoreVault.NavConsolidation));
+                abi.decode(logs[i].data, (ICoreVaultPayouts.PayoutReceipt, ICoreVaultPayouts.NavConsolidation));
             assertTrue(emitted.closedBelowOneShare);
             found = true;
         }

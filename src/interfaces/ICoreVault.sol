@@ -2,9 +2,11 @@
 pragma solidity 0.8.28;
 
 import {IAcrossMessageHandler} from "./external/IAcrossMessageHandler.sol";
+import {ICoreVaultLifecycle} from "./ICoreVaultLifecycle.sol";
+import {ICoreVaultPayouts} from "./ICoreVaultPayouts.sol";
+import {ICoreVaultIncome} from "./ICoreVaultIncome.sol";
 import {Mandate} from "../mandate/Mandate.sol";
 import {Transit, TransferKind, ExpensePayer} from "./FundTypes.sol";
-import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 
 /// @title ICoreVault
 /// @notice Hub Chain contract of a fund: custody of Idle USDC, the Share ledger, Payout Requests and Payouts, the
@@ -20,80 +22,11 @@ import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 ///      informational only (DEC-098, DEC-103). Pricing of non-USDC quantities goes through IPriceSource (OPEN).
 /// @dev Share Price is `ShareMath.sharePrice(shareAssets, totalShares)`: USDC base units per whole share scaled by
 ///      1e18; 1e24 = 1.00 USDC.
-interface ICoreVault is IAcrossMessageHandler {
-    /// @notice Payout speed (DEC-075).
-    enum PayoutMode {
-        Instant,
-        Standard
-    }
-
-    /// @notice The open Payout Request of a Shareholder (DEC-024: at most one per address, never cancellable).
-    /// @param mode Instant or Standard.
-    /// @param open Whether the request is open.
-    /// @param requestedAt Timestamp of the request.
-    /// @param termEndsAt Standard: `requestedAt + standardPayoutTerm` (DEC-060); Instant: `requestedAt`.
-    /// @param usdcRequested Gross USDC amount requested (DEC-020, DEC-023).
-    /// @param usdcOutstanding USDC still to pay after Partial Payouts (DEC-068).
-    /// @param reserved USDC held in the Payout Reserve for this request; Standard only (DEC-072, DEC-077, DEC-095).
-    struct PayoutRequest {
-        PayoutMode mode;
-        bool open;
-        uint64 requestedAt;
-        uint64 termEndsAt;
-        uint256 usdcRequested;
-        uint256 usdcOutstanding;
-        uint256 reserved;
-    }
-
-    /// @notice How Share Assets were consolidated for a mint or burn (DEC-083). Carried by every mint and burn event.
-    /// @param chainsSummed Number of chains whose value was summed (hub included).
-    /// @param reportBlockNumbers Block of each spoke report used, in Mandate spoke order.
-    /// @param reportSequences Sequence of each spoke report used, in Mandate spoke order.
-    /// @param oldestReportAge Age in seconds of the oldest spoke report used.
-    /// @param inFlightValue In-flight Value included, on its own line.
-    struct NavConsolidation {
-        uint256 chainsSummed;
-        uint64[] reportBlockNumbers;
-        uint64[] reportSequences;
-        uint256 oldestReportAge;
-        uint256 inFlightValue;
-    }
-
-    /// @notice Result of a Payout or Partial Payout.
-    /// @param mode Instant or Standard.
-    /// @param usdcRequested Gross amount of the request (DEC-020).
-    /// @param sharesBurned Whole shares burned, rounded down (DEC-077).
-    /// @param usdcGross `ShareMath.usdcFor(sharesBurned, sharePrice)`, never above the amount requested (DEC-077).
-    /// @param payoutFee Payout Fee to Operating Cash, Instant only (DEC-075, DEC-102).
-    /// @param flowFee Protocol flow fee (DEC-106; incidence on payouts is the LC-143 reading, OPEN).
-    /// @param usdcPaid USDC transferred to the Shareholder.
-    /// @param usdcOutstanding Amount still open after a Partial Payout (DEC-068); 0 for a full Payout.
-    /// @param sharePrice Share Price used for the burn (DEC-105: one price for the whole request).
-    /// @param shareAssets Numerator of that price.
-    /// @param totalShares Denominator of that price, before the burn.
-    /// @param unwindProceeds USDC realized by an automatic unwind in this claim; 0 when Idle paid.
-    /// @param payoutSettlementPrice Realized unwind proceeds per whole share burned, same scale as Share Price;
-    ///        event-only measure (DEC-084, DEC-105); 0 when nothing was unwound.
-    /// @param closedBelowOneShare True when the request closed with no share burned and nothing paid because its
-    ///        outstanding amount was below one share's price at this claim's Share Price (DEC-077 rounds the burn
-    ///        down; final verification: a zero-share close is explicit, never a silent zero receipt).
-    struct PayoutReceipt {
-        PayoutMode mode;
-        uint256 usdcRequested;
-        uint256 sharesBurned;
-        uint256 usdcGross;
-        uint256 payoutFee;
-        uint256 flowFee;
-        uint256 usdcPaid;
-        uint256 usdcOutstanding;
-        uint256 sharePrice;
-        uint256 shareAssets;
-        uint256 totalShares;
-        uint256 unwindProceeds;
-        uint256 payoutSettlementPrice;
-        bool closedBelowOneShare;
-    }
-
+/// @dev WP-07 A4: the payout verbs live in ICoreVaultPayouts, the income verbs in ICoreVaultIncome and the lifecycle in
+///      ICoreVaultLifecycle; this interface inherits all three, so it still describes the whole Core Vault. A member
+///      declared in one of them is named through it in expressions (`ICoreVaultPayouts.PayoutMode.Instant`,
+///      `ICoreVaultIncome.IncomeWithdrawn`); type names still resolve through ICoreVault (`ICoreVault.PayoutReceipt`).
+interface ICoreVault is IAcrossMessageHandler, ICoreVaultLifecycle, ICoreVaultPayouts, ICoreVaultIncome {
     // ---------------------------------------------------------------------------------------------------------------
     // Events (names per DEC-074, DEC-075)
     // ---------------------------------------------------------------------------------------------------------------
@@ -113,21 +46,6 @@ interface ICoreVault is IAcrossMessageHandler {
         uint256 totalShares,
         NavConsolidation consolidation
     );
-
-    /// @notice A Payout Request was opened (DEC-024, DEC-077: nothing is burned or locked).
-    event PayoutRequested(
-        address indexed shareholder, PayoutMode indexed mode, uint256 usdcRequested, uint256 reserved, uint64 termEndsAt
-    );
-
-    /// @notice A Payout closed the request (DEC-074, DEC-083).
-    event PayoutExecuted(address indexed shareholder, PayoutReceipt receipt, NavConsolidation consolidation);
-
-    /// @notice A Partial Payout paid part of the request and left the rest open (DEC-068, DEC-074).
-    event PartialPayoutExecuted(address indexed shareholder, PayoutReceipt receipt, NavConsolidation consolidation);
-
-    /// @notice Attributed Income was paid without burning shares (DEC-025, DEC-029, DEC-073), or with a full burn
-    ///         (DEC-045).
-    event IncomeWithdrawn(address indexed shareholder, address indexed token, uint256 amount);
 
     /// @notice Capital was sent to a spoke. Cross-chain fields: hub chain id, destination chain id, transit id.
     event SentToSpoke(bytes32 indexed transitId, uint256 indexed spokeIndex, Transit transit, uint256 hubChainId);
@@ -176,31 +94,6 @@ interface ICoreVault is IAcrossMessageHandler {
     /// @notice The hub Spoke Vault returned USDC to Idle.
     event ReturnedToIdle(uint256 amount);
 
-    /// @notice Collected income reached the Core Vault and was split there (ruling 2026-09-29; DEC-107, DEC-109):
-    ///         `amount` is the gross collected amount, `managerFee` the manager portion transferred to the
-    ///         ManagerFeeVault, `protocolSlice` the protocol portion transferred to the Protocol Recipient (read from the
-    ///         ManagerRegistry at this moment as `protocolSliceBps`, DEC-106, DEC-110); the rest entered the
-    ///         shareholders' accumulator.
-    event CollectedIncomeReceived(
-        address indexed token, uint256 amount, uint256 managerFee, uint256 protocolSlice, uint16 protocolSliceBps
-    );
-
-    /// @notice A transfer to `recipient` failed, so the amount is owed to it and waits in the Core Vault, outside every
-    ///         value base: a fee to the Protocol Recipient or the ManagerFeeVault (security review S-12), or a full
-    ///         exit's income to the holder (independent review, plan CF-2).
-    event FeeAccrued(address indexed token, address indexed recipient, uint256 amount);
-
-    /// @notice An owed fee was paid to its recipient (security review S-12).
-    event OwedFeePaid(address indexed token, address indexed recipient, uint256 amount);
-
-    /// @notice The manager lowered the manager fee (DEC-110).
-    event ManagerFeeDecreased(
-        uint16 previousPerformanceFeeBps,
-        uint16 newPerformanceFeeBps,
-        uint16 previousManagementFeeBps,
-        uint16 newManagementFeeBps
-    );
-
     /// @notice Balance above the ledger was swept (DEC-080, DEC-096, DEC-101).
     event ExcessSwept(address indexed token, address indexed recipient, uint256 amount);
 
@@ -209,10 +102,6 @@ interface ICoreVault is IAcrossMessageHandler {
     ///         `toppedUp` is what the top-up could take, below the configured top-up. Never emitted on a routine
     ///         top-up.
     event OperatingCashInsufficient(uint256 balance, uint256 floor, uint256 toppedUp);
-
-    /// @notice An automatic unwind reverted; the claim continues with the Idle available (DEC-056: exits stay open;
-    ///         DEC-068: Partial Payout).
-    event UnwindForPayoutFailed(uint256 usdcTarget);
 
     /// @notice A payout could not read the hub Spoke Vault's report and used its last known value (payout liveness,
     ///         DEC-021, DEC-056).
@@ -248,15 +137,8 @@ interface ICoreVault is IAcrossMessageHandler {
     error SharesBelowMinimum(uint256 shares, uint256 minShares);
     error StaleSpokeReport(uint256 spokeIndex);
     error StalePrice(address token, uint256 updatedAt);
-    error PayoutRequestAlreadyOpen(address shareholder);
-    error NoOpenPayoutRequest(address shareholder);
-    error PayoutTermNotEnded(uint64 termEndsAt);
-    error NoShares(address shareholder);
     error InsufficientFreeIdle(uint256 requested, uint256 available);
 
-    /// @notice A Payout Request below one share's price at the current Share Price, which could never burn a share
-    ///         (DEC-035 spirit, DEC-077; final verification).
-    error PayoutBelowOneShare(uint256 usdcAmount, uint256 sharePrice);
     error UnknownSpoke(uint256 spokeIndex);
     error SpokeCapExceeded(uint256 spokeIndex, uint256 used, uint256 amount, uint256 spokeCap);
     error BridgeAdapterUnavailable(address bridgeAdapter);
@@ -277,9 +159,6 @@ interface ICoreVault is IAcrossMessageHandler {
     /// @notice A report came from a Spoke Vault running another Mandate than the Core Vault's (security review S-6).
     error WrongMandate(bytes32 mandateHash);
     error UnexpectedToken(address token);
-    error ManagerFeeNotDecreasing();
-    error ManagementFeeNotSupported(uint16 bps);
-    error UnknownIncomeToken(address token);
     error ZeroAddress();
     error UsdcMismatch(address configured, address mandateUsdc);
     error NotOnHubChain(uint256 chainId, uint256 hubChainId);
@@ -313,47 +192,6 @@ interface ICoreVault is IAcrossMessageHandler {
     /// @return shares Whole shares minted, in base units.
     /// @return usdcCharged USDC pulled from the depositor: `usdcForShares + flowFee`.
     function deposit(uint256 usdcAmount, uint256 minShares) external returns (uint256 shares, uint256 usdcCharged);
-
-    /// @notice Opens the caller's Payout Request for a gross USDC amount (DEC-020, DEC-023, DEC-024).
-    /// @dev Shares are neither locked nor burned (DEC-077). The request is priced at the current Share Price as a
-    ///      claim would be (payout liveness: last known values on a failing dependency, never a revert on age). Reverts
-    ///      `PayoutBelowOneShare` when `usdcAmount` buys less than one whole share at that price (DEC-035 spirit,
-    ///      DEC-077; final verification). Standard: reserves
-    ///      `min(usdcAmount, ShareMath.usdcFor(balance, sharePrice), freeIdle())` in the Payout Reserve and starts the
-    ///      term (DEC-060, DEC-072, DEC-095); the bound by the requester's share value at request time is an OPEN
-    ///      reading (docs/OPEN-QUESTIONS.md FV-OQ-1, DEC-017, DEC-020, DEC-024): the most a request can ever pay is
-    ///      the holder's whole balance (DEC-020), so a holder cannot lock more Free Idle than its shares are worth.
-    ///      The requested amount itself is kept as asked (DEC-020: an insufficient balance burns all at the claim).
-    ///      Instant: no reserve (DEC-095).
-    function requestPayout(uint256 usdcAmount, PayoutMode mode) external;
-
-    /// @notice Executes the caller's Payout Request: burn and pay atomically (DEC-047, DEC-065, DEC-074). Only the
-    ///         requester. Unlike an ERC-7540 claim, it runs the missing unwind and pays in the same transaction.
-    /// @dev Idle first (Instant: Free Idle only, never the Payout Reserve; Standard: its reserve, then Free Idle,
-    ///      DEC-095); otherwise automatic unwind in Mandate order of the shortfall plus 2% (DEC-069, DEC-081, DEC-097),
-    ///      of hub positions only, so no post-unwind spoke report is needed before burning (DEC-105, erratum 11 reading);
-    ///      the claim is priced again after the unwind. Burns
-    ///      `ShareMath.sharesToBurn(outstanding, sharePrice)` capped at the balance (DEC-020, DEC-077). A full burn
-    ///      pays all Attributed Income payable now in the same transaction (DEC-045). Partial Payout when not
-    ///      everything can be paid (DEC-068). When the outstanding amount is below one share's price at the claim's
-    ///      Share Price, the request closes with nothing burned or paid, the reserve is released and the receipt
-    ///      carries `closedBelowOneShare = true` in `PayoutExecuted` (DEC-077; final verification).
-    /// @param unwindHints Parameters forwarded to `ISpokeVault.unwindForPayout`; empty when Idle covers the request.
-    function claimPayout(bytes calldata unwindHints) external returns (PayoutReceipt memory receipt);
-
-    /// @notice Pays the caller's Attributed Income in `token` without burning shares (DEC-025, DEC-029, DEC-073).
-    /// @dev No Payout Fee, no flow fee (LC-143 reading), not a Payout Request (DEC-029). Checkpoint first. LC-100
-    ///      (OPEN): pays `min(owed, collectedIncome(token))`.
-    function withdrawIncome(address token) external returns (uint256 amount);
-
-    /// @notice Pays `recipient` every transfer in `token` that could not be made to it when due: a fee, or a full
-    ///         exit's Attributed Income. Permissionless.
-    /// @dev Security review S-12 (DEC-106, DEC-107, DEC-109): the flow fee, the protocol slice and the manager fee are
-    ///      transferred when charged; a transfer that fails (a USDC blocklist entry on the fee wallet, a reverting
-    ///      recipient) no longer reverts the Shareholder's deposit, claim or the income collection but is owed here.
-    ///      Independent review (plan CF-2, DEC-021): the same holds for the income a full burn pays in each token
-    ///      (DEC-045); the holder is then the recipient. Reverts if the transfer still fails.
-    function claimOwedFees(address token, address recipient) external returns (uint256 amount);
 
     // ---------------------------------------------------------------------------------------------------------------
     // Permissionless verbs
@@ -419,13 +257,6 @@ interface ICoreVault is IAcrossMessageHandler {
         external
         returns (bytes32 transitId);
 
-    /// @notice Lowers the manager fee; it can never rise on a live fund (DEC-110). Manager only.
-    /// @dev Ruling 2026-09-29: the performance fee is charged only when collected income reaches the Core Vault, so
-    ///      no fee accrues between collections and nothing is left to settle at the old rate (DEC-110 "settling
-    ///      accrued first" is empty); income collected afterwards is charged at the new rate. `newManagementFeeBps`
-    ///      must stay 0 in the MVP (DEC-108, LC-144).
-    function decreaseManagerFee(uint16 newPerformanceFeeBps, uint16 newManagementFeeBps) external;
-
     /// @notice Sets the hub Operating Cash floor and top-up. Manager only (DEC-096, DEC-100).
     function setOperatingCashParameters(uint256 floor, uint256 topUp) external;
 
@@ -439,14 +270,6 @@ interface ICoreVault is IAcrossMessageHandler {
 
     /// @notice Credits USDC the hub Spoke Vault transferred to Idle. Hub Spoke Vault only.
     function returnToIdle(uint256 usdcAmount) external;
-
-    /// @notice Credits collected income the hub Spoke Vault transferred and splits it at once (ruling 2026-09-29): the
-    ///         performance fee (DEC-107) times `amount`, of which the protocol slice (ManagerRegistry at this moment,
-    ///         DEC-106, DEC-110) is transferred to the Protocol Recipient and the rest to the ManagerFeeVault, in kind
-    ///         (DEC-109); the net enters the shareholders' accumulator and the collected balance. Hub Spoke Vault only.
-    /// @dev This and a matched spoke-to-hub Income arrival are the only points where the income index advances;
-    ///      uncollected income stays in its own bucket (DEC-092) and only informs Gross Assets.
-    function receiveCollectedIncome(address token, uint256 amount) external;
 
     /// @notice Across fill callback for spoke-to-hub transfers. Only the Across SpokePool; only USDC.
     /// @dev Decodes TransitMessage and rejects another fund's id. Across passes no depositor, so the amount is credited
@@ -532,53 +355,14 @@ interface ICoreVault is IAcrossMessageHandler {
     /// @notice A hub-to-spoke transit.
     function transit(bytes32 transitId) external view returns (Transit memory);
 
-    /// @notice A Shareholder's Payout Request.
-    function payoutRequest(address shareholder) external view returns (PayoutRequest memory);
-
-    // ---------------------------------------------------------------------------------------------------------------
-    // Attributed Income (DEC-014, DEC-092)
-    // ---------------------------------------------------------------------------------------------------------------
-
-    /// @notice Income tokens of the fund (closed list from the Mandate pools).
-    function incomeTokens() external view returns (address[] memory);
-
-    /// @notice Attributed Income of `shareholder` in `token`, pending part included.
-    function attributedIncome(address shareholder, address token) external view returns (uint256);
-
-    /// @notice Collected income of `token` held by the Core Vault, payable now (LC-100).
-    function collectedIncome(address token) external view returns (uint256);
-
-    /// @notice Income recognized with no shares outstanding (LC-32 OPEN: retained).
-    function ownerlessIncome(address token) external view returns (uint256);
-
     /// @notice Whether an ExpiryAttested transit still holds its Spoke Cap because its expiry was attested by time
     ///         alone (security review S-13).
     function spokeCapHeld(bytes32 transitId) external view returns (bool);
-
-    /// @notice Amount in `token` owed to `recipient` because its transfer failed when due (fees, S-12; full-exit
-    ///         income, plan CF-2).
-    function owedFees(address token, address recipient) external view returns (uint256);
-
-    /// @notice Accumulator state of an income token: index (Q128), remainder, ownerless, distributed and taken totals
-    ///         (Q60 fitness functions).
-    function incomeState(address token) external view returns (IncomeAccumulator.TokenIncome memory);
 
     // ---------------------------------------------------------------------------------------------------------------
     // Fees (DEC-102, DEC-106..110)
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @notice Manager performance fee on collected income, bps (DEC-107); only decreases (DEC-110).
-    function performanceFeeBps() external view returns (uint16);
-
-    /// @notice Manager management fee, bps per year; 0 in the MVP (DEC-108, LC-144).
-    function managementFeeBps() external view returns (uint16);
-
     /// @notice Protocol flow fee, bps; default 25, capped at 100 (DEC-106, DEC-110; where it is stored, LC-143 OPEN).
     function flowFeeBps() external view returns (uint16);
-
-    /// @notice Payout Fee on Instant Payouts, bps; immutable (DEC-006, DEC-102, DEC-110).
-    function payoutFeeBps() external view returns (uint16);
-
-    /// @notice Standard Payout term, seconds (DEC-060, DEC-095).
-    function standardPayoutTerm() external view returns (uint32);
 }

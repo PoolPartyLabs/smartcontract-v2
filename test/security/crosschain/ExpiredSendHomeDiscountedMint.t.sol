@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {TransferKind, TransitState} from "../../../src/interfaces/FundTypes.sol";
 import {CrossChainFixture} from "./helpers/CrossChainFixture.sol";
 import {SecAcrossSpokePool} from "./helpers/SecAcrossSpokePool.sol";
@@ -64,7 +64,7 @@ contract ExpiredSendHomeDiscountedMintPoC is CrossChainFixture {
         // 5. The attacker exits with an Instant Payout, paying the 2% Payout Fee and the flow fee.
         uint256 attackerValue = attackerShares / 1e18 * core.sharePrice() / 1e18;
         vm.startPrank(attacker);
-        core.requestPayout(attackerValue, ICoreVault.PayoutMode.Instant);
+        core.requestPayout(attackerValue, ICoreVaultPayouts.PayoutMode.Instant);
         core.claimPayout("");
         vm.stopPrank();
         assertLt(usdc.balanceOf(attacker), 600_000e6, "S-3: the round trip loses the fees, no profit");

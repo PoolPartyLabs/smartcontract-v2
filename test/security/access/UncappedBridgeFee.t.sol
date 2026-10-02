@@ -20,7 +20,7 @@ contract UncappedBridgeFeePoC is AccessFundFixture {
         FundPlan memory plan = _plan();
         plan.maxBridgeFeeBps = 10_000;
         Mandate memory m = _buildMandate(factory, factory.fundIdOf(HUB, 1, plan.manager), plan);
-        IFundFactory.HubParams memory params = _hubParams(1, plan, _coreVaultCreationCode(hubDeployment.coreVaultLogic));
+        IFundFactory.HubParams memory params = _hubParams(1, plan, _coreVaultCreationCode(hubDeployment));
         vm.prank(plan.manager);
         vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsAboveMax.selector, 10_000, MandateLib.MAX_BRIDGE_FEE_BPS));
         factory.createFund(m, params);

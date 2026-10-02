@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {IPriceSource} from "../../../src/interfaces/IPriceSource.sol";
 import {TransitState, TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {CoreVaultConfig} from "../../../src/core/CoreVaultTypes.sol";
@@ -73,12 +74,12 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
         vault.allocateToHubSpokeVault(5000e6); // Free Idle 14,950
         hubVault.moveToPosition(5000e6);
         bobRequest = bound(bobRequest, 1e6, 20_000e6);
-        _request(bob, bobRequest, ICoreVault.PayoutMode.Standard);
+        _request(bob, bobRequest, ICoreVaultPayouts.PayoutMode.Standard);
         uint256 bobReserve = vault.payoutRequest(bob).reserved;
         // FV-OQ-1 reading (final verification): bounded by Bob's 9,975 shares at 1.00, below Free Idle (14,950).
         assertEq(bobReserve, bobRequest < 9975e6 ? bobRequest : 9975e6);
         aliceRequest = bound(aliceRequest, 1e6, 20_000e6);
-        _request(alice, aliceRequest, ICoreVault.PayoutMode.Standard);
+        _request(alice, aliceRequest, ICoreVaultPayouts.PayoutMode.Standard);
         uint256 aliceReserve = vault.payoutRequest(alice).reserved;
         assertEq(aliceReserve + bobReserve, vault.payoutReserve());
 
@@ -167,7 +168,8 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
             vm.stopPrank();
             return; // below one share: rejected (DEC-035)
         }
-        vault.requestPayout(charged * 2, ICoreVault.PayoutMode.Instant); // above the balance: full burn (DEC-020)
+        // Above the balance: full burn (DEC-020).
+        vault.requestPayout(charged * 2, ICoreVaultPayouts.PayoutMode.Instant);
         ICoreVault.PayoutReceipt memory r = vault.claimPayout("");
         vm.stopPrank();
 
@@ -195,7 +197,7 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
         hubVault.moveToPosition(1000e6);
         hubVault.setPosition(address(weth), 1e18); // the position is now 1 WETH
         _deposit(bob, 1000e6);
-        _request(alice, 100e6, ICoreVault.PayoutMode.Instant); // fully payable from Free Idle
+        _request(alice, 100e6, ICoreVaultPayouts.PayoutMode.Instant); // fully payable from Free Idle
     }
 
     function test_DEC021_revertingFeedFallsBackToTheLastPriceForAPayout() public {
@@ -243,7 +245,7 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
         prices.setPrice(address(weth), 3e9); // WETH moves to 3,000; Alice's claim records it
         _claim(alice);
         prices.setReverts(address(weth), true);
-        _request(bob, 10e6, ICoreVault.PayoutMode.Instant);
+        _request(bob, 10e6, ICoreVaultPayouts.PayoutMode.Instant);
         vm.expectEmit(address(vault));
         emit ICoreVault.PriceFallback(address(weth), 3e9);
         _claim(bob);

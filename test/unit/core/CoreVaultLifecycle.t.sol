@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ICoreVaultLifecycle} from "../../../src/interfaces/ICoreVaultLifecycle.sol";
 import {CoreVaultFixture} from "./CoreVaultFixture.sol";
 
@@ -67,9 +68,9 @@ contract CoreVaultLifecycleTest is CoreVaultFixture {
         _close();
         vm.startPrank(alice);
         vm.expectRevert(abi.encodeWithSelector(ICoreVaultLifecycle.FundNotOpen.selector, CLOSING));
-        vault.requestPayout(100e6, ICoreVault.PayoutMode.Instant);
+        vault.requestPayout(100e6, ICoreVaultPayouts.PayoutMode.Instant);
         vm.expectRevert(abi.encodeWithSelector(ICoreVaultLifecycle.FundNotOpen.selector, CLOSING));
-        vault.requestPayout(100e6, ICoreVault.PayoutMode.Standard);
+        vault.requestPayout(100e6, ICoreVaultPayouts.PayoutMode.Standard);
         vm.stopPrank();
     }
 
@@ -77,7 +78,7 @@ contract CoreVaultLifecycleTest is CoreVaultFixture {
     ///      DEC-150 item 4); its reserve stays.
     function test_DEC147_closingRefusesClaimsOfRequestsOpenedBefore() public {
         _deposit(alice, 1000e6);
-        _request(alice, 500e6, ICoreVault.PayoutMode.Standard);
+        _request(alice, 500e6, ICoreVaultPayouts.PayoutMode.Standard);
         uint256 reserve = vault.payoutReserve();
         _close();
         vm.warp(block.timestamp + 72 hours);

@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {CoreBridgeVM, GuardianSignature} from "wormhole-sdk/interfaces/ICoreBridge.sol";
 import {OrderCodec} from "../../src/libraries/OrderCodec.sol";
 import {OrderVerifier, OrderVaaHead, IOrderVaaParser} from "../../src/libraries/OrderVerifier.sol";
-import {ICoreVault} from "../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../src/interfaces/ICoreVaultPayouts.sol";
 import {MockOrderCore} from "../mocks/wormhole/MockOrderCore.sol";
 import {OrderPublisherHarness} from "../mocks/wormhole/OrderCodecHarness.sol";
 import {OrderReceiverHarness, OrderVerifierHarness} from "../mocks/wormhole/OrderVerifierHarness.sol";
@@ -39,7 +39,7 @@ contract OrderVerifierTest is Test {
         o.deadline = uint64(block.timestamp) + OrderCodec.ORDER_LIFETIME;
         o.fracNum = 1457;
         o.fracDen = 10_000;
-        o.payoutMode = uint8(ICoreVault.PayoutMode.Standard);
+        o.payoutMode = uint8(ICoreVaultPayouts.PayoutMode.Standard);
     }
 
     /// @dev The Core Vault publishes `o`; returns the VAA of that message.

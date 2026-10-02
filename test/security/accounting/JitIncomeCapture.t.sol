@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
 import {AccountingPocFixture} from "./AccountingPocFixture.sol";
 
@@ -27,7 +28,7 @@ contract JitIncomeAttacker {
         hubVault.forwardIncomeToCoreVault(address(usdc));
         income = core.withdrawIncome(address(usdc));
         // DEC-077: nothing is locked at request; the Standard Payout carries no Payout Fee.
-        core.requestPayout(1_000_000_000e6, ICoreVault.PayoutMode.Standard);
+        core.requestPayout(1_000_000_000e6, ICoreVaultPayouts.PayoutMode.Standard);
     }
 
     function exit() external returns (uint256 usdcPaid) {

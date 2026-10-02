@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 import {console2} from "forge-std/console2.sol";
-import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {CoreAHubFixture} from "./CoreAHubFixture.sol";
 
 /// @notice Measurement only (consolidated L-04, register S-40): cost of the wrapped hub read versus the work a claim
@@ -20,7 +20,7 @@ contract GasFallbackMeasure is CoreAHubFixture {
         _deposit(alice, 600_000e6);
         _deposit(mallory, 400_000e6);
         _managerOpensHubPosition(400_000e6);
-        _request(mallory, 100_000e6, ICoreVault.PayoutMode.Instant);
+        _request(mallory, 100_000e6, ICoreVaultPayouts.PayoutMode.Instant);
     }
 
     function test_measure_buildReportVersusClaim() public {

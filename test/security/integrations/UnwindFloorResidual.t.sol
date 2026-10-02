@@ -8,6 +8,7 @@ import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 
 import {CoreVault} from "../../../src/core/CoreVault.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {IAdapter} from "../../../src/interfaces/IAdapter.sol";
 import {V4SwapRouter} from "../../mocks/v4/V4SwapRouter.sol";
 import {HubFundFixture} from "./HubFundFixture.sol";
@@ -81,7 +82,7 @@ contract UnwindFloorResidualTest is HubFundFixture {
         (positionKey,,) = _allocateAndOpen(core.freeIdle() * 95 / 100, lower, upper);
         _arbToExternalPrice();
 
-        attacker.request(150_000e6, ICoreVault.PayoutMode.Standard);
+        attacker.request(150_000e6, ICoreVaultPayouts.PayoutMode.Standard);
         vm.warp(block.timestamp + 72 hours);
     }
 

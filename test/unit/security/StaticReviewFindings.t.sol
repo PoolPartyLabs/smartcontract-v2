@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {CoreVaultFixture} from "../core/CoreVaultFixture.sol";
@@ -152,7 +153,7 @@ contract StaticReviewFindingsTest is CoreVaultFixture {
         assertEq(vault.sweepExcess(address(usdc)), 0, "Operating Cash is ledger value, never swept");
 
         // The holder's whole balance is now worth 1 USDC, and nothing is left in Idle to pay even that.
-        _request(alice, 9975e6, ICoreVault.PayoutMode.Instant);
+        _request(alice, 9975e6, ICoreVaultPayouts.PayoutMode.Instant);
         vm.expectPartialRevert(ICoreVault.InsufficientFreeIdle.selector);
         vm.prank(alice);
         vault.claimPayout("");
@@ -162,7 +163,7 @@ contract StaticReviewFindingsTest is CoreVaultFixture {
     ///      whole to Operating Cash, which nothing spends; it now stays in Idle and in Share Assets.
     function test_DEC144_SA03_payoutFeeStaysInShareAssets() public {
         uint256 idleBefore = vault.idle();
-        _request(alice, 5000e6, ICoreVault.PayoutMode.Instant);
+        _request(alice, 5000e6, ICoreVaultPayouts.PayoutMode.Instant);
         ICoreVault.PayoutReceipt memory receipt = _claim(alice);
         assertEq(receipt.payoutFee, 100e6, "2% of 5,000");
         assertEq(vault.operatingCash(), 0);

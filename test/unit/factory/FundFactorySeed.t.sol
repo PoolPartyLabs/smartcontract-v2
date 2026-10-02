@@ -108,7 +108,7 @@ contract FundFactorySeedTest is Test, FactoryDeployment, FundMandate {
         FundPlan memory plan = _plan(seedAmount);
         plan.performanceFeeBps = performanceFeeBps;
         m = _buildMandate(factory, factory.fundIdOf(HUB, 1, manager), plan);
-        p = _hubParams(1, plan, _coreVaultCreationCode(hubDeployment.coreVaultLogic));
+        p = _hubParams(1, plan, _coreVaultCreationCode(hubDeployment));
         usdc.mint(manager, approved);
         vm.prank(manager);
         usdc.approve(address(factory), approved);
@@ -121,7 +121,7 @@ contract FundFactorySeedTest is Test, FactoryDeployment, FundMandate {
         FundPlan memory plan = _plan(100_000e6);
         bytes32 fundId = factory.fundIdOf(HUB, 1, manager);
         Mandate memory m = _buildMandate(factory, fundId, plan);
-        IFundFactory.HubParams memory p = _hubParams(1, plan, _coreVaultCreationCode(hubDeployment.coreVaultLogic));
+        IFundFactory.HubParams memory p = _hubParams(1, plan, _coreVaultCreationCode(hubDeployment));
         usdc.mint(manager, 100_000e6);
         vm.prank(manager);
         usdc.approve(address(factory), 100_000e6);
@@ -157,7 +157,7 @@ contract FundFactorySeedTest is Test, FactoryDeployment, FundMandate {
     function test_DEC061_seedBelowTheMinimumRevertsTheCreation() public {
         FundPlan memory plan = _plan(99e6);
         Mandate memory m = _buildMandate(factory, factory.fundIdOf(HUB, 1, manager), plan);
-        IFundFactory.HubParams memory p = _hubParams(1, plan, _coreVaultCreationCode(hubDeployment.coreVaultLogic));
+        IFundFactory.HubParams memory p = _hubParams(1, plan, _coreVaultCreationCode(hubDeployment));
         usdc.mint(manager, 99e6);
         vm.prank(manager);
         usdc.approve(address(factory), 99e6);
@@ -173,7 +173,7 @@ contract FundFactorySeedTest is Test, FactoryDeployment, FundMandate {
     function test_DEC127_noApprovalNoFund() public {
         FundPlan memory plan = _plan(100e6);
         Mandate memory m = _buildMandate(factory, factory.fundIdOf(HUB, 1, manager), plan);
-        IFundFactory.HubParams memory p = _hubParams(1, plan, _coreVaultCreationCode(hubDeployment.coreVaultLogic));
+        IFundFactory.HubParams memory p = _hubParams(1, plan, _coreVaultCreationCode(hubDeployment));
         usdc.mint(manager, 100e6);
         vm.prank(manager);
         vm.expectRevert(
@@ -208,7 +208,7 @@ contract FundFactorySeedTest is Test, FactoryDeployment, FundMandate {
         FundPlan memory plan = _plan(100e6);
         plan.performanceFeeBps = 999;
         Mandate memory m = _buildMandate(factory, factory.fundIdOf(HUB, 1, manager), plan);
-        IFundFactory.HubParams memory p = _hubParams(1, plan, _coreVaultCreationCode(hubDeployment.coreVaultLogic));
+        IFundFactory.HubParams memory p = _hubParams(1, plan, _coreVaultCreationCode(hubDeployment));
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(IFundFactory.ManagerFeeBelowMinimum.selector, 999, 1000));
         factory.createFund(m, p);

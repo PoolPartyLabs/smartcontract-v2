@@ -11,7 +11,9 @@ import {VaaLib, VaaBody, VaaEnvelope} from "wormhole-sdk/libraries/VaaLib.sol";
 import {toUniversalAddress} from "wormhole-sdk/Utils.sol";
 import {IFundFactory} from "../../../src/interfaces/IFundFactory.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
+import {ISpokeVaultUnwind} from "../../../src/interfaces/ISpokeVaultUnwind.sol";
 import {IAdapter} from "../../../src/interfaces/IAdapter.sol";
 import {IPriceSource} from "../../../src/interfaces/IPriceSource.sol";
 import {IManagerRegistry} from "../../../src/interfaces/IManagerRegistry.sol";
@@ -72,8 +74,7 @@ abstract contract EndToEndScenario is EndToEndBase {
         mandateHash = MandateLib.hash(m);
         _assertMandate(m, predicted);
 
-        IFundFactory.HubParams memory p =
-            _hubParams(creationNumber, _plan(), _coreVaultCreationCode(hubDeployment.coreVaultLogic));
+        IFundFactory.HubParams memory p = _hubParams(creationNumber, _plan(), _coreVaultCreationCode(hubDeployment));
         _fundManagerSeed(ARB_USDC, manager, address(factory), p.seedAmount);
         vm.prank(manager);
         IFundFactory.FundAddresses memory a = factory.createFund(m, p);
@@ -592,14 +593,14 @@ abstract contract EndToEndScenario is EndToEndBase {
         _onArbitrum();
         uint256 idleBefore = core.idle();
         vm.prank(ana);
-        core.requestPayout(ANA_PAYOUT, ICoreVault.PayoutMode.Standard);
+        core.requestPayout(ANA_PAYOUT, ICoreVaultPayouts.PayoutMode.Standard);
         ICoreVault.PayoutRequest memory req = core.payoutRequest(ana);
         assertEq(req.reserved, ANA_PAYOUT, "DEC-072: reserved as USDC");
         assertEq(core.payoutReserve(), ANA_PAYOUT);
         assertEq(req.termEndsAt, block.timestamp + 72 hours, "DEC-060: 72 h term");
         assertEq(IERC20(shareToken).balanceOf(ana), 9975e18, "DEC-077: nothing burned at request");
         vm.prank(ana);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.PayoutTermNotEnded.selector, req.termEndsAt));
+        vm.expectRevert(abi.encodeWithSelector(ICoreVaultPayouts.PayoutTermNotEnded.selector, req.termEndsAt));
         core.claimPayout("");
 
         _advance(72 hours);
@@ -654,7 +655,7 @@ abstract contract EndToEndScenario is EndToEndBase {
         _onArbitrum();
         InstantPlan memory plan = _planInstant();
         vm.prank(bruno);
-        core.requestPayout(plan.request, ICoreVault.PayoutMode.Instant);
+        core.requestPayout(plan.request, ICoreVaultPayouts.PayoutMode.Instant);
         assertEq(core.payoutRequest(bruno).reserved, 0, "DEC-095: no reserve for an Instant Payout");
 
         bytes memory hints = _unwindHints(plan.target);
@@ -768,7 +769,9 @@ abstract contract EndToEndScenario is EndToEndBase {
     function _unwound(Vm.Log[] memory logs) internal view returns (uint256 target, uint256 proceeds) {
         uint256 seen;
         for (uint256 i; i < logs.length; ++i) {
-            if (logs[i].emitter != address(hubSpoke) || logs[i].topics[0] != ISpokeVault.UnwoundForPayout.selector) {
+            if (
+                logs[i].emitter != address(hubSpoke) || logs[i].topics[0] != ISpokeVaultUnwind.UnwoundForPayout.selector
+            ) {
                 continue;
             }
             ++seen;

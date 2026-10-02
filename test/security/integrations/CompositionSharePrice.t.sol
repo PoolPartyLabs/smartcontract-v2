@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {Sandwicher} from "./UnwindSpotSandwich.t.sol";
 import {HubFundFixture} from "./HubFundFixture.sol";
 
@@ -39,7 +40,7 @@ contract CompositionSharePriceTest is HubFundFixture {
         _arbToExternalPrice();
 
         // Fully reserved from Free Idle: the claim never unwinds anything.
-        attacker.request(900_000e6, ICoreVault.PayoutMode.Standard);
+        attacker.request(900_000e6, ICoreVaultPayouts.PayoutMode.Standard);
         assertEq(core.payoutRequest(address(attacker)).reserved, 900_000e6, "reserve covers the whole request");
         vm.warp(block.timestamp + 72 hours);
     }

@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {AccountingPocFixture} from "./AccountingPocFixture.sol";
 
 /// @title PoC: Operating Cash is a one-way sink, and its uncapped top-up can move all Free Idle into it
@@ -47,7 +48,7 @@ contract OperatingCashSinkPoC is AccountingPocFixture {
 
         // (a) The Payout Fee of an Instant Payout lands in Operating Cash and nothing can ever move it.
         vm.startPrank(bob);
-        core.requestPayout(1_000_000e6, ICoreVault.PayoutMode.Instant);
+        core.requestPayout(1_000_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         ICoreVault.PayoutReceipt memory bobReceipt = core.claimPayout("");
         vm.stopPrank();
         // DEC-144 fixed (a) for the Payout Fee: it stays in Idle and goes to those who stay.
@@ -67,7 +68,7 @@ contract OperatingCashSinkPoC is AccountingPocFixture {
 
         // Alice exits. The top-up runs first and takes 99,000 USDC of Free Idle out of Share Assets.
         vm.startPrank(alice);
-        core.requestPayout(1_000_000e6, ICoreVault.PayoutMode.Instant);
+        core.requestPayout(1_000_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         ICoreVault.PayoutReceipt memory r = core.claimPayout("");
         vm.stopPrank();
 

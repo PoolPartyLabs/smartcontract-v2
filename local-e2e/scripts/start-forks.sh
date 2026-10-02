@@ -6,7 +6,10 @@
 #
 # Environment:
 #   ARBITRUM_RPC_URL, ROBINHOOD_RPC_URL  upstream RPCs (process environment, then the repo .env, then the public
-#                                        endpoints of .env.example)
+#                                        endpoints of .env.example); an archive endpoint is best, and one Alchemy key
+#                                        serves both chains. This script prints the host only, the log tails it shows
+#                                        on a failure included; anvil's own log (.state/<chain>.log) holds the full
+#                                        URL, key included: never share it.
 #   ARBITRUM_FORK_BLOCK, ROBINHOOD_FORK_BLOCK
 #                                        fork blocks, read from the process environment only (default: latest). The
 #                                        repo .env pins old blocks for the forge fork suites; a public RPC no longer
@@ -69,8 +72,10 @@ fail() {
   exit 1
 }
 
-# Prints the upstream host only, never a path or query that may carry an API key.
-redact() { sed -E 's#^(https?://[^/]+).*#\1/...#' <<<"$1"; }
+# Keeps the scheme and host of every URL in stdin, never a path or query that may carry an API key (Alchemy:
+# /v2/<key>). anvil repeats its upstream URL in its log ("Endpoint: ...") and in its errors.
+redact_urls() { sed -E 's,(https?://[^/?#[:space:])]+)[/?#][^[:space:])]*,\1/...,g'; }
+redact() { redact_urls <<<"$1"; }
 
 port_in_use() {
   if command -v lsof >/dev/null; then
@@ -128,7 +133,7 @@ wait_ready() {
   while ((SECONDS < deadline)); do
     if ! kill -0 "$(cat "$pid_file")" 2>/dev/null; then
       echo "error: the $name fork exited during startup. Last lines of $log_file:" >&2
-      tail -n 20 "$log_file" >&2
+      tail -n 20 "$log_file" | redact_urls >&2
       if grep -qiE "state (is )?not available|missing trie node|pruned|historical state" "$log_file"; then
         echo "hint: the upstream RPC no longer serves the state of the fork block. Fork at latest (unset" >&2
         echo "      $(upper "$name")_FORK_BLOCK) or use an archive RPC (see local-e2e/README.md, Troubleshooting)." >&2
@@ -143,7 +148,7 @@ wait_ready() {
     sleep 0.5
   done
   echo "error: the $name fork did not answer eth_chainId $expected within ${READY_TIMEOUT_S}s. Last lines of $log_file:" >&2
-  tail -n 20 "$log_file" >&2
+  tail -n 20 "$log_file" | redact_urls >&2
   fail
 }
 

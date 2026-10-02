@@ -3,27 +3,30 @@ pragma solidity 0.8.28;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {ICoreBridge} from "wormhole-sdk/interfaces/ICoreBridge.sol";
 
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {IAdapter} from "../interfaces/IAdapter.sol";
-import {IBridgeAdapter} from "../interfaces/IBridgeAdapter.sol";
-import {ICoreVault} from "../interfaces/ICoreVault.sol";
-import {Transit, TransferKind, ExpensePayer, BridgeQuote} from "../interfaces/FundTypes.sol";
-import {Mandate, MandateLib, SpokeConfig, PoolConfig, BridgeAdapterConfig} from "../mandate/Mandate.sol";
+import {Transit, TransferKind, BridgeQuote} from "../interfaces/FundTypes.sol";
+import {Mandate} from "../mandate/Mandate.sol";
 import {ReportCodec} from "../libraries/ReportCodec.sol";
 import {TransitMessage} from "../libraries/TransitMessage.sol";
 import {SpokeVaultTypes} from "./SpokeVaultTypes.sol";
 import {SpokeCrossChainLib} from "./SpokeCrossChainLib.sol";
 import {SpokeLedger} from "./SpokeLedger.sol";
-import {SpokeUnwindLib} from "./SpokeUnwindLib.sol";
+import {SpokeVaultBase} from "./SpokeVaultBase.sol";
+import {SpokeVaultUnwind} from "./SpokeVaultUnwind.sol";
+import {SpokeVaultIncome} from "./SpokeVaultIncome.sol";
 
 /// @title SpokeVault
 /// @notice The fund's account on one chain, the Hub Chain included. See ISpokeVault.
 /// @dev DEC-054: one Spoke Vault per fund chain, the Hub Chain included; `onHubChain` selects the role. The hub role
 ///      talks to the Core Vault, publishes no report and holds no Operating Cash; the spoke role receives Across fills,
 ///      sends home and publishes value reports through the Wormhole Core Bridge.
+/// @dev The source is split by concern like the Core Vault's (WP-07 A3, DEC-131 pattern): `SpokeVaultBase` (identity,
+///      wiring, storage, modifiers, construction), `SpokeVaultUnwind` (the automatic unwind), `SpokeVaultIncome` (the
+///      collected income verbs) and this contract (the manager's position verbs, the cross-chain verbs, the hub
+///      interplay, the garbage collector and the views), compiled into one contract with an unchanged ABI.
 /// @dev DEC-022, DEC-058: no proxy, no upgrade path, no selfdestruct. The constructor takes everything it needs, so the
 ///      FundFactory deploys it at a CREATE3 address that depends only on the factory and the salt (fund id, role,
 ///      chain id), never on this creation code (DEC-054). The Spoke Chain half (send home, refunds, report) lives in the
@@ -37,9 +40,8 @@ import {SpokeUnwindLib} from "./SpokeUnwindLib.sol";
 /// @dev DEC-080: every value that reaches a base comes from the internal ledger (`unallocated`, `collectedIncome`,
 ///      `operatingCash`), never from `balanceOf`. `balanceOf` is read only to assert the ledger is backed, to verify
 ///      an exact bridge debit and to size the excess sweep.
-contract SpokeVault is ISpokeVault, ReentrancyGuard {
+contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
     using SafeERC20 for IERC20;
-    using MandateLib for Mandate;
     using SpokeLedger for SpokeVaultTypes.State;
 
     /// @dev DEC-093: reports are published with finalized consistency.
@@ -48,92 +50,11 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
     /// @dev Wormhole nonce: a batching tag only; replay protection is the (emitter, sequence) pair (DEC-093).
     uint32 internal constant WORMHOLE_NONCE = 0;
 
-    /// @notice Kind tag of the Operating Expense booked by an Operating Cash top-up (DEC-041, DEC-096).
-    bytes32 public constant OPERATING_CASH_TOP_UP = keccak256("OPERATING_CASH_TOP_UP");
-
-    /// @notice Largest shortfall below the pool's current price, in bps, that an automatic unwind swap accepts: the
-    ///         swap's minimum output is at least the route's `IAdapter.spotQuote` less this share.
-    /// @dev OPEN parameter (QA3: the price guard of hub positions is undecided; final verification). Measured from the
-    ///      higher of the route's spot quote and the Core Vault's price-source value (security review S-2: a spot price
-    ///      can be moved within a block by the claimant); a claimant hint may only raise the minimum. Applied by the
-    ///      linked `SpokeUnwindLib`, whose constant this is (DEC-131).
-    uint256 public constant MAX_UNWIND_SLIPPAGE_BPS = SpokeUnwindLib.MAX_UNWIND_SLIPPAGE_BPS;
-
-    // ---------------------------------------------------------------------------------------------------------------
-    // Identity and wiring (immutable, DEC-053, DEC-058)
-    // ---------------------------------------------------------------------------------------------------------------
-
-    /// @inheritdoc ISpokeVault
-    bytes32 public immutable fundId;
-    /// @inheritdoc ISpokeVault
-    bytes32 public immutable mandateHash;
-    /// @inheritdoc ISpokeVault
-    address public immutable manager;
-    /// @inheritdoc ISpokeVault
-    uint256 public immutable hubChainId;
-    /// @notice EVM chain id of this vault's chain.
-    uint256 public immutable chainId;
-    /// @inheritdoc ISpokeVault
-    bool public immutable onHubChain;
-    /// @inheritdoc ISpokeVault
-    address public immutable coreVault;
-    /// @inheritdoc ISpokeVault
-    address public immutable baseToken;
-    /// @notice USDC on the Hub Chain: the output token of every send home (DEC-011, DEC-087).
-    address public immutable hubChainUsdc;
-    /// @inheritdoc ISpokeVault
-    address public immutable acrossSpokePool;
-    /// @inheritdoc ISpokeVault
-    address public immutable wormholeCore;
-    /// @notice TransitEscrow implementation cloned once per send home (DEC-066, QA6).
-    address public immutable transitEscrowImplementation;
-    /// @inheritdoc ISpokeVault
-    address public immutable excessRecipient;
-    /// @notice Maximum bridge fee per send, in bps of the amount sent (QA19, value OPEN).
-    uint16 public immutable maxBridgeFeeBps;
-    /// @notice This spoke's report lifetime from the Mandate (DEC-099; value OPEN, Q57 / Q66). 0 on the hub.
-    uint32 public immutable maxReportAge;
-
-    /// @dev Pinned Mandate copy, ledger and cross-chain books.
-    SpokeVaultTypes.State internal _s;
-
-    // ---------------------------------------------------------------------------------------------------------------
-    // Modifiers
-    // ---------------------------------------------------------------------------------------------------------------
-
-    /// @dev DEC-002: only the Manager opens exposure and drives the fund's positions.
-    modifier onlyManager() {
-        if (msg.sender != manager) revert NotManager(msg.sender);
-        _;
-    }
-
-    modifier onlyOnHubChain() {
-        if (!onHubChain) revert NotOnHubChain();
-        _;
-    }
-
-    modifier onlyOnSpokeChain() {
-        if (onHubChain) revert NotOnSpokeChain();
-        _;
-    }
-
     // ---------------------------------------------------------------------------------------------------------------
     // Construction
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @param mandate_ The fund's Mandate; validated with `MandateLib.validate` (DEC-053).
-    /// @param fundId_ Fund identifier shared by every contract of the fund.
-    /// @param chainId_ This chain's EVM id; must equal `block.chainid`.
-    /// @param coreVault_ The Core Vault on the Hub Chain; on a spoke, the bridge recipient of every send home (DEC-087).
-    /// @param baseToken_ USDC on the hub, the spoke's `spokeToken` elsewhere (DEC-031, DEC-055).
-    /// @param acrossSpokePool_ Across SpokePool on this chain, the only `handleV3AcrossMessage` caller.
-    /// @param wormholeCore_ Wormhole Core Bridge on a spoke; address(0) on the hub (no report is published there).
-    /// @param transitEscrowImplementation_ TransitEscrow cloned per send home (DEC-066, QA6); unused on the hub.
-    /// @param excessRecipient_ Destination of swept excess (DEC-096, DEC-101; LC-132 OPEN).
-    /// @dev Q17-4 (OPEN, stance: pin in the vault, OQ-13): the codehash of every Mandate adapter on this chain is pinned
-    ///      here and revalidated on every later call. OQ-12: `poolTokens` is called for every Mandate pool on this
-    ///      chain, which rejects hooked Uniswap V4 pools (DEC-079 open) and fixes the token list of the ledger.
-    ///      DEC-087, DEC-088: on a spoke, every spoke-side bridge adapter's `target()` is pinned in Mandate order.
+    /// @dev See SpokeVaultBase for the parameters and the pins (DEC-053, DEC-058, Q17-4, OQ-12, DEC-087, DEC-088).
     constructor(
         Mandate memory mandate_,
         bytes32 fundId_,
@@ -144,105 +65,19 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         address wormholeCore_,
         address transitEscrowImplementation_,
         address excessRecipient_
-    ) {
-        mandate_.validate();
-        if (chainId_ != block.chainid) revert SpokeVaultTypes.WrongChain(chainId_, block.chainid);
-        if (fundId_ == bytes32(0)) revert SpokeVaultTypes.ZeroFundId();
-        if (coreVault_ == address(0) || acrossSpokePool_ == address(0) || excessRecipient_ == address(0)) {
-            revert SpokeVaultTypes.ZeroAddress();
-        }
-
-        bool hub = chainId_ == mandate_.hubChainId;
-        if (hub) {
-            if (baseToken_ != mandate_.usdc) revert SpokeVaultTypes.BaseTokenMismatch(baseToken_, mandate_.usdc);
-            if (wormholeCore_ != address(0)) revert SpokeVaultTypes.UnexpectedWormholeCore(wormholeCore_);
-        } else {
-            (, SpokeConfig memory spoke) = mandate_.spokeByChainId(chainId_);
-            if (baseToken_ != spoke.spokeToken) revert SpokeVaultTypes.BaseTokenMismatch(baseToken_, spoke.spokeToken);
-            if (wormholeCore_ == address(0) || transitEscrowImplementation_ == address(0)) {
-                revert SpokeVaultTypes.ZeroAddress();
-            }
-            maxReportAge = spoke.maxReportAge;
-            // DEC-096: the creation values; the manager may adjust them later.
-            (_s.operatingCashFloor, _s.operatingCashTopUp) = mandate_.operatingCashFor(chainId_);
-        }
-
-        fundId = fundId_;
-        mandateHash = mandate_.hash();
-        manager = mandate_.manager;
-        hubChainId = mandate_.hubChainId;
-        chainId = chainId_;
-        onHubChain = hub;
-        coreVault = coreVault_;
-        baseToken = baseToken_;
-        hubChainUsdc = mandate_.usdc;
-        acrossSpokePool = acrossSpokePool_;
-        wormholeCore = wormholeCore_;
-        transitEscrowImplementation = transitEscrowImplementation_;
-        excessRecipient = excessRecipient_;
-        maxBridgeFeeBps = mandate_.maxBridgeFeeBps;
-
-        _registerToken(baseToken_);
-        _pinAdapters(mandate_, chainId_);
-        _pinPools(mandate_, chainId_);
-        _copyUnwindOrder(mandate_, chainId_);
-        if (!hub) _pinBridgeAdapters(mandate_, chainId_);
-    }
-
-    /// @dev DEC-053, DEC-058, Q17-4.
-    function _pinAdapters(Mandate memory m, uint256 chainId_) private {
-        for (uint256 i; i < m.adapters.length; ++i) {
-            if (m.adapters[i].chainId != chainId_) continue;
-            address adapter = m.adapters[i].adapter;
-            _s.codehash[adapter] = _requireCode(adapter);
-            _s.isPositionAdapter[adapter] = true;
-            _s.adapters.push(adapter);
-        }
-    }
-
-    /// @dev DEC-030 (closed pool list), OQ-12 (hooked pools rejected by `poolTokens`).
-    function _pinPools(Mandate memory m, uint256 chainId_) private {
-        for (uint256 i; i < m.pools.length; ++i) {
-            PoolConfig memory p = m.pools[i];
-            if (p.chainId != chainId_) continue;
-            (address token0, address token1) = IAdapter(p.adapter).poolTokens(p.poolKey);
-            _s.pools[p.adapter][p.poolKey] = SpokeVaultTypes.PoolTokens(token0, token1, true);
-            _registerToken(token0);
-            _registerToken(token1);
-        }
-    }
-
-    /// @dev DEC-069: the Mandate unwind order restricted to this chain, in Mandate order.
-    function _copyUnwindOrder(Mandate memory m, uint256 chainId_) private {
-        for (uint256 i; i < m.unwindOrder.length; ++i) {
-            if (m.unwindOrder[i].chainId == chainId_) _s.unwindOrder.push(m.unwindOrder[i]);
-        }
-    }
-
-    /// @dev DEC-087, DEC-088: the spoke-side bridge adapters of this spoke, in Mandate priority order, each with its
-    ///      pinned `target()` and codehash (Q17-4).
-    function _pinBridgeAdapters(Mandate memory m, uint256 chainId_) private {
-        for (uint256 i; i < m.bridgeAdapters.length; ++i) {
-            BridgeAdapterConfig memory b = m.bridgeAdapters[i];
-            if (b.chainId != chainId_ || b.spokeChainId != chainId_) continue;
-            _s.codehash[b.adapter] = _requireCode(b.adapter);
-            address target = IBridgeAdapter(b.adapter).target();
-            if (target == address(0)) revert SpokeVaultTypes.ZeroBridgeTarget(b.adapter);
-            _s.bridgeTarget[b.adapter] = target;
-            _s.bridgeAdapters.push(b.adapter);
-        }
-    }
-
-    function _requireCode(address adapter) private view returns (bytes32) {
-        if (adapter.code.length == 0) revert SpokeVaultTypes.AdapterHasNoCode(adapter);
-        return adapter.codehash;
-    }
-
-    function _registerToken(address token) private {
-        if (token == address(0) || _s.isLedgerToken[token]) return;
-        _s.isLedgerToken[token] = true;
-        _s.tokens.push(token);
-    }
+    )
+        SpokeVaultBase(
+            mandate_,
+            fundId_,
+            chainId_,
+            coreVault_,
+            baseToken_,
+            acrossSpokePool_,
+            wormholeCore_,
+            transitEscrowImplementation_,
+            excessRecipient_
+        )
+    {}
 
     // ---------------------------------------------------------------------------------------------------------------
     // Manager verbs (DEC-002, DEC-030, DEC-053, DEC-079)
@@ -350,24 +185,6 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         SpokeVaultTypes.PoolTokens memory p = _s.pool(adapter, poolKey);
         _topUpOperatingCash();
         amountOut = _s.swap(baseToken, a, p, poolKey, tokenIn, amountIn, minAmountOut, params, false);
-    }
-
-    /// @inheritdoc ISpokeVault
-    /// @dev CV-OQ-2, ruling 2026-09-29, DEC-092: collected income in, base token out, both inside the collected income
-    ///      bucket; DEC-079, DEC-080: credited from what the adapter returns.
-    function swapCollectedIncome(
-        address adapter,
-        bytes32 poolKey,
-        address tokenIn,
-        uint256 amountIn,
-        uint256 minAmountOut,
-        bytes calldata params
-    ) external onlyOnSpokeChain onlyManager nonReentrant returns (uint256 amountOut) {
-        IAdapter a = _s.positionAdapter(adapter);
-        SpokeVaultTypes.PoolTokens memory p = _s.pool(adapter, poolKey);
-        if (SpokeLedger.otherToken(p, tokenIn) != baseToken) revert UnexpectedToken(tokenIn);
-        _topUpOperatingCash();
-        amountOut = _s.swap(baseToken, a, p, poolKey, tokenIn, amountIn, minAmountOut, params, true);
     }
 
     /// @inheritdoc ISpokeVault
@@ -487,31 +304,6 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         _s.debitUnallocated(baseToken, amount);
         SpokeLedger.payCoreVaultIdle(baseToken, coreVault, amount);
         emit ReturnedToCoreVault(amount);
-    }
-
-    /// @inheritdoc ISpokeVault
-    /// @dev DEC-092: collected income is handed to the Core Vault's Attributed Income bucket; the destination is fixed.
-    function forwardIncomeToCoreVault(address token) external onlyOnHubChain nonReentrant returns (uint256 amount) {
-        amount = _s.collectedIncome[token];
-        if (amount == 0) revert ZeroAmount();
-        _s.collectedIncome[token] = 0;
-        IERC20(token).safeTransfer(coreVault, amount);
-        ICoreVault(coreVault).receiveCollectedIncome(token, amount);
-        emit IncomeForwardedToCoreVault(token, amount);
-    }
-
-    /// @inheritdoc ISpokeVault
-    /// @dev DEC-069, DEC-081, DEC-097, DEC-131: the body lives in the linked library `SpokeUnwindLib` (see
-    ///      `SpokeUnwindLib.unwindForPayout`); the vault keeps the chain, caller and reentrancy checks.
-    /// @param unwindHints `abi.encode(SpokeVaultTypes.UnwindHint[])`, optional, one per position visited in order.
-    function unwindForPayout(uint256 usdcTarget, bytes calldata unwindHints)
-        external
-        onlyOnHubChain
-        nonReentrant
-        returns (uint256 usdcProceeds)
-    {
-        if (msg.sender != coreVault) revert NotCoreVault(msg.sender);
-        usdcProceeds = SpokeUnwindLib.unwindForPayout(_s, _config(), usdcTarget, unwindHints);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -638,33 +430,5 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
     /// @notice Hub-bound transit ids still tracked as in flight (pruned lazily when a report is published).
     function inFlightTransitIds() external view returns (bytes32[] memory) {
         return _s.inFlightIds;
-    }
-
-    // ---------------------------------------------------------------------------------------------------------------
-    // Internal
-    // ---------------------------------------------------------------------------------------------------------------
-
-    /// @dev The vault's immutable wiring for its linked libraries.
-    function _config() internal view returns (SpokeVaultTypes.Config memory) {
-        return SpokeVaultTypes.Config({
-            fundId: fundId,
-            mandateHash: mandateHash,
-            chainId: chainId,
-            hubChainId: hubChainId,
-            coreVault: coreVault,
-            baseToken: baseToken,
-            hubChainUsdc: hubChainUsdc,
-            transitEscrowImplementation: transitEscrowImplementation,
-            maxBridgeFeeBps: maxBridgeFeeBps,
-            maxReportAge: maxReportAge
-        });
-    }
-
-    /// @dev DEC-096, DEC-100: below the floor, the next value-moving operation adds `operatingCashTopUp` (or what
-    ///      Unallocated Balance of the base token holds, if less) to Operating Cash; the Share Price drop is accepted.
-    ///      DEC-041: the expense is booked with its payer, Share Assets. Spoke Chains only (on the hub, Operating Cash
-    ///      lives in the Core Vault). Never reverts, so it never blocks an exit (DEC-056).
-    function _topUpOperatingCash() internal {
-        if (!onHubChain) SpokeCrossChainLib.topUpOperatingCash(_s, baseToken, chainId);
     }
 }

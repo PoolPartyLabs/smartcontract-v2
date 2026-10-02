@@ -9,7 +9,7 @@ import {CoreBridgeLib} from "wormhole-sdk/libraries/CoreBridge.sol";
 import {toUniversalAddress} from "wormhole-sdk/Utils.sol";
 import {OrderCodec} from "../../../src/libraries/OrderCodec.sol";
 import {OrderVerifier, OrderVaaHead, IOrderVaaParser} from "../../../src/libraries/OrderVerifier.sol";
-import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {OrderPublisherHarness} from "../../mocks/wormhole/OrderCodecHarness.sol";
 import {OrderReceiverHarness, OrderVerifierHarness} from "../../mocks/wormhole/OrderVerifierHarness.sol";
 
@@ -72,7 +72,7 @@ contract OrderChannelForkTest is Test {
         o.fracNum = 1457; // the DEC-137 example: 14.57% of every position, 2% margin included
         o.fracDen = 10_000;
         o.maxLossBps = 150;
-        o.payoutMode = uint8(ICoreVault.PayoutMode.Standard);
+        o.payoutMode = uint8(ICoreVaultPayouts.PayoutMode.Standard);
     }
 
     /// @dev Publishes `o` from `emitter` on the selected fork's Core, paying that Core's fee, and returns the message
