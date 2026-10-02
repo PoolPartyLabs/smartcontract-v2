@@ -5,6 +5,7 @@ import {console2} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {IQuoterV2} from "@uniswap/v3-periphery/contracts/interfaces/IQuoterV2.sol";
+import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {UniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
 import {AdapterGuard} from "../../../src/adapters/AdapterGuard.sol";
 import {ISwapAdapter} from "../../../src/interfaces/ISwapAdapter.sol";
@@ -244,6 +245,33 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
         assertEq(out, quoted, "a maximum the honest tier meets sells there");
         assertEq(spot, AMOUNT);
         _assertNothingKept(address(weth));
+    }
+
+    /// @dev Open for the founder (review round 4): a third party's tier 5% below the market, next to honest tiers that
+    ///      lose 9% on the sale. Its discount is smaller than the honest loss, so it outbids every honest tier (DEC-153
+    ///      item 2), meets a 1% maximum against its own mid, and buys the input 5% below the market: a sale DEC-148
+    ///      would refuse, since no honest tier meets that maximum. The fund still receives more than any honest tier
+    ///      pays, so the loss the maximum misses is bounded by the honest tier's own loss.
+    function test_DEC153_aTierBelowTheMarketByLessThanTheHonestLossBuysABoundedSale() public {
+        for (uint256 i = 1; i < 4; ++i) {
+            wethBase[i].setImpactBps(900);
+        }
+        uint256 trapOut = _shallowTierBelowTheMarket().out(address(weth), AMOUNT);
+        uint256 honestOut = _out(AMOUNT, 500, 900);
+        assertGt(trapOut, honestOut, "it pays more than any honest tier");
+
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), AMOUNT);
+        assertEq(fee, 100, "chosen on output");
+        assertEq(quoted, trapOut);
+        (uint256 out, uint256 spot) = _swap(address(weth), address(base), AMOUNT, 100, "");
+        assertEq(out, trapOut);
+        assertLt((spot - out) * 10_000 / spot, 100, "within the 1% maximum against its own mid");
+        assertGe((AMOUNT - out) * 10_000 / AMOUNT, 499, "yet about 5% below the market");
+
+        // DEC-148 would refuse the sale: the honest tier does not meet the maximum.
+        _fund(address(weth), AMOUNT);
+        vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.InsufficientOutput.selector, honestOut, AMOUNT * 99 / 100));
+        adapter.swapDirect(address(weth), address(base), AMOUNT, 500, 100);
     }
 
     /// @dev Open for the founder (review round 3): when the sale is larger than every honest tier can fill (here each
@@ -616,6 +644,13 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
     function _tierBelowTheMarket() internal returns (MockV3Pool trap) {
         uint160 sqrtPriceX96 = address(weth) < address(base) ? uint160(1 << 95) : uint160(1 << 97);
         trap = factory.createPool(address(weth), address(base), 100, sqrtPriceX96, LIQUIDITY);
+    }
+
+    /// @dev A third party's tier 5% below the market (review round 4): replaces the 0.01% WETH/base pool with one at
+    ///      about 0.95 of the market's mid (tick -512 when WETH is token0, 512 when it is token1) and no price impact.
+    function _shallowTierBelowTheMarket() internal returns (MockV3Pool trap) {
+        int24 tick = address(weth) < address(base) ? int24(-512) : int24(512);
+        trap = factory.createPool(address(weth), address(base), 100, TickMath.getSqrtPriceAtTick(tick), LIQUIDITY);
     }
 
     /// @dev QuoterV2's price limit when it is given none: one inside the end of the range the price moves towards.

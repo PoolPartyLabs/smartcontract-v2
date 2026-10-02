@@ -197,6 +197,42 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
         assertApproxEqRel(spot, amountIn / 10, 1e9, "measured against its own mid");
     }
 
+    /// @dev Open for the founder (review round 4), a tier below the market by less than the honest tier's loss: the
+    ///      honest 0.05% tier of the regression above (it loses about 9% selling 100 token0) next to a 0.01% tier
+    ///      someone created at tick -512 (about 0.95 token1 per token0) with dust over the full range and L = 3e22 in
+    ///      ticks [-600, -514], token1 only, below its price: an ordinary range order, which offers no arbitrage. Its 5%
+    ///      discount is smaller than the honest loss, so it quotes more and is chosen (DEC-153 item 2), meets a 1%
+    ///      maximum against its own mid, and buys the input over 5% below the market, reported as a 0.35% loss: a sale
+    ///      DEC-148 would refuse. The fund still receives more than the honest tier pays.
+    function test_arbitrum_noApi_aTierBelowTheMarketByLessThanTheHonestLossBuysABoundedSale() public {
+        V3Chain memory c = _arbitrum();
+        (address t0, address t1) = _pairWithAShallowTierBelowTheMarket(c);
+        uint256 amountIn = 100e18; // the fund sells token0 for token1, its base token
+        (uint256 honestOut,,,) =
+            c.quoter.quoteExactInputSingle(IQuoterV2.QuoteExactInputSingleParams(t0, t1, amountIn, 500, 0));
+        (uint256 arbOut,,,) =
+            c.quoter.quoteExactInputSingle(IQuoterV2.QuoteExactInputSingleParams(t1, t0, 1e18, 100, 0));
+        console2.log("honest 0.05% quote", honestOut, "one token1 sold into the 0.01% tier buys token0", arbOut);
+        assertLt(honestOut, amountIn * 99 / 100, "the honest tier loses more than 1%");
+        assertLt(arbOut, 1e12, "the 0.01% tier offers no arbitrage");
+
+        _setUpWithBase(c, t1, _tokens2(t0, t1));
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(t0, t1, amountIn);
+        assertEq(uint256(fee), 100, "chosen on output");
+        assertGt(quoted, honestOut);
+        (uint256 out, uint256 spot,) = _swap(t0, t1, amountIn, 100, "", "no API, a tier 5% below the market, 1% max");
+        assertEq(out, quoted, "more than the honest tier pays");
+        assertLt(_lossBps(spot, out), 100, "within the 1% maximum against its own mid");
+        assertGt(_lossBps(amountIn, out), 500, "yet over 5% below the market");
+
+        // DEC-148 would refuse the sale: the honest tier does not meet the maximum.
+        _fund(t0, amountIn);
+        vm.expectRevert(
+            abi.encodeWithSelector(ISwapAdapter.InsufficientOutput.selector, honestOut, amountIn * 99 / 100)
+        );
+        adapter.swapDirect(t0, t1, amountIn, 500, 100);
+    }
+
     /// @dev Open for the founder (review round 2): the same trap without a maximum. It wins on output (the fund gets
     ///      about 100.55 instead of 99.94), but `spotOut` is its own mid (1,000), so the sale reports a loss of about
     ///      899 it did not have. Until the founder rules, a vault must not charge a cost measured against it.
@@ -574,6 +610,20 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
         trap.initialize(SQRT_PRICE_X96_OF_ONE_TENTH);
         minter.mint(trap, -887_272, 887_272, 1e9);
         minter.mint(trap, -23_100, -23_040, 2e22);
+    }
+
+    /// @dev Two new tokens: an honest 0.05% pool at price 1 with L = 1e21 over the full range, and a 0.01% pool at tick
+    ///      -512 (about 0.95) with L = 1e9 over the full range and L = 3e22 in ticks [-600, -514], below its price.
+    function _pairWithAShallowTierBelowTheMarket(V3Chain memory c) internal returns (address t0, address t1) {
+        (t0, t1) = _sorted(address(new ForkToken("AAA")), address(new ForkToken("BBB")));
+        DustMinter minter = new DustMinter();
+        IUniswapV3Pool honest = IUniswapV3Pool(c.factory.createPool(t0, t1, 500));
+        honest.initialize(2 ** 96);
+        minter.mint(honest, -887_270, 887_270, 1e21);
+        IUniswapV3Pool trap = IUniswapV3Pool(c.factory.createPool(t0, t1, 100));
+        trap.initialize(TickMath.getSqrtPriceAtTick(-512));
+        minter.mint(trap, -887_272, 887_272, 1e9);
+        minter.mint(trap, -600, -514, 3e22);
     }
 
     /// @dev QuoterV2 on its own, selling token0: the honest 0.05% tier fills more than 1% below its mid, the 0.01% tier
