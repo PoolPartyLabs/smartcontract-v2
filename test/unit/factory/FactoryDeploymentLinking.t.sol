@@ -20,6 +20,9 @@ contract FactoryDeploymentLinkingTest is Test, FactoryDeployment {
         assertTrue(d.spokeIncomeLib.code.length != 0, "SpokeIncomeLib deployed");
         assertTrue(vm.contains(code, _bareHex(d.spokeIncomeLib)), "SpokeIncomeLib linked");
         assertFalse(vm.contains(code, "__$"), "no placeholder left");
+        // Library into library: SpokeIncomeLib sends the collections home through SpokeCrossChainLib (WP-10).
+        string memory income = vm.toString(d.spokeIncomeLib.code);
+        assertTrue(vm.contains(income, _bareHex(d.spokeCrossChainLib)), "SpokeIncomeLib -> SpokeCrossChainLib");
     }
 
     function test_DEC131_hubAlsoDeploysTheCoreVaultLibraries() public {
@@ -34,10 +37,19 @@ contract FactoryDeploymentLinkingTest is Test, FactoryDeployment {
         assertTrue(vm.contains(code, _bareHex(d.coreVaultIncomeLogic)), "CoreVaultIncomeLogic linked");
         assertTrue(d.coreVaultPayoutLogic.code.length != 0, "CoreVaultPayoutLogic deployed on the hub");
         assertTrue(vm.contains(code, _bareHex(d.coreVaultPayoutLogic)), "CoreVaultPayoutLogic linked");
+        assertTrue(d.coreVaultIncomeCollectionLogic.code.length != 0, "CoreVaultIncomeCollectionLogic deployed");
+        assertTrue(
+            vm.contains(code, _bareHex(d.coreVaultIncomeCollectionLogic)), "CoreVaultIncomeCollectionLogic linked"
+        );
         assertFalse(vm.contains(code, "__$"), "no placeholder left");
-        // Library into library: CoreVaultLogic calls CoreVaultIncomeLogic (the valuation hook, WP-07 D2), the payout
+        // Library into library: CoreVaultIncomeLogic calls CoreVaultIncomeCollectionLogic (WP-10), CoreVaultLogic calls
+        // CoreVaultIncomeLogic (the valuation hook, WP-07 D2), the payout
         // library calls both and the transit library all three (the report hooks), through their own linked
         // addresses.
+        string memory income = vm.toString(d.coreVaultIncomeLogic.code);
+        assertTrue(
+            vm.contains(income, _bareHex(d.coreVaultIncomeCollectionLogic)), "income -> CoreVaultIncomeCollectionLogic"
+        );
         string memory logic = vm.toString(d.coreVaultLogic.code);
         assertTrue(vm.contains(logic, _bareHex(d.coreVaultIncomeLogic)), "CoreVaultLogic -> CoreVaultIncomeLogic");
         string memory transit = vm.toString(d.coreVaultTransitLogic.code);
