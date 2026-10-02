@@ -33,9 +33,11 @@ contract CoreVault is CoreVaultTransit {
     /// @notice DEC-081: the unwind targets the shortfall plus 2%.
     uint256 public constant UNWIND_MARGIN_BPS = 200;
 
-    /// @dev Working values of one claim, kept in memory to stay within the stack without via-IR.
+    /// @dev Working values of one claim, kept in memory to stay within the stack without via-IR. `burnable` is the
+    ///      most the claim may burn: the balance, or for the manager what lies above the base (DEC-146, D-27).
     struct Claim {
         uint256 balance;
+        uint256 burnable;
         uint256 available;
         uint256 wanted;
         uint256 shares;
@@ -179,6 +181,16 @@ contract CoreVault is CoreVaultTransit {
         if (balanceAfter < peak - peak / 2) revert ManagerMustCloseFund(peak, balanceAfter);
     }
 
+    /// @notice DEC-146, DEC-147 consequence, D-27: the whole shares the manager may burn at a claim, those above
+    ///         `ceil(peak / 2)`. The request was checked at its own Share Price; a price that fell before the claim
+    ///         would otherwise burn more shares for the same USDC and take the manager below the base, or a sole
+    ///         holder to zero shares while the fund is Open.
+    function _managerBurnable(uint256 balance) private view returns (uint256) {
+        uint256 peak = _s.managerPeakShares;
+        uint256 base = peak - peak / 2;
+        return balance > base ? (balance - base) / ShareMath.WHOLE_SHARE * ShareMath.WHOLE_SHARE : 0;
+    }
+
     // ---------------------------------------------------------------------------------------------------------------
     // Payout Request (DEC-020, DEC-024, DEC-060, DEC-072, DEC-077, DEC-095)
     // ---------------------------------------------------------------------------------------------------------------
@@ -238,6 +250,10 @@ contract CoreVault is CoreVaultTransit {
     ///      market cost of the unwind (flagged). LC-45 / LC-47: no Network Costs are charged to the requester
     ///      (flagged). DEC-147, D-26: refused unless the fund is Open; a request opened before closure is paid as a
     ///      closed-fund exit (DEC-150 item 4).
+    /// @dev DEC-146, DEC-147, D-27: the manager's burn stops at `ceil(peak / 2)` whatever the Share Price did since the
+    ///      request. When that cap binds the request closes like one capped at the balance (DEC-024: it can never be
+    ///      cancelled, so leaving it open would block the manager's next request and keep a Standard reserve locked);
+    ///      the receipt shows the USDC paid below the amount requested.
     function claimPayout(bytes calldata unwindHints) external nonReentrant returns (PayoutReceipt memory receipt) {
         _requireOpen();
         PayoutRequest storage req = _s.requests[msg.sender];
@@ -248,6 +264,7 @@ contract CoreVault is CoreVaultTransit {
         Claim memory c;
         c.balance = _sharesOf(msg.sender);
         if (c.balance == 0) revert NoShares(msg.sender);
+        c.burnable = msg.sender == manager ? _managerBurnable(c.balance) : c.balance;
         _topUpOperatingCash();
 
         NavConsolidation memory consolidation = _priceClaim(c, req);
@@ -283,7 +300,7 @@ contract CoreVault is CoreVaultTransit {
         (c.shareAssets, consolidation) = CoreVaultLogic.recordValuation(_s, _wiring(), false);
         c.totalShares = _totalShares();
         c.price = ShareMath.sharePrice(c.shareAssets, c.totalShares);
-        // DEC-077, DEC-020: floor(outstanding / price) whole shares, capped at the balance.
+        // DEC-077, DEC-020: floor(outstanding / price) whole shares, capped at the balance (the manager: at the base).
         c.wanted = ShareMath.usdcFor(_sharesFor(c, req.usdcOutstanding), c.price);
         c.available = freeIdle();
         if (req.mode == PayoutMode.Standard) c.available += req.reserved;
@@ -293,10 +310,12 @@ contract CoreVault is CoreVaultTransit {
     ///      loss, or every value base reading zero) nothing can be paid, so no share is burned and the claim closes the
     ///      request like an outstanding tail below one share (`closedBelowOneShare`) instead of reverting
     ///      `ZeroSharePrice`; the holder keeps its shares and may request again once value returns.
+    /// @dev Capped at `burnable` (the balance; for the manager, the shares above the base, D-27). `wanted` is sized
+    ///      with the same cap, so a Partial Payout never burns more than the cap either.
     function _sharesFor(Claim memory c, uint256 usdcAmount) private pure returns (uint256 shares) {
         if (c.price == 0) return 0;
         shares = ShareMath.sharesToBurn(usdcAmount, c.price);
-        if (shares > c.balance) shares = c.balance;
+        if (shares > c.burnable) shares = c.burnable;
     }
 
     /// @notice Runs the hub Spoke Vault's automatic unwind and credits what reached the Core Vault to Idle.

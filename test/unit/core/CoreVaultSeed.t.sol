@@ -95,8 +95,9 @@ contract CoreVaultSeedTest is CoreVaultFixture {
         vm.stopPrank();
     }
 
-    /// @dev DEC-121: after the last share is burned (only reachable after closure) neither a deposit nor a second
-    ///      seed re-opens the fund at 1.00. The supply is forced to 0 here.
+    /// @dev DEC-121: after the last share is burned neither a deposit nor a second seed re-opens the fund at 1.00. While
+    ///      Open the manager's burn stops at half of the peak (DEC-147, D-27; CoreVaultManagerBase.t.sol), so a supply
+    ///      of 0 belongs to the closure (DEC-150, WP-13), which does not exist yet; the supply is forced to 0 here.
     function test_DEC121_aFundWhoseSharesWereAllBurnedNeverReopens() public {
         _deposit(alice, 1000e6);
         vm.mockCall(address(shares), abi.encodeWithSelector(IERC20.totalSupply.selector), abi.encode(uint256(0)));

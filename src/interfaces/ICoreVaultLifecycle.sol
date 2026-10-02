@@ -10,8 +10,10 @@ pragma solidity 0.8.28;
 ///      fund never re-opens at 1.00.
 /// @dev DEC-146, DEC-147 item 1: the manager base is half of the highest share balance the manager address ever held
 ///      (`managerPeakShares`, updated on every mint to the manager); a manager Payout Request that would leave the
-///      balance below it reverts `ManagerMustCloseFund` at the request's Share Price (D-27); nothing closes the fund
-///      automatically. Capital in another wallet is not the manager's (DEC-046).
+///      balance below it reverts `ManagerMustCloseFund` at the request's Share Price, and the claim's burn stops at the
+///      base whatever the Share Price did since the request, closing the request (D-27), so the manager never holds
+///      less than half of the peak while the fund is Open; nothing closes the fund automatically. Capital in another
+///      wallet is not the manager's (DEC-046).
 /// @dev DEC-147 items 2-3, DEC-149 (reading: irreversible): `closeFund` is a manager call that moves the fund from
 ///      Open to Closing. While Closing no deposit, no new Payout Request and no claim are accepted (D-26: requests
 ///      opened before closure are paid as closed-fund exits, DEC-150 item 4); Income Withdrawal works in every state
