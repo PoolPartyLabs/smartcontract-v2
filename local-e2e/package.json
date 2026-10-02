@@ -12,6 +12,7 @@
     "alpha:keeper": "tsx src/alpha.ts keeper",
     "alpha:api": "tsx src/alpha.ts api",
     "alpha:rehearsal": "tsx src/alpha-rehearsal.ts",
+    "check:urls": "tsx scripts/check-url-redaction.ts",
     "up": "tsx src/up.ts",
     "down": "bash scripts/stop-forks.sh",
     "keeper": "tsx src/keeper.ts",
