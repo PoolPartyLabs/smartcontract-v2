@@ -17,6 +17,9 @@ contract FactoryDeploymentLinkingTest is Test, FactoryDeployment {
         assertTrue(vm.contains(code, _bareHex(d.spokeCrossChainLib)), "SpokeCrossChainLib linked");
         assertTrue(d.spokeUnwindLib.code.length != 0, "SpokeUnwindLib deployed");
         assertTrue(vm.contains(code, _bareHex(d.spokeUnwindLib)), "SpokeUnwindLib linked");
+        assertTrue(d.spokeCloseLib.code.length != 0, "SpokeCloseLib deployed");
+        assertTrue(vm.contains(code, _bareHex(d.spokeCloseLib)), "SpokeCloseLib linked");
+        assertTrue(vm.contains(vm.toString(d.spokeCloseLib.code), _bareHex(d.spokeUnwindLib)), "close -> unwind");
         assertTrue(d.spokeIncomeLib.code.length != 0, "SpokeIncomeLib deployed");
         assertTrue(vm.contains(code, _bareHex(d.spokeIncomeLib)), "SpokeIncomeLib linked");
         assertFalse(vm.contains(code, "__$"), "no placeholder left");

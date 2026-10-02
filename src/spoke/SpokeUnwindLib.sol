@@ -19,7 +19,6 @@ import {OrderVerifier} from "../libraries/OrderVerifier.sol";
 import {SpokeVaultTypes} from "./SpokeVaultTypes.sol";
 import {SpokeUnwindTypes} from "./SpokeUnwindTypes.sol";
 import {SpokeLedger} from "./SpokeLedger.sol";
-import {ICoreVaultLifecycle} from "../interfaces/ICoreVaultLifecycle.sol";
 
 /// @title SpokeUnwindLib
 /// @notice The automatic unwind of the hub Spoke Vault (the body of `SpokeVault.unwindForPayout` and its atomic step)
@@ -43,55 +42,6 @@ library SpokeUnwindLib {
     ///      token per unwind); the slot of a token is `keccak256(abi.encode(TIER_NAMESPACE, token))`.
     bytes32 private constant TIER_NAMESPACE = keccak256("pool-party.SpokeUnwindLib.tier");
 
-    function manualSwap(
-        SpokeVaultTypes.State storage s,
-        SpokeVaultTypes.Config memory c,
-        SpokeUnwindTypes.ManualSale calldata sale
-    ) external returns (uint256 amountOut, uint256 spotOut, uint256 minOut) {
-        if (!s.isLedgerToken[sale.tokenIn]) revert ISpokeVault.TokenNotInMandate(sale.tokenIn);
-        if (!s.isLedgerToken[sale.tokenOut]) revert ISpokeVault.TokenNotInMandate(sale.tokenOut);
-        if (sale.amountIn == 0) revert ISpokeVault.ZeroAmount();
-        uint256 baseRate = 1e18;
-        if (sale.tokenOut != c.baseToken) {
-            ISwapAdapter swapAdapter = SpokeLedger.swapAdapter(s, sale.adapter);
-            (uint24 fee,) = swapAdapter.bestDirectFee(sale.tokenOut, c.baseToken, 1e18);
-            baseRate = swapAdapter.spotValue(sale.tokenOut, c.baseToken, 1e18, fee);
-        }
-        (amountOut, spotOut, minOut) = SpokeLedger.swapThrough(
-            s, sale.adapter, sale.tokenIn, sale.tokenOut, sale.amountIn, sale.maxLossBps, sale.route, false
-        );
-        uint256 loss = spotOut > amountOut ? spotOut - amountOut : 0;
-        uint256 absorbed = Math.mulDiv(spotOut, STANDARD_SALE_LOSS_ABSORB_BPS, BPS);
-        uint256 excess = loss > absorbed ? Math.mulDiv(loss - absorbed, baseRate, 1e18) : 0;
-        if (c.chainId == c.hubChainId) {
-            if (excess != 0 && ICoreVaultLifecycle(c.coreVault).fundState() == ICoreVaultLifecycle.FundState.Closing) {
-                s.unwind.closureExcessCost += excess;
-            }
-        } else if (excess != 0) {
-            uint256 count = s.unwind.saleTimes.length;
-            uint256 cumulative = excess + (count == 0 ? 0 : s.unwind.saleCosts[count - 1]);
-            if (count != 0 && s.unwind.saleTimes[count - 1] == block.timestamp) {
-                s.unwind.saleCosts[count - 1] = cumulative;
-            } else {
-                s.unwind.saleTimes.push(uint64(block.timestamp));
-                s.unwind.saleCosts.push(cumulative);
-            }
-        }
-    }
-
-    function _manualClosureCost(SpokeUnwindTypes.Book storage book, uint64 startedAt) private view returns (uint256) {
-        uint256 count = book.saleTimes.length;
-        if (count == 0) return 0;
-        uint256 lower;
-        uint256 upper = count;
-        while (lower < upper) {
-            uint256 middle = (lower + upper) / 2;
-            if (book.saleTimes[middle] < startedAt) lower = middle + 1;
-            else upper = middle;
-        }
-        return book.saleCosts[count - 1] - (lower == 0 ? 0 : book.saleCosts[lower - 1]);
-    }
-
     /// @notice DEC-120/139/151: execute the same proportional steps as the Hub, retaining unsent proceeds on refusal.
     /// @dev DEC-149: CLOSE always takes everything, with Standard Market Costs and no requester maximum.
     function executeUnwindOrder(
@@ -101,23 +51,6 @@ library SpokeUnwindLib {
     ) external {
         bool closing = order.kind == OrderCodec.CLOSE;
         if (s.unwind.closed && !closing) revert SpokeUnwindTypes.SpokeClosed();
-        if (closing) {
-            if (order.closingStartedAt == 0 || order.closingStartedAt > block.timestamp) {
-                revert SpokeUnwindTypes.SpokeClosed();
-            }
-            if (s.unwind.closureStartedAt == 0) {
-                s.unwind.closureStartedAt = order.closingStartedAt;
-                s.unwind.closureExcessCost = _manualClosureCost(s.unwind, order.closingStartedAt);
-            } else if (s.unwind.closureStartedAt != order.closingStartedAt) {
-                revert SpokeUnwindTypes.SpokeClosed();
-            }
-            order.fracNum = 1;
-            order.fracDen = 1;
-            order.maxLossBps = 0;
-            order.payoutMode = uint8(ICoreVaultPayouts.PayoutMode.Standard);
-            s.unallocated[c.baseToken] += s.operatingCash;
-            s.operatingCash = 0;
-        }
         SpokeUnwindTypes.Pending storage pending = s.unwind.pending[order.requestId];
         _recoverSend(s, c.baseToken, order.requestId, pending);
         if (closing) s.unwind.reservedBase = pending.proceeds;
@@ -158,7 +91,6 @@ library SpokeUnwindLib {
         pending.leaverCost += result.leaverCost;
         if (closing) s.unwind.closureExcessCost += result.leaverCost;
         _sendResult(s, c, order, result, pending);
-        if (closing) s.unwind.closed = true;
     }
 
     function _recoverSend(

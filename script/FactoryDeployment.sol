@@ -48,6 +48,7 @@ abstract contract FactoryDeployment is CommonBase {
     string internal constant SPOKE_VAULT_ARTIFACT = "out/SpokeVault.sol/SpokeVault.json";
     string internal constant SPOKE_CROSS_CHAIN_LIB_ID = "src/spoke/SpokeCrossChainLib.sol:SpokeCrossChainLib";
     string internal constant SPOKE_UNWIND_LIB_ID = "src/spoke/SpokeUnwindLib.sol:SpokeUnwindLib";
+    string internal constant SPOKE_CLOSE_LIB_ID = "src/spoke/SpokeCloseLib.sol:SpokeCloseLib";
     string internal constant SPOKE_INCOME_LIB_ARTIFACT = "out/SpokeIncomeLib.sol/SpokeIncomeLib.json";
     string internal constant SPOKE_INCOME_LIB_ID = "src/spoke/SpokeIncomeLib.sol:SpokeIncomeLib";
 
@@ -129,6 +130,7 @@ abstract contract FactoryDeployment is CommonBase {
         address spokeIncomeLib;
         address coreVaultIncomeCollectionLogic;
         address coreVaultClosureLogic;
+        address spokeCloseLib;
     }
 
     /// @notice Deploys the whole protocol stack of this chain (Arbitrum One or Robinhood Chain) and its factory.
@@ -238,6 +240,7 @@ abstract contract FactoryDeployment is CommonBase {
     function _libraries(bool hub, Deployment memory d, bool deploy) private {
         d.spokeCrossChainLib = _library(vm.getCode("SpokeCrossChainLib.sol:SpokeCrossChainLib"), deploy);
         d.spokeUnwindLib = _library(vm.getCode("SpokeUnwindLib.sol:SpokeUnwindLib"), deploy);
+        d.spokeCloseLib = _library(_linkedToSpokeVaultLibraries("out/SpokeCloseLib.sol/SpokeCloseLib.json", d), deploy);
         // SpokeIncomeLib sends the collections home through SpokeCrossChainLib (WP-10), so it is linked to it.
         d.spokeIncomeLib = _library(_linkedToSpokeVaultLibraries(SPOKE_INCOME_LIB_ARTIFACT, d), deploy);
         if (!hub) return;
@@ -370,11 +373,12 @@ abstract contract FactoryDeployment is CommonBase {
         view
         returns (bytes memory)
     {
-        string[] memory ids = new string[](3);
-        address[] memory libraries = new address[](3);
+        string[] memory ids = new string[](4);
+        address[] memory libraries = new address[](4);
         (ids[0], libraries[0]) = (SPOKE_CROSS_CHAIN_LIB_ID, d.spokeCrossChainLib);
         (ids[1], libraries[1]) = (SPOKE_UNWIND_LIB_ID, d.spokeUnwindLib);
         (ids[2], libraries[2]) = (SPOKE_INCOME_LIB_ID, d.spokeIncomeLib);
+        (ids[3], libraries[3]) = (SPOKE_CLOSE_LIB_ID, d.spokeCloseLib);
         return _linked(artifact, ids, libraries);
     }
 

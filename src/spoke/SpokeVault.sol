@@ -16,6 +16,7 @@ import {SpokeVaultTypes} from "./SpokeVaultTypes.sol";
 import {SpokeCrossChainLib} from "./SpokeCrossChainLib.sol";
 import {SpokeLedger} from "./SpokeLedger.sol";
 import {SpokeUnwindLib} from "./SpokeUnwindLib.sol";
+import {SpokeCloseLib} from "./SpokeCloseLib.sol";
 import {SpokeUnwindTypes} from "./SpokeUnwindTypes.sol";
 import {SpokeVaultBase} from "./SpokeVaultBase.sol";
 import {SpokeVaultUnwind} from "./SpokeVaultUnwind.sol";
@@ -193,7 +194,7 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
         _topUpOperatingCash();
         uint256 spotOut;
         uint256 minOut;
-        (amountOut, spotOut, minOut) = SpokeUnwindLib.manualSwap(
+        (amountOut, spotOut, minOut) = SpokeCloseLib.manualSwap(
             _s, _config(), SpokeUnwindTypes.ManualSale(swapAdapter, tokenIn, tokenOut, amountIn, maxLossBps, route)
         );
         emit Swapped(swapAdapter, tokenIn, tokenOut, amountIn, amountOut, spotOut, maxLossBps, minOut);

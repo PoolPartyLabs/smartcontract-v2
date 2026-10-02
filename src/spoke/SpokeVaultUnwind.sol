@@ -5,6 +5,7 @@ import {ISpokeVaultUnwind} from "../interfaces/ISpokeVaultUnwind.sol";
 import {OrderCodec} from "../libraries/OrderCodec.sol";
 import {SpokeVaultBase} from "./SpokeVaultBase.sol";
 import {SpokeUnwindLib} from "./SpokeUnwindLib.sol";
+import {SpokeCloseLib} from "./SpokeCloseLib.sol";
 import {SpokeUnwindTypes} from "./SpokeUnwindTypes.sol";
 import {SpokeCrossChainLib} from "./SpokeCrossChainLib.sol";
 import {TransferKind} from "../interfaces/FundTypes.sol";
@@ -65,7 +66,7 @@ abstract contract SpokeVaultUnwind is SpokeVaultBase {
     /// @notice Executes an accepted closure order (`OrderCodec.CLOSE`): everything home (DEC-121, DEC-147, DEC-149).
     ///         `SpokeVault.executeOrder` calls it after the order checks and publishes the report after it.
     function _executeCloseOrder(OrderCodec.Order memory o) internal virtual {
-        SpokeUnwindLib.executeUnwindOrder(_s, _config(), o);
+        SpokeCloseLib.executeCloseOrder(_s, _config(), o);
     }
 
     function spokeClosed() external view returns (bool) {
