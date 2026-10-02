@@ -128,7 +128,6 @@ contract CoreVaultIncomeTest is CoreVaultFixture {
 
         _earnHubIncome(address(usdc), 10e6);
         PayoutCalls.request(vault, bruno, 10e6, ICoreVaultPayouts.PayoutMode.Instant);
-        PayoutCalls.claim(vault, bruno);
         assertEq(vault.incomeToken(0, address(usdc)).counter, 110e6, "the burn's valuation recognized it too");
     }
 
@@ -136,7 +135,6 @@ contract CoreVaultIncomeTest is CoreVaultFixture {
         _earnHubIncome(address(usdc), 100e6);
         hubVault.setBuildReverts(true);
         PayoutCalls.request(vault, bruno, 10e6, ICoreVaultPayouts.PayoutMode.Instant);
-        PayoutCalls.claim(vault, bruno);
         assertEq(vault.incomeToken(0, address(usdc)).counter, 0, "nothing recognized on a failed read");
         hubVault.setBuildReverts(false);
         _deposit(caio, 10e6);

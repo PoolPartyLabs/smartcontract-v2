@@ -50,7 +50,6 @@ contract CoreVaultIncomeHooksTest is CoreVaultFixture {
         _deposit(alice, 1000e6);
         _earnHubIncome(address(usdc), 100.1e6); // recognized at the burn's valuation
         PayoutCalls.request(vault, alice, 500e6, ICoreVaultPayouts.PayoutMode.Instant);
-        PayoutCalls.claim(vault, alice);
         _hubIncomeCollected(address(usdc), 25.05e6);
         assertApproxEqAbs(_incomeOf(alice), _netOfMinimumFee(100e6 + 25e6), 2);
     }
