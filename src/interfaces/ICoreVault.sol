@@ -119,6 +119,16 @@ interface ICoreVault is IAcrossMessageHandler, ICoreVaultLifecycle, ICoreVaultPa
     ///         it any more (security review S-4).
     event UnlistedArrivalRecovered(bytes32 indexed transitId, uint256 indexed originChainId, uint256 amount);
 
+    /// @notice The Core Vault published an order to the fund's Spoke Vaults on the Hub's Wormhole Core: an unwind
+    ///         (DEC-120 item 1, DEC-139), the closure (DEC-147, DEC-149) or an income collection (DEC-122, DEC-161).
+    ///         `orderId` is `OrderCodec.orderId(order)` (kind, fund, request, attempt) and `wormholeSequence` the
+    ///         message's sequence; every Spoke Vault that executes the order emits `ISpokeVault.OrderExecuted` with
+    ///         both, so the two ends of an order can be joined.
+    /// @dev Declared ahead of the work that publishes orders (event audit, doc 15 gap 15); nothing emits it yet.
+    event OrderPublished(
+        uint8 indexed kind, bytes32 indexed orderId, bytes32 indexed requestId, uint32 attempt, uint64 wormholeSequence
+    );
+
     // ---------------------------------------------------------------------------------------------------------------
     // Errors
     // ---------------------------------------------------------------------------------------------------------------
