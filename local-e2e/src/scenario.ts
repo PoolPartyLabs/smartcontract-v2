@@ -1141,15 +1141,20 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     // until WP-09's proportional unwind; the vault exits only what the shortfall needs (EndToEnd.t.sol
     // `_assertRegistryOrderUnwind`).
     const unwindShortfall = target - hubUnallocated;
-    const aavePrincipalAfter = (await view<any>("arbitrum", hubAave, aaveV3AdapterAbi, "positionValue", [hubAavePosition])).principal0 as bigint;
     const v4LiquidityAfter = (await view<any>("arbitrum", hubUni, uniswapV4AdapterAbi, "positionValue", [hubUniPosition])).liquidity as bigint;
-    run.eq(positionsAfter[0].adapter, hubAave, "DEC-137 interim: Aave is first in the registry");
-    run.true(aavePrincipalAfter <= aavePrincipalBefore, "Aave principal never grows in an unwind");
     if (aavePrincipalBefore > unwindShortfall) {
+      // Aave alone covered the shortfall: it was only decreased, so it keeps its first place in the registry.
+      const aavePrincipalAfter = (await view<any>("arbitrum", hubAave, aaveV3AdapterAbi, "positionValue", [hubAavePosition])).principal0 as bigint;
+      run.eq(positionsAfter[0].adapter, hubAave, "DEC-137 interim: Aave is first in the registry");
       run.eq(positionsAfter.length, 2, "final verification: the Aave position was only decreased");
+      run.true(aavePrincipalAfter <= aavePrincipalBefore, "Aave principal never grows in an unwind");
       run.approx(aavePrincipalBefore - aavePrincipalAfter, unwindShortfall, AAVE_ROUNDING, "DEC-059: Aave paid the shortfall at par");
       run.eq(v4LiquidityAfter, v4Liquidity, "the V4 position, second in the registry, was not exited");
     } else {
+      // PR #12 review L-1: Aave fell short, so the unwind closed it and it left the registry (SpokeLedger removes a
+      // closed position and moves the last one into its place); the V4 position paid the rest.
+      run.true(!positionsAfter.some((p) => p.adapter.toLowerCase() === hubAave.toLowerCase()), "Aave fell short: its position was closed and left the registry");
+      run.eq(positionsAfter.length, 1, "only the V4 position is left");
       run.true(v4LiquidityAfter < v4Liquidity, "Aave fell short, so the V4 position paid the rest");
     }
     run.eq(r2.totalShares, supply, "total shares at the claim");
