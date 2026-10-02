@@ -92,6 +92,9 @@ actual input debit/output receipt around swaps, not merely adapter return values
 
 Existing Payout Requests and payments remain in `CoreVaultPayout`/`CoreVaultPayoutLogic`; Idle is used first, then
 the interim Hub unwind in `SpokeUnwindLib`, with a 2% target buffer and legacy 5% floor against the higher of spot/oracle.
+Its payout sale still uses the position's own pool when paired with USDC, otherwise a caller-hinted Mandate pool,
+through `SpokeLedger.poolSwap` and the position adapter's `swapExactInput`, not the Mandate swap adapter.
+Migration to that swap adapter is pending WP-09, PR #19 (DEC-136/143/153).
 The legacy PAYOUT valuation fallback still uses cached values when a dependency fails. These are **not** the new
 DEC-137/140/141/148/160 behavior. **WP-09 proportional unwind — in progress.**
 
@@ -108,7 +111,9 @@ baseline. **WP-13 closure — in progress.**
 ## 4. Swap adapter and signed API routes
 
 `SpokeVault.swap(swapAdapter, tokenIn, tokenOut, amountIn, maxLossBps, route)` is manager-only and pins adapter/endpoints
-to the Mandate (PR #13). A swap is not executed against the fund's own position pool by a position adapter.
+to the Mandate (PR #13). This manager entry point and `swapCollectedIncome` use the Mandate swap adapter,
+not a position adapter executing against the fund's own position pool. The interim payout-unwind sale is the
+exception described above; its migration remains pending WP-09, PR #19.
 
 With empty route, `UniswapV3SwapAdapter` discovers direct-pair tiers 100, 500, 3000, 10000 through the V3 factory.
 It skips zero in-range liquidity, caps each quote at 1M gas and skips quotes that do not fill the whole input.

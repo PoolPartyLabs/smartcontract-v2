@@ -40,14 +40,14 @@ The older digest below is historical; this table and the current numeric paramet
 | DEC-133 | Verification order: unit tests, invariants, formal verification, external audit. | partial — unit/invariant suites exist; PR #1–#15; formal work/audit not complete |
 | DEC-134 | Internal alpha with Pool Party wallets/capital before public use. | implemented — release policy, not a deposit allowlist; PR #15 baseline; public gates remain open |
 | DEC-135 | Closure belongs in first version, returning remaining Operating Cash. | partial — Open/Closing guard exists; PR #3, #12; WP-13 in progress; native Operating Cash deferred |
-| DEC-136 | Closed token and swap-adapter lists; swaps separate from fund position pools. | implemented — Mandate v2 and per-fund swap adapters; PR #4, #12, #13 |
+| DEC-136 | Closed token and swap-adapter lists; swaps separate from fund position pools. | partial — Mandate v2 lists, manager swaps and income conversions use the Mandate swap adapter; PR #4, #12, #13; payout-unwind sales still use position adapters/pools pending WP-09, PR #19 |
 | DEC-137 | Idle first, proportional automatic unwind, not Mandate priority. | partial — Mandate priority removed but interim unwind walks registry order; PR #12, #15; WP-09 in progress |
 | DEC-138 | Recognition-time attribution, replacing collection-only code. | partial — hooks and standalone model only; PR #6, #15; WP-10 in progress |
 | DEC-139 | Automatic unwind reaches Hub and spokes in MVP. | partial — authenticated channel and reverting executor stubs; PR #5, #15; WP-12 in progress |
 | DEC-140 | Optional requester maximum loss, no protocol ceiling. | partial — swap adapter supports sentinel/max arithmetic; PR #4, #7; WP-09 in progress |
 | DEC-141 | Standard Payout fund absorption up to 1% per sale, excess to leaver. | deferred — PR #15 baseline; WP-09 in progress; empty-route reference residual in PR #7 |
 | DEC-142 | Manager maximum uses pool spot; signed API minimum can only tighten. | implemented — stricter output minimum in `UniswapV3SwapAdapter`; PR #4, #13 |
-| DEC-143 | Without signed API route the adapter, not caller, chooses a direct route. | implemented — `swap` empty-route fallback; PR #4, #7, #13 |
+| DEC-143 | Without signed API route the adapter, not caller, chooses a direct route. | partial — manager swaps and income conversions use the adapter's empty-route fallback; PR #4, #7, #13; payout-unwind sales still use the position's own pool or caller hints to Mandate pools pending WP-09, PR #19 |
 | DEC-144 | Payout Fee stays in Idle; native Operating Cash funded by replenishment. | partial — Payout Fee in Idle; PR #3, #12; native replenishment deferred by ruling 2026-10-02 |
 | DEC-145 | Entry timestamp eligibility against report timestamp. | deferred — no entry-time filter; PR #6, #15 baseline; WP-14 deferred |
 | DEC-146 | Manager base is half the peak manager share count. | implemented — peak tracking, request check and capped burn; PR #3; DEC-183 confirms reading |
@@ -57,7 +57,7 @@ The older digest below is historical; this table and the current numeric paramet
 | DEC-150 | Closed-fund exits immediate, no Payout Fee, flow fee retained. | deferred — no complete exit path; PR #15 baseline; WP-13 in progress |
 | DEC-151 | Retries only for positions that have not delivered. | partial — order attempt/id codec only; PR #5, #15; WP-09/12 in progress |
 | DEC-152 | Per-token recognition, dollar conversion at collection. | partial — standalone `DollarIncomeIndex`; live income uses `IncomeAccumulator`; PR #6, #15; WP-10 in progress |
-| DEC-153 | On-chain direct V3 tier selection; API V3 split/multihop routes. | implemented — `UniswapV3SwapAdapter`; PR #4, #7, #13; manipulated-reference residual remains |
+| DEC-153 | On-chain direct V3 tier selection; API V3 split/multihop routes. | partial — `UniswapV3SwapAdapter` implements routing for manager swaps and income conversions; PR #4, #7, #13; payout-unwind routing pending WP-09, PR #19; manipulated-reference residual remains |
 | DEC-154 | Standard Payout term fixed at 72 hours. | implemented — `STANDARD_PAYOUT_TERM`, removed Mandate term; PR #12 |
 | DEC-155 | Payout Fee cap 10%. | implemented — `MandateLib.MAX_PAYOUT_FEE_BPS = 1000`; PR #3 |
 | DEC-156 | No Mandate bridge fee cap; optional requester refusal bound; DEC-169 sets adapter cap. | partial — Mandate cap removed; PR #12, #13; requester bridge bound not integrated |
