@@ -9,14 +9,14 @@ import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {ValueReportReceiver} from "../../../src/report/ValueReportReceiver.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {TransferKind, BridgeQuote, Transit} from "../../../src/interfaces/FundTypes.sol";
-import {Mandate, MandateLib} from "../../../src/mandate/Mandate.sol";
+import {Mandate} from "../../../src/mandate/Mandate.sol";
 import {FactoryReviewFixture} from "./FactoryReviewFixture.sol";
 
 /// @notice Review port of factory H02, consolidated finding H-06 (register S-6, with S-9 and S-14). On `e5c778a` the
 ///         Manager created the Robinhood Spoke Vault at the address the hub trusts from a Mandate whose only change was
 ///         `maxBridgeFeeBps = 10,000`; the hub accepted its reports and arrivals, and one exclusive send home with
 ///         `outputAmount = 1` moved 199,899.999999 USDC to the Manager's relayer, cap free again. On main:
-///         - the review's Mandate cannot be created (S-9: `maxBridgeFeeBps` at most 100);
+///         - the review's Mandate cannot be written (S-9 capped the field at 100; Mandate v2 removed it, DEC-156);
 ///         - a divergent Mandate inside the bounds can still be created (FF-OQ-1: the factory only checks the
 ///           Mandate against the hash the same caller passes), but its reports carry its own `mandateHash` and every
 ///           delivery reverts `WrongMandate` (S-6), so the hub never has a report of it and never funds it (S-14);
@@ -45,28 +45,14 @@ contract H02_DivergentSpokeMandateAcceptedByTheHub is FactoryReviewFixture {
         (c.a, m) = _createFund(d, _plan());
         vault = CoreVault(c.a.coreVault);
         c.named = address(uint160(uint256(m.spokes[0].spokeVault)));
-        assertEq(vault.mandate().maxBridgeFeeBps, 50, "what investors read on the hub: 0.5% at most per send");
+        assertEq(vault.mandate().spokes[0].spokeCap, 200_000e6, "what investors read on the hub");
         _deposit(vault, alice, DEPOSIT);
         c.hubMandateHash = vault.mandateHash();
         c.hubState = vm.snapshotState();
     }
 
-    /// @dev The review's divergent Mandate (`maxBridgeFeeBps = 10,000`) is refused by the Spoke Vault's constructor.
-    function test_REVIEW_H06_theReviewsDivergentMandateCannotBeCreated() public {
-        Ctx memory c;
-        _arbitrumCreateAndDeposit(c);
-        FundFactory spokeFactory = _spokeChain();
-        FundPlan memory other = _plan();
-        other.maxBridgeFeeBps = 10_000;
-        Mandate memory m = _buildMandate(spokeFactory, spokeFactory.fundIdOf(HUB, c.a.creationNumber, manager), other);
-        IFundFactory.SpokeParams memory p = _spokeParams(MandateLib.hash(m), other);
-        vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsAboveMax.selector, 10_000, 100));
-        spokeFactory.createSpoke(c.a.creationNumber, m, p);
-    }
-
-    /// @dev Re-attack inside the new bounds: the spoke's Mandate allows 100 bps per send home (the hub's shows 50). The
-    ///      factory still creates it at the trusted address, but the hub rejects every report of it and never funds it.
+    /// @dev Re-attack inside the bounds: the spoke's Mandate lifts the Spoke Cap (the hub's shows 200,000). The factory
+    ///      still creates it at the trusted address, but the hub rejects every report of it and never funds it.
     function test_REVIEW_H06_divergentSpokeInsideTheBoundsIsNeverAcceptedNorFunded() public {
         Ctx memory c;
         CoreVault vault = _arbitrumCreateAndDeposit(c);
@@ -74,7 +60,7 @@ contract H02_DivergentSpokeMandateAcceptedByTheHub is FactoryReviewFixture {
         FundFactory spokeFactory = _spokeChain();
         vm.warp(T0 + 5 minutes);
         FundPlan memory other = _plan();
-        other.maxBridgeFeeBps = MandateLib.MAX_BRIDGE_FEE_BPS; // the only change
+        other.spokeCap = type(uint256).max; // the only change
         (SpokeVault spoke,) = _createSpoke(spokeFactory, c.a.creationNumber, other);
         assertEq(address(spoke), c.named, "still created at the address the hub trusts (FF-OQ-1)");
         c.spokeMandateHash = spoke.mandateHash();
@@ -96,17 +82,17 @@ contract H02_DivergentSpokeMandateAcceptedByTheHub is FactoryReviewFixture {
         console2.log("Share Assets after the attempt", vault.shareAssets());
     }
 
-    /// @dev The drain quote on a spoke that somehow holds capital (here a stranger's fill to the divergent spoke at its
-    ///      100 bps bound): DEC-158, DEC-162: the Spoke Vault ignores the quote argument (vestigial until Mandate v2)
-    ///      and the Across adapter fixes the amount to arrive at its rule fee (0.08% plus 0.03 on a first send), with
-    ///      no exclusive relayer, whatever the quote, the Mandate bound or the manager's relayer say.
+    /// @dev The drain quote on a spoke that somehow holds capital (here a stranger's fill to the divergent spoke):
+    ///      DEC-158, DEC-162: the Spoke Vault ignores the quote argument (vestigial until WP-07 C3) and the Across
+    ///      adapter fixes the amount to arrive at its rule fee (0.08% plus 0.03 on a first send), with no exclusive
+    ///      relayer, whatever the quote, the Mandate or the manager's relayer say (DEC-156: no Mandate bound).
     function test_REVIEW_H06_theDrainQuoteIsIgnoredOnTheSpoke() public {
         Ctx memory c;
         _arbitrumCreateAndDeposit(c);
         FundFactory spokeFactory = _spokeChain();
         vm.warp(T0 + 5 minutes);
         FundPlan memory other = _plan();
-        other.maxBridgeFeeBps = MandateLib.MAX_BRIDGE_FEE_BPS;
+        other.spokeCap = type(uint256).max;
         (SpokeVault spoke,) = _createSpoke(spokeFactory, c.a.creationNumber, other);
         _acrossFill(
             address(spokeAcross), usdg, address(spoke), ARRIVES, _principal(c.a.fundId, HUB, keccak256("stranger"))

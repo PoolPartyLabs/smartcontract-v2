@@ -110,7 +110,7 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         vault.sendToSpoke(0, SENT, 1, _quote(ARRIVES));
     }
 
-    /// DEC-156, DEC-162: no bridge fee cap lives in the Core Vault (the Mandate's dead `maxBridgeFeeBps` is 50 bps);
+    /// DEC-156, DEC-162: no bridge fee cap lives in the Core Vault (nor in the Mandate since Mandate v2);
     /// the adapter's fee rule fixes the amount to arrive, and the vault takes it as given.
     function test_DEC156_vaultKeepsNoBridgeFeeCap() public {
         vm.prank(manager);

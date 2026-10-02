@@ -90,7 +90,6 @@ contract FundFactorySeedTest is Test, FactoryDeployment, FundMandate {
         plan.spokeOperatingCashTopUp = 10e6;
         plan.minFirstDeposit = 100e6;
         plan.performanceFeeBps = 2000;
-        plan.maxBridgeFeeBps = 50;
         plan.seedAmount = seedAmount;
     }
 

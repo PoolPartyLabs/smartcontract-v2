@@ -22,8 +22,8 @@ contract MandateValidator {
 /// @notice Review port of factory L01, consolidated finding L-10 (no register entry). Still present on main: no list
 ///         bound was added, and the fixes made the Core Vault's creation code larger, so the init-code wall comes
 ///         earlier (50,602 bytes at 66 extra pools against 49,316 on `e5c778a`). WP-07 moved the payout path into a
-///         linked library (DEC-131 pattern): 49,854 bytes at 66, the wall back at 63 extra pools. The Standard Payout
-///         term became a constant (DEC-154): 49,580 bytes at 66, the wall at 64. Gas on main: 20.52M,
+///         linked library (DEC-131 pattern): 49,854 bytes at 66, the wall back at 63 extra pools. The test now solves
+///         the wall from the build instead of pinning it (Mandate v2, WP-07 B). Gas on main: 20.52M,
 ///         23.76M, 27.17M, 31.49M and 36.42M for 0, 10, 20, 30 and 40 extra hub pools (review: 20.7M to 37.0M).
 ///         Original note: neither `MandateLib.validate` nor the factory bounds the Mandate's lists, while the cost of creating
 ///         a fund grows with them: every fund contract validates the Mandate (O(n^2) duplicate scans), the hub Spoke
@@ -101,14 +101,32 @@ contract L01_MandateSizeInitcodeCliff is FactoryReviewFixture {
 
     /// @dev The init code wall, by arithmetic on the exact bytes `_deployCoreVault` assembles (creation code plus
     ///      `abi.encode(m, c)`, `c` rebuilt field by field as the factory fills it). The EVM behaviour past 49,152 bytes
-    ///      is shown by L01_InitCodeLimitProbe (run with the mainnet limit).
+    ///      is shown by L01_InitCodeLimitProbe (run with the mainnet limit). The wall is solved from the bytes each extra
+    ///      hub pool adds, so the test follows the Core Vault's size instead of pinning it; MandateLib accepts the
+    ///      Mandate at the wall.
     function test_POC_REVIEW_L10_coreVaultInitCodePassesEip3860ForAValidMandate() public {
         Deployment memory d = _hubChain();
         MandateValidator validator = new MandateValidator();
-        (Mandate memory m, IFundFactory.HubParams memory p) = _bigMandate(d, 66);
+        (Mandate memory m0, IFundFactory.HubParams memory p) = _bigMandate(d, 0);
+        (Mandate memory m1,) = _bigMandate(d, 1);
+        CoreVaultConfig memory c = _config(d, p.creationNumber);
+        uint256 base = p.coreVaultCreationCode.length + abi.encode(m0, c).length;
+        uint256 perPool = abi.encode(m1, c).length - abi.encode(m0, c).length;
+        uint256 wall = (49_152 - base) / perPool + 1;
+
+        (Mandate memory m,) = _bigMandate(d, wall);
         validator.validate(m); // MandateLib accepts it
-        CoreVaultConfig memory c;
-        c.fundId = d.factory.fundIdOf(HUB, p.creationNumber, manager);
+        uint256 initCode = p.coreVaultCreationCode.length + abi.encode(m, c).length;
+        console2.log("abi.encode(Mandate) bytes at the wall", abi.encode(m).length);
+        console2.log("Core Vault init code bytes at the wall", initCode);
+        console2.log("bytes per extra hub pool", perPool);
+        console2.log("first extra-pool count above EIP-3860", wall);
+        assertGt(initCode, 49_152, "above EIP-3860: the Core Vault can never be created from this valid Mandate");
+        assertEq(perPool, 192);
+    }
+
+    function _config(Deployment memory d, uint256 creationNumber) internal view returns (CoreVaultConfig memory c) {
+        c.fundId = d.factory.fundIdOf(HUB, creationNumber, manager);
         c.usdc = address(usdc);
         c.hubSpokeVault = address(1);
         c.reportReceiver = address(1);
@@ -124,23 +142,6 @@ contract L01_MandateSizeInitcodeCliff is FactoryReviewFixture {
         c.incomeTokens[1] = address(usdc);
         c.shareName = "Pool Party Fund 1";
         c.shareSymbol = "PP-1";
-        uint256 initCode = p.coreVaultCreationCode.length + abi.encode(m, c).length;
-        console2.log("abi.encode(Mandate) bytes      ", abi.encode(m).length);
-        console2.log("Core Vault init code bytes     ", initCode);
-        assertEq(abi.encode(m).length, 14_496);
-        assertGt(initCode, 49_152, "above EIP-3860: the Core Vault can never be created from this valid Mandate");
-
-        // Where the wall now sits: each extra hub pool adds the same bytes, so solve from the 66-pool point.
-        uint256 perPool = (initCode - (p.coreVaultCreationCode.length + abi.encode(_mandateOnly(d), c).length)) / 66;
-        uint256 wall = 66 - (initCode - 49_152) / perPool;
-        console2.log("bytes per extra hub pool", perPool);
-        console2.log("first extra-pool count above EIP-3860", wall);
-        assertEq(perPool, 192);
-        assertLe(wall, 64, "the wall moves earlier as the Core Vault grows");
-    }
-
-    function _mandateOnly(Deployment memory d) internal view returns (Mandate memory m) {
-        (m,) = _bigMandate(d, 0);
     }
 }
 

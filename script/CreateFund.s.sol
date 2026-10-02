@@ -22,7 +22,7 @@ import {FundMandate} from "./FundMandate.sol";
 ///      environment with the defaults below.
 /// @dev Environment: `FUND_FACTORY`, `MANAGER` (the broadcaster; DEC-001: the creator is the Manager); on Robinhood also
 ///      `CREATION_NUMBER` and `MANDATE_HASH` from the hub's `FundCreated` event. Optional: `SPOKE_CAP`,
-///      `MIN_FIRST_DEPOSIT`, `PERFORMANCE_FEE_BPS`, `MAX_BRIDGE_FEE_BPS`, `SEED_AMOUNT` (default `MIN_FIRST_DEPOSIT`).
+///      `MIN_FIRST_DEPOSIT`, `PERFORMANCE_FEE_BPS`, `SEED_AMOUNT` (default `MIN_FIRST_DEPOSIT`).
 /// @dev DEC-127: the manager seeds the fund in the creation transaction; on Arbitrum the script approves the factory
 ///      for `SEED_AMOUNT` USDC first, so `MANAGER` must hold it.
 contract CreateFund is Script, FactoryDeployment, FundMandate {
@@ -88,7 +88,6 @@ contract CreateFund is Script, FactoryDeployment, FundMandate {
         plan.spokeOperatingCashTopUp = 10e6;
         plan.minFirstDeposit = vm.envOr("MIN_FIRST_DEPOSIT", uint256(100e6));
         plan.performanceFeeBps = SafeCast.toUint16(vm.envOr("PERFORMANCE_FEE_BPS", uint256(2000)));
-        plan.maxBridgeFeeBps = SafeCast.toUint16(vm.envOr("MAX_BRIDGE_FEE_BPS", uint256(50)));
         plan.seedAmount = vm.envOr("SEED_AMOUNT", plan.minFirstDeposit);
     }
 }

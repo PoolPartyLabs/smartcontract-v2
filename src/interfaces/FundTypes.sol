@@ -67,8 +67,8 @@ struct Transit {
 
 /// @notice The part of a signed bridge quote that the manager supplies on a send.
 /// @dev The calling vault, not the manager and not the adapter, fixes the recipient and the token pair (DEC-087).
-///      The vault rejects the quote when `inputAmount - outputAmount` exceeds the Mandate's `maxBridgeFeeBps`
-///      (QA19 OPEN as to the value).
+///      Vestigial since DEC-158 and DEC-162: the Spoke Vault ignores it and the bridge adapter fixes every term; the
+///      Mandate holds no bridge fee bound (DEC-156).
 /// @param outputAmount Amount that will arrive on the destination chain (DEC-085).
 /// @param quoteTimestamp Across quote timestamp (not in the future, within the SpokePool `depositQuoteTimeBuffer`).
 /// @param exclusivityDeadline Across `exclusivityParameter`: 0 for none; up to 31,536,000 an offset in seconds from the

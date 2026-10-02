@@ -202,7 +202,6 @@ abstract contract FundSystemFixture is Test, FundSeed {
         m.minFirstDeposit = SYSTEM_SEED;
         m.performanceFeeBps = PERFORMANCE_FEE_BPS;
         m.managementFeeBps = 0;
-        m.maxBridgeFeeBps = 50;
     }
 
     function _config() internal view returns (CoreVaultConfig memory c) {

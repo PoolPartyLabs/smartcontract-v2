@@ -53,11 +53,10 @@ abstract contract EndToEndBase is Test, FactoryDeployment, FundMandate, FundSeed
     uint32 internal constant ROBINHOOD_MAX_REPORT_AGE = 1587 + 1;
 
     /// @dev The send to Robinhood: USDC 42161 -> USDG 4663. DEC-162: the Across adapter fixes the amount to arrive;
-    ///      its first send on a route pays 0.08% plus 0.03 (doc 12 §6), 3.23 on 4,000. The Mandate's
-    ///      `maxBridgeFeeBps` is a dead field until Mandate v2 (DEC-156, DEC-162); it stays at its old 4 bps.
+    ///      its first send on a route pays 0.08% plus 0.03 (doc 12 §6), 3.23 on 4,000. The Mandate holds no bridge
+    ///      fee bound (DEC-156).
     uint256 internal constant BRIDGE_AMOUNT = 4000e6;
     uint256 internal constant BRIDGE_FEE = 3.23e6;
-    uint16 internal constant MAX_BRIDGE_FEE_BPS = 4;
 
     /// @dev Spoke Operating Cash (DEC-096), the defaults of script/CreateFund.s.sol.
     uint256 internal constant SPOKE_OPERATING_CASH_FLOOR = 5e6;
@@ -190,7 +189,6 @@ abstract contract EndToEndBase is Test, FactoryDeployment, FundMandate, FundSeed
         plan.spokeOperatingCashTopUp = SPOKE_OPERATING_CASH_TOP_UP;
         plan.minFirstDeposit = MIN_FIRST_DEPOSIT;
         plan.performanceFeeBps = PERFORMANCE_FEE_BPS;
-        plan.maxBridgeFeeBps = MAX_BRIDGE_FEE_BPS;
     }
 
     function _chainIds() internal pure returns (uint256[] memory ids) {

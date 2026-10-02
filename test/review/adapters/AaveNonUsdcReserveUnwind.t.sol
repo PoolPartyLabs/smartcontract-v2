@@ -96,7 +96,6 @@ contract AaveNonUsdcReserveUnwindTest is Test {
         m.payoutFeeBps = 200;
         m.minFirstDeposit = 100e6;
         m.performanceFeeBps = 1000;
-        m.maxBridgeFeeBps = 50;
     }
 
     /// @dev Ported to fix/pp-sc-fix-independent-review (review L-05 / adapters L-03, plan T14): PARTIAL. e5c778a: the

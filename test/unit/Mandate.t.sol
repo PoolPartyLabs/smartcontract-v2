@@ -123,7 +123,6 @@ contract MandateTest is Test {
         m.minFirstDeposit = 100e6;
         m.performanceFeeBps = 2000;
         m.managementFeeBps = 0;
-        m.maxBridgeFeeBps = 50;
     }
 
     // ------------------------------------------------------------------ defaults and happy path
@@ -447,13 +446,6 @@ contract MandateTest is Test {
         h.validate(m);
     }
 
-    function test_DEC030_bridgeFeeAboveHundredPercentReverts() public {
-        Mandate memory m = _valid();
-        m.maxBridgeFeeBps = 10_001;
-        vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsAboveMax.selector, 10_001, MandateLib.MAX_BRIDGE_FEE_BPS));
-        h.validate(m);
-    }
-
     /// @dev Security review S-17: the Payout Fee plus the largest flow fee never exceeds 100%, so the Instant Payout
     ///      arithmetic `usdcGross - payoutFee - flowFee` can never underflow (DEC-155 leaves a wide margin).
     function test_SEC_S17_payoutFeePlusTheFlowFeeCapStaysWithinOneHundredPercent() public {
@@ -465,20 +457,6 @@ contract MandateTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(
                 MandateLib.BpsAboveMax.selector, MandateLib.MAX_PAYOUT_FEE_BPS + 1, MandateLib.MAX_PAYOUT_FEE_BPS
-            )
-        );
-        h.validate(m);
-    }
-
-    /// @dev Security review S-9: the bridge fee bound is capped by a core constant (1%), not only at 100%.
-    function test_SEC_S9_bridgeFeeAboveTheCoreCapReverts() public {
-        Mandate memory m = _valid();
-        m.maxBridgeFeeBps = MandateLib.MAX_BRIDGE_FEE_BPS;
-        h.validate(m);
-        m.maxBridgeFeeBps = MandateLib.MAX_BRIDGE_FEE_BPS + 1;
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                MandateLib.BpsAboveMax.selector, MandateLib.MAX_BRIDGE_FEE_BPS + 1, MandateLib.MAX_BRIDGE_FEE_BPS
             )
         );
         h.validate(m);

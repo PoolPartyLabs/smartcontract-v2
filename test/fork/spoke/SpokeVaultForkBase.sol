@@ -82,6 +82,5 @@ abstract contract SpokeVaultForkBase is Test {
         m.payoutFeeBps = 200;
         m.minFirstDeposit = 100e6;
         m.performanceFeeBps = 1000;
-        m.maxBridgeFeeBps = 50;
     }
 }

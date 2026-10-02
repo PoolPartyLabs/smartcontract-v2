@@ -63,7 +63,6 @@ contract FundFactoryForkTest is Test, FactoryDeployment, FundMandate, FundSeed {
         plan.spokeOperatingCashTopUp = 10e6;
         plan.minFirstDeposit = 100e6;
         plan.performanceFeeBps = 2000;
-        plan.maxBridgeFeeBps = 50;
     }
 
     function _chainIds() internal pure returns (uint256[] memory ids) {

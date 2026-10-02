@@ -59,7 +59,6 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
     /// @dev DEC-011: the Hub Chain of the Mandate; the constructor requires `block.chainid` to equal it.
     uint256 internal immutable _hubChainId;
     uint256 internal immutable _minFirstDeposit;
-    uint16 internal immutable _maxBridgeFeeBps;
 
     /// @dev Every mutable value of the Core Vault (see CoreVaultState). The unwinding flag lives in transient storage
     ///      at `CORE_VAULT_UNWINDING_SLOT`, written by the linked `CoreVaultPayoutLogic`.
@@ -106,7 +105,6 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
         payoutFeeBps = m.payoutFeeBps;
         _hubChainId = m.hubChainId;
         _minFirstDeposit = m.minFirstDeposit;
-        _maxBridgeFeeBps = m.maxBridgeFeeBps;
 
         _s.performanceFeeBps = m.performanceFeeBps;
         _s.managementFeeBps = m.managementFeeBps;
@@ -160,7 +158,6 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
         stored.minFirstDeposit = m.minFirstDeposit;
         stored.performanceFeeBps = m.performanceFeeBps;
         stored.managementFeeBps = m.managementFeeBps;
-        stored.maxBridgeFeeBps = m.maxBridgeFeeBps;
     }
 
     /// @dev IBridgeAdapter custody rule 2: pin each hub-side bridge adapter's protocol target (and its codehash, Q17-4
@@ -346,7 +343,6 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
             protocolRecipient: protocolRecipient,
             managerFeeVault: managerFeeVault,
             hubChainId: _hubChainId,
-            maxBridgeFeeBps: _maxBridgeFeeBps,
             flowFeeBps: flowFeeBps,
             payoutFeeBps: payoutFeeBps
         });

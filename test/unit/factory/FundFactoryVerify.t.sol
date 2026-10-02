@@ -126,7 +126,6 @@ contract FundFactoryVerifyTest is Test, FactoryDeployment, FundMandate, FundSeed
         plan.spokeOperatingCashTopUp = 10e6;
         plan.minFirstDeposit = 100e6;
         plan.performanceFeeBps = 2000;
-        plan.maxBridgeFeeBps = 50;
     }
 
     /// @dev A Mandate that names Arbitrum (this hub factory's chain) as a Spoke Chain of a fund hubbed elsewhere,

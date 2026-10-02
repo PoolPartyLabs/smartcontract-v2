@@ -103,7 +103,6 @@ library SpokeVaultTypes {
         address baseToken;
         address hubChainUsdc;
         address transitEscrowImplementation;
-        uint16 maxBridgeFeeBps;
         uint32 maxReportAge;
     }
 

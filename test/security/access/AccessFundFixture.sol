@@ -173,7 +173,6 @@ abstract contract AccessFundFixture is Test, FactoryDeployment, FundMandate, Fun
         plan.spokeOperatingCashTopUp = 10e6;
         plan.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
         plan.performanceFeeBps = 2000;
-        plan.maxBridgeFeeBps = 50;
         // DEC-127: the manager seeds one share at creation (FundSeed).
         plan.seedAmount = _oneShareSeed(25);
     }

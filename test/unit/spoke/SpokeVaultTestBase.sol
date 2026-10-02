@@ -31,7 +31,6 @@ abstract contract SpokeVaultTestBase is Test {
     uint256 internal constant SPOKE = 4663;
     uint16 internal constant WH_SPOKE = 72;
     uint32 internal constant MAX_REPORT_AGE = 1587;
-    uint16 internal constant MAX_BRIDGE_FEE_BPS = 50;
     uint256 internal constant SPOKE_FLOOR = 5e6;
     uint256 internal constant SPOKE_TOP_UP = 10e6;
     bytes32 internal constant FUND_ID = keccak256("fund-1");
@@ -120,7 +119,6 @@ abstract contract SpokeVaultTestBase is Test {
         m.minFirstDeposit = 100e6;
         m.performanceFeeBps = 1000;
         m.managementFeeBps = 0;
-        m.maxBridgeFeeBps = MAX_BRIDGE_FEE_BPS;
     }
 
     function _deploySpoke() internal returns (SpokeVault v) {

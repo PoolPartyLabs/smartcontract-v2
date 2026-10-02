@@ -160,7 +160,6 @@ abstract contract CoreAHubFixture is Test, FundSeed {
         m.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
         m.performanceFeeBps = 2000;
         m.managementFeeBps = 0;
-        m.maxBridgeFeeBps = 50;
     }
 
     function _config(address hubVault_) internal view returns (CoreVaultConfig memory c) {

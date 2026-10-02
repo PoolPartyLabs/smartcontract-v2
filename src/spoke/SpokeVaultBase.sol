@@ -52,8 +52,6 @@ abstract contract SpokeVaultBase is ISpokeVault, ReentrancyGuard {
     address public immutable transitEscrowImplementation;
     /// @inheritdoc ISpokeVault
     address public immutable excessRecipient;
-    /// @notice Maximum bridge fee per send, in bps of the amount sent (QA19, value OPEN).
-    uint16 public immutable maxBridgeFeeBps;
     /// @notice This spoke's report lifetime from the Mandate (DEC-099; value OPEN, Q57 / Q66). 0 on the hub.
     uint32 public immutable maxReportAge;
 
@@ -143,7 +141,6 @@ abstract contract SpokeVaultBase is ISpokeVault, ReentrancyGuard {
         wormholeCore = wormholeCore_;
         transitEscrowImplementation = transitEscrowImplementation_;
         excessRecipient = excessRecipient_;
-        maxBridgeFeeBps = mandate_.maxBridgeFeeBps;
 
         _registerToken(baseToken_);
         _pinAdapters(mandate_, chainId_);
@@ -222,7 +219,6 @@ abstract contract SpokeVaultBase is ISpokeVault, ReentrancyGuard {
             baseToken: baseToken,
             hubChainUsdc: hubChainUsdc,
             transitEscrowImplementation: transitEscrowImplementation,
-            maxBridgeFeeBps: maxBridgeFeeBps,
             maxReportAge: maxReportAge
         });
     }

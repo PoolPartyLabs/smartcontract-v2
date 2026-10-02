@@ -228,7 +228,6 @@ abstract contract IntegrationPriceBase is EndToEndBase {
         plan.spokeOperatingCashTopUp = SPOKE_OPERATING_CASH_TOP_UP;
         plan.minFirstDeposit = MIN_FIRST_DEPOSIT;
         plan.performanceFeeBps = PERFORMANCE_FEE_BPS;
-        plan.maxBridgeFeeBps = MAX_BRIDGE_FEE_BPS;
     }
 
     /// @notice Deploys the protocol on the selected Arbitrum fork and creates the fund through the real factory.

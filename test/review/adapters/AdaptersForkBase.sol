@@ -167,7 +167,6 @@ abstract contract AdaptersForkBase is Test, FundSeed {
         m.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
         m.performanceFeeBps = 2500; // MandateLib.MAX_PERFORMANCE_FEE_BPS
         m.managementFeeBps = 0;
-        m.maxBridgeFeeBps = 50;
     }
 
     function _config(address hubVault_, address registry, address receiver, address escrowImpl)

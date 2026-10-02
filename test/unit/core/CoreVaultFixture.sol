@@ -123,7 +123,6 @@ abstract contract CoreVaultFixture is Test, FundSeed {
         m.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
         m.performanceFeeBps = performanceFeeBps;
         m.managementFeeBps = 0;
-        m.maxBridgeFeeBps = 50;
     }
 
     function _config(uint16 flowFeeBps) internal view returns (CoreVaultConfig memory c) {

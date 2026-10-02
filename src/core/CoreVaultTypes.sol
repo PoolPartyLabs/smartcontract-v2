@@ -66,7 +66,6 @@ struct CoreVaultWiring {
     address protocolRecipient;
     address managerFeeVault;
     uint256 hubChainId;
-    uint16 maxBridgeFeeBps;
     uint16 flowFeeBps;
     uint16 payoutFeeBps;
 }

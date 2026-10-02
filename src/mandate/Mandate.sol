@@ -82,7 +82,8 @@ struct OperatingCashConfig {
 /// @param minFirstDeposit Minimum first deposit, in USDC base units; no protocol floor (DEC-061, DEC-095, erratum 22).
 /// @param performanceFeeBps Manager performance fee on collected income, in bps; may only decrease (DEC-107, DEC-110).
 /// @param managementFeeBps Manager management fee, in bps per year; the MVP accepts only 0 (DEC-108, LC-144 OPEN).
-/// @param maxBridgeFeeBps Maximum bridge fee per send, in bps of the amount sent (DEC-030 exception; value OPEN, QA19).
+/// @dev No bridge fee bound: DEC-156 (no protocol cap on the bridge fee) and DEC-162 (the bridge adapter fixes the send
+///      terms and holds the fee rule) removed `maxBridgeFeeBps`.
 struct Mandate {
     address manager;
     uint256 hubChainId;
@@ -97,7 +98,6 @@ struct Mandate {
     uint256 minFirstDeposit;
     uint16 performanceFeeBps;
     uint16 managementFeeBps;
-    uint16 maxBridgeFeeBps;
 }
 
 /// @title MandateLib
@@ -121,14 +121,6 @@ library MandateLib {
     /// @dev Security review S-17 still holds with room to spare: an Instant Payout pays `usdcGross - payoutFee -
     ///      flowFee`, and 10% plus the 1% flow fee cap (`ShareMath.MAX_FLOW_FEE_BPS`) never underflows.
     uint16 internal constant MAX_PAYOUT_FEE_BPS = 1000;
-
-    /// @notice Cap on `maxBridgeFeeBps`: 1% of the amount sent.
-    /// @dev Security review S-9 (QA19 leaves the per-fund value OPEN; DEC-110 makes fee caps core constants): with
-    ///      `maxBridgeFeeBps` allowed up to 100% a Mandate the factory accepted let one send deliver 1 base unit for
-    ///      the whole Free Idle and the relayer keep the rest. The measured Across route fee is about 0.06%
-    ///      (docs/DECISIONS.md), so 1% leaves a wide margin. OPEN value (security review parameter, to confirm with the
-    ///      founder).
-    uint16 internal constant MAX_BRIDGE_FEE_BPS = 100;
 
     /// @notice Cap on a spoke's report lifetime (`maxReportAge`): one day.
     /// @dev Independent review M-04 (security review S-25): DEC-094 and DEC-099 make the lifetime a property of the
@@ -175,8 +167,7 @@ library MandateLib {
     ///      - every spoke has at least one bridge adapter on the hub side and one on the spoke side (DEC-089: a chain
     ///        is supported only through a live bridge adapter); no address listed twice as an adapter on one chain;
     ///      - Operating Cash entries on known chains, one per chain (DEC-096);
-    ///      - fees: Payout Fee at most `MAX_PAYOUT_FEE_BPS` (DEC-155); bridge fee at most `MAX_BRIDGE_FEE_BPS` (S-9);
-    ///        performance fee at most `MAX_PERFORMANCE_FEE_BPS` (DEC-115); management fee 0 until its accrual exists
+    ///      - fees: Payout Fee at most `MAX_PAYOUT_FEE_BPS` (DEC-155); performance fee at most `MAX_PERFORMANCE_FEE_BPS` (DEC-115); management fee 0 until its accrual exists
     ///        (DEC-108, DEC-114).
     ///      A Mandate without spokes (hub-only fund) is accepted: no decision requires a spoke.
     function validate(Mandate memory m) internal pure {
@@ -192,7 +183,6 @@ library MandateLib {
         _validateOperatingCash(m);
 
         if (m.payoutFeeBps > MAX_PAYOUT_FEE_BPS) revert BpsAboveMax(m.payoutFeeBps, MAX_PAYOUT_FEE_BPS);
-        if (m.maxBridgeFeeBps > MAX_BRIDGE_FEE_BPS) revert BpsAboveMax(m.maxBridgeFeeBps, MAX_BRIDGE_FEE_BPS);
         if (m.performanceFeeBps > MAX_PERFORMANCE_FEE_BPS) {
             revert BpsAboveMax(m.performanceFeeBps, MAX_PERFORMANCE_FEE_BPS);
         }

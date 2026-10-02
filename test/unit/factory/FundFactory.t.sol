@@ -128,7 +128,6 @@ contract FundFactoryTest is Test, FactoryDeployment, FundMandate, FundSeed {
         plan.spokeOperatingCashTopUp = 10e6;
         plan.minFirstDeposit = 100e6;
         plan.performanceFeeBps = 2000;
-        plan.maxBridgeFeeBps = 50;
     }
 
     function _mandate(uint256 creationNumber) internal view returns (Mandate memory) {

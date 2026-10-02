@@ -244,7 +244,6 @@ abstract contract AccountingPocFixture is Test, FundSeed {
         m.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
         m.performanceFeeBps = performanceFeeBps;
         m.managementFeeBps = 0;
-        m.maxBridgeFeeBps = 50;
     }
 
     function _config(address receiverAt, address hubVaultAt, uint16 flowFeeBps)

@@ -128,7 +128,6 @@ abstract contract EndToEndScenario is EndToEndBase {
         assertEq(m.minFirstDeposit, 100e6, "DEC-061: 100 USDC minimum first deposit");
         assertEq(m.performanceFeeBps, 2000, "DEC-107: performance fee 20%");
         assertEq(m.managementFeeBps, 0, "DEC-108: management fee 0");
-        assertEq(m.maxBridgeFeeBps, MAX_BRIDGE_FEE_BPS, "dead field until Mandate v2 (DEC-156, DEC-162)");
     }
 
     /// @dev DEC-054: same operator and salt give the same factory address on Robinhood; the Spoke Vault lands at the

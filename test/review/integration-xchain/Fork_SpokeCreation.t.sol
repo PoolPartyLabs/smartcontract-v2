@@ -2,10 +2,7 @@
 pragma solidity 0.8.28;
 
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
-import {IFundFactory} from "../../../src/interfaces/IFundFactory.sol";
 import {TransitState} from "../../../src/interfaces/FundTypes.sol";
-import {FundFactory} from "../../../src/factory/FundFactory.sol";
-import {Mandate, MandateLib} from "../../../src/mandate/Mandate.sol";
 import {XChainBase, LiveRelayData} from "./XChainBase.sol";
 
 /// @notice Review port of integration-xchain `Fork_SpokeCreation`: consolidated H-05 (report 07 H-01, register S-14: a
@@ -50,26 +47,18 @@ contract Fork_SpokeCreation is XChainBase {
         assertEq(core.shareAssets(), MANAGER_SEED_IDLE + 9975e6 - BRIDGE_FEE - SPOKE_OPERATING_CASH_TOP_UP);
     }
 
-    /// @notice FIXED (S-9, S-6, S-14). The review's divergent Mandate (`maxBridgeFeeBps` 10,000) can no longer be
-    ///         created; the largest divergence the cap allows (100 bps against the hub's 4) creates a spoke at the
-    ///         address the hub names, but its reports carry its own `mandateHash` and the Core Vault rejects them
-    ///         (`WrongMandate`, the whole delivery reverts), so the hub never accepts a report from it and never funds
-    ///         it.
+    /// @notice FIXED (S-9, S-6, S-14). The review's divergent Mandate (`maxBridgeFeeBps` 10,000) cannot be written
+    ///         any more (DEC-156: Mandate v2 has no bridge fee bound; the Across adapter prices every send). A spoke
+    ///         Mandate that diverges from the hub's (here a Spoke Cap without limit) creates a spoke at the address the
+    ///         hub names, but its reports carry its own `mandateHash` and the Core Vault rejects them (`WrongMandate`,
+    ///         the whole delivery reverts), so the hub never accepts a report from it and never funds it.
     function test_REVIEW_H06_divergentSpokeMandateIsRejectedAndNeverFunded() public {
         _createForks();
-        _createHub(_plan()); // what investors read on the hub: maxBridgeFeeBps 4
+        _createHub(_plan()); // what investors read on the hub
         _phase2AnaDeposits();
 
         FundPlan memory other = _plan();
-        other.maxBridgeFeeBps = 10_000;
-        FundFactory factory = _robinhoodFactory();
-        Mandate memory m = _buildMandate(factory, fundId, other);
-        IFundFactory.SpokeParams memory p = _spokeParams(MandateLib.hash(m), other);
-        vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsAboveMax.selector, 10_000, MandateLib.MAX_BRIDGE_FEE_BPS));
-        factory.createSpoke(creationNumber, m, p);
-
-        other.maxBridgeFeeBps = MandateLib.MAX_BRIDGE_FEE_BPS;
+        other.spokeCap = type(uint256).max;
         bytes32 spokeHash = _createSpokeFrom(other);
         assertTrue(spokeHash != mandateHash, "rules the hub never showed");
         assertEq(spokeVault.mandateHash(), spokeHash);

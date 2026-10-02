@@ -215,7 +215,7 @@ interface ISpokeVault is IAcrossMessageHandler, ISpokeVaultUnwind, ISpokeVaultIn
     /// @notice Sends base token to the Core Vault through the Mandate bridge adapter of priority `bridgeRank`. Manager
     ///         only; Spoke Chains only.
     /// @dev The vault fixes the recipient (the Core Vault), the token pair (base token to hub USDC) and the message
-    ///      (TransitMessage) and rejects a quote whose fee exceeds `maxBridgeFeeBps` (DEC-087, QA19). `Principal`
+    ///      (TransitMessage); the bridge adapter fixes the amount to arrive (DEC-087, DEC-158, DEC-162). `Principal`
     ///      debits Unallocated Balance; `Income` debits the collected income bucket of the base token (who pays
     ///      bridging of income is OPEN, LC-22 / LC-37 / LC-49). Every send is in the base token (the spoke token, USDG
     ///      on Robinhood Chain) and lands on the hub as USDC (CV-OQ-2): an `Income` send is credited on the hub as
