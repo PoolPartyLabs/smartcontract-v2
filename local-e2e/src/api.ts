@@ -352,7 +352,8 @@ export async function buildClaim(state: DeploymentState): Promise<UnsignedTx[]> 
 /** The manager's swap on the hub Spoke Vault (`SpokeVault.swap`, WP-07C) through the fund's own swap adapter (Mandate
  *  v2, DEC-136): a route the API signs whose minimum is the stricter of the quote and the oracle value, each less
  *  `slippageBps` (`quoteSwap`), with `slippageBps` also as the manager's loss bound against the pool mid (DEC-142: the
- *  stricter applies; 0 is none). */
+ *  stricter applies). At zero slippage the ABI's `maxLossBps = 0` sentinel disables only the pool-mid bound;
+ *  the signed route still enforces the full quote/oracle minimum, so zero slippage is not an unbounded swap. */
 export async function buildSwap(state: DeploymentState, tokenIn: Address, amountIn: bigint, slippageBps: bigint): Promise<UnsignedTx[]> {
   const fund = hub(state);
   const quote = await quoteSwap(state, tokenIn, amountIn, slippageBps);
@@ -362,7 +363,7 @@ export async function buildSwap(state: DeploymentState, tokenIn: Address, amount
       chainId: nodes.arbitrum.chain.id,
       to: fund.hub.spokeVault,
       data: encodeFunctionData({ abi: spokeVaultAbi, functionName: "swap", args: [routed.adapter, tokenIn, quote.tokenOut, amountIn, Number(slippageBps), routed.encodedRoute] }),
-      description: `swap ${amountIn} of ${tokenIn} through the fund's swap adapter, signed minimum ${routed.route.minAmountOut} (quote and oracle less ${slippageBps} bps)`,
+      description: `swap ${amountIn} of ${tokenIn} through the fund's swap adapter, signed minimum ${routed.route.minAmountOut} (quote and oracle less ${slippageBps} bps); pool-mid loss bound ${slippageBps === 0n ? "disabled (maxLossBps = 0 sentinel)" : `${slippageBps} bps`}`,
     },
   ];
 }

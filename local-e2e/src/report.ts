@@ -59,7 +59,7 @@ function git(args: string[]): string {
   }
 }
 
-const json = (value: unknown) => JSON.stringify(value, (_k, v) => (typeof v === "bigint" ? v.toString() : v), 2);
+const json = (value: unknown) => JSON.stringify(value, (_k, v) => (typeof v === "bigint" ? v.toString() : typeof v === "string" ? redactUrls(v) : v), 2);
 const usdc = (value: bigint) => units(value, 6, 2);
 /** Fees can be fractions of a cent: the ledger keeps every base unit. */
 const usdcExact = (value: bigint) => units(value, 6, 6);
@@ -237,7 +237,7 @@ export class RunReport {
     const stamp = this.startedAt.toISOString().replace(/\.\d+Z$/, "Z").replace(/:/g, "-");
     const base = join(REPORTS_DIR, `${stamp}-${this.kind}`);
     writeFileSync(`${base}.json`, json(report) + "\n");
-    writeFileSync(`${base}.md`, this.markdown(report, history, fees, balances, gas, transactions));
+    writeFileSync(`${base}.md`, redactUrls(this.markdown(report, history, fees, balances, gas, transactions)));
     return { json: relative(HARNESS_DIR, `${base}.json`), md: relative(HARNESS_DIR, `${base}.md`) };
   }
 

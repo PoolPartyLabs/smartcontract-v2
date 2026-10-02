@@ -1,7 +1,7 @@
 // The Hub-to-spoke order of src/libraries/OrderCodec.sol (DEC-111, DEC-120, DEC-139): `abi.encode(uint256 version,
 // Order)`, ten static words, published by the Core Vault on the Arbitrum Core at instant consistency and executed by
 // any address on each Spoke Vault (`executeOrder`, checked by src/libraries/OrderVerifier.sol).
-import { decodeAbiParameters, encodeAbiParameters, keccak256, toFunctionSelector, type Hex } from "viem";
+import { decodeAbiParameters, encodeAbiParameters, keccak256, type Hex } from "viem";
 
 export const ORDER_VERSION = 1n;
 export const ORDER_KIND = { UNWIND: 1, CLOSE: 2, COLLECT: 3 } as const;
@@ -61,13 +61,4 @@ export function orderId(o: Pick<Order, "kind" | "fundId" | "requestId" | "attemp
       [o.kind, o.fundId, o.requestId, o.attempt],
     ),
   );
-}
-
-/** Selector of `SpokeVault.executeOrder(bytes)` (WP-07, plan D4). */
-export const EXECUTE_ORDER_SELECTOR = toFunctionSelector("executeOrder(bytes)");
-
-/** Whether deployed runtime code dispatches `executeOrder(bytes)`: Solidity's dispatcher pushes every external
- *  selector with PUSH4 (0x63). */
-export function hasExecuteOrder(code: Hex | undefined): boolean {
-  return !!code && code.toLowerCase().includes(`63${EXECUTE_ORDER_SELECTOR.slice(2).toLowerCase()}`);
 }

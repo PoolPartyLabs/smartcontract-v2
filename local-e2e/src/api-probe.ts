@@ -233,18 +233,22 @@ export async function probe() {
     const { body: swapTxs } = await post<UnsignedTx[]>("/tx/swap", { tokenIn: ARBITRUM.usdc, amountIn: "1000000000" });
     await signAndSend("arbitrum", "manager", swapTxs);
     const wethOut = (await read<bigint>("arbitrum", { address: fund.hub.spokeVault, abi: spokeVaultAbi, functionName: "unallocatedBalance", args: [ARBITRUM.weth] })) - wethBefore;
-    const { body: tightTxs } = await post<UnsignedTx[]>("/tx/swap", { tokenIn: ARBITRUM.usdc, amountIn: "1000000000", slippageBps: "0" });
     let tightRevert = "none";
     try {
-      await signAndSend("arbitrum", "manager", tightTxs);
-    } catch {
-      const sim = await nodes.arbitrum.client.call({ account: actors.manager.address, to: tightTxs[0].to, data: tightTxs[0].data }).catch((e) => e);
-      tightRevert = (await import("./api.ts")).decodeRevert(sim)?.error ?? "reverted";
+      await nodes.arbitrum.client.simulateContract({
+        account: actors.manager.address,
+        address: fund.hub.spokeVault,
+        abi: spokeVaultAbi,
+        functionName: "swap",
+        args: [fund.hub.uniswapV3SwapAdapter, ARBITRUM.usdc, ARBITRUM.weth, 1_000_000_000n, 1, "0x"],
+      });
+    } catch (error) {
+      tightRevert = (await import("./api.ts")).decodeRevert(error)?.error ?? "reverted";
     }
     record(
       "swap guard off chain",
-      wethOut >= BigInt(swapQuote.minAmountOut),
-      `1,000 USDC -> ${units(wethOut, 18, 6)} WETH, API minimum ${units(BigInt(swapQuote.minAmountOut), 18, 6)} (oracle ${units(BigInt(swapQuote.oracleAmountOut), 18, 6)}); at 0 bps slippage the swap reverts ${tightRevert}`,
+      wethOut >= BigInt(swapQuote.minAmountOut) && tightRevert !== "none" && tightRevert === "InsufficientOutput",
+      `1,000 USDC -> ${units(wethOut, 18, 6)} WETH, API minimum ${units(BigInt(swapQuote.minAmountOut), 18, 6)} (oracle ${units(BigInt(swapQuote.oracleAmountOut), 18, 6)}); at a 1 bps loss bound without an API route the swap reverts ${tightRevert}`,
     );
 
     // 7. DEC-158, DEC-162: the bridge quote is what the fund's Across adapter fixes; nobody passes it to the vault.

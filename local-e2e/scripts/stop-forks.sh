@@ -42,7 +42,7 @@ stop() {
 }
 
 mkdir -p "$STATE"
-stop keeper keeper
+stop keeper node
 stop arbitrum anvil
 stop robinhood anvil
 rm -f "$STATE/deployment.json"

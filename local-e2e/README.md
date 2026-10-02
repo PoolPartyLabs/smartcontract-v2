@@ -378,9 +378,9 @@ back to the deployment); after a warp they run ahead. Deadlines must use the cha
 account's activity (MetaMask: Settings, Advanced, Clear activity tab data).
 
 **Logs.** `local-e2e/.state/arbitrum.log`, `robinhood.log` (anvil), the keeper logs to its terminal, forge broadcast
-files in `.state/broadcast/`. anvil writes its upstream URL, API key included, into its log (`Endpoint: ...`, and again
-in its errors): read those files locally, never paste or share them. Everything the harness itself prints or writes to
-a run report keeps the host of a URL only.
+files in `.state/broadcast/`. The fork launcher redacts URL userinfo, paths, queries, and fragments before anvil's output reaches
+disk. Status, structured logs, forwarded RPC errors, and run reports use the same protection, keeping only the scheme,
+host, and port. Run `pnpm check:urls` for a synthetic-credentials stdout and persisted-log regression check.
 
 ## How it differs from production
 

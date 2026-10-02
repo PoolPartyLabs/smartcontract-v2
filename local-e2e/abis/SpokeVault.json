@@ -3125,5 +3125,326 @@
     "type": "error",
     "name": "ZeroUsdc",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "BridgeAmountMismatch",
+    "inputs": [
+      {
+        "name": "amountSent",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "amountToArrive",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "BridgeDeadlineNotInFuture",
+    "inputs": [
+      {
+        "name": "fillDeadline",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "BridgeDebitMismatch",
+    "inputs": [
+      {
+        "name": "expected",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "debited",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "BridgeTargetMismatch",
+    "inputs": [
+      {
+        "name": "bridgeAdapter",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "pinned",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "built",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "FailedDeployment",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "HubBoundInFlightLimit",
+    "inputs": [
+      {
+        "name": "limit",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InsufficientBalance",
+    "inputs": [
+      {
+        "name": "balance",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "needed",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InvalidOrderFraction",
+    "inputs": [
+      {
+        "name": "fracNum",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "fracDen",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InvalidOrderVaa",
+    "inputs": [
+      {
+        "name": "reason",
+        "type": "string",
+        "internalType": "string"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InvalidPayoutMode",
+    "inputs": [
+      {
+        "name": "payoutMode",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InvalidUnwindSwap",
+    "inputs": [
+      {
+        "name": "adapter",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "poolKey",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "tokenIn",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "MissingUnwindSwap",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "OrderEmitterChainMismatch",
+    "inputs": [
+      {
+        "name": "emitterChainId",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "OrderEmitterMismatch",
+    "inputs": [
+      {
+        "name": "emitterAddress",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "OrderExpired",
+    "inputs": [
+      {
+        "name": "deadline",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "OrderFundMismatch",
+    "inputs": [
+      {
+        "name": "fundId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "OrderPayloadTooShort",
+    "inputs": [
+      {
+        "name": "length",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "OrderSequenceTooLow",
+    "inputs": [
+      {
+        "name": "minSequence",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "sequence",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "RefundReleaseMismatch",
+    "inputs": [
+      {
+        "name": "held",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "received",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SwapOutputBelowMinimum",
+    "inputs": [
+      {
+        "name": "amountOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minAmountOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnknownBridgeRank",
+    "inputs": [
+      {
+        "name": "bridgeRank",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnknownOrderKind",
+    "inputs": [
+      {
+        "name": "kind",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnsupportedOrderVersion",
+    "inputs": [
+      {
+        "name": "version",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "BridgeExpiryNoteFailed",
+    "inputs": [
+      {
+        "name": "transitId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "bridgeAdapter",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
   }
 ]

@@ -40,7 +40,7 @@ export interface Logger {
 export function logger(component: string, quiet = false): Logger {
   const tag = cyan(component.padEnd(9));
   const line = (level: string, message: string, fields?: Fields) =>
-    `${dim(clock())} ${tag} ${level}${message} ${formatFields(fields)}`.trimEnd();
+    redactUrls(`${dim(clock())} ${tag} ${level}${message} ${formatFields(fields)}`.trimEnd());
   return {
     info: (message, fields) => {
       if (!quiet) console.log(line("", message, fields));
@@ -51,11 +51,10 @@ export function logger(component: string, quiet = false): Logger {
   };
 }
 
-/** Keeps the scheme and host of every URL in `text`, never a path or query: upstream RPC URLs carry API keys there
- *  (Alchemy: `/v2/<key>`), and anvil repeats its upstream URL in the errors it forwards. Local node URLs
- *  (`http://127.0.0.1:8545`) have no path and stay whole. */
 export function redactUrls(text: string): string {
-  return text.replace(/(https?:\/\/[^/?#\s"'`)]+)[/?#][^\s"'`)]*/g, "$1/...");
+  return text.replace(/(https?:\/\/)([^/?#\s"'`)]+)([/?#][^\s"'`)]*)?/gi, (_, scheme: string, authority: string, suffix?: string) =>
+    `${scheme}${authority.slice(authority.lastIndexOf("@") + 1)}${suffix ? "/..." : ""}`,
+  );
 }
 
 /** USDC-style fixed point for logs: 6 decimals by default. */
