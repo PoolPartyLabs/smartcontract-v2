@@ -7,6 +7,7 @@ import {SpokeVaultForkBase} from "./SpokeVaultForkBase.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
+import {ISpokeVaultUnwind} from "../../../src/interfaces/ISpokeVaultUnwind.sol";
 import {TransitEscrow} from "../../../src/core/TransitEscrow.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {MockPositionAdapter} from "../../mocks/spoke/MockPositionAdapter.sol";
@@ -14,7 +15,7 @@ import {MockCoreVault} from "../../mocks/spoke/MockCoreVault.sol";
 import {MockSwapAdapter} from "../../mocks/swap/MockSwapAdapter.sol";
 
 /// @notice Hub role on a pinned Arbitrum One fork with native USDC: allocation from the Core Vault, positions, the
-///         automatic unwind in Mandate order back to Idle, income forwarding and the same-chain report reader.
+///         proportional automatic unwind back to Idle, income forwarding and the same-chain report reader.
 contract SpokeVaultArbitrumForkTest is SpokeVaultForkBase {
     MockPositionAdapter internal hubUni;
     MockPositionAdapter internal hubAave;
@@ -57,7 +58,7 @@ contract SpokeVaultArbitrumForkTest is SpokeVaultForkBase {
         deal(ARB_USDC, address(core), 10_000e6);
     }
 
-    function test_DEC069_forkArbitrum_hubUnwindInMandateOrderBackToIdle() public {
+    function test_DEC137_forkArbitrum_hubProportionalUnwindBackToIdle() public {
         core.allocate(vault, 1000e6);
         vm.startPrank(manager);
         (bytes32 uniKey,,) = vault.openPosition(address(hubUni), HUB_POOL, 0, 400e6, "");
@@ -69,16 +70,20 @@ contract SpokeVaultArbitrumForkTest is SpokeVaultForkBase {
         assertEq(r.unallocated[0].amount, 100e6);
         assertEq(r.positions.length, 2);
 
-        // Final verification (DEC-069): the vault sizes each step itself, no hint needed for USDC principal.
-        assertEq(core.unwind(vault, 800e6, ""), 800e6);
-        assertEq(core.idleReturned(), 800e6);
-        assertEq(USDC.balanceOf(address(core)), 9000e6 + 800e6);
+        // DEC-137: the same fraction of every position (three quarters here), plus the Unallocated USDC (D-11).
+        ISpokeVaultUnwind.UnwindRequest memory request;
+        request.requestId = keccak256("request");
+        request.fracNum = 3;
+        request.fracDen = 4;
+        assertEq(core.unwind(vault, request).proceeds, 100e6 + 300e6 + 375e6);
+        assertEq(core.idleReturned(), 775e6);
+        assertEq(USDC.balanceOf(address(core)), 9000e6 + 775e6);
         assertEq(vault.unallocatedBalance(ARB_USDC), 0);
-        (,,,,, bool uniOpen) = hubUni.position(uniKey);
+        (,, uint256 uniUsdc,,, bool uniOpen) = hubUni.position(uniKey);
         (, uint256 aavePrincipal,,,, bool aaveOpen) = hubAave.position(aaveKey);
-        assertFalse(uniOpen);
-        assertTrue(aaveOpen);
-        assertEq(aavePrincipal, 200e6);
+        assertTrue(uniOpen && aaveOpen);
+        assertEq(uniUsdc, 100e6);
+        assertEq(aavePrincipal, 125e6);
     }
 
     function test_DEC092_forkArbitrum_incomeForwardedAndDonationSwept() public {

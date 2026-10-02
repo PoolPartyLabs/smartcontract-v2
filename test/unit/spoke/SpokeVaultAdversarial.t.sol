@@ -247,7 +247,9 @@ contract SpokeVaultAdversarialHubTest is SpokeVaultTestBase {
         usdc.mint(address(core), 10_000e6);
     }
 
-    function test_DEC069_unwindFollowsTheRegistryOrderAfterASwapAndPopClose() public {
+    /// @dev DEC-151, D-25: the registry is swap-and-pop, so the unwind names each position by its adapter and key,
+    ///      never by its slot; a position closed meanwhile simply leaves the count.
+    function test_DEC151_unwindNamesPositionsByKeyAfterASwapAndPopClose() public {
         core.allocate(vault, 900e6);
         vm.startPrank(manager);
         (bytes32 a,,) = vault.openPosition(address(hubUni), HUB_POOL, 0, 300e6, "");
@@ -261,17 +263,16 @@ contract SpokeVaultAdversarialHubTest is SpokeVaultTestBase {
         assertEq(p[0].positionKey, a);
         assertEq(p[1].positionKey, c, "c moved into b's slot");
 
-        // Final verification (DEC-069): the vault sizes each step. Unallocated 300 (from b); a's whole value (300) is
-        // needed, so a closes; the 50 still missing is taken from c, the next in registry order (ceil 16.67% of 300).
-        assertEq(core.unwind(vault, 650e6, ""), 650e6);
-
+        // DEC-137: a third of each position left, and the 300 Unallocated from b (D-11).
+        bytes32 request = keccak256("request");
+        assertEq(core.unwind(vault, _unwindRequest(request, 1, 3, 0, true)).proceeds, 300e6 + 2 * 100.02e6);
         (,, uint256 principalA,,, bool openA) = hubUni.position(a);
         (,, uint256 principalC,,, bool openC) = hubUni.position(c);
-        assertFalse(openA);
-        assertEq(principalA, 0);
-        assertTrue(openC);
-        assertEq(principalC, 300e6 - 50.01e6, "only the shortfall left c, rounded up to its bps");
-        assertEq(vault.unallocatedBalance(address(usdc)), 0.01e6);
-        assertEq(core.idleReturned(), 650e6);
+        assertTrue(openA && openC);
+        assertEq(principalA, 300e6 - 100.02e6, "a third, rounded up to the mock's bps");
+        assertEq(principalC, 300e6 - 100.02e6);
+        assertTrue(vault.unwindDelivered(request, address(hubUni), a));
+        assertTrue(vault.unwindDelivered(request, address(hubUni), c));
+        assertFalse(vault.unwindDelivered(request, address(hubUni), b), "the closed position left the count");
     }
 }

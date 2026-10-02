@@ -39,7 +39,7 @@ contract SpokeVaultFinalVerifyRound1Test is SpokeVaultTestBase {
         // Everything is needed: the Uniswap position closes, the Aave close pays its principal and keeps the key.
         vm.expectEmit(address(vault));
         emit ISpokeVault.PositionDecreased(address(hubAave), aaveKey, IAdapter.Amounts(500e6, 0, 0, 0));
-        assertEq(core.unwind(vault, 1000e6, ""), 1000e6);
+        assertEq(core.unwind(vault, _unwindRequest(keccak256("first"), 1, 1, 0, true)).proceeds, 1000e6);
         assertEq(core.idleReturned(), 1000e6);
         assertEq(vault.positions().length, 1, "the Aave key stays registered while the adapter lists it");
         assertEq(vault.positions()[0].positionKey, aaveKey);
@@ -48,10 +48,12 @@ contract SpokeVaultFinalVerifyRound1Test is SpokeVaultTestBase {
         (,,,,, bool uniOpen) = hubUni.position(uniKey);
         assertFalse(uniOpen);
 
-        // A later unwind visits the key, values it at zero and skips it.
+        // A later request's unwind visits the key: its exit has no principal left and collects nothing.
         vm.expectEmit(address(vault));
-        emit ISpokeVaultUnwind.UnwoundForPayout(1e6, 0);
-        assertEq(core.unwind(vault, 1e6, ""), 0);
+        emit ISpokeVaultUnwind.UnwoundForPayout(
+            keccak256("second"), 1, 1, ISpokeVaultUnwind.UnwindResult(0, 0, 0, 0, 1, 0)
+        );
+        assertEq(core.unwind(vault, _unwindRequest(keccak256("second"), 1, 1, 0, true)).proceeds, 0);
         assertEq(core.idleReturned(), 1000e6, "nothing more reached Idle");
         assertEq(vault.positions().length, 1);
         (, uint256 principal0,, uint256 uncollected0,, bool aaveOpen) = hubAave.position(aaveKey);

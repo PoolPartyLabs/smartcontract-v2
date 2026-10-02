@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
+import {ISpokeVaultUnwind} from "../../../src/interfaces/ISpokeVaultUnwind.sol";
 import {MockPriceSource} from "../core/MockPriceSource.sol";
 
 /// @notice Core Vault mock for the hub Spoke Vault: records `returnToIdle` and `receiveCollectedIncome`, and drives the
@@ -48,7 +49,11 @@ contract MockCoreVault {
         vault.receiveFromCoreVault(amount);
     }
 
-    function unwind(ISpokeVault vault, uint256 usdcTarget, bytes calldata hints) external returns (uint256) {
-        return vault.unwindForPayout(usdcTarget, hints);
+    /// @dev Runs the hub Spoke Vault's automatic unwind as the Core Vault (DEC-137).
+    function unwind(ISpokeVault vault, ISpokeVaultUnwind.UnwindRequest calldata request)
+        external
+        returns (ISpokeVaultUnwind.UnwindResult memory)
+    {
+        return vault.unwindForPayout(request);
     }
 }

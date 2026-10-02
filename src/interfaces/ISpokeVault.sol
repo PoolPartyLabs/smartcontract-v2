@@ -52,13 +52,12 @@ interface ISpokeVault is IAcrossMessageHandler, ISpokeVaultUnwind, ISpokeVaultIn
     event PositionClosed(address indexed adapter, bytes32 indexed positionKey, IAdapter.Amounts amounts);
     event IncomeCollected(address indexed adapter, bytes32 indexed positionKey, uint256 income0, uint256 income1);
 
-    /// @notice Unallocated Balance of `tokenIn` was swapped into `tokenOut` (DEC-079, DEC-080): by the manager through
-    ///         a Mandate swap adapter (DEC-136, DEC-142), or by the automatic unwind (see `SpokeUnwindLib`).
-    /// @dev Checklist doc 15, gap 4: the event carries the limit the swap was accepted under. For the automatic
-    ///      unwind's interim sale in a Mandate pool (until WP-09 moves it to the swap adapter, DEC-136 item 4),
-    ///      `adapter` is the position adapter, `maxLossBps` is `SpokeVault.MAX_UNWIND_SLIPPAGE_BPS`, measured from the
-    ///      higher of `spotOut` and the price source, and `minOut` also counts the claimant's hint.
-    /// @param adapter The swap adapter (a position adapter for an automatic unwind sale).
+    /// @notice Unallocated Balance of `tokenIn` was swapped into `tokenOut` (DEC-079, DEC-080) through a Mandate swap
+    ///         adapter: by the manager (DEC-136, DEC-142), or by the automatic unwind's sale (DEC-136 item 4, see
+    ///         `SpokeUnwindLib`).
+    /// @dev Checklist doc 15, gap 4: the event carries the limit the swap was accepted under; for an unwind sale, the
+    ///      requester's maximum (DEC-140, DEC-148).
+    /// @param adapter The swap adapter.
     /// @param spotOut Mid value of `amountIn` before the trade, without fee or price impact: the reference of the loss
     ///        (DEC-118, DEC-141).
     /// @param maxLossBps The caller's maximum loss against `spotOut`, in bps; 0 or >= 10,000 for none (D-23).

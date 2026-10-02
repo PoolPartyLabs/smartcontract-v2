@@ -11,7 +11,8 @@ interface IMintableToken {
 
 /// @notice A Mandate swap adapter stand-in (DEC-136): code at an address the Spoke Vault can pin (Q17-4) and a swap at
 ///         a rate the test sets, with the custody of ISwapAdapter: it pulls exactly the input from the caller and pays
-///         the whole output to it. Tests of the adapter's own rules (tiers, signed routes, the maximum loss against a
+///         the whole output to it. `swapDirect` and `bestDirectFee` (one tier, `directFee`) serve the automatic
+///         unwind's sales (DEC-136 item 4, D-21). Tests of the adapter's own rules (tiers, signed routes, the maximum loss against a
 ///         pool's mid) use the real `UniswapV3SwapAdapter` over the V3 mocks or on a fork.
 /// @dev `spotOut` is the input at the pair's rate; the output is `spotOut` less `haircutBps` (fee and price impact).
 ///      `maxLossBps` is applied as the real adapter does (0 or >= 10,000: none, D-23) and the minimum is returned. The
@@ -57,12 +58,57 @@ contract MockSwapAdapter {
         external
         returns (uint256 amountOut, uint256 spotOut, uint256 minOut)
     {
+        lastRoute = route;
+        return _swap(tokenIn, tokenOut, amountIn, maxLossBps);
+    }
+
+    /// @notice The tier `bestDirectFee` reports (`directFee`, 0.05% by default) and the calls it got.
+    uint24 public directFee = 500;
+    uint256 public tierChoices;
+    /// @notice The tier the last `swapDirect` was asked for.
+    uint24 public lastFee;
+    /// @notice When set, `bestDirectFee` reverts `NoRoute` (a pair without a direct V3 pool, DEC-153).
+    bool public noRoute;
+
+    function setDirectFee(uint24 fee) external {
+        directFee = fee;
+    }
+
+    function setNoRoute(bool on) external {
+        noRoute = on;
+    }
+
+    /// @notice ISwapAdapter.bestDirectFee: the mock's single tier and its output at the pair's rate after the haircut.
+    function bestDirectFee(address tokenIn, address tokenOut, uint256 amountIn)
+        external
+        returns (uint24 fee, uint256 quotedOut)
+    {
+        if (noRoute) revert ISwapAdapter.NoRoute(tokenIn, tokenOut);
+        Rate memory r = rates[tokenIn][tokenOut];
+        require(r.denominator != 0, "MockSwapAdapter: no rate");
+        ++tierChoices;
+        fee = directFee;
+        quotedOut = amountIn * r.numerator / r.denominator * (10_000 - haircutBps) / 10_000;
+    }
+
+    /// @notice ISwapAdapter.swapDirect: the same swap as `swap` in the tier `fee`.
+    function swapDirect(address tokenIn, address tokenOut, uint256 amountIn, uint24 fee, uint16 maxLossBps)
+        external
+        returns (uint256 amountOut, uint256 spotOut, uint256 minOut)
+    {
+        lastFee = fee;
+        return _swap(tokenIn, tokenOut, amountIn, maxLossBps);
+    }
+
+    function _swap(address tokenIn, address tokenOut, uint256 amountIn, uint16 maxLossBps)
+        internal
+        returns (uint256 amountOut, uint256 spotOut, uint256 minOut)
+    {
         if (tokenIn == tokenOut) revert ISwapAdapter.IdenticalTokens(tokenIn);
         Rate memory r = rates[tokenIn][tokenOut];
         require(r.denominator != 0, "MockSwapAdapter: no rate");
         calls++;
         lastMaxLossBps = maxLossBps;
-        lastRoute = route;
         IERC20(tokenIn).safeTransferFrom(msg.sender, address(this), amountIn * pullBps / 10_000);
         spotOut = amountIn * r.numerator / r.denominator;
         amountOut = spotOut * (10_000 - haircutBps) / 10_000;

@@ -1059,7 +1059,7 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         vm.expectRevert(ISpokeVault.NotOnHubChain.selector);
         vault.forwardIncomeToCoreVault(address(usdg));
         vm.expectRevert(ISpokeVault.NotOnHubChain.selector);
-        vault.unwindForPayout(1, "");
+        vault.unwindForPayout(_unwindRequest(bytes32(0), 1, 1, 0, true));
     }
 
     // ---------------------------------------------------------------------------------------------------------------
