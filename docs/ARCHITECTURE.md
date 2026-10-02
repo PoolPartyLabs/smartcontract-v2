@@ -1,333 +1,213 @@
-# Architecture: buildathon MVP
+# Architecture: merged internal-alpha baseline
 
-Target design for the first contracts. Every rule cites the decision that governs it (`DEC-nnn`, see
-`docs/DECISIONS.md`). Where no decision exists, the section says **OPEN** and points to `docs/OPEN-QUESTIONS.md`;
-the code then takes the conservative path and exposes a parameter or an interface so the founder's answer slots
-in without a redesign.
+Baseline: `main` at **`1db9a9d`**, 2026-10-02, through PR #15. Governing register: **DEC-001..DEC-187**;
+see [DECISIONS](DECISIONS.md) for implemented/partial/deferred status and
+[OPEN-QUESTIONS](OPEN-QUESTIONS.md) for plan divergences. This describes code already on main, not the end-state plan.
 
-Scope: Arbitrum One (Hub Chain) and Robinhood Chain (Spoke Chain), Uniswap V4 positions on both chains, Aave V3
-supply-only on Arbitrum (DEC-018, DEC-028, confirmed by the founder on 2026-09-29), Across as the Transport Route,
-Wormhole (finalized consistency) for value reports. Addresses in `docs/INTEGRATIONS.md`.
+Arbitrum One is the Hub Chain; Robinhood Chain is the Spoke Chain. Uniswap V4 holds positions on both chains,
+Aave V3 is supply-only on Arbitrum, Uniswap V3 routes swaps, Across transports stablecoins, and Wormhole transports
+reports and orders, **never capital** (DEC-018/028/031/086/120/136/153).
 
-## 1. Components
+## 1. Components and immutable linked libraries
 
-```
-                         ARBITRUM ONE (Hub Chain)                     ROBINHOOD CHAIN (Spoke Chain)
-  Shareholder ─deposit/requestPayout/claim/withdrawIncome─▶ CoreVault
-  Manager ─────sendToSpoke / allocate on hub──────────────▶ CoreVault ──▶ SpokeVault(hub) ──▶ UniswapV4Adapter, AaveV3Adapter
-  Anyone ──────deliver VAA───────────────────────────────▶ ValueReportReceiver ◀── Wormhole VAA ◀── SpokeVault(robinhood).report()
-                                                           AcrossBridgeAdapter ══ Across ══▶ SpokeVault(robinhood).handleV3AcrossMessage
-                                                                                              SpokeVault(robinhood) ──▶ UniswapV4Adapter
-  FundFactory (same address on both chains, CREATE3 per fund contract) deploys everything from the Mandate.
-```
-
-| Contract | Chain | Responsibility | Decisions |
-|---|---|---|---|
-| `ShareToken` | hub | ERC-20, 18 decimals, only whole shares (multiples of 1e18) ever minted or burned; `transfer`, `transferFrom`, `approve` revert; only the Core Vault mints and burns | DEC-004, DEC-035, DEC-077, DEC-091 |
-| `CoreVault` (+ linked library `CoreVaultLogic`) | hub | Custody of Idle USDC; share ledger via `ShareToken`; Payout Requests and Payouts; Attributed Income bucket and Income Withdrawal; the fee split at collection; sends capital to spokes through a bridge adapter; the transit state machine; reads the hub `SpokeVault` directly and the spoke values from `ValueReportReceiver`. Never calls a DeFi protocol. Deploys its `ShareToken` and `ManagerFeeVault` in its constructor. | DEC-009, DEC-020, DEC-054, DEC-065, DEC-067, DEC-072, DEC-077, DEC-081, DEC-085, DEC-090, DEC-095, DEC-105, DEC-107 |
-| `SpokeVault` (+ linked libraries `SpokeCrossChainLib`, `SpokeUnwindLib`) | every chain, hub included | The fund's account on a chain: internal ledger per token (never `balanceOf`), position registry per adapter, Unallocated Balance, Operating Cash bucket; drives adapters within the Mandate's closed lists; receives Across fills; builds and publishes value reports (spoke chains) or exposes the same data to the Core Vault (hub) | DEC-054, DEC-069, DEC-070, DEC-079, DEC-080, DEC-093, DEC-096 |
-| `ValueReportReceiver` | hub | Accepts a spoke's report only if the guardian quorum signed it, the emitter is the fund's Spoke Vault on that chain, the sequence is strictly greater than the last accepted, and the report is within the max age; stores the latest accepted report per spoke | DEC-086, DEC-093, DEC-094, DEC-099 |
-| `UniswapV4Adapter` | both | Opens, increases, decreases, closes and collects V4 positions (PositionManager, pools identified by `PoolId`, closed list in the Mandate, hookless pools only in the MVP; pools whose hooks charge on withdrawal are OPEN, DEC-079); reports principal (liquidity at current price) and income (`feesAccrued`, tracked as a monotonic cumulative counter per token) **separately** from the PoolManager's own accounting; price-dependent (`isExactValue() == false`); immutable, one instance per fund per chain | DEC-018, DEC-053, DEC-058, DEC-079 |
-| `AaveV3Adapter` | hub only | Supplies USDC to the Aave V3 Pool and withdraws it; never borrows; Exact-Value Position (DEC-059): ledger keeps scaled units and the `liquidityIndex` at the last measurement, interest since then is income (DEC-068); read, not unwound, while the reserve has liquidity; `isExactValue() == true`; every exit withdraws the principal asked first and the pending income only up to the reserve's available liquidity (the rest stays pending; a close the reserve cannot finish keeps the key holding only that income); entry verbs take an explicit amount (final verification) | DEC-018, DEC-028, DEC-059, DEC-068 |
-| `AcrossBridgeAdapter` | both | Builds the Across `depositV3` call for the vault; the **vault**, not the adapter, fixes the recipient (the fund's own vault on the destination chain) and the token pair; 6-hour fill deadline as an adapter constant | DEC-031, DEC-066, DEC-087, DEC-088, DEC-090 |
-| `TransitEscrow` | both | Minimal per-send depositor (EIP-1167 clone, no EIP-1271 so nobody can sign a `fillRelayWithUpdatedDeposit` that delivers less, DEC-066) so an Across refund lands in a dedicated address and is recognized as a refund rather than mistaken for a donation | DEC-066 (keyless depositor); the escrow itself implements research proposal QA6, **OPEN** |
-| `ManagerFeeVault` | hub | One per fund, deployed by the Core Vault constructor next to the `ShareToken` (immutable `fund` and `manager`): receives the manager's portion of every performance fee at collection by plain ERC-20 push (ruling 2026-09-29), multi-token, `withdraw(token, to, amount)` by the manager only, `balanceOf(token)` view, no other verb; outside every value base | DEC-107, DEC-109 |
-| `ManagerRegistry` | hub | One record per manager: protocol slice of the manager's fee (default 50%), adjustable per manager by the protocol; outside the Mandate | DEC-106, DEC-110 |
-| `FundFactory` (+ `Create3`, `CodeStore`, `Create3Deployer`) | both | Deploys a fund's contracts from its Mandate, each at a CREATE3 address that depends only on the factory address and `keccak256(fundId, role, chainId)`, so hub and spoke addresses are known to each other before either exists; every Mandate address must be the prediction; `createFund` on the hub, `createSpoke` on each spoke; one factory per chain at the same address through `Create3Deployer` (docs/DEPLOYMENT.md); Share `PP-{n}` / `Pool Party Fund {n}` (Q59 stance) | DEC-001, DEC-053, DEC-054, Q59 |
-| `IPriceSource` + `ChainlinkPriceSource` | hub | Prices non-USDC tokens carried in reports and hub positions into USDC for Share Assets; pluggable because the pricing rule is **OPEN** | see §5 |
-
-### 1.1 Linked external libraries (what the factory must link)
-
-Two fund contracts do not fit the 24,576-byte runtime limit in one piece (compiler settings are fixed), so part of
-their code is an **external linked library** that runs by DELEGATECALL over the fund contract's own storage. These are
-the only DELEGATECALLs in the system; adapters are always called with a plain CALL (§6). Ratified in the consolidation
-of 2026-09-29 (Core Vault and Spoke Vault verifier majors) instead of a restructuring; DEC-131 (2026-10-01) moved the
-automatic unwind into a third one and fixed the limit as the smallest across the chains (Arbitrum One's 24,576 bytes,
-Robinhood Chain included), checked by `test/size/ContractSizes.t.sol`. The registry and ledger helpers the Spoke Vault
-and its libraries share are the internal library `SpokeLedger` (inlined, no deployed code).
-
-| Library | Linked into | Holds | Runtime size (consolidation) |
-|---|---|---|---|
-| `CoreVaultLogic` | `CoreVault` | Value bases and the payout fallback valuation, collected income and the fee split, report application, sends to spokes, transit outcomes | ~19.0 KB (Core Vault ~19.7 KB) |
-| `SpokeCrossChainLib` | `SpokeVault` | Send home, refund recognition, the hub-bound in-flight list, report building and encoding | ~10.2 KB (Spoke Vault ~21.7 KB) |
-| `SpokeUnwindLib` | `SpokeVault` | The automatic unwind behind `unwindForPayout` (hub): Mandate unwind order, exit sizing, swaps into USDC, proceeds to Idle (DEC-131) | 9.3 KB (Spoke Vault 20.3 KB, 2026-10-02) |
-
-What the factory does (`src/factory/FundFactory.sol`, docs/DEPLOYMENT.md):
-- The operator deploys each library once per chain through the deterministic deployer, immutable (no proxy, DEC-022,
-  DEC-058), at a **chain-independent address**, so the linked creation code and its hash are the same on every chain;
-  the library address is part of each fund's trust surface. Fund addresses do not depend on creation code at all
-  (CREATE3), and the Spoke Vault address differs per chain because the salt carries the chain id.
-- The Core Vault's creation code (about 34 KB, the `ShareToken` and `ManagerFeeVault` creation code included) comes in
-  calldata and must hash to `coreVaultCreationCodeHash`, the code linked to `CoreVaultLogic`, a factory immutable. The
-  Spoke Vault creation code (about 29 KB, linked to `SpokeCrossChainLib` and `SpokeUnwindLib`), the adapters' and the
-  receiver's are read from immutable code stores (`CodeStore`) whose hashes the factory records at construction.
-- Surfaces `FillDeadlineBufferTooShort` from the Across adapter constructor as the creation's revert reason (the
-  CREATE3 proxy bubbles constructor reverts; DEC-066).
-- Passes the fund id to the `ValueReportReceiver` constructor and the hub income tokens (read from the hub adapters'
-  `poolTokens`) to the Core Vault (CV-OQ-3). The hub Across adapter's vault is the Core Vault (it sends to spokes);
-  the Uniswap V4 and Aave adapters' vault is the chain's Spoke Vault; a spoke Across adapter's vault is its Spoke Vault.
-
-## 2. Mandate
-
-Written once at creation (DEC-053), stored in the Core Vault and mirrored on each Spoke Vault. Fields:
-
-| Field | Type | Mutability | Decision |
-|---|---|---|---|
-| `manager` | address | immutable in MVP (manager transfer is OPEN) | DEC-002 |
-| `hubChainId`, `usdc` | uint256, address | immutable | DEC-011 |
-| `adapters[]` | closed list of adapter addresses per chain | immutable; no adapter may be added to a live fund | DEC-053, DEC-058 |
-| `pools[]` | closed list of `(adapter, poolKey)` the manager may open positions in | immutable | DEC-030, DEC-053 |
-| `unwindOrder[]` | ordered list of `(chainId, adapter, poolKey)` for automatic unwinds | immutable | DEC-069 |
-| `spokes[]` | per spoke: EVM chain id, Wormhole chain id, Spoke Vault address (bytes32), `spokeCap` (USDC, principal), ordered `bridgeAdapters[]` (primary, fallback) | immutable | DEC-031, DEC-037, DEC-088, DEC-095 |
-| `payoutFeeBps` | uint16, default 200 (2%) | immutable | DEC-075, DEC-095, DEC-102 |
-| `standardPayoutTerm` | uint32 seconds, default 72 h | immutable | DEC-060, DEC-095 |
-| `minFirstDeposit` | uint256 USDC, set by the manager, no protocol floor (confirmation pending, DEC-095 erratum item 22) | immutable | DEC-061, DEC-095 |
-| `performanceFeeBps` | uint16 | may only **decrease** after creation; charged at collection, so nothing accrues to settle first (ruling 2026-09-29) | DEC-107, DEC-110 |
-| `managementFeeBps` | uint16, default 0 | MVP accepts only 0 at creation: base and accrual are decided (Share Assets, continuous) but recipient and the meaning of "position close" are **OPEN** (LC-144) | DEC-108, DEC-110 |
-| `operatingCashFloor[chainId]`, `operatingCashTopUp[chainId]` | uint256 | manager may adjust on a live fund | DEC-096, DEC-100 |
-| `maxReportAge[spoke]` | uint32 seconds | immutable; value **OPEN** (Q57) | DEC-094, DEC-099 |
-| `maxBridgeFeeBps` | uint16 | immutable; value **OPEN** (QA19) | DEC-030 exception |
-
-Protocol-level constants live in the core, not the Mandate: flow fee 25 bps default with a 100 bps cap
-(DEC-106), fee caps for performance and management fees (DEC-110; the cap values are **OPEN**, LC-144).
-
-## 3. Value bases (DEC-042, DEC-083, DEC-084, DEC-098, DEC-104)
-
-- **Share Assets** = Idle (incl. Payout Reserve; Idle exists only in the Core Vault, DEC-055) + the hub Spoke
-  Vault's Unallocated Balance and positions' principal (read directly, same chain) + In-flight Value at the amount that will arrive (DEC-085) + each spoke's principal and Unallocated
-  Balance from its last accepted report. Excludes Operating Cash, Attributed Income (collected or not, DEC-092)
-  and external rewards (DEC-078).
-- **Share Price** = Share Assets / totalSupply, the only published price, used for every mint and burn.
-  First mint: 1 share (1e18 units) = 1.00 USDC (1e6) (DEC-061).
-- **Gross Assets** = Share Assets + Operating Cash + Attributed Income + external rewards. Informational.
-- **Settlement Price** = what an unwind realized divided by the shares burned; recorded in the Payout event,
-  never used to compute the burn (DEC-105).
-- Invariant (DEC-104): no recognized unit of value sits in two bases at once.
-
-## 4. Flows
-
-### 4.1 Deposit (synchronous, DEC-071, DEC-009)
-`deposit(uint256 usdcAmount, uint256 minShares)`:
-1. First deposit must be at least `minFirstDeposit` (DEC-061, DEC-095).
-2. Flow fee: 25 bps of the deposited amount goes to the Protocol Recipient (DEC-106). **OPEN** whether the fee
-   is taken from the amount before pricing or on top; MVP takes it from the amount, flagged.
-3. `shares = floor(net / sharePrice)` in whole units (DEC-035); charge only `shares * sharePrice`, truncated
-   to 6 decimals, the remainder never leaves the wallet (DEC-061). Revert if `shares < minShares` or zero (a deposit
-   below one share's price is rejected, DEC-035).
-4. Pull USDC, mint, credit Idle. Same transaction; no queue; no wait for a fresh report (DEC-071, DEC-085).
-5. Update the income accumulator checkpoint for the depositor before minting (§4.5).
-6. Revert if any spoke's last accepted report is older than its `maxReportAge` (mint closes on a stale report; an
-   idle-paid payout does not, research reading of Q57, flagged).
-
-### 4.2 Allocation
-- Hub: `CoreVault.allocateToHubSpoke(amount)` moves Idle to the hub Spoke Vault's Unallocated Balance; the
-  manager then opens positions on the hub Spoke Vault. Only Free Idle may be allocated (DEC-017, DEC-072).
-- Spoke: `CoreVault.sendToSpoke(spokeIndex, amount, bridgeIndex, quote)`: manager only; revert unless
-  `spokeValue + inFlightTo + inFlightFrom + amount <= spokeCap` (DEC-037, DEC-095); the bridge adapter builds
-  the Across deposit with recipient = the spoke's vault, `outputAmount` from the quote, fill deadline = now + 6 h;
-  the vault checks the quote's fee against `maxBridgeFeeBps`; a `TransitEscrow` clone is the depositor;
-  in-flight counted at `outputAmount` in Share Assets and at the amount sent in the Spoke Cap (DEC-085, DEC-066).
-  Transit states mirror DEC-066: `Sent`, `ArrivalConfirmed`, `ExpiryAttested`, `RefundRecognized` (the three-state
-  reading of DEC-090 is OPEN, QB11; four states lose nothing). The core accepts transitions only from the
-  fund's own Mandate adapters and vaults (DEC-090). `spokeCapUsage(i)` returns `(spokeValue, inFlightSent,
-  inFlightToHub, spokeCap)`: the pending return leg the spoke reports (Principal and Income) is its own line and
-  counts toward the cap (DEC-066 B1).
-- Arrival: the Robinhood Spoke Vault's `handleV3AcrossMessage` (callable only by the Across SpokePool, only for
-  USDG) credits Unallocated Balance, adds the amount to the transit id's credited total (Principal arrivals only;
-  the hub never sends Income) and runs the Operating Cash top-up (DEC-096); the next report carries the arrived ids
-  with their credited totals; the Core Vault moves a transit to `ArrivalConfirmed` and drops it from In-flight only
-  when the listed total reaches the `amountToArrive` it expects (DEC-090, OQ-01, OQ-09). Across passes no depositor
-  and transit ids are public (`SentToSpoke`), so a stranger's listing below that amount confirms nothing and, in a
-  report built after the fill deadline, proves non-arrival; a stranger who lists an id at or above it has made the
-  fund whole, and the excess is deducted as unknown-origin value (consolidation verifier round 2).
-- Arrival window (OQ-09 stance: the window serves liveness; value rests on the hub's ledger, which confirms an id
-  only at or above the amount it expects to arrive): the report lists the
-  last 256 arrival ids (`ReportCodec.ARRIVAL_WINDOW`), and an id is listed only once its credited total reaches 1e6
-  base units (1 USDG); smaller arrivals are still credited to the ledger and to `cumulativeReceived`. Across passes
-  no depositor, so a stranger can reach the callback; flushing the window costs 256 USDG donated to the fund. A
-  hub-to-spoke transit evicted before an accepted report lists it (or sent below the listing minimum, CS-OQ-6) is
-  never confirmed: it stays in In-flight Value for good and holds its Spoke Cap until its expiry is attested through
-  the deadline plus report lifetime path (the liveness cost), while the hub
-  deducts `cumulativeReceived` above what it confirmed as unknown-origin value (DEC-080). The two cancel because
-  that deduction is taken from the fund total: the part a spoke's principal no longer covers (the value was sent
-  home, or lost in a position) is subtracted from the total, not clamped per spoke, so the same USDC is never counted
-  in Idle and in In-flight Value (DEC-104; consolidation verifier finding). Tradeoff: a market loss on unknown-origin
-  funds on a spoke lowers Share Assets.
-- Expiry: after the fill deadline anyone may call `attestExpiry(transitId)`: it needs a spoke report built after
-  the deadline that does not list the id **and lists fewer than 256 arrivals** (a full window may have evicted it),
-  or the deadline plus the report lifetime to have passed; the Spoke Cap is released then; the amount stays in Share
-  Assets until `recognizeRefund(transitId)` pulls the refund from the escrow back to Idle (DEC-066; the window
-  between the two is OPEN, QB11/QB10).
-- Refunds (QA6, both directions): a refund is recognized only once the transit's escrow holds at least `amountSent`,
-  because Across refunds the full input amount (DEC-063); less is a donation, changes nothing and waits in the escrow
-  until the real refund releases everything together; exactly `amountSent` is credited, the rest is swept (DEC-080).
-- Return leg: a spoke sends home with `sendToHub(amount, kind, ...)` in its base token; it lands on the hub as USDC.
-  The report lists it in `inFlightToHub` with its kind (ReportCodec version 2): Principal in flight counts in Share
-  Assets (DEC-085, DEC-104), Income in flight does not (DEC-092). The hub credits an arrival up to the listed amount
-  and by the **reported** kind, never by the Across message's claim (OQ-01): Principal to Idle, Income through the
-  fee split (§4.5); anything unlisted or above the listing is held apart (`unmatchedArrivals`), never swept.
-
-### 4.3 Positions (Spoke Vault on any chain)
-Every adapter exposes a monotonic `cumulativeIncome(token)` counter (all income ever realized plus currently
-uncollected, never a balance) so the income index can advance from deltas; on Uniswap V4 any liquidity change
-realizes all fees of the position (`feesAccrued` in the `BalanceDelta` returned by `modifyLiquidity`), so the
-adapter accumulates realized fees plus current uncollected fees computed from `feeGrowthInside`; on Aave the counter
-is `scaledBalance * (liquidityIndex_now - liquidityIndex_last)` summed over time. Every adapter exposes `isExactValue()` (DEC-059: Idle, Unallocated Balance and Aave aUSDC are read, never unwound;
-Uniswap positions are price-dependent and are unwound). Manager-only `openPosition`, `increasePosition`,
-`decreasePosition`, `closePosition`, `collectIncome`, each
-restricted to `(adapter, poolKey)` in the Mandate. The vault transfers tokens to the adapter, the adapter acts
-on the protocol and returns `(principalDelta0, principalDelta1, income0, income1)`; the vault updates its
-ledger from what the adapter returned, never from balances (DEC-080). Income collected goes to the income bucket
-of the vault (spoke) or is bridged/handed to the Core Vault's Attributed Income (hub). Adapter pause blocks
-open/increase only, never decrease/close/collect (DEC-021, DEC-058; who may pause is **OPEN**).
-
-### 4.4 Value report (DEC-070, DEC-086, DEC-093)
-`SpokeVault.report()` is permissionless: builds a versioned `ReportPayload` (version 2) that is a superset serving
-every pricing option still open (Q57): `fundId, sequence, spokeChainId, blockNumber, timestamp, unallocated[]
-{token, amount}, positions[] {adapter, poolKey, poolId (bytes32), tickLower, tickUpper, liquidity, token0, token1,
-principal0, principal1, income0, income1}, cumulativeIncome[] {token, amount} (monotonic since inception,
-informational), collectedIncome[] {token, amount}, operatingCash, cumulativeReceived, cumulativeSentHome,
-arrivedTransits[] {transitId, amount} (last 256 listed), inFlightToHub[] {transitId, amount, kind}` from the ledger
-and adapters, and calls `CoreBridge.publishMessage(nonce, payload, 1 /* finalized */)`. Anyone delivers the VAA to
-`ValueReportReceiver.deliver(bytes vaa)`, which verifies with the Core Bridge, checks emitter chain and address
-against the Mandate, requires `sequence > lastSequence`, requires `now - timestamp <= maxReportAge` and a
-timestamp at most one `maxReportAge` ahead of the hub clock (DEC-099 assumption on clock skew), and stores the report. Pricing of the quantities into USDC happens on the hub through `IPriceSource` (§5).
-
-### 4.5 Attributed Income and the fee flow at collection (DEC-014, DEC-025, DEC-064, DEC-073, DEC-092, DEC-106, DEC-107, DEC-109, DEC-110; ruling 2026-09-29)
-Per-token global index in Q128 (2^128 scale, 512-bit mulDiv, remainder carried) with a per-holder checkpoint. The
-index advances **only when collected income reaches the Core Vault**, and the fee split happens right there
-(`CoreVaultLogic.collectIncome`):
-
-| Source | How it reaches the Core Vault |
+| Component | Responsibility on this baseline |
 |---|---|
-| Hub positions | the manager collects on the hub Spoke Vault; anyone calls `forwardIncomeToCoreVault(token)`, which transfers the collected bucket and calls `receiveCollectedIncome(token, amount)`; income stays in kind (USDC, WETH) |
-| Spoke positions | the manager collects on the spoke, turns non-base income into the base token with `swapCollectedIncome` (CV-OQ-2), then `sendToHub(amount, Income, ...)`; it lands as USDC and is credited when a report lists it (§4.2) |
+| Core Vault | Hub custody of USDC Idle, share pricing, Payout Requests/payments, income and fees, lifecycle guards and transits; never calls a DeFi protocol directly |
+| Spoke Vault | One fund account per chain, including Hub; adapter-driven positions, internal token ledger, Unallocated Balance, collected income, base-token Operating Cash and reporting |
+| ShareToken | Whole 18-decimal shares; holder transfers, delegated transfers and approvals disabled; only Core Vault mints/burns |
+| ManagerFeeVault | Per-fund custody of manager fee tokens; manager can withdraw; not a share-backed bucket |
+| ManagerRegistry | Shared Hub registry keyed by manager, live protocol slice 5–50%, default 50%; no adjustable performance minimum |
+| ValueReportReceiver | Verifies Wormhole guardian quorum, fund, Mandate hash, emitter, chain, increasing sequence and report age; stores latest report |
+| UniswapV4Adapter / AaveV3Adapter | Immutable per-fund position adapters; principal and income separately accounted; V4 Mandate pools hookless |
+| UniswapV3SwapAdapter | Immutable per-fund/per-chain swap adapter with closed endpoint-token list and factory API signer |
+| AcrossBridgeAdapter | Stateful, vault-only send builder; determines output/deadline/fee and records its own fee window |
+| TransitEscrow | Keyless per-send clone holding Across depositor/refund identity; cannot sign deposit updates to lower output |
+| FundFactory / CodeStore / Create3Deployer | Predict and deploy immutable fund contracts on each chain; CodeStore chunks store creation code, not runtime upgrades |
 
-At each collection of `amount` in `token`: performance fee = `amount * performanceFeeBps` (DEC-107, on income, no
-high-water mark); its protocol slice = fee * `ManagerRegistry.protocolSliceBps(manager)` read at that moment
-(DEC-106, DEC-110; 50% default and on a failed read); the slice is transferred to the Protocol Recipient and the rest
-of the fee to the fund's `ManagerFeeVault`, in kind, in the same transaction (DEC-109); the net enters the
-accumulator and the collected balance (with no shares outstanding it is kept ownerless, LC-32). No fee is ever owed
-or kept in the Core Vault. `CollectedIncomeReceived(token, amount, managerFee, protocolSlice, protocolSliceBps)`
-records every split. Worked example (docs/OPEN-QUESTIONS.md): 1,000 USDC + 0.5 WETH at 20% and a 50% slice gives
-100 USDC + 0.05 WETH to the protocol, 100 USDC + 0.05 WETH to the `ManagerFeeVault`, 800 USDC + 0.4 WETH to holders.
+The Core Vault has abstract source modules `CoreVaultBase`, `CoreVaultPayout`, `CoreVaultIncome`, `CoreVaultTransit`;
+the Spoke Vault has `SpokeVaultBase`, `SpokeVaultUnwind`, `SpokeVaultIncome`. They are compiled into their vault,
+not separately deployed contracts.
 
-Uncollected income (hub and spoke positions, the spoke's collected bucket not yet sent home) stays in its own bucket
-(DEC-092): it never moves the index and only informs Gross Assets; the reports' cumulative income counters are
-informational. Holders call `withdrawIncome(token)` to take the collected income out at any time without burning
-shares (`min(owed, collected)`, LC-100); burning all shares pays it too. No compounding in the contract (DEC-064).
-`decreaseManagerFee` has nothing to settle first: no fee accrues between collections (DEC-110). Consequence flagged
-in docs/OPEN-QUESTIONS.md: income generated before an entrant's deposit but collected after it is shared with the
-entrant (DEC-014 tension).
+| Runtime caller | Linked external libraries |
+|---|---|
+| CoreVault | CoreVaultLogic, CoreVaultTransitLogic, CoreVaultIncomeLogic, CoreVaultPayoutLogic |
+| CoreVaultLogic | CoreVaultIncomeLogic |
+| CoreVaultTransitLogic | CoreVaultLogic, CoreVaultIncomeLogic, CoreVaultPayoutLogic |
+| CoreVaultPayoutLogic | CoreVaultLogic, CoreVaultIncomeLogic |
+| SpokeVault | SpokeCrossChainLib, SpokeUnwindLib, SpokeIncomeLib |
 
-### 4.6 Payout (DEC-020, DEC-024, DEC-060, DEC-065, DEC-067, DEC-074, DEC-075, DEC-077, DEC-081, DEC-095, DEC-102, DEC-105)
-- `requestPayout(uint256 usdcAmount, PayoutMode mode)`: one open request per holder, not cancellable, shares
-  are not locked or burned at request time; priced like a claim; a request below one share's price reverts
-  (FV-OQ-2). Standard: reserve `min(usdcAmount, usdcFor(balance, sharePrice), Free Idle)` in the Payout Reserve as
-  USDC, bounded by the requester's share value (**OPEN** reading FV-OQ-1), and start the term. Instant: no reserve.
-- `claimPayout(bytes unwindHints)`: only the requester (DEC-065, DEC-074). Events `PayoutExecuted` and
-  `PartialPayoutExecuted` carry the Settlement Price, the payer of every Operating Expense (DEC-041) and the
-  consolidation fields of DEC-083 (number of chains summed, block and sequence of each spoke report, age of the
-  oldest report, In-flight Value on its own line). Burning all of a holder's shares pays their Attributed Income in
-  the same transaction (DEC-045, DEC-047). If the idle the request may use covers it (Instant: Free
-  Idle only, never the Payout Reserve; Standard: its reserve then Free Idle), burn `floor(amount / sharePrice)`
-  whole shares, pay `shares * sharePrice` (never more than requested), atomically. Otherwise unwind in Mandate
-  order only what is missing plus 2% (fund bears the margin's market cost, DEC-097), proceeds go to Idle (only what
-  the hub Spoke Vault credits through `returnToIdle`, DEC-080), then require a report from every spoke with sequence
-  after the unwind (DEC-105) before burning at the resulting Share Price. Partial Payout burns only what was paid and
-  leaves the USDC remainder open (DEC-068). An outstanding amount below one share's price closes the request with
-  nothing burned, flagged `closedBelowOneShare` in the receipt (FV-OQ-2).
-- Unwind sizing (final verification, QA3 **OPEN**): the hub Spoke Vault, not the claimant, sizes every step. Per
-  position in Mandate order it values the principal at the pool's spot price (`IAdapter.positionValue`, non-USDC legs
-  through `IAdapter.spotQuote`), takes the shortfall still needed and exits only that share
-  (`IAdapter.unwindExitParams`), closing a position only when its whole value is needed; the stop condition is
-  re-evaluated before every position. Non-USDC proceeds are swapped in the position's own pool when it pairs the
-  token with USDC (else in the Mandate route the hint names) with a minimum of at least the spot quote less
-  `MAX_UNWIND_SLIPPAGE_BPS` (500, an OPEN parameter). Hints can only raise that minimum or restrict the swap.
-- Payout liveness (DEC-021, DEC-056, OQ-10): a claim never reverts because a valuation dependency fails. In the payout
-  valuation the hub Spoke Vault's report read and every `IPriceSource` read are wrapped; a failure falls back to the
-  last successfully computed value kept in storage (`lastHubValue`; `lastPrice` per token), with
-  `HubValuationFallback` or `PriceFallback`. The last known values are refreshed on every successful deposit and
-  payout (the hub value only when the hub read and all its prices answered); between two valuations `lastHubValue`
-  follows the exact USDC legs between Idle and the hub Spoke Vault (`allocateToHubSpokeVault` adds, `returnToIdle`
-  subtracts, floored at 0), so the fallback never counts a moved amount twice or misses it (consolidation verifier
-  finding); market moves since the last read are not seen. A token never priced before falls back
-  to 0. Remote spokes need no value fallback: the receiver keeps their last accepted report. Deposits keep reverting
-  on any failure, stale report or stale price.
-- Instant: 2% Payout Fee on the requested amount into Operating Cash (DEC-102); network costs charged to the
-  requester separately (**OPEN** how, LC-45/LC-47: MVP charges nothing extra and flags it). Standard: after the
-  term the requester's claim runs the remaining unwind; the fund pays network costs from Operating Cash (DEC-060).
-- Flow fee 25 bps on the amount paid out goes to the Protocol Recipient (DEC-106); never on Income Withdrawal
-  (LC-143 reading).
-- A report only has to postdate the unwind on the spoke where the unwind happened (DEC-105, erratum 11); a
-  hub-only unwind needs no new spoke report beyond the max-age rule.
-- Unwinds on a spoke need an instruction from the hub. **OPEN** (feedback question 2): MVP restricts automatic
-  unwind to hub positions and to spoke positions the manager has already closed and bridged; a spoke unwind
-  driven by a hub-to-spoke message is the next milestone.
+`CoreVaultIncomeLogic` has no linked-library dependency back into callers (`CoreVaultLogic.payFee` is internal/inlined).
+The dependency order avoids a circular CREATE2 address dependency. `SpokeLedger`, `OrderCodec`, `OrderVerifier`,
+`BridgeFeeRule`, `ReportCodec`, `IncomeAccumulator`, `ShareMath` and `DollarIncomeIndex` are internal/inlined libraries,
+not linked runtime deployments. **DollarIncomeIndex is not used by the live income book yet.**
 
-### 4.7 Operating Cash (DEC-041, DEC-096, DEC-100, DEC-102)
-Per-chain bucket fed by the Payout Fee and top-ups; floor and top-up amounts adjustable by the manager; when it
-falls below the floor the next operation (a spoke arrival included) tops it up from Share Assets (accepted effect
-on Share Price). `OperatingCashInsufficient` (DEC-041's "insufficient cash" state) is emitted only when Free Idle
-cannot fund the whole top-up, never on a routine one. Spending it (relayer gas reimbursement) is **OPEN** (doc 30);
-the MVP keeps the bucket and the top-up rule only.
+`FactoryDeployment` deploys libraries once per chain and links the vault creation code and dependent libraries.
+Their addresses/code are part of each immutable fund's trust surface. External library calls execute in vault storage
+and emit at the vault address; adapter calls do not delegatecall untrusted adapter code. There is no proxy or upgrade
+path (DEC-022/058/131/183). Changing linked code requires a new factory/fund version. Publish all library addresses
+and verify links on both chains; keep each runtime <=24,576 bytes. See [size baseline](security/BASELINE-2026-10-02.md).
 
-## 5. Pricing (**OPEN**, the most consequential gap)
+## 2. Mandate v2 and creation
 
-Reports and hub positions carry token quantities. Share Assets needs a USDC value for WETH and for USDG.
-Decisions say: no oracle in the payout path for the unwound part (DEC-032, DEC-081), the report is read before
-the burn (DEC-081, DEC-105), and the buildathon draft leans to "quantities in the report, Chainlink on the hub"
-(feedback question 1, option B). The founder's ruling of 2026-09-29 keeps that working assumption (Chainlink for
-WETH, 1:1 for USDG). The MVP therefore:
-- puts pricing behind `IPriceSource.priceInUsdc(token) -> (price1e18, updatedAt)` (USDC base units per base unit of
-  the token, times 1e18) and `usdcValue(token, amount)`;
-- ships `ChainlinkPriceSource`: Chainlink USD feeds read as USDC, and fixed 1:1 tokens configured with their decimals;
-  adding a token is a new price source, never a Mandate change;
-- never reverts on age: the source returns `updatedAt` and `maxPriceAge(token)`, each feed with its own bound (OQ-10);
-  the Core Vault reverts a mint on a price older than its token's bound and never checks age on a payout; a payout
-  also survives a reverting source through the last known price (§4.6);
-- lists the rule as OPEN in `docs/OPEN-QUESTIONS.md`.
+Mandate v2 (PR #12) includes manager, Hub EVM/Wormhole chain ids, Hub USDC, closed per-chain tokens, position adapters,
+swap adapters, pools, spokes, ordered bridge adapters, initial Operating Cash parameters, Payout Fee, performance fee,
+management fee and minimum first deposit. Each chain needs its base token and a swap adapter; at most 16 tokens total.
+Spoke pool tokens must belong to that chain's token list. Swap adapters must have code and match factory wiring.
+The Hub checks its Wormhole id and refuses a spoke using the same id (DEC-178).
 
-## 6. Security model
+Removed fields: `unwindOrder`, Mandate payout term and `maxBridgeFeeBps`. **No Mandate unwind priority** remains,
+but the current interim automatic Hub unwind still walks position registry order. Standard term is a protocol
+constant of 72 hours (DEC-154). Spoke Cap counts sent principal including In-flight Value, checked only on send.
 
-- Closed lists and vault-enforced destinations: the adapter builds calls, the vault decides recipients, tokens
-  and amounts (DEC-087 §4.3). A compromised adapter cannot redirect funds.
-- Internal ledger, never `balanceOf`, for every value that reaches a base (DEC-080). Donations and dust go to
-  the garbage collector, which sends them to the fee wallet (DEC-096, DEC-101; fee wallet identity OPEN, LC-132).
-- Whole shares rounded against the actor; minimum first deposit; no share transfers (DEC-035, DEC-061, DEC-091).
-- Replay protection is ours: `(emitterChainId, emitterAddress)` fixed by the Mandate, strictly increasing
-  sequence (DEC-093). Finalized consistency only.
-- Reentrancy guards on every external entry that moves value (OpenZeppelin `ReentrancyGuard`); SafeERC20;
-  checks-effects-interactions; custom errors; no `tx.origin`; no delegatecall except into the fund's own linked
-  libraries (§1.1), never into adapters.
-- No upgradeability: a live fund never adopts new code; a new version is a new fund (DEC-058).
-- Pausing an adapter blocks entries only; exits always work (DEC-021).
-- Valuation never trusts a price anyone can move within a transaction: a Uniswap V4 range position is recomputed
-  from its liquidity and ticks at the price-source price (`CoreVaultLogic._oracleComposition`), and the automatic
-  unwind floors its swap at `max(spot, oracle)` less 5% (security review S-1, S-2).
-- Cross-chain value is credited only against evidence: an arrival only up to what an accepted report of the origin
-  spoke listed, a hub-to-spoke send only after that spoke has reported once, a report only from a spoke running the
-  same Mandate (`mandateHash` in the payload), no exclusive relayer (S-4, S-6, S-9, S-14).
-- Fee transfers that fail (a blocklisted recipient) are booked as owed and paid later by a permissionless verb, so no
-  recipient can freeze the fund (S-12).
-- The register of the 2026-09-30 security sweep, the threat model, the invariants and the open decisions are under
-  `docs/security/` (`SECURITY.md` at the root states the audit status: none yet).
+`FundFactory.createFund` atomically transfers manager seed and issues shares; a fund cannot be left created without
+shares. Seed must meet the manager's `minFirstDeposit`; the creation script defaults to 100 USDC, but no protocol
+100-USDC floor is enforced. Later deposits need only cover a whole share and the caller's minimum-share constraint. Seed pays flow fee;
+the manager peak share count starts at seed and grows with deposits. The manager cannot redeem below
+`ceil(managerPeakShares / 2)`; a request is checked and payment capped at that base (DEC-127/146/183).
 
-## 7. Testing strategy
+Creation checks configured token prices exist and are nonzero; it does **not** prove price freshness, future availability,
+or implement the full spoke price-source hierarchy (DEC-123). There is no fund-value ceiling (DEC-174), though structural
+token/position bounds and creation gas remain limiting. Internal-alpha wallet/value restrictions are operational,
+not a permissioned deposit gate (DEC-134).
 
-- Unit and fuzz tests for every library and every rule, named after the decision (`test_DEC067_idlePaysWholeRequest`).
-- Invariants: `totalSupply` is a multiple of 1e18; Share Assets equals the sum of buckets; Payout Reserve never
-  exceeds Idle; a transfer into a vault that is not from an adapter or the bridge never changes Share Price;
-  sequence per spoke is strictly increasing.
-- Fork tests on Arbitrum One and Robinhood Chain (never testnets): real Uniswap V4 pools and the real Aave V3 Pool, real Across
-  SpokePools (fills simulated by dealing the output token and calling `handleV3AcrossMessage` from the SpokePool
-  address), real Wormhole Core with `WormholeOverride` signing VAAs.
-- End-to-end fork scenario (`test/fork/e2e/EndToEnd.t.sol`, helpers in `test/fork/e2e/EndToEndBase.sol`): one fund
-  across both forks in one test contract (`vm.createFork` for each chain, one scenario clock so a spoke report is judged
-  on the hub clock): factories through the deterministic deployer, `createFund` and `createSpoke` at the predicted
-  addresses; a deposit on Arbitrum; Aave supply and a V4 position on the hub with income; a send to Robinhood through
-  the live Across SpokePool; the fill, a WETH/USDG V4 position and `report()` on the real Robinhood Core; the VAA signed
-  with `WormholeOverride` and delivered on the real Arbitrum Core; income collected and split before a second deposit
-  at the new price (CS-OQ-1 stance); a Standard Payout from Idle; an Instant Payout that unwinds the hub V4 position
-  first; the value-base invariants and a swept donation. The ETH / USD answer is re-posted with the current time after a
-  warp, as the next Chainlink round would (a mint reverts on a stale price, OQ-10).
+## 3. Value bases and live flows
+
+- **Idle** is USDC booked in the Core Vault; **Free Idle** is Idle less Payout Reserve. A Standard Payout earmarks
+  reserve, and an Instant Payout cannot spend another request's reserve.
+- **Share Assets** include Idle, position principal, Unallocated Balance and eligible In-flight Value, net of the
+  management-fee liability; they exclude Attributed Income and Operating Cash.
+- **Gross Assets** include the other fund buckets and the management-fee liability (PR #12's explicit reading).
+  Do not infer ledger value from raw ERC-20 balances or unsolicited transfers (DEC-080/098/104).
+- In-flight Value uses the amount to arrive for pricing; the Spoke Cap uses amount sent until outcome reconciliation.
+  Sends, arrivals, expiry attestations, refunds and recovery are keyed so arrivals cannot be counted twice.
+
+Deposits are synchronous USDC receipt plus whole-share mint, leaving principal in Idle; they do not open positions.
+The Core Vault calls income hooks before/after share changes and on valuations/report acceptance/income arrivals,
+but the new hooks preserve collection-time behavior where no recognition previously existed (PR #15).
+
+Manager sends capital through a ranked Mandate bridge adapter to the fund's fixed destination. A spoke must first
+have an accepted report. Manager opens/increases/reduces/closes positions through allowed position adapters and pools.
+Principal returned on Hub can move to Core Vault Idle; spoke principal returns through Across. Ledger checks enforce
+actual input debit/output receipt around swaps, not merely adapter return values.
+
+Existing Payout Requests and payments remain in `CoreVaultPayout`/`CoreVaultPayoutLogic`; Idle is used first, then
+the interim Hub unwind in `SpokeUnwindLib`, with a 2% target buffer and legacy 5% floor against the higher of spot/oracle.
+The legacy PAYOUT valuation fallback still uses cached values when a dependency fails. These are **not** the new
+DEC-137/140/141/148/160 behavior. **WP-09 proportional unwind — in progress.**
+
+Current income uses `CoreVaultIncomeTypes.Book.index: IncomeAccumulator.State`, a per-token Q128 collection-time index.
+Collected income reaching Hub is split: performance fee, protocol slice of that fee, and net holder income. Protocol
+fees pay Protocol Recipient, manager portion pays ManagerFeeVault, failed fee transfers become owed. Hub collection can
+still pay the collected token; the manager's `swapCollectedIncome` verb remains. This does not yet implement all-USDC
+cross-chain collection or recognition-time entitlement. **WP-10 income dollar index — in progress.**
+
+`closeFund` exists: it books management accrual, moves Open -> Closing and records timestamp. Closing refuses deposits,
+new requests and claims; income remains accessible. Finalization, Closed exits and a frozen record do not exist on this
+baseline. **WP-13 closure — in progress.**
+
+## 4. Swap adapter and signed API routes
+
+`SpokeVault.swap(swapAdapter, tokenIn, tokenOut, amountIn, maxLossBps, route)` is manager-only and pins adapter/endpoints
+to the Mandate (PR #13). A swap is not executed against the fund's own position pool by a position adapter.
+
+With empty route, `UniswapV3SwapAdapter` discovers direct-pair tiers 100, 500, 3000, 10000 through the V3 factory.
+It skips zero in-range liquidity, caps each quote at 1M gas and skips quotes that do not fill the whole input.
+It chooses highest quoted output **before** applying caller maximum (PR #7); it never lets an untrusted caller name
+a direct tier through the vault's public swap. The adapter's vault-only `swapDirect` is for internal reuse.
+
+A nonempty route is an EIP-712 API-signed V3 path set: at most 4 weighted legs and 3 hops per leg, weights sum 10,000.
+Signature commits endpoints, legs/weights, quoted input, minimum output and deadline under the chain/adapter domain.
+Minimum scales to actual input. Routes are replayable until deadline (no single-use nonce); never describe signature
+verification as one-shot replay protection. Only endpoints must be Mandate tokens (DEC-173); intermediate tokens may not be.
+Unsupported V4/mixed API routes are deferred; arbitrary Universal Router calldata is not passed through.
+
+`maxLossBps` 1..9,999 imposes `spotOut * (10,000 - maxLossBps) / 10,000`; 0 or >=10,000 means no caller maximum.
+The stricter of that floor and the signed API minimum applies (DEC-142/178). There is **no contract-mandated oracle floor**
+for manager swaps (accepted DEC-129, S-8). API oracle anchoring is optional policy, not a vault invariant.
+`Swapped` emits spot output, maximum and enforced minimum (PR #13).
+
+During any guarded Spoke Vault entry, `buildReport` reverts: the input may have left the ledger while output is not
+credited. Mint/view valuation cannot price this intermediate NAV; PAYOUT valuation falls back to `lastHubValue`
+(PR #13 M-1, integrated PR #15). Other views remain readable; internal report publishing uses `nextReport` rather
+than calling the guarded external view. This guard does not make pool spot an oracle or eliminate S-8.
+
+## 5. Across fee rule and transit
+
+`quoteSend` previews; vault-only `buildSend` books the rate. Input/output tokens, recipient and destination are fixed
+by the fund's route; the adapter supplies quote timestamp, fill deadline and a zero exclusive relayer. Nonempty quote
+data is refused, including at the Core Vault's retained `bridgeData` slot. `sendToHub(amount, kind, bridgeRank)` has
+no quote argument. The Across adapter has no API signer/quoter (DEC-158/162/176; PR #2/#12/#13).
+
+Each adapter keeps its own destination-keyed last-3-send rate window, not other users' fees (deposit amounts are logs,
+not readable on-chain history). Each missing slot contributes initial 0.08% to the three-slot arithmetic mean;
+floor 0.03%, rate cap 1%. Fee is **ceil(inputAmount * rate / 1e18) + 0.03 input-token units**. It must be below input.
+An authenticated expiry notes a step at x1.5 of expired rate, clamped to cap; latest expired send can be removed
+from the reference window. Expiry can be caused by route size/downtime, so step-up is not proof market fees rose.
+
+The 1% is a **rate cap**, not total-gap cap: the fixed component is additional, and rounding can add a base unit.
+This distinction and future native-token route accounting are disclosed in KNOWN-LIMITATIONS. DEC-177's future
+600-second signed quote validity is not code in this unsigned MVP.
+
+Capital travels USDC/USDG. Per-send TransitEscrow receives origin refunds; anyone recognizes refund/outcome under
+vault checks. Reports reconcile arrival totals and hub-bound ids. Refund timing research observed 57–99 minutes
+after fill deadline (2026-10-02 sample), not an SLA; retention is separate from immediate deliverability.
+
+## 6. Wormhole orders and report v4
+
+`OrderCodec` v1 encodes UNWIND, CLOSE or COLLECT, fund id, request id, attempt, deadline, fraction, maximum and Payout
+mode (320-byte static payload). Order id hashes kind/fund/request/attempt. Publishing uses instant consistency 200
+and overwrites deadline to publish time + 1 hour (engineering default). Destination is never a caller-selected wallet.
+`OrderVerifier` checks guardian validity, Hub emitter chain/address, fund id, newer sequence and deadline; gaps accepted,
+older/replayed orders rejected. Retry completion is not implemented merely because `attempt` is encoded.
+
+`SpokeVault.executeOrder` exists and verifies through linked `SpokeUnwindLib.acceptOrder`, then dispatches the kind.
+**All three executors currently revert `OrderKindNotSupported`**, including linked `SpokeIncomeLib` COLLECT stub;
+the transaction rolls back its cursor. It cannot unwind, collect, or close today. The successful-dispatch report/event
+path and `OrderPublished` declaration are foundations only. **WP-12 spoke orders — in progress.**
+
+`ReportCodec.VERSION = 4` extends the quantities/principal/income/cumulative counters/Mandate hash/transit payload
+with `bytes unwindResults` and `bytes collectionResults`; these book blobs are empty on the baseline.
+Reports use finalized consistency 202. Receiver checks the authenticated report; hooks are called for accepted reports,
+but they do not implement result settlement or the dollar index. Rebuild off-chain decoders against v4; v3 payloads fail.
+
+Reporting is permissionless and the API helper requests reports after deposits; Core deposit itself does not atomically
+publish a new report. Burn-wide DEC-160 freshness is unfinished. No inactivity switch exists (DEC-157).
+
+## 7. Fees, management accrual and Operating Cash
+
+Performance is manager-selected 1000–9000 bps; management is 0–500 bps annually (Slack DEC-186 supersedes DEC-182/184's
+10% ceiling). Both are in Mandate, may only decrease; performance cannot fall below 1000, management may fall to 0.
+The registry stores only protocol slice 500–5000 bps, default 5000. Flow fee is immutable factory wiring (default
+25 bps, maximum 100), on seed/deposit and both Payout modes, not Income Withdrawal. Payout Fee is immutable Mandate
+0–1000 bps, Instant-only, retained in Idle (DEC-144/155).
+
+Management liability is booked at valuations while Open:
+`increment = min((gross - booked) * managementFeeBps * dt / (10,000 * 365 days), gross - booked)`, rounding down.
+Here `gross` is the pre-management-fee Share Assets base used by this helper, not the aggregate Gross Assets view.
+The fee never charges its booked liability; net Share Assets/Share Price exclude what is owed. `closeFund` stops
+accrual; reductions book at the old rate first. Closure payment remains WP-13 in progress.
+
+**PR #12 L-2 rounding bound:** when a valuation books less than one base unit, the accrual clock is retained.
+An entrant can therefore bear less than `(new base / old base)` USDC base units for pre-entry time; at a 100-USDC
+old base and approximately 1M-USDC new base, the scale is about 0.01 USDC. This is dust, not exact entry-time isolation.
+The bound assumes positive old base; it is a local accrual-rounding bound, not a global loss bound. NatSpec is
+intentionally unchanged in this docs-only work package.
+
+The existing Operating Cash bucket remains **base token**, not native ETH, and has no native 0.5-ETH cap. Nothing
+spends it in this MVP. `CreateFund.s.sol` and the harness default floor/top-up to 0 (PR #12); this is not an enforced
+factory-wide zero setting, since managers can change existing parameters. Native Operating Cash, refunds and gas
+bridge/unwrap are deferred by ruling 2026-10-02 despite DEC-185's MVP requirement. Manager pays own gas (DEC-187);
+keeper pays reporting/delivery/order gas. Bridge fees reduce delivered value.
+
+## 8. Security and verification
+
+Internal alpha is not an external audit or a promise of public readiness. The API signer is immutable for each swap
+adapter/factory version; deployment defaults ManagerRegistry owner to that signer, but `REGISTRY_OWNER` can differ
+and registry ownership can transfer. Signer compromise remains a permanent route-signing risk for those adapters.
+Guardian pause/deprecation is immutable adapter wiring, not a guarantee of safe manager execution.
+
+Accepted/unfinished risks, including manager swaps, spot-reference manipulation, stale reports, missing dollar
+attribution/closure and zero-default Operating Cash, are in [KNOWN-LIMITATIONS](security/KNOWN-LIMITATIONS.md).
+Public gates follow unit tests -> invariants -> formal verification -> independent audit (DEC-133/134).
+Run build/sizes, format, size completeness and all non-fork tests; fork suites are required when affected.
+Baseline evidence and exact measured runtime margins are in [BASELINE-2026-10-02](security/BASELINE-2026-10-02.md).
