@@ -122,7 +122,7 @@ contract SpokeVaultAdversarialSpokeTest is SpokeVaultTestBase {
 
     /// @dev A window of listable arrivals (each at least `MIN_LISTED_ARRIVAL`) still evicts a genuine id: the attack
     ///      now costs `ARRIVAL_WINDOW` USDG donated to the fund, and the hub no longer takes a full window as proof of
-    ///      non-arrival (CoreVaultLogic.nonArrivalProvable), so the eviction cannot turn into a double count.
+    ///      non-arrival (CoreVaultTransitLogic.nonArrivalProvable), so the eviction cannot turn into a double count.
     function test_OQ09_evictionNeedsAFullWindowOfListableArrivals() public {
         _arrive(1000e6, GENUINE, TransferKind.Principal);
         for (uint256 i; i < SpokeVaultTypes.ARRIVAL_WINDOW; ++i) {

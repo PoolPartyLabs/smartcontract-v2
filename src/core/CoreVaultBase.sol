@@ -19,8 +19,9 @@ import {CoreVaultLogic} from "./CoreVaultLogic.sol";
 /// @title CoreVaultBase
 /// @notice Wiring, storage, value-base views and Operating Cash of the Core Vault. See ICoreVault.
 /// @dev Split out of CoreVault only to keep each source file reviewable; the abstract layers compile into one
-///      contract, and the heavy report logic lives in the linked external library CoreVaultLogic. Every event and
-///      error, the library's included, is declared in ICoreVault or ICoreVaultLifecycle.
+///      contract, and the heavy logic lives in the linked external libraries (`CoreVaultLogic`,
+///      `CoreVaultTransitLogic`). Every event and error, the libraries' included, is declared in ICoreVault or
+///      ICoreVaultLifecycle.
 abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGuardTransient {
     using IncomeAccumulator for IncomeAccumulator.State;
 

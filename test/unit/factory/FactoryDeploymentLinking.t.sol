@@ -20,11 +20,17 @@ contract FactoryDeploymentLinkingTest is Test, FactoryDeployment {
         assertFalse(vm.contains(code, "__$"), "no placeholder left");
     }
 
-    function test_DEC131_hubAlsoDeploysTheCoreVaultLibrary() public {
+    function test_DEC131_hubAlsoDeploysTheCoreVaultLibraries() public {
         Deployment memory d;
         _deployLibraries(true, d);
+        string memory code = vm.toString(_coreVaultCreationCode(d));
         assertTrue(d.coreVaultLogic.code.length != 0, "CoreVaultLogic deployed on the hub");
-        assertTrue(vm.contains(vm.toString(_coreVaultCreationCode(d)), _bareHex(d.coreVaultLogic)));
+        assertTrue(vm.contains(code, _bareHex(d.coreVaultLogic)), "CoreVaultLogic linked");
+        assertTrue(d.coreVaultTransitLogic.code.length != 0, "CoreVaultTransitLogic deployed on the hub");
+        assertTrue(vm.contains(code, _bareHex(d.coreVaultTransitLogic)), "CoreVaultTransitLogic linked");
+        assertFalse(vm.contains(code, "__$"), "no placeholder left");
+        // Library into library: the transit library calls CoreVaultLogic through its own linked address.
+        assertTrue(vm.contains(vm.toString(d.coreVaultTransitLogic.code), _bareHex(d.coreVaultLogic)));
     }
 
     /// @notice `CreateFund` links the Core Vault code to the predicted addresses, so they must be where step 2 deploys.

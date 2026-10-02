@@ -20,12 +20,13 @@ import {CoreVaultLogic} from "./CoreVaultLogic.sol";
 ///         states, Payout Requests and Payouts, the Attributed Income bucket and Income Withdrawal, sends to spokes and
 ///         the transit state machine.
 /// @dev See ICoreVault and ICoreVaultLifecycle for the rules of every verb. DEC-022, DEC-058: no proxy, no upgrade
-///      path, no selfdestruct. The value bases, report application, sends and transit outcomes live in the linked
-///      external library `CoreVaultLogic`, called by DELEGATECALL over this vault's storage: its address is part of the
-///      creation code and trust surface; the factory deploys it once per chain and pins it. It is the only DELEGATECALL
-///      the vault makes; the Core Vault never calls an adapter. DEC-054: never calls an adapter; reads the hub Spoke
-///      Vault and the ValueReportReceiver. Every value-moving external entry is `nonReentrant` (the two hub Spoke Vault
-///      callbacks are guarded as described in the base).
+///      path, no selfdestruct. The value bases and collected income live in the linked external library
+///      `CoreVaultLogic`, report application, sends and transit outcomes in `CoreVaultTransitLogic` (DEC-131 pattern,
+///      D-43), each called by DELEGATECALL over this vault's storage: their addresses are part of the creation code and
+///      trust surface; the operator deploys them once per chain and the factory pins the code linked to them. They are
+///      the only DELEGATECALLs the vault makes; the Core Vault never calls an adapter. DEC-054: never calls an
+///      adapter; reads the hub Spoke Vault and the ValueReportReceiver. Every value-moving external entry is
+///      `nonReentrant` (the two hub Spoke Vault callbacks are guarded as described in the base).
 contract CoreVault is CoreVaultTransit {
     using SafeERC20 for IERC20;
     using IncomeAccumulator for IncomeAccumulator.State;

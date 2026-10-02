@@ -31,6 +31,9 @@ abstract contract FactoryDeployment is CommonBase {
 
     string internal constant CORE_VAULT_ARTIFACT = "out/CoreVault.sol/CoreVault.json";
     string internal constant CORE_VAULT_LOGIC_ID = "src/core/CoreVaultLogic.sol:CoreVaultLogic";
+    string internal constant CORE_VAULT_TRANSIT_LOGIC_ARTIFACT =
+        "out/CoreVaultTransitLogic.sol/CoreVaultTransitLogic.json";
+    string internal constant CORE_VAULT_TRANSIT_LOGIC_ID = "src/core/CoreVaultTransitLogic.sol:CoreVaultTransitLogic";
     string internal constant SPOKE_VAULT_ARTIFACT = "out/SpokeVault.sol/SpokeVault.json";
     string internal constant SPOKE_CROSS_CHAIN_LIB_ID = "src/spoke/SpokeCrossChainLib.sol:SpokeCrossChainLib";
     string internal constant SPOKE_UNWIND_LIB_ID = "src/spoke/SpokeUnwindLib.sol:SpokeUnwindLib";
@@ -90,6 +93,7 @@ abstract contract FactoryDeployment is CommonBase {
     struct Deployment {
         address create3Deployer;
         address coreVaultLogic;
+        address coreVaultTransitLogic;
         address spokeCrossChainLib;
         address spokeUnwindLib;
         address managerRegistry;
@@ -192,6 +196,11 @@ abstract contract FactoryDeployment is CommonBase {
         d.spokeUnwindLib = _library(vm.getCode("SpokeUnwindLib.sol:SpokeUnwindLib"), deploy);
         if (!hub) return;
         d.coreVaultLogic = _library(vm.getCode("CoreVaultLogic.sol:CoreVaultLogic"), deploy);
+        // Library-into-library links: a library that calls another is linked to it before its own address is known.
+        string[] memory ids = new string[](1);
+        address[] memory libraries = new address[](1);
+        (ids[0], libraries[0]) = (CORE_VAULT_LOGIC_ID, d.coreVaultLogic);
+        d.coreVaultTransitLogic = _library(_linked(CORE_VAULT_TRANSIT_LOGIC_ARTIFACT, ids, libraries), deploy);
     }
 
     /// @notice A library's address under `LIBRARY_SALT`, deployed there first when `deploy` is set.
@@ -257,9 +266,10 @@ abstract contract FactoryDeployment is CommonBase {
     /// @notice The Core Vault creation code linked to the deployment's Core Vault libraries (what `createFund` takes in
     ///         calldata).
     function _coreVaultCreationCode(Deployment memory d) internal view returns (bytes memory) {
-        string[] memory ids = new string[](1);
-        address[] memory libraries = new address[](1);
+        string[] memory ids = new string[](2);
+        address[] memory libraries = new address[](2);
         (ids[0], libraries[0]) = (CORE_VAULT_LOGIC_ID, d.coreVaultLogic);
+        (ids[1], libraries[1]) = (CORE_VAULT_TRANSIT_LOGIC_ID, d.coreVaultTransitLogic);
         return _linked(CORE_VAULT_ARTIFACT, ids, libraries);
     }
 
