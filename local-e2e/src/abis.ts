@@ -67,6 +67,25 @@ export const wormholeCoreAbi = parseAbi([
   "function messageFee() view returns (uint256)",
 ]);
 
+/** The order channel's consumer (`SpokeVault.executeOrder`, WP-07 plan D4) and the errors of
+ *  src/libraries/OrderVerifier.sol and OrderCodec.sol, for the keeper's relay before the entry is in the exported
+ *  Spoke Vault ABI. */
+export const orderChannelAbi = parseAbi([
+  "function executeOrder(bytes vaa) payable returns (uint64 reportSequence)",
+  "event OrderExecuted(uint8 kind, bytes32 orderId, uint64 wormholeSequence)",
+  "error InvalidOrderVaa(string reason)",
+  "error OrderEmitterChainMismatch(uint16 emitterChainId)",
+  "error OrderEmitterMismatch(bytes32 emitterAddress)",
+  "error OrderSequenceTooLow(uint64 minSequence, uint64 sequence)",
+  "error OrderFundMismatch(bytes32 fundId)",
+  "error OrderExpired(uint64 deadline)",
+  "error UnsupportedOrderVersion(uint256 version)",
+  "error OrderPayloadTooShort(uint256 length)",
+  "error UnknownOrderKind(uint8 kind)",
+  "error InvalidOrderFraction(uint256 fracNum, uint256 fracDen)",
+  "error InvalidPayoutMode(uint8 payoutMode)",
+]);
+
 export const stateViewAbi = parseAbi([
   "function getSlot0(bytes32 poolId) view returns (uint160 sqrtPriceX96, int24 tick, uint24 protocolFee, uint24 lpFee)",
   "function getLiquidity(bytes32 poolId) view returns (uint128)",
@@ -115,6 +134,7 @@ export const allErrorsAbi: Abi = (() => {
     managerRegistryAbi,
     chainlinkPriceSourceAbi,
     acrossSpokePoolAbi,
+    orderChannelAbi,
   ];
   for (const abi of all) {
     for (const item of abi) {

@@ -7,9 +7,14 @@
 //       transfers the output token and calls `handleV3AcrossMessage` itself. If that path fails for a reason other
 //       than "already filled" or "expired", it falls back to a simulated fill (the SpokePool impersonated: output
 //       token dealt to the recipient, handler called from the pool address) and says so.
-//   (b) Wormhole guardians: watches `LogMessagePublished` on the Robinhood Core for messages from known Spoke Vaults,
-//       signs the VAA with the local guardian after a delay (KEEPER_VAA_DELAY_SECONDS, default 3; production is 15
-//       to 20 minutes) and calls `ValueReportReceiver.deliver(vaa)` on the hub.
+//   (b) Wormhole guardians and relayer, both ways: every `LogMessagePublished` from a fund emitter becomes a VAA the
+//       local guardian signs, delivered to its consumer:
+//       - a spoke report (emitter: a known Robinhood Spoke Vault, finalized) after KEEPER_VAA_DELAY_SECONDS (default
+//         3; production is 15 to 20 minutes of finality) to `ValueReportReceiver.deliver(vaa)` on the hub (DEC-086);
+//       - a Hub order (emitter: a known Core Vault on Arbitrum, instant consistency) after KEEPER_ORDER_DELAY_SECONDS
+//         (default 1) to the fund's Robinhood `SpokeVault.executeOrder(vaa)`, paying the Robinhood Core's message fee
+//         for the report it publishes in the same transaction (DEC-120, DEC-139). Until the Spoke Vault has
+//         `executeOrder` (WP-07) the order is logged and skipped.
 //   (c) optional `--auto-report <seconds>`: calls `SpokeVault.report()` on every known spoke on a cadence, as the
 //       production keeper would (the hub refuses mints once the last report is older than maxReportAge, 1588 s).
 //   plus: re-stamps the Chainlink ETH / USD round when it gets old (see price-feed.ts).
@@ -18,7 +23,7 @@
 // or by `pnpm scenario --new-fund` are served too. Every action is idempotent (fill status and last delivered
 // sequence are checked first), so a restart rescans from the fork block safely.
 //
-// Usage: pnpm keeper [--auto-report <seconds>] [--vaa-delay <seconds>] [--fill-delay <seconds>]
+// Usage: pnpm keeper [--auto-report <seconds>] [--vaa-delay <seconds>] [--order-delay <seconds>] [--fill-delay <seconds>]
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import {
   encodeAbiParameters,
@@ -35,6 +40,7 @@ import {
   coreVaultAbi,
   erc20Abi,
   fundFactoryAbi,
+  orderChannelAbi,
   spokeVaultAbi,
   valueReportReceiverAbi,
   wormholeCoreAbi,
@@ -53,19 +59,23 @@ import {
   ARBITRUM,
   KEEPER_PID_FILE,
   ROBINHOOD,
+  WORMHOLE_ARBITRUM,
   WORMHOLE_ROBINHOOD,
   actors,
   isMain,
 } from "./config.ts";
 import { mappingSlot, setTokenBalance } from "./fund-accounts.ts";
-import { signVaa, universal } from "./guardian.ts";
+import { guardianSetIndexOf, signVaa, universal } from "./guardian.ts";
 import { logger, units, type Logger } from "./log.ts";
+import { ORDER_KIND_NAME, decodeOrder, hasExecuteOrder, orderId } from "./orders.ts";
 import { ensureFeedFresh } from "./price-feed.ts";
 import { readState, type BalanceLayout, type DeploymentState } from "./state.ts";
 
 export interface KeeperOptions {
-  /** Seconds between a published message and its delivery (production: 15 to 20 minutes of finality). */
+  /** Seconds between a published report and its delivery (production: 15 to 20 minutes of finality). */
   vaaDelaySeconds: number;
+  /** Seconds between a published Hub order and its execution on the spoke (instant consistency: seconds). */
+  orderDelaySeconds: number;
   /** Seconds between a deposit and its fill (production: seconds to minutes, relayer dependent). */
   fillDelaySeconds: number;
   /** Cadence of `SpokeVault.report()` on every known spoke; 0 disables it. */
@@ -80,6 +90,7 @@ export interface KeeperOptions {
 
 export const DEFAULT_KEEPER_OPTIONS: KeeperOptions = {
   vaaDelaySeconds: Number(process.env.KEEPER_VAA_DELAY_SECONDS ?? 3),
+  orderDelaySeconds: Number(process.env.KEEPER_ORDER_DELAY_SECONDS ?? 1),
   fillDelaySeconds: Number(process.env.KEEPER_FILL_DELAY_SECONDS ?? 1),
   autoReportSeconds: Number(process.env.KEEPER_AUTO_REPORT_SECONDS ?? 0),
   fillMode: (process.env.KEEPER_FILL_MODE as KeeperOptions["fillMode"]) ?? "auto",
@@ -103,6 +114,10 @@ export interface KeeperStats {
   fills: number;
   simulatedFills: number;
   deliveries: number;
+  /** Hub orders executed on a Spoke Vault. */
+  orders: number;
+  /** Hub orders relayed while the Spoke Vault had no `executeOrder` yet (WP-07), so skipped. */
+  ordersSkipped: number;
   reports: number;
   errors: number;
 }
@@ -168,13 +183,15 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
   const acrossLog = log.child("across");
   const wormholeLog = log.child("wormhole");
   const keeper = actors.keeper;
-  const stats: KeeperStats = { fills: 0, simulatedFills: 0, deliveries: 0, reports: 0, errors: 0 };
+  const stats: KeeperStats = { fills: 0, simulatedFills: 0, deliveries: 0, orders: 0, ordersSkipped: 0, reports: 0, errors: 0 };
 
   const funds = new Map<Hex, FundEntry>();
   const byVault = new Map<string, FundEntry>(); // lowercased Core Vault or Robinhood Spoke Vault -> fund
   const pending = new Set<Promise<unknown>>();
   let stopped = false;
-  let guardianSetIndex: number | undefined;
+  // The receiving Core's guardian set: Arbitrum for reports, Robinhood for orders.
+  const guardianSets: Partial<Record<Side, number>> = {};
+  const guardianSetOf = async (side: Side) => (guardianSets[side] ??= await guardianSetIndexOf(side));
 
   const register = (entry: FundEntry) => {
     const existing = funds.get(entry.fundId);
@@ -408,6 +425,16 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
 
   const deliveryChains = new Map<string, Promise<void>>();
 
+  /** Runs `task` after `delaySeconds`, after every earlier delivery of the same emitter (sequence order). */
+  function inSequence(emitter: Address, delaySeconds: number, task: () => Promise<void>) {
+    const key = emitter.toLowerCase();
+    const deliverAt = Date.now() + delaySeconds * 1000;
+    const previous = deliveryChains.get(key) ?? Promise.resolve();
+    const next = previous.then(() => later((deliverAt - Date.now()) / 1000, task));
+    deliveryChains.set(key, next);
+    track(next);
+  }
+
   async function deliver(fund: FundEntry, message: DecodedLog, blockTimestamp: number) {
     const a = message.args;
     const sequence = a.sequence as bigint;
@@ -420,11 +447,6 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
       wormholeLog.info("already delivered", fields);
       return;
     }
-    guardianSetIndex ??= await read<number>("arbitrum", {
-      address: ARBITRUM.wormholeCore,
-      abi: wormholeCoreAbi,
-      functionName: "getCurrentGuardianSetIndex",
-    });
     const vaa = await signVaa(
       {
         timestamp: blockTimestamp,
@@ -435,7 +457,7 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
         consistencyLevel: Number(a.consistencyLevel),
         payload: a.payload,
       },
-      guardianSetIndex,
+      await guardianSetOf("arbitrum"),
     );
     try {
       const sent = await send<readonly [bigint, bigint]>("arbitrum", "keeper", {
@@ -461,7 +483,7 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
     }
   }
 
-  async function onMessage(message: DecodedLog) {
+  async function onReportMessage(message: DecodedLog) {
     const fund = byVault.get((message.args.sender as Address).toLowerCase());
     if (!fund || fund.spokeVault?.toLowerCase() !== (message.args.sender as Address).toLowerCase()) return;
     const block = await nodes.robinhood.client.getBlock({ blockNumber: message.blockNumber! });
@@ -472,14 +494,88 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
       deliverIn: `${options.vaaDelaySeconds}s`,
     });
     // Deliveries of one emitter run in sequence order, each no earlier than its own publication plus the delay.
-    const key = fund.spokeVault!.toLowerCase();
-    const deliverAt = Date.now() + options.vaaDelaySeconds * 1000;
-    const previous = deliveryChains.get(key) ?? Promise.resolve();
-    const next = previous.then(() =>
-      later((deliverAt - Date.now()) / 1000, () => deliver(fund, message, Number(block.timestamp))),
+    inSequence(fund.spokeVault!, options.vaaDelaySeconds, () => deliver(fund, message, Number(block.timestamp)));
+  }
+
+  /** Spoke Vaults whose code has `executeOrder` (code never changes at an address; a missing one is re-checked). */
+  const executors = new Set<string>();
+  async function canExecuteOrders(spokeVault: Address): Promise<boolean> {
+    if (executors.has(spokeVault.toLowerCase())) return true;
+    if (!hasExecuteOrder(await nodes.robinhood.client.getCode({ address: spokeVault }))) return false;
+    executors.add(spokeVault.toLowerCase());
+    return true;
+  }
+
+  /** DEC-120 items 1-2, DEC-139: the order VAA, signed for the Robinhood Core, executed on the fund's Spoke Vault by
+   *  the keeper (any address may), paying the message fee of the report `executeOrder` publishes. */
+  async function executeOrder(fund: FundEntry, message: DecodedLog, blockTimestamp: number) {
+    const a = message.args;
+    const order = decodeOrder(a.payload);
+    const fields = {
+      emitter: fund.coreVault,
+      sequence: a.sequence as bigint,
+      kind: order ? ORDER_KIND_NAME[order.kind] ?? order.kind : "undecodable",
+      orderId: order ? orderId(order).slice(0, 18) : undefined,
+      spokeVault: fund.spokeVault,
+    };
+    if (!fund.spokeVault) {
+      wormholeLog.warn("Hub order for a fund without a known Robinhood Spoke Vault; not relayed", fields);
+      return;
+    }
+    if (!(await canExecuteOrders(fund.spokeVault))) {
+      stats.ordersSkipped++;
+      wormholeLog.warn("Hub order seen, but the Spoke Vault has no executeOrder yet (WP-07): skipped", fields);
+      return;
+    }
+    const vaa = await signVaa(
+      {
+        timestamp: blockTimestamp,
+        nonce: Number(a.nonce),
+        emitterChainId: WORMHOLE_ARBITRUM,
+        emitterAddress: universal(a.sender),
+        sequence: a.sequence,
+        consistencyLevel: Number(a.consistencyLevel),
+        payload: a.payload,
+      },
+      await guardianSetOf("robinhood"),
     );
-    deliveryChains.set(key, next);
-    track(next);
+    const fee = await read<bigint>("robinhood", { address: ROBINHOOD.wormholeCore, abi: wormholeCoreAbi, functionName: "messageFee" });
+    try {
+      const sent = await send<bigint>("robinhood", "keeper", {
+        address: fund.spokeVault,
+        abi: orderChannelAbi,
+        functionName: "executeOrder",
+        args: [vaa],
+        value: fee,
+      });
+      stats.orders++;
+      wormholeLog.info("Hub order executed on the Spoke Vault", { ...fields, reportSequence: sent.result, tx: sent.hash });
+    } catch (err) {
+      const revert = revertOf(err)?.name;
+      if (revert === "OrderSequenceTooLow") {
+        wormholeLog.info("order already executed or superseded by a later one", fields);
+        return;
+      }
+      if (revert === "OrderExpired") {
+        wormholeLog.warn("order expired before delivery; the request's retry republishes it (DEC-151)", fields);
+        return;
+      }
+      throw err;
+    }
+  }
+
+  async function onOrderMessage(message: DecodedLog) {
+    const sender = (message.args.sender as Address).toLowerCase();
+    const fund = byVault.get(sender);
+    if (!fund || fund.coreVault.toLowerCase() !== sender) return;
+    const block = await nodes.arbitrum.client.getBlock({ blockNumber: message.blockNumber! });
+    wormholeLog.info("Hub order published", {
+      emitter: fund.coreVault,
+      sequence: message.args.sequence,
+      consistency: message.args.consistencyLevel,
+      executeIn: `${options.orderDelaySeconds}s`,
+    });
+    inSequence(fund.coreVault, options.orderDelaySeconds, () => executeOrder(fund, message, Number(block.timestamp)));
   }
 
   // --------------------------------------------------------------------------------------------------------------
@@ -540,9 +636,10 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
     const client = nodes[side].client;
     const address =
       side === "arbitrum"
-        ? [state.protocol.arbitrum.fundFactory, ARBITRUM.acrossSpokePool]
+        ? [state.protocol.arbitrum.fundFactory, ARBITRUM.acrossSpokePool, ARBITRUM.wormholeCore]
         : [state.protocol.robinhood.fundFactory, ROBINHOOD.acrossSpokePool, ROBINHOOD.wormholeCore];
-    const events = side === "arbitrum" ? [FUND_CREATED, FUNDS_DEPOSITED] : [SPOKE_CREATED, FUNDS_DEPOSITED, MESSAGE_PUBLISHED];
+    const events =
+      side === "arbitrum" ? [FUND_CREATED, FUNDS_DEPOSITED, MESSAGE_PUBLISHED] : [SPOKE_CREATED, FUNDS_DEPOSITED, MESSAGE_PUBLISHED];
     const logs = await client.getLogs({ address, events: events as never, fromBlock: from, toBlock: to, strict: true } as never);
     return logs as unknown as DecodedLog[];
   }
@@ -567,7 +664,8 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
     }
     for (const entry of logs) {
       if (entry.eventName === "FundsDeposited") onDeposit(side, entry);
-      else if (entry.eventName === "LogMessagePublished") await onMessage(entry);
+      else if (entry.eventName === "LogMessagePublished" && side === "robinhood") await onReportMessage(entry);
+      else if (entry.eventName === "LogMessagePublished") await onOrderMessage(entry);
     }
   }
 
@@ -627,6 +725,7 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
     fillMode: options.fillMode,
     fillDelay: `${options.fillDelaySeconds}s`,
     vaaDelay: `${options.vaaDelaySeconds}s`,
+    orderDelay: `${options.orderDelaySeconds}s`,
     autoReport: options.autoReportSeconds > 0 ? `${options.autoReportSeconds}s` : "off",
     relayer: keeper.address,
   });
@@ -656,11 +755,14 @@ function parseArgs(argv: string[]): KeeperOptions {
     };
     if (flag === "--auto-report") options.autoReportSeconds = Number(value());
     else if (flag === "--vaa-delay") options.vaaDelaySeconds = Number(value());
+    else if (flag === "--order-delay") options.orderDelaySeconds = Number(value());
     else if (flag === "--fill-delay") options.fillDelaySeconds = Number(value());
     else if (flag === "--fill-mode") options.fillMode = value() as KeeperOptions["fillMode"];
     else if (flag === "--quiet") options.quiet = true;
     else if (flag === "--help" || flag === "-h") {
-      console.log("pnpm keeper [--auto-report <seconds>] [--vaa-delay <seconds>] [--fill-delay <seconds>] [--fill-mode auto|real|simulated]");
+      console.log(
+        "pnpm keeper [--auto-report <seconds>] [--vaa-delay <seconds>] [--order-delay <seconds>] [--fill-delay <seconds>] [--fill-mode auto|real|simulated]",
+      );
       process.exit(0);
     } else throw new Error(`unknown flag ${flag}`);
   }
