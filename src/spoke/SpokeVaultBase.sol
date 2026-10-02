@@ -54,6 +54,9 @@ abstract contract SpokeVaultBase is ISpokeVault, ReentrancyGuard {
     address public immutable excessRecipient;
     /// @notice This spoke's report lifetime from the Mandate (DEC-099; value OPEN, Q57 / Q66). 0 on the hub.
     uint32 public immutable maxReportAge;
+    /// @dev The Mandate's Hub Wormhole chain id (D-15): the only emitter chain whose orders `executeOrder` accepts
+    ///      (DEC-120, DEC-139).
+    uint16 internal immutable _hubWormholeChainId;
 
     /// @dev Pinned Mandate copy, ledger and cross-chain books.
     SpokeVaultTypes.State internal _s;
@@ -134,6 +137,7 @@ abstract contract SpokeVaultBase is ISpokeVault, ReentrancyGuard {
         mandateHash = mandate_.hash();
         manager = mandate_.manager;
         hubChainId = mandate_.hubChainId;
+        _hubWormholeChainId = mandate_.hubWormholeChainId;
         chainId = chainId_;
         onHubChain = hub;
         coreVault = coreVault_;

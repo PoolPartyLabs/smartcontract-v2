@@ -43,6 +43,7 @@ abstract contract FactoryDeployment is CommonBase {
     string internal constant SPOKE_VAULT_ARTIFACT = "out/SpokeVault.sol/SpokeVault.json";
     string internal constant SPOKE_CROSS_CHAIN_LIB_ID = "src/spoke/SpokeCrossChainLib.sol:SpokeCrossChainLib";
     string internal constant SPOKE_UNWIND_LIB_ID = "src/spoke/SpokeUnwindLib.sol:SpokeUnwindLib";
+    string internal constant SPOKE_INCOME_LIB_ID = "src/spoke/SpokeIncomeLib.sol:SpokeIncomeLib";
 
     // Chains (docs/INTEGRATIONS.md).
     uint256 internal constant ARBITRUM = 42_161;
@@ -119,6 +120,7 @@ abstract contract FactoryDeployment is CommonBase {
         address managerRegistry;
         address priceSource;
         FundFactory factory;
+        address spokeIncomeLib;
     }
 
     /// @notice Deploys the whole protocol stack of this chain (Arbitrum One or Robinhood Chain) and its factory.
@@ -228,6 +230,7 @@ abstract contract FactoryDeployment is CommonBase {
     function _libraries(bool hub, Deployment memory d, bool deploy) private {
         d.spokeCrossChainLib = _library(vm.getCode("SpokeCrossChainLib.sol:SpokeCrossChainLib"), deploy);
         d.spokeUnwindLib = _library(vm.getCode("SpokeUnwindLib.sol:SpokeUnwindLib"), deploy);
+        d.spokeIncomeLib = _library(vm.getCode("SpokeIncomeLib.sol:SpokeIncomeLib"), deploy);
         if (!hub) return;
         // Library-into-library links: a library that calls another is linked to it, so it is deployed after it and
         // linked to the addresses deployed so far. CoreVaultIncomeLogic calls none of them, CoreVaultLogic calls it
@@ -341,10 +344,11 @@ abstract contract FactoryDeployment is CommonBase {
     /// @notice The Spoke Vault creation code linked to the deployment's Spoke Vault libraries (the code the factory
     ///         stores and pins by hash).
     function _spokeVaultCreationCode(Deployment memory d) internal view returns (bytes memory) {
-        string[] memory ids = new string[](2);
-        address[] memory libraries = new address[](2);
+        string[] memory ids = new string[](3);
+        address[] memory libraries = new address[](3);
         (ids[0], libraries[0]) = (SPOKE_CROSS_CHAIN_LIB_ID, d.spokeCrossChainLib);
         (ids[1], libraries[1]) = (SPOKE_UNWIND_LIB_ID, d.spokeUnwindLib);
+        (ids[2], libraries[2]) = (SPOKE_INCOME_LIB_ID, d.spokeIncomeLib);
         return _linked(SPOKE_VAULT_ARTIFACT, ids, libraries);
     }
 

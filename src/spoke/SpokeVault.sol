@@ -10,10 +10,12 @@ import {IAdapter} from "../interfaces/IAdapter.sol";
 import {Transit, TransferKind, BridgeQuote} from "../interfaces/FundTypes.sol";
 import {Mandate} from "../mandate/Mandate.sol";
 import {ReportCodec} from "../libraries/ReportCodec.sol";
+import {OrderCodec} from "../libraries/OrderCodec.sol";
 import {TransitMessage} from "../libraries/TransitMessage.sol";
 import {SpokeVaultTypes} from "./SpokeVaultTypes.sol";
 import {SpokeCrossChainLib} from "./SpokeCrossChainLib.sol";
 import {SpokeLedger} from "./SpokeLedger.sol";
+import {SpokeUnwindLib} from "./SpokeUnwindLib.sol";
 import {SpokeVaultBase} from "./SpokeVaultBase.sol";
 import {SpokeVaultUnwind} from "./SpokeVaultUnwind.sol";
 import {SpokeVaultIncome} from "./SpokeVaultIncome.sol";
@@ -24,13 +26,15 @@ import {SpokeVaultIncome} from "./SpokeVaultIncome.sol";
 ///      talks to the Core Vault, publishes no report and holds no Operating Cash; the spoke role receives Across fills,
 ///      sends home and publishes value reports through the Wormhole Core Bridge.
 /// @dev The source is split by concern like the Core Vault's (WP-07 A3, DEC-131 pattern): `SpokeVaultBase` (identity,
-///      wiring, storage, modifiers, construction), `SpokeVaultUnwind` (the automatic unwind), `SpokeVaultIncome` (the
-///      collected income verbs) and this contract (the manager's position verbs, the cross-chain verbs, the hub
-///      interplay, the garbage collector and the views), compiled into one contract with an unchanged ABI.
+///      wiring, storage, modifiers, construction), `SpokeVaultUnwind` (the automatic unwind, the unwind and closure
+///      order executors), `SpokeVaultIncome` (the collected income verbs, the collection order executor) and this
+///      contract (the manager's position verbs, the cross-chain verbs and the order entry, the hub interplay, the
+///      garbage collector and the views), compiled into one contract.
 /// @dev DEC-022, DEC-058: no proxy, no upgrade path, no selfdestruct. The constructor takes everything it needs, so the
 ///      FundFactory deploys it at a CREATE3 address that depends only on the factory and the salt (fund id, role,
 ///      chain id), never on this creation code (DEC-054). The Spoke Chain half (send home, refunds, report) lives in the
-///      linked external library `SpokeCrossChainLib` and the automatic unwind in `SpokeUnwindLib` (DEC-131); both run
+///      linked external library `SpokeCrossChainLib`, the automatic unwind and the order checks in `SpokeUnwindLib`
+///      (DEC-131) and the income collection in `SpokeIncomeLib` (WP-07 D5); all three run
 ///      by DELEGATECALL over this vault's storage and hold none of their own: their addresses are part of this vault's
 ///      creation code and trust surface (immutable, no upgrade path). The operator deploys them once per chain at
 ///      chain-independent addresses (so the linked creation code and its hash are the same on every chain) and the
@@ -234,11 +238,22 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
         nonReentrant
         returns (uint64 sequence, uint64 wormholeSequence)
     {
-        bytes memory payload;
-        (sequence, payload) = SpokeCrossChainLib.nextReport(_s, _config());
-        wormholeSequence =
-            ICoreBridge(wormholeCore).publishMessage{value: msg.value}(WORMHOLE_NONCE, payload, WORMHOLE_FINALIZED);
-        emit ReportPublished(sequence, wormholeSequence, uint64(block.number));
+        return _publishReport();
+    }
+
+    /// @inheritdoc ISpokeVault
+    /// @dev The order checks run in the linked `SpokeUnwindLib` (WP-07 D4: about 2.1 KB this vault keeps free); they
+    ///      move the order cursor before the order runs, so a replay or a re-entered delivery of it is refused
+    ///      (DEC-093). The executors live in `SpokeVaultUnwind` (unwind, closure) and `SpokeVaultIncome` (collection).
+    function executeOrder(bytes calldata vaa) external payable onlyOnSpokeChain nonReentrant returns (uint64 sequence) {
+        (OrderCodec.Order memory o, bytes32 orderId, uint64 orderSequence) =
+            SpokeUnwindLib.acceptOrder(_s, wormholeCore, _hubWormholeChainId, coreVault, fundId, vaa);
+        // `OrderCodec.check` admits these three kinds only.
+        if (o.kind == OrderCodec.UNWIND) _executeUnwindOrder(o);
+        else if (o.kind == OrderCodec.CLOSE) _executeCloseOrder(o);
+        else _executeCollectOrder(o);
+        emit OrderExecuted(o.kind, orderId, orderSequence);
+        (sequence,) = _publishReport();
     }
 
     /// @inheritdoc ISpokeVault
@@ -281,6 +296,16 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
         _s.requireBacked(baseToken, tokenSent);
         emit TransitArrived(transitId, originChainId, tokenSent, amount, kind);
         _topUpOperatingCash();
+    }
+
+    /// @dev DEC-070, DEC-093: builds the next report and publishes it with finalized consistency; `msg.value` is the
+    ///      Wormhole message fee.
+    function _publishReport() private returns (uint64 sequence, uint64 wormholeSequence) {
+        bytes memory payload;
+        (sequence, payload) = SpokeCrossChainLib.nextReport(_s, _config());
+        wormholeSequence =
+            ICoreBridge(wormholeCore).publishMessage{value: msg.value}(WORMHOLE_NONCE, payload, WORMHOLE_FINALIZED);
+        emit ReportPublished(sequence, wormholeSequence, uint64(block.number));
     }
 
     // ---------------------------------------------------------------------------------------------------------------

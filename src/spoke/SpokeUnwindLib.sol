@@ -9,6 +9,8 @@ import {IAdapter} from "../interfaces/IAdapter.sol";
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
 import {IPriceSource} from "../interfaces/IPriceSource.sol";
 import {MandateLib} from "../mandate/Mandate.sol";
+import {OrderCodec} from "../libraries/OrderCodec.sol";
+import {OrderVerifier} from "../libraries/OrderVerifier.sol";
 import {SpokeVaultTypes} from "./SpokeVaultTypes.sol";
 import {SpokeUnwindTypes} from "./SpokeUnwindTypes.sol";
 import {SpokeLedger} from "./SpokeLedger.sol";
@@ -30,6 +32,25 @@ library SpokeUnwindLib {
     ///      can be moved within a block by the claimant); a claimant hint may only raise the minimum. Published by the
     ///      vault as `SpokeVault.MAX_UNWIND_SLIPPAGE_BPS`.
     uint256 internal constant MAX_UNWIND_SLIPPAGE_BPS = 500;
+
+    /// @notice The checks of `SpokeVault.executeOrder` (DEC-111, DEC-120 item 2, DEC-139, DEC-093): `OrderVerifier.accept`
+    ///         on the vault's order cursor, which also moves the cursor past the order, then the order's id.
+    /// @dev Here rather than inlined in the vault: the checks and the id take about 2.1 KB, measured (plan §9, WP-07 D4).
+    ///      The vault checks the chain and reentrancy first and executes the order after.
+    /// @return o The decoded and checked order (`OrderCodec.check`).
+    /// @return orderId `OrderCodec.orderId(o)`, the id the Core Vault published it under.
+    /// @return wormholeSequence The order message's Wormhole sequence.
+    function acceptOrder(
+        SpokeVaultTypes.State storage s,
+        address wormholeCore,
+        uint16 hubWormholeChainId,
+        address coreVault,
+        bytes32 fundId,
+        bytes calldata vaa
+    ) external returns (OrderCodec.Order memory o, bytes32 orderId, uint64 wormholeSequence) {
+        (o, wormholeSequence) = OrderVerifier.accept(s.orders, wormholeCore, vaa, hubWormholeChainId, coreVault, fundId);
+        orderId = OrderCodec.orderId(o);
+    }
 
     /// @notice Body of `ISpokeVault.unwindForPayout`; the vault checks the chain, the caller and reentrancy first.
     /// @dev Interim order (DEC-137, DEC-139 with Mandate v2): the Mandate no longer carries an unwind order, so the
