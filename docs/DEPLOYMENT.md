@@ -43,6 +43,7 @@ The factory address is what every fund prediction is a function of: deploy the f
 |---|---|---|
 | `Create3Deployer` via the deterministic deployer | yes | yes |
 | `SpokeCrossChainLib` via the deterministic deployer (chain-independent address) | yes | yes |
+| `SpokeUnwindLib` via the deterministic deployer (chain-independent address; DEC-131) | yes | yes |
 | `CoreVaultLogic` via the deterministic deployer | yes | no |
 | `ManagerRegistry(owner)`, `ChainlinkPriceSource` (WETH on ETH / USD, USDC and USDG at 1:1) | yes | no |
 | Creation code stores (`CodeStore`): Spoke Vault (linked, 2 chunks), Uniswap V4, Across | yes | yes |
