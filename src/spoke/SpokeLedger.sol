@@ -5,8 +5,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
-import {ISpokeVaultIncome} from "../interfaces/ISpokeVaultIncome.sol";
 import {IAdapter} from "../interfaces/IAdapter.sol";
+import {ISwapAdapter} from "../interfaces/ISwapAdapter.sol";
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
 import {SpokeVaultTypes} from "./SpokeVaultTypes.sol";
 
@@ -28,10 +28,23 @@ library SpokeLedger {
     /// @dev DEC-053: Mandate adapters on this chain only. Q17-4: the pinned codehash must still match.
     function positionAdapter(SpokeVaultTypes.State storage s, address adapter) internal view returns (IAdapter) {
         if (!s.isPositionAdapter[adapter]) revert ISpokeVault.AdapterNotInMandate(adapter);
+        requirePinnedCode(s, adapter);
+        return IAdapter(adapter);
+    }
+
+    /// @dev DEC-136 closing note item 1: Mandate swap adapters on this chain only. Q17-4: the pinned codehash must
+    ///      still match.
+    function swapAdapter(SpokeVaultTypes.State storage s, address adapter) internal view returns (ISwapAdapter) {
+        if (!s.isSwapAdapter[adapter]) revert ISpokeVault.AdapterNotInMandate(adapter);
+        requirePinnedCode(s, adapter);
+        return ISwapAdapter(adapter);
+    }
+
+    /// @dev Q17-4: an adapter's code is still the code pinned at creation.
+    function requirePinnedCode(SpokeVaultTypes.State storage s, address adapter) internal view {
         bytes32 expected = s.codehash[adapter];
         bytes32 actual = adapter.codehash;
         if (actual != expected) revert ISpokeVault.AdapterCodehashMismatch(adapter, expected, actual);
-        return IAdapter(adapter);
     }
 
     /// @dev DEC-030: Mandate pools on this chain only.
@@ -108,9 +121,74 @@ library SpokeLedger {
         requireBacked(s, baseToken, p);
     }
 
-    /// @dev Swaps `tokenIn` for the pool's other token (DEC-079, DEC-080), from and into Unallocated Balance, or from
-    ///      and into the collected income bucket when `income` is true (DEC-092: the two never mix).
-    function swap(
+    /// @dev The fund's swaps outside the automatic unwind (DEC-136; founder, 2026-10-02: "swaps are not done in the
+    ///      fund pools"): `amountIn` of `tokenIn` leaves Unallocated Balance, or the collected income bucket when
+    ///      `income` (DEC-092: the two never mix), through a Mandate swap adapter of this chain (DEC-136 item 2: Mandate
+    ///      tokens only), and the `amountOut` the adapter returns is credited to the same bucket (DEC-079). Custody
+    ///      (DEC-080): exact approval reset to zero; the vault's own balances must show exactly `amountIn` out and at
+    ///      least `amountOut` in, which also keeps the ledger of both tokens backed. The caller checks role and chain,
+    ///      tops up Operating Cash and emits the event.
+    function swapThrough(
+        SpokeVaultTypes.State storage s,
+        address adapter,
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        uint16 maxLossBps,
+        bytes calldata route,
+        bool income
+    ) internal returns (uint256 amountOut, uint256 spotOut, uint256 minOut) {
+        ISwapAdapter a = swapAdapter(s, adapter);
+        if (!s.isLedgerToken[tokenIn]) revert ISpokeVault.TokenNotInMandate(tokenIn);
+        if (!s.isLedgerToken[tokenOut]) revert ISpokeVault.TokenNotInMandate(tokenOut);
+        if (amountIn == 0) revert ISpokeVault.ZeroAmount();
+        if (income) {
+            uint256 available = s.collectedIncome[tokenIn];
+            if (amountIn > available) revert ISpokeVault.InsufficientCollectedIncome(tokenIn, available, amountIn);
+            s.collectedIncome[tokenIn] = available - amountIn;
+        } else {
+            debitUnallocated(s, tokenIn, amountIn);
+        }
+        (amountOut, spotOut, minOut) = _swapExactly(a, tokenIn, tokenOut, amountIn, maxLossBps, route);
+        if (income) s.collectedIncome[tokenOut] += amountOut;
+        else s.unallocated[tokenOut] += amountOut;
+    }
+
+    /// @dev `swapThrough`'s call: approves exactly `amountIn`, calls the adapter, clears the approval, and requires the
+    ///      vault's balances to show exactly `amountIn` of `tokenIn` out and at least `amountOut` of `tokenOut` in.
+    function _swapExactly(
+        ISwapAdapter a,
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        uint16 maxLossBps,
+        bytes calldata route
+    ) private returns (uint256 amountOut, uint256 spotOut, uint256 minOut) {
+        uint256 outBefore = IERC20(tokenOut).balanceOf(address(this));
+        uint256 inBefore = IERC20(tokenIn).balanceOf(address(this));
+        IERC20(tokenIn).forceApprove(address(a), amountIn);
+        (amountOut, spotOut, minOut) = a.swap(tokenIn, tokenOut, amountIn, maxLossBps, route);
+        IERC20(tokenIn).forceApprove(address(a), 0);
+        uint256 debited = _decrease(tokenIn, inBefore);
+        if (debited != amountIn) revert SpokeVaultTypes.SwapDebitMismatch(amountIn, debited);
+        uint256 received = _increase(tokenOut, outBefore);
+        if (received < amountOut) revert SpokeVaultTypes.SwapOutputNotReceived(amountOut, received);
+    }
+
+    function _decrease(address token, uint256 before) private view returns (uint256) {
+        uint256 balance = IERC20(token).balanceOf(address(this));
+        return before > balance ? before - balance : 0;
+    }
+
+    function _increase(address token, uint256 before) private view returns (uint256) {
+        uint256 balance = IERC20(token).balanceOf(address(this));
+        return balance > before ? balance - before : 0;
+    }
+
+    /// @dev The automatic unwind's sale of `tokenIn` for the pool's other token in a Mandate pool, from and into
+    ///      Unallocated Balance (DEC-079, DEC-080). Interim: WP-09 moves the unwind's sales to the swap adapter (DEC-136
+    ///      item 4); nothing else swaps in a fund pool. The caller emits the event.
+    function poolSwap(
         SpokeVaultTypes.State storage s,
         address baseToken,
         IAdapter a,
@@ -119,28 +197,14 @@ library SpokeLedger {
         address tokenIn,
         uint256 amountIn,
         uint256 minAmountOut,
-        bytes memory params,
-        bool income
+        bytes memory params
     ) internal returns (uint256 amountOut) {
         address tokenOut = otherToken(p, tokenIn);
         if (amountIn == 0) revert ISpokeVault.ZeroAmount();
-        if (income) {
-            uint256 available = s.collectedIncome[tokenIn];
-            if (amountIn > available) revert ISpokeVault.InsufficientCollectedIncome(tokenIn, available, amountIn);
-            s.collectedIncome[tokenIn] = available - amountIn;
-            IERC20(tokenIn).safeTransfer(address(a), amountIn);
-        } else {
-            sendToAdapter(s, address(a), tokenIn, amountIn);
-        }
+        sendToAdapter(s, address(a), tokenIn, amountIn);
         amountOut = a.swapExactInput(poolKey, tokenIn, amountIn, minAmountOut, params);
         if (amountOut < minAmountOut) revert SpokeVaultTypes.SwapOutputBelowMinimum(amountOut, minAmountOut);
-        if (income) {
-            s.collectedIncome[tokenOut] += amountOut;
-            emit ISpokeVaultIncome.IncomeSwapped(address(a), poolKey, tokenIn, tokenOut, amountIn, amountOut);
-        } else {
-            s.unallocated[tokenOut] += amountOut;
-            emit ISpokeVault.Swapped(address(a), poolKey, tokenIn, tokenOut, amountIn, amountOut);
-        }
+        s.unallocated[tokenOut] += amountOut;
         requireBacked(s, baseToken, tokenOut);
     }
 

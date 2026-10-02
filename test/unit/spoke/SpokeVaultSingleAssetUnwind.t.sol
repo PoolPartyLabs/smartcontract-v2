@@ -3,7 +3,7 @@ pragma solidity 0.8.28;
 
 import {SpokeVaultTestBase} from "./SpokeVaultTestBase.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
-import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
+import {SpokeUnwindTypes} from "../../../src/spoke/SpokeUnwindTypes.sol";
 import {Mandate, PoolConfig} from "../../../src/mandate/Mandate.sol";
 
 /// @notice Independent verification plan T14 (review L-05): a single-asset position whose asset is not USDC (an Aave
@@ -22,31 +22,31 @@ contract SpokeVaultSingleAssetUnwindTest is SpokeVaultTestBase {
         _deployHubWithAaveWeth();
         usdc.mint(address(core), 10_000e6);
 
-        // 400 USDC allocated, swapped into 0.2 WETH at 2,000, all of it supplied to the WETH reserve.
+        // 400 USDC allocated, swapped into 0.2 WETH at 2,000 through the swap adapter (DEC-136), all of it supplied
+        // to the WETH reserve. The unwind's hinted route still sells in the Uniswap pool until WP-09: USDC liquidity.
         core.allocate(vault, 400e6);
-        weth.mint(address(hubUni), 1e18);
-        hubUni.addLiquidity(address(weth), 1e18);
-        hubUni.setSwapRate(1e18, 2000e6);
         vm.startPrank(manager);
-        vault.swapExactInput(address(hubUni), HUB_POOL, address(usdc), 400e6, 0, "");
+        vault.swap(address(hubSwap), address(usdc), address(weth), 400e6, 0, "");
         (wethKey,,) = vault.openPosition(address(hubAave), AAVE_WETH, 0.2e18, 0, "");
         vm.stopPrank();
+        usdc.mint(address(hubUni), 10_000e6);
+        hubUni.addLiquidity(address(usdc), 10_000e6);
         hubUni.setSwapRate(2000e6, 1e18);
     }
 
     function test_REVIEW_T14_singleAssetNonUsdcStepUnwindsThroughTheHintedRoute() public {
-        SpokeVaultTypes.UnwindHint[] memory hints = new SpokeVaultTypes.UnwindHint[](1);
-        hints[0].swaps = new SpokeVaultTypes.UnwindSwap[](1);
-        hints[0].swaps[0] = SpokeVaultTypes.UnwindSwap(address(hubUni), HUB_POOL, address(weth), 0, "");
+        SpokeUnwindTypes.UnwindHint[] memory hints = new SpokeUnwindTypes.UnwindHint[](1);
+        hints[0].swaps = new SpokeUnwindTypes.UnwindSwap[](1);
+        hints[0].swaps[0] = SpokeUnwindTypes.UnwindSwap(address(hubUni), HUB_POOL, address(weth), 0, "");
 
-        assertEq(core.unwind(vault, 400e6, SpokeVaultTypes.encodeHints(hints)), 400e6, "the WETH step paid 400 USDC");
+        assertEq(core.unwind(vault, 400e6, SpokeUnwindTypes.encodeHints(hints)), 400e6, "the WETH step paid 400 USDC");
         assertEq(vault.unallocatedBalance(address(weth)), 0, "the WETH it returned was swapped");
         (,,,,, bool open) = hubAave.position(wethKey);
         assertFalse(open, "the WETH position closed");
     }
 
     function test_REVIEW_T14_singleAssetNonUsdcStepWithoutARouteIsRefusedByName() public {
-        vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.MissingUnwindSwap.selector, address(weth)));
+        vm.expectRevert(abi.encodeWithSelector(SpokeUnwindTypes.MissingUnwindSwap.selector, address(weth)));
         core.unwind(vault, 400e6, "");
     }
 

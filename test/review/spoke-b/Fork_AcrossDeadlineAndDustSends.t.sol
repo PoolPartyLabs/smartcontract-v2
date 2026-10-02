@@ -12,7 +12,7 @@ import {SpokeVaultForkBase} from "../../fork/spoke/SpokeVaultForkBase.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {TransitEscrow} from "../../../src/core/TransitEscrow.sol";
 import {AcrossBridgeAdapter} from "../../../src/adapters/AcrossBridgeAdapter.sol";
-import {TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
+import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {IAcrossSpokePool} from "../../../src/interfaces/external/IAcrossSpokePool.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
@@ -143,13 +143,12 @@ contract Fork_AcrossDeadlineAndDustSends is SpokeVaultForkBase {
         uint32 depositsBefore = IAcrossSpokePool(RH_SPOKE_POOL).numberOfDeposits();
         // DEC-162: the Across adapter refuses a send its fee would swallow; the dust is the smallest send it lets
         // through (0.030026 USDG: 0.08% rounded up plus 0.03, one base unit to arrive). The quote argument is ignored.
-        BridgeQuote memory q;
         uint256 dust = 30_026;
         uint256 n = 50;
         uint256 g = gasleft();
         vm.startPrank(manager);
         for (uint256 i; i < n; ++i) {
-            vault.sendToHub(dust, TransferKind.Principal, 0, q);
+            vault.sendToHub(dust, TransferKind.Principal, 0);
         }
         vm.stopPrank();
         console2.log("average gas per dust send home on Robinhood (warm-ish)", (g - gasleft()) / n);

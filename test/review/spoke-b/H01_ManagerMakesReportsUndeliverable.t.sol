@@ -4,7 +4,7 @@ pragma solidity 0.8.28;
 import {console2} from "forge-std/console2.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
-import {Transit, TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
+import {Transit, TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {SpokeBFixture} from "./SpokeBFixture.sol";
@@ -67,14 +67,13 @@ contract H01_ManagerMakesReportsUndeliverable is SpokeBFixture {
     ///         allowed (450 one-unit sends). A real transfer home sits with at most 63 others, well within one
     ///         transaction.
     function test_REVIEW_S11_sendsHomeAreCappedAtSixtyFour() public {
-        BridgeQuote memory q = BridgeQuote(1, uint32(block.timestamp), 0, address(0));
         vm.startPrank(manager);
         for (uint256 i; i < SpokeVaultTypes.MAX_HUB_BOUND_IN_FLIGHT; ++i) {
-            spoke.sendToHub(1, TransferKind.Principal, 0, q);
+            spoke.sendToHub(1, TransferKind.Principal, 0);
         }
         assertEq(spoke.inFlightTransitIds().length, 64, "64 sends home listed");
         vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.HubBoundInFlightLimit.selector, 64));
-        spoke.sendToHub(1, TransferKind.Principal, 0, q);
+        spoke.sendToHub(1, TransferKind.Principal, 0);
         vm.stopPrank();
 
         // A report that lists the whole 64-send window still delivers in one transaction.

@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {SpokeVaultTestBase} from "./SpokeVaultTestBase.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
+import {SpokeUnwindTypes} from "../../../src/spoke/SpokeUnwindTypes.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
 import {ISpokeVaultIncome} from "../../../src/interfaces/ISpokeVaultIncome.sol";
 import {ISpokeVaultUnwind} from "../../../src/interfaces/ISpokeVaultUnwind.sol";
@@ -73,9 +74,10 @@ contract SpokeVaultHubTest is SpokeVaultTestBase {
     function test_DEC054_spokeVerbsRevertOnHub() public {
         vm.expectRevert(ISpokeVault.NotOnSpokeChain.selector);
         vault.report();
+        _willArrive(1);
         vm.prank(manager);
         vm.expectRevert(ISpokeVault.NotOnSpokeChain.selector);
-        vault.sendToHub(1, TransferKind.Principal, 0, _quote(1));
+        vault.sendToHub(1, TransferKind.Principal, 0);
         vm.expectRevert(ISpokeVault.NotOnSpokeChain.selector);
         vault.recognizeRefund(bytes32(0));
         vm.prank(vault.acrossSpokePool());
@@ -248,11 +250,11 @@ contract SpokeVaultHubTest is SpokeVaultTestBase {
         assertEq(vault.MAX_UNWIND_SLIPPAGE_BPS(), 500);
         hubUni.setSwapHaircutBps(600); // 400 at spot, 376 after impact; the floor is 380
         vm.expectRevert(abi.encodeWithSelector(IAdapter.InsufficientOutput.selector, 376e6, 380e6));
-        core.unwind(vault, 400e6, SpokeVaultTypes.encodeHints(_wethHint(0)));
+        core.unwind(vault, 400e6, SpokeUnwindTypes.encodeHints(_wethHint(0)));
 
         hubUni.setSwapHaircutBps(400); // 384 after impact, above the floor
         vm.expectRevert(abi.encodeWithSelector(IAdapter.InsufficientOutput.selector, 384e6, 390e6));
-        core.unwind(vault, 400e6, SpokeVaultTypes.encodeHints(_wethHint(390e6)));
+        core.unwind(vault, 400e6, SpokeUnwindTypes.encodeHints(_wethHint(390e6)));
 
         assertEq(core.unwind(vault, 400e6, ""), 384e6, "no hint: the vault's own floor");
     }
@@ -289,10 +291,11 @@ contract SpokeVaultHubTest is SpokeVaultTestBase {
 
     function test_DEC081_unwindSwapsNonUsdcPrincipalWithMinimumOutput() public {
         bytes32 key = _wethPosition();
-        SpokeVaultTypes.UnwindHint[] memory hints = _wethHint(390e6);
+        SpokeUnwindTypes.UnwindHint[] memory hints = _wethHint(390e6);
         vm.expectEmit(address(vault));
-        emit ISpokeVault.Swapped(address(hubUni), HUB_POOL, address(weth), address(usdc), 0.2e18, 400e6);
-        assertEq(core.unwind(vault, 400e6, SpokeVaultTypes.encodeHints(hints)), 400e6);
+        // Checklist doc 15, gap 4: the pool's spot quote, the vault's 5% bound and the hint's higher minimum.
+        emit ISpokeVault.Swapped(address(hubUni), address(weth), address(usdc), 0.2e18, 400e6, 400e6, 500, 390e6);
+        assertEq(core.unwind(vault, 400e6, SpokeUnwindTypes.encodeHints(hints)), 400e6);
         assertEq(vault.unallocatedBalance(address(weth)), 0);
         assertEq(vault.unallocatedBalance(address(usdc)), 0);
         (,,,,, bool open) = hubUni.position(key);
@@ -301,39 +304,39 @@ contract SpokeVaultHubTest is SpokeVaultTestBase {
 
     function test_DEC081_unwindSwapBelowMinimumReverts() public {
         _wethPosition();
-        SpokeVaultTypes.UnwindHint[] memory hints = _wethHint(401e6);
+        SpokeUnwindTypes.UnwindHint[] memory hints = _wethHint(401e6);
         vm.expectRevert(abi.encodeWithSelector(IAdapter.InsufficientOutput.selector, 400e6, 401e6));
-        core.unwind(vault, 400e6, SpokeVaultTypes.encodeHints(hints));
+        core.unwind(vault, 400e6, SpokeUnwindTypes.encodeHints(hints));
     }
 
     /// @dev Final verification: when the position's own pool pairs the token with USDC the vault swaps there; a hint
     ///      naming another route is refused rather than followed.
     function test_DEC069_unwindSwapHintCannotChooseAnotherRoute() public {
         _wethPosition();
-        SpokeVaultTypes.UnwindHint[] memory hints = _wethHint(0);
+        SpokeUnwindTypes.UnwindHint[] memory hints = _wethHint(0);
         hints[0].swaps[0].poolKey = AAVE_USDC;
         vm.expectRevert(
             abi.encodeWithSelector(
-                SpokeVaultTypes.InvalidUnwindSwap.selector, address(hubUni), AAVE_USDC, address(weth)
+                SpokeUnwindTypes.InvalidUnwindSwap.selector, address(hubUni), AAVE_USDC, address(weth)
             )
         );
-        core.unwind(vault, 400e6, SpokeVaultTypes.encodeHints(hints));
+        core.unwind(vault, 400e6, SpokeUnwindTypes.encodeHints(hints));
 
         hints = _wethHint(0);
         hints[0].swaps[0].adapter = address(hubAave);
         vm.expectRevert(
             abi.encodeWithSelector(
-                SpokeVaultTypes.InvalidUnwindSwap.selector, address(hubAave), HUB_POOL, address(weth)
+                SpokeUnwindTypes.InvalidUnwindSwap.selector, address(hubAave), HUB_POOL, address(weth)
             )
         );
-        core.unwind(vault, 400e6, SpokeVaultTypes.encodeHints(hints));
+        core.unwind(vault, 400e6, SpokeUnwindTypes.encodeHints(hints));
     }
 
     function test_DEC081_unwindSwapHintWithNothingToSwapIsSkipped() public {
         _twoPositions();
-        SpokeVaultTypes.UnwindHint[] memory hints = _wethHint(0);
+        SpokeUnwindTypes.UnwindHint[] memory hints = _wethHint(0);
         // The USDC-only Uniswap position returns no WETH, so the WETH swap has nothing to take.
-        assertEq(core.unwind(vault, 500e6, SpokeVaultTypes.encodeHints(hints)), 500e6);
+        assertEq(core.unwind(vault, 500e6, SpokeUnwindTypes.encodeHints(hints)), 500e6);
     }
 
     function test_DEC092_unwindIncomeGoesToCollectedBucketNotProceeds() public {
@@ -386,16 +389,22 @@ contract SpokeVaultHubTest is SpokeVaultTestBase {
         vm.stopPrank();
     }
 
-    /// @dev 400 USDC allocated, swapped into 0.2 WETH, all of it in a WETH-only Uniswap position.
+    /// @dev 400 USDC allocated, swapped into 0.2 WETH through the swap adapter, all of it in a WETH-only Uniswap
+    ///      position.
     function _wethPosition() internal returns (bytes32 key) {
         core.allocate(vault, 400e6);
-        weth.mint(address(hubUni), 1e18);
-        hubUni.addLiquidity(address(weth), 1e18);
-        hubUni.setSwapRate(1e18, 2000e6);
         vm.startPrank(manager);
-        vault.swapExactInput(address(hubUni), HUB_POOL, address(usdc), 400e6, 0, "");
+        vault.swap(address(hubSwap), address(usdc), address(weth), 400e6, 0, "");
         (key,,) = vault.openPosition(address(hubUni), HUB_POOL, 0.2e18, 0, "");
         vm.stopPrank();
+        _poolSellsWethAt2000();
+    }
+
+    /// @dev The automatic unwind still sells in the position's pool until WP-09 (DEC-136 item 4): USDC liquidity for
+    ///      its WETH sale at 2,000.
+    function _poolSellsWethAt2000() internal {
+        usdc.mint(address(hubUni), 10_000e6);
+        hubUni.addLiquidity(address(usdc), 10_000e6);
         hubUni.setSwapRate(2000e6, 1e18);
     }
 
@@ -403,15 +412,12 @@ contract SpokeVaultHubTest is SpokeVaultTestBase {
     ///      (400 at spot), 500 USDC supplied to Aave, 100 Unallocated.
     function _mixedPositions() internal returns (bytes32 uniKey, bytes32 aaveKey) {
         core.allocate(vault, 1000e6);
-        weth.mint(address(hubUni), 1e18);
-        hubUni.addLiquidity(address(weth), 1e18);
-        hubUni.setSwapRate(1e18, 2000e6);
         vm.startPrank(manager);
-        vault.swapExactInput(address(hubUni), HUB_POOL, address(usdc), 200e6, 0, "");
+        vault.swap(address(hubSwap), address(usdc), address(weth), 200e6, 0, "");
         (uniKey,,) = vault.openPosition(address(hubUni), HUB_POOL, 0.1e18, 200e6, "");
         (aaveKey,,) = vault.openPosition(address(hubAave), AAVE_USDC, 500e6, 0, "");
         vm.stopPrank();
-        hubUni.setSwapRate(2000e6, 1e18);
+        _poolSellsWethAt2000();
     }
 
     function _aave(bytes32 key)
@@ -422,9 +428,9 @@ contract SpokeVaultHubTest is SpokeVaultTestBase {
         (poolKey, principal0,, uncollected0, uncollected1, open) = hubAave.position(key);
     }
 
-    function _wethHint(uint256 minUsdcOut) internal view returns (SpokeVaultTypes.UnwindHint[] memory hints) {
-        hints = new SpokeVaultTypes.UnwindHint[](1);
-        hints[0].swaps = new SpokeVaultTypes.UnwindSwap[](1);
-        hints[0].swaps[0] = SpokeVaultTypes.UnwindSwap(address(hubUni), HUB_POOL, address(weth), minUsdcOut, "");
+    function _wethHint(uint256 minUsdcOut) internal view returns (SpokeUnwindTypes.UnwindHint[] memory hints) {
+        hints = new SpokeUnwindTypes.UnwindHint[](1);
+        hints[0].swaps = new SpokeUnwindTypes.UnwindSwap[](1);
+        hints[0].swaps[0] = SpokeUnwindTypes.UnwindSwap(address(hubUni), HUB_POOL, address(weth), minUsdcOut, "");
     }
 }

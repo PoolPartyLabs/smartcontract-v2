@@ -4,7 +4,7 @@ pragma solidity 0.8.28;
 import {console2} from "forge-std/console2.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
 import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
-import {TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
+import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {SpokeBFixture} from "./SpokeBFixture.sol";
 
 /// @notice [H-08] (spoke-b report H-02), ported to main. The spoke Operating Cash sink seen end to end through the hub.
@@ -48,11 +48,12 @@ contract H02_SpokeOperatingCashDeadEnd is SpokeBFixture {
         assertEq(assetsBefore - assetsAfter, 99_951e6, "10% of the fund left Share Assets");
 
         // 4. A send home cannot debit it, the sweep never takes it, and lowering the parameters alone changes nothing.
+        _willArrive(49_975e6);
         vm.startPrank(manager);
         vm.expectRevert(
             abi.encodeWithSelector(ISpokeVault.InsufficientUnallocatedBalance.selector, address(usdg), 0, 50_000e6)
         );
-        spoke.sendToHub(50_000e6, TransferKind.Principal, 0, _homeQuote(49_975e6));
+        spoke.sendToHub(50_000e6, TransferKind.Principal, 0);
         spoke.setOperatingCashParameters(0, 0);
         vm.stopPrank();
         assertEq(spoke.sweepExcess(address(usdg)), 0, "ledger, never swept");

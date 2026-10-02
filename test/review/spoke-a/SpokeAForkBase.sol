@@ -34,7 +34,8 @@ import {MockPriceSource} from "../../mocks/core/MockPriceSource.sol";
 import {MockManagerRegistry} from "../../mocks/core/MockManagerRegistry.sol";
 import {MockReportReceiver} from "../../mocks/core/MockReportReceiver.sol";
 import {MandateFixture} from "../../utils/MandateFixture.sol";
-import {MockSwapAdapter} from "../../mocks/swap/MockSwapAdapter.sol";
+import {UniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
+import {ArbitrumSwapAdapter} from "../../utils/ArbitrumSwapAdapter.sol";
 
 interface IPermit2Holder {
     function permit2() external view returns (address);
@@ -111,7 +112,8 @@ abstract contract SpokeAForkBase is Test, FundSeed {
     bytes32 internal poolId;
     UniswapV4Adapter internal adapter;
     SpokeVault internal hubVault;
-    MockSwapAdapter internal hubSwap;
+    /// @dev DEC-136: the fund's swap adapter, the real one on Arbitrum One's Uniswap V3.
+    UniswapV3SwapAdapter internal hubSwap;
     CoreVault internal vault;
     ShareToken internal shares;
     MockPriceSource internal prices;
@@ -132,10 +134,10 @@ abstract contract SpokeAForkBase is Test, FundSeed {
         MockReportReceiver receiver = new MockReportReceiver();
         TransitEscrow escrowImpl = new TransitEscrow();
 
-        hubSwap = new MockSwapAdapter();
         uint64 n = vm.getNonce(address(this));
-        address hubVaultAt = vm.computeCreateAddress(address(this), n + 1);
-        address coreAt = vm.computeCreateAddress(address(this), n + 2);
+        address hubVaultAt = vm.computeCreateAddress(address(this), n + 2);
+        address coreAt = vm.computeCreateAddress(address(this), n + 3);
+        hubSwap = ArbitrumSwapAdapter.deploy(hubVaultAt, makeAddr("guardian"), USDC, WETH);
         PoolKey[] memory keys = new PoolKey[](1);
         keys[0] = key;
         adapter = new UniswapV4Adapter(

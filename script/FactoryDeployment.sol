@@ -31,6 +31,7 @@ abstract contract FactoryDeployment is CommonBase {
     bytes32 internal constant FACTORY_SALT = keccak256("pool-party.v2.FundFactory");
 
     string internal constant CORE_VAULT_ARTIFACT = "out/CoreVault.sol/CoreVault.json";
+    string internal constant CORE_VAULT_LOGIC_ARTIFACT = "out/CoreVaultLogic.sol/CoreVaultLogic.json";
     string internal constant CORE_VAULT_LOGIC_ID = "src/core/CoreVaultLogic.sol:CoreVaultLogic";
     string internal constant CORE_VAULT_INCOME_LOGIC_ID = "src/core/CoreVaultIncomeLogic.sol:CoreVaultIncomeLogic";
     string internal constant CORE_VAULT_TRANSIT_LOGIC_ARTIFACT =
@@ -42,6 +43,7 @@ abstract contract FactoryDeployment is CommonBase {
     string internal constant SPOKE_VAULT_ARTIFACT = "out/SpokeVault.sol/SpokeVault.json";
     string internal constant SPOKE_CROSS_CHAIN_LIB_ID = "src/spoke/SpokeCrossChainLib.sol:SpokeCrossChainLib";
     string internal constant SPOKE_UNWIND_LIB_ID = "src/spoke/SpokeUnwindLib.sol:SpokeUnwindLib";
+    string internal constant SPOKE_INCOME_LIB_ID = "src/spoke/SpokeIncomeLib.sol:SpokeIncomeLib";
 
     // Chains (docs/INTEGRATIONS.md).
     uint256 internal constant ARBITRUM = 42_161;
@@ -118,10 +120,11 @@ abstract contract FactoryDeployment is CommonBase {
         address managerRegistry;
         address priceSource;
         FundFactory factory;
+        address spokeIncomeLib;
     }
 
     /// @notice Deploys the whole protocol stack of this chain (Arbitrum One or Robinhood Chain) and its factory.
-    /// @param protocolRecipient Fee wallet (DEC-106; LC-132 OPEN).
+    /// @param protocolRecipient Fee wallet (DEC-106, DEC-116).
     /// @param guardian Adapter guardian (ruling 2026-09-29, Q17-2b).
     /// @param registryOwner Owner of the hub `ManagerRegistry` (LC-142, OQ-11): the API key (DEC-170 item 3).
     /// @param apiSigner The Pool Party API key (reading D-01, DEC-170): swap route signer of every fund.
@@ -227,13 +230,16 @@ abstract contract FactoryDeployment is CommonBase {
     function _libraries(bool hub, Deployment memory d, bool deploy) private {
         d.spokeCrossChainLib = _library(vm.getCode("SpokeCrossChainLib.sol:SpokeCrossChainLib"), deploy);
         d.spokeUnwindLib = _library(vm.getCode("SpokeUnwindLib.sol:SpokeUnwindLib"), deploy);
+        d.spokeIncomeLib = _library(vm.getCode("SpokeIncomeLib.sol:SpokeIncomeLib"), deploy);
         if (!hub) return;
-        d.coreVaultLogic = _library(vm.getCode("CoreVaultLogic.sol:CoreVaultLogic"), deploy);
+        // Library-into-library links: a library that calls another is linked to it, so it is deployed after it and
+        // linked to the addresses deployed so far. CoreVaultIncomeLogic calls none of them, CoreVaultLogic calls it
+        // (the valuation hook, WP-07 D2), the payout library calls both and the transit library all three (the
+        // report hooks).
         d.coreVaultIncomeLogic = _library(vm.getCode("CoreVaultIncomeLogic.sol:CoreVaultIncomeLogic"), deploy);
-        // Library-into-library links: a library that calls another is linked to it, so it is deployed after it.
-        (string[] memory ids, address[] memory libraries) = _coreVaultLinks(d);
-        d.coreVaultTransitLogic = _library(_linked(CORE_VAULT_TRANSIT_LOGIC_ARTIFACT, ids, libraries), deploy);
-        d.coreVaultPayoutLogic = _library(_linked(CORE_VAULT_PAYOUT_LOGIC_ARTIFACT, ids, libraries), deploy);
+        d.coreVaultLogic = _library(_linkedToCoreVaultLibraries(CORE_VAULT_LOGIC_ARTIFACT, d), deploy);
+        d.coreVaultPayoutLogic = _library(_linkedToCoreVaultLibraries(CORE_VAULT_PAYOUT_LOGIC_ARTIFACT, d), deploy);
+        d.coreVaultTransitLogic = _library(_linkedToCoreVaultLibraries(CORE_VAULT_TRANSIT_LOGIC_ARTIFACT, d), deploy);
     }
 
     /// @notice A library's address under `LIBRARY_SALT`, deployed there first when `deploy` is set.
@@ -307,8 +313,17 @@ abstract contract FactoryDeployment is CommonBase {
     /// @notice The Core Vault creation code linked to the deployment's Core Vault libraries (what `createFund` takes in
     ///         calldata).
     function _coreVaultCreationCode(Deployment memory d) internal view returns (bytes memory) {
+        return _linkedToCoreVaultLibraries(CORE_VAULT_ARTIFACT, d);
+    }
+
+    /// @notice An artifact's creation code linked to the deployment's Core Vault libraries.
+    function _linkedToCoreVaultLibraries(string memory artifact, Deployment memory d)
+        internal
+        view
+        returns (bytes memory)
+    {
         (string[] memory ids, address[] memory libraries) = _coreVaultLinks(d);
-        return _linked(CORE_VAULT_ARTIFACT, ids, libraries);
+        return _linked(artifact, ids, libraries);
     }
 
     /// @notice Every Core Vault library of the deployment as a link list (ids, addresses). A placeholder only exists
@@ -329,10 +344,11 @@ abstract contract FactoryDeployment is CommonBase {
     /// @notice The Spoke Vault creation code linked to the deployment's Spoke Vault libraries (the code the factory
     ///         stores and pins by hash).
     function _spokeVaultCreationCode(Deployment memory d) internal view returns (bytes memory) {
-        string[] memory ids = new string[](2);
-        address[] memory libraries = new address[](2);
+        string[] memory ids = new string[](3);
+        address[] memory libraries = new address[](3);
         (ids[0], libraries[0]) = (SPOKE_CROSS_CHAIN_LIB_ID, d.spokeCrossChainLib);
         (ids[1], libraries[1]) = (SPOKE_UNWIND_LIB_ID, d.spokeUnwindLib);
+        (ids[2], libraries[2]) = (SPOKE_INCOME_LIB_ID, d.spokeIncomeLib);
         return _linked(SPOKE_VAULT_ARTIFACT, ids, libraries);
     }
 

@@ -431,6 +431,16 @@
                 "internalType": "enum TransferKind"
               }
             ]
+          },
+          {
+            "name": "unwindResults",
+            "type": "bytes",
+            "internalType": "bytes"
+          },
+          {
+            "name": "collectionResults",
+            "type": "bytes",
+            "internalType": "bytes"
           }
         ]
       },

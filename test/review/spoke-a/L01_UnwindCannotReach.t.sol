@@ -5,7 +5,7 @@ import {console2} from "forge-std/Test.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
-import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
+import {SpokeUnwindTypes} from "../../../src/spoke/SpokeUnwindTypes.sol";
 import {Mandate, PoolConfig} from "../../../src/mandate/Mandate.sol";
 import {SpokeAHubFixture} from "./SpokeAHubFixture.sol";
 
@@ -17,12 +17,13 @@ contract L01_UnwindCannotReach is SpokeAHubFixture {
     function test_POC_REVIEW_L05_nonUsdcUnallocatedBalanceIsNeverUnwound() public {
         _deposit(alice, 1_000_000e6);
         _deposit(mallory, 50_000e6);
-        // The manager allocates and swaps it into WETH, leaving it in Unallocated Balance (no position).
+        // The manager allocates and swaps it into WETH through the swap adapter (DEC-136), leaving it in Unallocated
+        // Balance (no position).
         vm.prank(manager);
         vault.allocateToHubSpokeVault(1_000_000e6);
-        v4.setSwap(4e26, 10_000); // USDC -> WETH at the oracle price
+        hubSwap.setPrice(address(usdc), address(weth), 1e18, 2500e6); // USDC -> WETH at the oracle price
         vm.prank(manager);
-        hubVault.swapExactInput(address(adapter), poolId, address(usdc), 1_000_000e6, 0, "");
+        hubVault.swap(address(hubSwap), address(usdc), address(weth), 1_000_000e6, 0, "");
         _unwindSwapsAtOracle();
 
         // Share Assets still count the 400 WETH at the oracle price, so Mallory's shares are worth 49,875 USDC ...
@@ -83,9 +84,9 @@ contract L05_SingleAssetNonUsdcStep is SpokeAHubFixture {
         // 10,000 USDC -> 4 WETH supplied to the single-asset WETH reserve (second step).
         vm.prank(manager);
         vault.allocateToHubSpokeVault(10_000e6);
-        v4.setSwap(4e26, 10_000);
+        hubSwap.setPrice(address(usdc), address(weth), 1e18, 2500e6);
         vm.prank(manager);
-        uint256 wethIn = hubVault.swapExactInput(address(adapter), poolId, address(usdc), 10_000e6, 0, "");
+        uint256 wethIn = hubVault.swap(address(hubSwap), address(usdc), address(weth), 10_000e6, 0, "");
         vm.prank(manager);
         hubVault.openPosition(address(exact), EXACT_WETH, wethIn, 0, "");
         _managerSuppliesExact(1_140_000e6); // exact-value USDC third
@@ -94,23 +95,23 @@ contract L05_SingleAssetNonUsdcStep is SpokeAHubFixture {
 
         // Without a route for WETH the step is refused by name.
         vm.prank(address(vault));
-        vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.MissingUnwindSwap.selector, address(weth)));
+        vm.expectRevert(abi.encodeWithSelector(SpokeUnwindTypes.MissingUnwindSwap.selector, address(weth)));
         hubVault.unwindForPayout(150_000e6, "");
 
         // With a hint naming the Mandate's WETH/USDC route for the WETH step (second position visited) the unwind
         // walks all three steps and reaches the target.
-        SpokeVaultTypes.UnwindHint[] memory hints = new SpokeVaultTypes.UnwindHint[](2);
-        hints[1].swaps = new SpokeVaultTypes.UnwindSwap[](1);
-        hints[1].swaps[0] = SpokeVaultTypes.UnwindSwap(address(adapter), poolId, address(weth), 0, "");
+        SpokeUnwindTypes.UnwindHint[] memory hints = new SpokeUnwindTypes.UnwindHint[](2);
+        hints[1].swaps = new SpokeUnwindTypes.UnwindSwap[](1);
+        hints[1].swaps[0] = SpokeUnwindTypes.UnwindSwap(address(adapter), poolId, address(weth), 0, "");
         uint256 snap = vm.snapshotState();
         vm.prank(address(vault));
-        assertEq(hubVault.unwindForPayout(150_000e6, SpokeVaultTypes.encodeHints(hints)), 150_000e6);
+        assertEq(hubVault.unwindForPayout(150_000e6, SpokeUnwindTypes.encodeHints(hints)), 150_000e6);
         vm.revertToState(snap);
 
         // Through a claim needing ~248,000 of unwind, with the hint: paid in full.
         _request(mallory, 290_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         vm.prank(mallory);
-        ICoreVault.PayoutReceipt memory r = vault.claimPayout(SpokeVaultTypes.encodeHints(hints));
+        ICoreVault.PayoutReceipt memory r = vault.claimPayout(SpokeUnwindTypes.encodeHints(hints));
         console2.log("unwind proceeds", r.unwindProceeds);
         assertGt(r.unwindProceeds, 200_000e6, "the unwind ran through the WETH step");
         assertFalse(vault.payoutRequest(mallory).open, "the request closed");

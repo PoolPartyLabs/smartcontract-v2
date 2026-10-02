@@ -11,19 +11,22 @@ import {UniswapV4Adapter} from "../../../src/adapters/UniswapV4Adapter.sol";
 import {IAdapter} from "../../../src/interfaces/IAdapter.sol";
 import {SpokeAForkBase, PoolTrader} from "../spoke-a/SpokeAForkBase.sol";
 
-/// @notice (adapters review) The manager turns the fund's principal into "income" by wash-trading its Unallocated
-///         Balance through a Mandate pool in which the fund is the main in-range LP, then collects and forwards it: the
-///         Core Vault charges the performance fee on what was principal (DEC-107 charges it on income, no high-water
+/// @notice (adapters review) The manager turned the fund's principal into "income" by wash-trading its Unallocated
+///         Balance through a Mandate pool in which the fund is the main in-range LP, then collected and forwarded it: the
+///         Core Vault charged the performance fee on what was principal (DEC-107 charges it on income, no high-water
 ///         mark). Real Arbitrum One contracts: Uniswap V4 PoolManager, PositionManager, StateView, Permit2 and the
 ///         WETH/USDC 0.05% pool (docs/INTEGRATIONS.md); real CoreVault, hub SpokeVault and UniswapV4Adapter.
-/// @notice Ported to fix/pp-sc-fix-independent-review (review M-02): STILL PRESENT. The LP fee cap (`MAX_POOL_FEE`,
-///         1%) does not touch the live 0.05% pool, and the performance fee is still charged gross of the fees the fund
-///         paid to itself (founder question 5 of the review, open). e5c778a: manager 288.04, protocol 288.04, holders
-///         -1,461.50 on 6,000,000 of wash volume.
+///         e5c778a: manager 288.04, protocol 288.04, holders -1,461.50 on 6,000,000 of wash volume.
+/// @notice FIXED by DEC-136 (founder, 2026-10-02: "swaps are not done in the fund pools"): the Spoke Vault's only swap
+///         verb runs through the Mandate swap adapter, here the real `UniswapV3SwapAdapter` on Arbitrum One's V3, which
+///         trades in a V3 pool and never in the fund's V4 range. The same round trips leave the fund's pool and its
+///         position untouched: no income, no performance fee, nothing for the manager or the protocol; the holders
+///         bear only the V3 Market Costs, paid to third-party LPs. The question of a fee net of the fund's own swap fees
+///         (founder question 5 of the review) loses its channel through the vault.
 /// @dev Run: ARBITRUM_RPC_URL=https://arb1.arbitrum.io/rpc ARBITRUM_FORK_BLOCK=<head - 300>
 ///      forge test -j 1 --match-path 'test/review/adapters/WashTradeIncomeFork.t.sol' -vv
 contract WashTradeIncomeFork is SpokeAForkBase {
-    uint256 internal constant ROUND_TRIPS = 60;
+    uint256 internal constant ROUND_TRIPS = 3;
     uint256 internal constant LEG = 50_000e6;
 
     address internal protocolRecipient = makeAddr("protocol");
@@ -84,7 +87,7 @@ contract WashTradeIncomeFork is SpokeAForkBase {
         if (hubVault.collectedIncome(USDC) != 0) hubVault.forwardIncomeToCoreVault(USDC);
     }
 
-    function test_POC_REVIEW_M02_washTradesPayThePerformanceFeeOnPrincipal() public {
+    function test_REVIEW_M02_DEC136_washTradesNoLongerReachTheFundsPool() public {
         // 1-3. Alice deposits 1,000,000 USDC; the manager allocates 600,000 and places 400,000 in a 200-tick range just
         //      below the price; the market sells WETH into it down to its middle, so the fund is the main in-range LP.
         //      That trade's fees are legitimate income and are collected and forwarded before the window starts.
@@ -92,51 +95,34 @@ contract WashTradeIncomeFork is SpokeAForkBase {
         int24 tickStart = _tick();
         Snapshot memory before = _snapshot();
 
-        // 4. Wash trades: nobody but the fund trades. Each round trip swaps 50,000 USDC of Unallocated Balance into WETH
-        //    and all of that WETH back, through the fund's own range, with minAmountOut 0 (any minimum is accepted).
+        // 4. The same round trips: 50,000 USDC of Unallocated Balance into WETH and all of it back, with no maximum
+        //    loss. They run through the swap adapter, in Uniswap V3.
         for (uint256 i; i < ROUND_TRIPS; ++i) {
             vm.prank(manager);
-            uint256 wethOut = hubVault.swapExactInput(address(adapter), poolId, USDC, LEG, 0, "");
+            uint256 wethOut = hubVault.swap(address(hubSwap), USDC, WETH, LEG, 0, "");
             vm.prank(manager);
-            hubVault.swapExactInput(address(adapter), poolId, WETH, wethOut, 0, "");
+            hubVault.swap(address(hubSwap), WETH, USDC, wethOut, 0, "");
         }
-        uint256 volumeUsdc = 2 * LEG * ROUND_TRIPS;
 
-        // 5. The manager collects the position's income and anyone forwards it: the Core Vault splits the fee.
+        // 5. The position earned nothing from them; collecting and forwarding pays no fee.
         vm.prank(manager);
         IAdapter.Amounts memory inc = hubVault.collectIncome(address(adapter), positionKey);
-        hubVault.forwardIncomeToCoreVault(WETH);
-        hubVault.forwardIncomeToCoreVault(USDC);
         Snapshot memory afterWash = _snapshot();
+        uint256 marketCosts = before.shareAssets - afterWash.shareAssets;
+        console2.log("round trips through the swap adapter", ROUND_TRIPS);
+        console2.log("volume (USDC)", 2 * LEG * ROUND_TRIPS);
+        console2.log("fund pool tick before", int256(tickStart));
+        console2.log("fund pool tick after", int256(_tick()));
+        console2.log("income collected, WETH / USDC", inc.income0, inc.income1);
+        console2.log("holders' Market Costs in V3 (USDC)", marketCosts);
 
-        uint256 incomeUsd = _usd(inc.income0, inc.income1);
-        uint256 managerGain = afterWash.manager - before.manager;
-        uint256 protocolGain = afterWash.protocol - before.protocol;
-        uint256 holderLoss = before.shareAssets + before.holderIncome - afterWash.shareAssets - afterWash.holderIncome;
-        // LP share of the swap fees at 500 pips of the volume (the pool also charges a Uniswap protocol fee).
-        uint256 lpFeesOnVolume = volumeUsdc * 500 / 1_000_000;
-
-        console2.log("round trips", ROUND_TRIPS);
-        console2.log("wash volume (USDC)", volumeUsdc);
-        console2.log("tick at start", int256(tickStart));
-        console2.log("tick at end", int256(_tick()));
-        console2.log("income collected, WETH", inc.income0);
-        console2.log("income collected, USDC", inc.income1);
-        console2.log("income collected (USDC at oracle)", incomeUsd);
-        console2.log("LP fees on the volume at 0.05% (USDC)", lpFeesOnVolume);
-        console2.log("fund's share of those LP fees (bps)", incomeUsd * 10_000 / lpFeesOnVolume);
-        console2.log("Share Assets before", before.shareAssets);
-        console2.log("Share Assets after", afterWash.shareAssets);
-        console2.log("holders' value lost (Share Assets + Attributed Income)", holderLoss);
-        console2.log("manager fee vault gain", managerGain);
-        console2.log("protocol slice gain", protocolGain);
-
-        // The wrong behaviour: income generated only by the fund's own swaps, paid out of its principal, is charged the
-        // performance fee. 20% fee, 50% protocol slice: the manager takes 10% of it and the protocol 10%.
-        assertGt(incomeUsd, lpFeesOnVolume * 8 / 10, "the fund's own range captured most of the LP fees it paid");
-        assertApproxEqRel(managerGain, incomeUsd / 10, 0.01e18, "manager fee vault paid 10% of the washed income");
-        assertApproxEqRel(protocolGain, incomeUsd / 10, 0.01e18, "protocol paid 10% of the washed income");
-        assertGt(holderLoss, managerGain + protocolGain, "holders lost more than the fees taken on their principal");
-        assertLt(afterWash.shareAssets, before.shareAssets - incomeUsd * 9 / 10, "principal left Share Assets");
+        assertEq(_tick(), tickStart, "DEC-136: the fund's pool never traded");
+        assertEq(inc.income0, 0, "no WETH income from the fund's own swaps");
+        assertEq(inc.income1, 0, "no USDC income from the fund's own swaps");
+        assertEq(afterWash.manager, before.manager, "nothing for the manager");
+        assertEq(afterWash.protocol, before.protocol, "nothing for the protocol");
+        assertEq(afterWash.holderIncome, before.holderIncome);
+        // Market Costs of 300,000 of volume in the 0.05% tier: the pool fee plus a little impact.
+        assertLt(marketCosts, 2 * LEG * ROUND_TRIPS * 10 / 10_000, "under 0.1% of the volume");
     }
 }

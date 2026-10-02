@@ -3,7 +3,7 @@ pragma solidity 0.8.28;
 
 import {console2} from "forge-std/console2.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
-import {Transit, TransitState, TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
+import {Transit, TransitState, TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {Mandate, AdapterConfig, PoolConfig, BridgeAdapterConfig} from "../../../src/mandate/Mandate.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
@@ -98,11 +98,10 @@ contract H02_ReturnLegDroppedBeforeRefund is CoreVaultFixture {
         assetsBefore = vault.shareAssets();
         assertEq(assetsBefore, SEED_IDLE + 199_440e6);
 
-        // DEC-162: the spoke's (mock) bridge adapter fixes the amount to arrive; the quote argument is ignored.
+        // DEC-162: the spoke's (mock) bridge adapter fixes the amount to arrive; the manager passes no bridge parameter.
         MockBridgeNextArrive.set(address(spokeBridgeReal), homeOutput);
-        BridgeQuote memory none;
         vm.prank(manager);
-        home = spoke.sendToHub(ARRIVED, TransferKind.Principal, 0, none);
+        home = spoke.sendToHub(ARRIVED, TransferKind.Principal, 0);
         _publishAndDeliver();
         assertEq(vault.shareAssets(), assetsBefore - (ARRIVED - homeOutput), "in flight home: counted");
     }

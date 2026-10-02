@@ -215,17 +215,18 @@ abstract contract SpokeAHubFixture is Test, FundSeed {
         vm.stopPrank();
     }
 
-    /// @dev The manager allocates `usdcAmount` to the hub Spoke Vault, swaps half into WETH at the oracle price and
-    ///      opens a WETH/USDC position of +-HALF_RANGE ticks around the current price with all of it.
+    /// @dev The manager allocates `usdcAmount` to the hub Spoke Vault, swaps half into WETH at the oracle price through
+    ///      the Mandate swap adapter (DEC-136: never in the fund's pool) and opens a WETH/USDC position of +-HALF_RANGE
+    ///      ticks around the current price with all of it.
     function _managerOpensHubPosition(uint256 usdcAmount) internal {
         vm.prank(manager);
         vault.allocateToHubSpokeVault(usdcAmount);
 
         uint256 half = usdcAmount / 2;
-        // MockV4 swaps at a fixed rate: USDC -> WETH at 1 / 2,500 (amountOut = amountIn * rate / 1e18).
-        v4.setSwap(4e26, 10_000);
+        // The swap adapter stand-in swaps at a fixed rate: USDC -> WETH at 1 / 2,500.
+        hubSwap.setPrice(address(usdc), address(weth), 1e18, 2500e6);
         vm.prank(manager);
-        uint256 wethOut = hubVault.swapExactInput(address(adapter), poolId, address(usdc), half, 0, "");
+        uint256 wethOut = hubVault.swap(address(hubSwap), address(usdc), address(weth), half, 0, "");
 
         (uint256 a0, uint256 a1) = wethIsToken0 ? (wethOut, usdcAmount - half) : (usdcAmount - half, wethOut);
         bytes memory params = abi.encode(

@@ -7,13 +7,15 @@ import {ICoreBridge} from "wormhole-sdk/interfaces/ICoreBridge.sol";
 
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {IAdapter} from "../interfaces/IAdapter.sol";
-import {Transit, TransferKind, BridgeQuote} from "../interfaces/FundTypes.sol";
+import {Transit, TransferKind} from "../interfaces/FundTypes.sol";
 import {Mandate} from "../mandate/Mandate.sol";
 import {ReportCodec} from "../libraries/ReportCodec.sol";
+import {OrderCodec} from "../libraries/OrderCodec.sol";
 import {TransitMessage} from "../libraries/TransitMessage.sol";
 import {SpokeVaultTypes} from "./SpokeVaultTypes.sol";
 import {SpokeCrossChainLib} from "./SpokeCrossChainLib.sol";
 import {SpokeLedger} from "./SpokeLedger.sol";
+import {SpokeUnwindLib} from "./SpokeUnwindLib.sol";
 import {SpokeVaultBase} from "./SpokeVaultBase.sol";
 import {SpokeVaultUnwind} from "./SpokeVaultUnwind.sol";
 import {SpokeVaultIncome} from "./SpokeVaultIncome.sol";
@@ -24,13 +26,15 @@ import {SpokeVaultIncome} from "./SpokeVaultIncome.sol";
 ///      talks to the Core Vault, publishes no report and holds no Operating Cash; the spoke role receives Across fills,
 ///      sends home and publishes value reports through the Wormhole Core Bridge.
 /// @dev The source is split by concern like the Core Vault's (WP-07 A3, DEC-131 pattern): `SpokeVaultBase` (identity,
-///      wiring, storage, modifiers, construction), `SpokeVaultUnwind` (the automatic unwind), `SpokeVaultIncome` (the
-///      collected income verbs) and this contract (the manager's position verbs, the cross-chain verbs, the hub
-///      interplay, the garbage collector and the views), compiled into one contract with an unchanged ABI.
+///      wiring, storage, modifiers, construction), `SpokeVaultUnwind` (the automatic unwind, the unwind and closure
+///      order executors), `SpokeVaultIncome` (the collected income verbs, the collection order executor) and this
+///      contract (the manager's position verbs, the cross-chain verbs and the order entry, the hub interplay, the
+///      garbage collector and the views), compiled into one contract.
 /// @dev DEC-022, DEC-058: no proxy, no upgrade path, no selfdestruct. The constructor takes everything it needs, so the
 ///      FundFactory deploys it at a CREATE3 address that depends only on the factory and the salt (fund id, role,
 ///      chain id), never on this creation code (DEC-054). The Spoke Chain half (send home, refunds, report) lives in the
-///      linked external library `SpokeCrossChainLib` and the automatic unwind in `SpokeUnwindLib` (DEC-131); both run
+///      linked external library `SpokeCrossChainLib`, the automatic unwind and the order checks in `SpokeUnwindLib`
+///      (DEC-131) and the income collection in `SpokeIncomeLib` (WP-07 D5); all three run
 ///      by DELEGATECALL over this vault's storage and hold none of their own: their addresses are part of this vault's
 ///      creation code and trust surface (immutable, no upgrade path). The operator deploys them once per chain at
 ///      chain-independent addresses (so the linked creation code and its hash are the same on every chain) and the
@@ -171,20 +175,23 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
     }
 
     /// @inheritdoc ISpokeVault
-    /// @dev OQ-04 stance: manager only; the adapter reverts when deprecated, never when paused. Debits Unallocated
-    ///      Balance of `tokenIn` and credits what the adapter returns in the other pool token (DEC-079, DEC-080).
-    function swapExactInput(
-        address adapter,
-        bytes32 poolKey,
+    /// @dev DEC-136, DEC-142, DEC-143, DEC-153; founder, 2026-10-02 ("swaps are not done in the fund pools"). The
+    ///      custody and ledger checks are `SpokeLedger.swapThrough`; the swap adapter applies the route, the maximum
+    ///      loss and its own pause and deprecation (DEC-056: a swap into the base token always runs).
+    function swap(
+        address swapAdapter,
         address tokenIn,
+        address tokenOut,
         uint256 amountIn,
-        uint256 minAmountOut,
-        bytes calldata params
+        uint16 maxLossBps,
+        bytes calldata route
     ) external onlyManager nonReentrant returns (uint256 amountOut) {
-        IAdapter a = _s.positionAdapter(adapter);
-        SpokeVaultTypes.PoolTokens memory p = _s.pool(adapter, poolKey);
         _topUpOperatingCash();
-        amountOut = _s.swap(baseToken, a, p, poolKey, tokenIn, amountIn, minAmountOut, params, false);
+        uint256 spotOut;
+        uint256 minOut;
+        (amountOut, spotOut, minOut) =
+            _s.swapThrough(swapAdapter, tokenIn, tokenOut, amountIn, maxLossBps, route, false);
+        emit Swapped(swapAdapter, tokenIn, tokenOut, amountIn, amountOut, spotOut, maxLossBps, minOut);
     }
 
     /// @inheritdoc ISpokeVault
@@ -201,11 +208,12 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
     // ---------------------------------------------------------------------------------------------------------------
 
     /// @inheritdoc ISpokeVault
-    /// @dev See `SpokeCrossChainLib.sendToHub`: DEC-056, DEC-066, DEC-085, DEC-087, DEC-088, QA6, QA19. Security review
-    ///      S-3: the transit stays in `inFlightToHub` until its refund is recognized (by anyone, or at the next report
-    ///      or send once it landed) or until `fillDeadline + ReportCodec.HUB_BOUND_RETENTION` has passed.
+    /// @dev See `SpokeCrossChainLib.sendHome`: DEC-056, DEC-066, DEC-085, DEC-087, DEC-088, DEC-158, DEC-162, QA6, QA19.
+    ///      No bridge data: the Across adapter refuses any (DEC-176: no signed quote in the MVP). Security review S-3:
+    ///      the transit stays in `inFlightToHub` until its refund is recognized (by anyone, or at the next report or
+    ///      send once it landed) or until `fillDeadline + ReportCodec.HUB_BOUND_RETENTION` has passed.
     ///      `cumulativeSentHome` grows by `amount`.
-    function sendToHub(uint256 amount, TransferKind kind, uint256 bridgeRank, BridgeQuote calldata quote)
+    function sendToHub(uint256 amount, TransferKind kind, uint256 bridgeRank)
         external
         onlyOnSpokeChain
         onlyManager
@@ -213,7 +221,7 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
         returns (bytes32 transitId)
     {
         _topUpOperatingCash();
-        transitId = SpokeCrossChainLib.sendToHub(_s, _config(), amount, kind, bridgeRank, quote);
+        transitId = SpokeCrossChainLib.sendHome(_s, _config(), amount, kind, bridgeRank, "");
     }
 
     /// @inheritdoc ISpokeVault
@@ -234,17 +242,35 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
         nonReentrant
         returns (uint64 sequence, uint64 wormholeSequence)
     {
-        bytes memory payload;
-        (sequence, payload) = SpokeCrossChainLib.nextReport(_s, _config());
-        wormholeSequence =
-            ICoreBridge(wormholeCore).publishMessage{value: msg.value}(WORMHOLE_NONCE, payload, WORMHOLE_FINALIZED);
-        emit ReportPublished(sequence, wormholeSequence, uint64(block.number));
+        return _publishReport();
+    }
+
+    /// @inheritdoc ISpokeVault
+    /// @dev The order checks run in the linked `SpokeUnwindLib` (WP-07 D4: about 2.1 KB this vault keeps free); they
+    ///      move the order cursor before the order runs, so a replay or a re-entered delivery of it is refused
+    ///      (DEC-093). The executors live in `SpokeVaultUnwind` (unwind, closure) and `SpokeVaultIncome` (collection).
+    function executeOrder(bytes calldata vaa) external payable onlyOnSpokeChain nonReentrant returns (uint64 sequence) {
+        (OrderCodec.Order memory o, bytes32 orderId, uint64 orderSequence) =
+            SpokeUnwindLib.acceptOrder(_s, wormholeCore, _hubWormholeChainId, coreVault, fundId, vaa);
+        // `OrderCodec.check` admits these three kinds only.
+        if (o.kind == OrderCodec.UNWIND) _executeUnwindOrder(o);
+        else if (o.kind == OrderCodec.CLOSE) _executeCloseOrder(o);
+        else _executeCollectOrder(o);
+        emit OrderExecuted(o.kind, orderId, orderSequence);
+        (sequence,) = _publishReport();
     }
 
     /// @inheritdoc ISpokeVault
     /// @dev Returns the report the linked library encodes: its payload is `abi.encode(VERSION, report)`, whose tail
     ///      from the second word is `abi.encode(report)` once that word holds the report's offset (0x20).
+    /// @dev DEC-173 consequence (PR #13 review, M-1): refused while a guarded entry of this vault runs. Mid-call the
+    ///      ledger is not final (a swap has debited its input and not yet credited its output; a position verb has sent
+    ///      tokens to the adapter) and third-party code can run then (a hop token of an API route, outside the
+    ///      Mandate). The Core Vault's mint and view valuations then revert and its payout valuation falls back to the
+    ///      last known hub value (DEC-056), so no share is minted or burned at a mid-call value. The other views stay
+    ///      readable mid-call; none of them values the fund.
     function buildReport() external view returns (ReportCodec.Report memory) {
+        if (_reentrancyGuardEntered()) revert ReentrancyGuardReentrantCall();
         bytes memory payload = SpokeCrossChainLib.encodedReport(_s, _config(), _s.reportSequence + 1);
         assembly ("memory-safe") {
             let start := add(payload, 0x40)
@@ -281,6 +307,16 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
         _s.requireBacked(baseToken, tokenSent);
         emit TransitArrived(transitId, originChainId, tokenSent, amount, kind);
         _topUpOperatingCash();
+    }
+
+    /// @dev DEC-070, DEC-093: builds the next report and publishes it with finalized consistency; `msg.value` is the
+    ///      Wormhole message fee.
+    function _publishReport() private returns (uint64 sequence, uint64 wormholeSequence) {
+        bytes memory payload;
+        (sequence, payload) = SpokeCrossChainLib.nextReport(_s, _config());
+        wormholeSequence =
+            ICoreBridge(wormholeCore).publishMessage{value: msg.value}(WORMHOLE_NONCE, payload, WORMHOLE_FINALIZED);
+        emit ReportPublished(sequence, wormholeSequence, uint64(block.number));
     }
 
     // ---------------------------------------------------------------------------------------------------------------

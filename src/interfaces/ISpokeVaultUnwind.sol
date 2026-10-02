@@ -25,7 +25,7 @@ interface ISpokeVaultUnwind {
     ///      verification (QA3 OPEN): the vault sizes every step itself (the shortfall still needed against the
     ///      position's principal value at the pool's spot price, closing a position only when its whole value is
     ///      needed) and floors every swap's minimum output at the route's spot quote less `MAX_UNWIND_SLIPPAGE_BPS`.
-    /// @param unwindHints Optional `abi.encode(SpokeVaultTypes.UnwindHint[])` from the claimant: swap tightenings only
+    /// @param unwindHints Optional `abi.encode(SpokeUnwindTypes.UnwindHint[])` from the claimant: swap tightenings only
     ///        (a higher minimum output, a price limit or deadline), never an exit size; a hint cannot widen what the
     ///        vault would do on its own.
     /// @return usdcProceeds USDC returned to the Core Vault (may be below target: the payout is then partial,

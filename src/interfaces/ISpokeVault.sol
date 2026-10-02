@@ -6,7 +6,7 @@ import {ISpokeVaultUnwind} from "./ISpokeVaultUnwind.sol";
 import {ISpokeVaultIncome} from "./ISpokeVaultIncome.sol";
 import {IAdapter} from "./IAdapter.sol";
 import {ReportCodec} from "../libraries/ReportCodec.sol";
-import {Transit, TransferKind, ExpensePayer, BridgeQuote} from "./FundTypes.sol";
+import {Transit, TransferKind, ExpensePayer} from "./FundTypes.sol";
 
 /// @title ISpokeVault
 /// @notice The fund's account on one chain, the Hub Chain included: holds positions, drives the Mandate's adapters,
@@ -51,13 +51,28 @@ interface ISpokeVault is IAcrossMessageHandler, ISpokeVaultUnwind, ISpokeVaultIn
     event PositionDecreased(address indexed adapter, bytes32 indexed positionKey, IAdapter.Amounts amounts);
     event PositionClosed(address indexed adapter, bytes32 indexed positionKey, IAdapter.Amounts amounts);
     event IncomeCollected(address indexed adapter, bytes32 indexed positionKey, uint256 income0, uint256 income1);
+
+    /// @notice Unallocated Balance of `tokenIn` was swapped into `tokenOut` (DEC-079, DEC-080): by the manager through
+    ///         a Mandate swap adapter (DEC-136, DEC-142), or by the automatic unwind (see `SpokeUnwindLib`).
+    /// @dev Checklist doc 15, gap 4: the event carries the limit the swap was accepted under. For the automatic
+    ///      unwind's interim sale in a Mandate pool (until WP-09 moves it to the swap adapter, DEC-136 item 4),
+    ///      `adapter` is the position adapter, `maxLossBps` is `SpokeVault.MAX_UNWIND_SLIPPAGE_BPS`, measured from the
+    ///      higher of `spotOut` and the price source, and `minOut` also counts the claimant's hint.
+    /// @param adapter The swap adapter (a position adapter for an automatic unwind sale).
+    /// @param spotOut Mid value of `amountIn` before the trade, without fee or price impact: the reference of the loss
+    ///        (DEC-118, DEC-141).
+    /// @param maxLossBps The caller's maximum loss against `spotOut`, in bps; 0 or >= 10,000 for none (D-23).
+    /// @param minOut The minimum output the swap was held to: the stricter of `spotOut` less `maxLossBps` and the
+    ///        signed API route's minimum (DEC-142), 0 when neither applies.
     event Swapped(
         address indexed adapter,
-        bytes32 indexed poolKey,
-        address tokenIn,
-        address tokenOut,
+        address indexed tokenIn,
+        address indexed tokenOut,
         uint256 amountIn,
-        uint256 amountOut
+        uint256 amountOut,
+        uint256 spotOut,
+        uint16 maxLossBps,
+        uint256 minOut
     );
 
     /// @notice A bridge transfer arrived through `handleV3AcrossMessage` and was credited (DEC-090).
@@ -74,6 +89,11 @@ interface ISpokeVault is IAcrossMessageHandler, ISpokeVaultUnwind, ISpokeVaultIn
 
     /// @notice A value report was published through Wormhole (DEC-070, DEC-086, DEC-093).
     event ReportPublished(uint64 indexed reportSequence, uint64 wormholeSequence, uint64 blockNumber);
+
+    /// @notice An order of the Core Vault was executed here (DEC-120 item 2, DEC-139); the report published in the same
+    ///         transaction (`ReportPublished`) carries its results. `orderId` (`OrderCodec.orderId`) and
+    ///         `wormholeSequence` (the order message's) are those of the Core Vault's `ICoreVault.OrderPublished`.
+    event OrderExecuted(uint8 indexed kind, bytes32 indexed orderId, uint64 wormholeSequence);
 
     /// @notice An Operating Expense was paid, with its funding source (DEC-041). `shareholder` is zero for a
     ///         fund-level expense.
@@ -113,11 +133,16 @@ interface ISpokeVault is IAcrossMessageHandler, ISpokeVaultUnwind, ISpokeVaultIn
     error InsufficientUnallocatedBalance(address token, uint256 available, uint256 requested);
     error InsufficientCollectedIncome(address token, uint256 available, uint256 requested);
     error UnexpectedToken(address token);
+    /// @notice A swap's input or output is not a Mandate token of this chain (DEC-136 item 2).
+    error TokenNotInMandate(address token);
     error WrongFund(bytes32 fundId);
     error BridgeFeeAboveMax(uint256 fee, uint256 maxFee);
     error UnknownTransit(bytes32 transitId);
     error FillDeadlineNotReached(bytes32 transitId, uint32 fillDeadline);
     error NoRefund(bytes32 transitId);
+    /// @notice This vault cannot execute orders of `kind` yet (`OrderCodec.UNWIND`, `CLOSE` or `COLLECT`): the order
+    ///         is refused whole and the order cursor does not move.
+    error OrderKindNotSupported(uint8 kind);
 
     // ---------------------------------------------------------------------------------------------------------------
     // Identity and configuration
@@ -163,7 +188,7 @@ interface ISpokeVault is IAcrossMessageHandler, ISpokeVaultUnwind, ISpokeVaultIn
     /// @notice Whether `token` is a Mandate token of this chain (DEC-136): the closed list of the ledger.
     function isMandateToken(address token) external view returns (bool);
 
-    /// @notice Address that receives swept excess balances. OPEN (LC-132): whether it is the Protocol Recipient.
+    /// @notice Address that receives swept excess balances: the Protocol Recipient, the fee wallet (DEC-116).
     function excessRecipient() external view returns (address);
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -199,15 +224,27 @@ interface ISpokeVault is IAcrossMessageHandler, ISpokeVaultUnwind, ISpokeVaultIn
     /// @notice Collects a position's income into the collected income bucket. Manager only.
     function collectIncome(address adapter, bytes32 positionKey) external returns (IAdapter.Amounts memory amounts);
 
-    /// @notice Swaps Unallocated Balance in a Mandate pool. Manager only. See `IAdapter.swapExactInput` for the OPEN
-    ///         points.
-    function swapExactInput(
-        address adapter,
-        bytes32 poolKey,
+    /// @notice Swaps `amountIn` of Unallocated Balance of `tokenIn` into `tokenOut` through a Mandate swap adapter of
+    ///         this chain; the output is credited to Unallocated Balance. Manager only; on every chain.
+    /// @dev DEC-136 (founder, 2026-10-02: "swaps are not done in the fund pools"): never in a Mandate position pool.
+    ///      Both tokens must be Mandate tokens of this chain (DEC-136 item 2). Who chooses the route (DEC-143,
+    ///      DEC-153): with an empty `route` the adapter swaps in the best direct Uniswap V3 fee tier; otherwise `route`
+    ///      is an API route the Pool Party API signed, which anyone may relay (D-01, D-02). `maxLossBps` is the
+    ///      manager's optional maximum loss against the pool mid before the trade, without a protocol cap; with a
+    ///      signed route the stricter of it and the API minimum applies (DEC-142). Custody: the vault approves exactly
+    ///      `amountIn`, resets the approval to zero, and checks from its own balances that exactly `amountIn` left and
+    ///      at least the returned `amountOut` arrived, then credits `amountOut` (DEC-079, DEC-080). Quarantine and
+    ///      deprecation are the adapter's: a swap into the base token always runs (DEC-056).
+    /// @param swapAdapter A Mandate swap adapter of this chain (codehash pinned, Q17-4).
+    /// @param maxLossBps Maximum loss in bps against the mid before the trade; 0 or >= 10,000 for none (D-23).
+    /// @param route Empty, or `abi.encode(ISwapAdapter.ApiRoute)` signed by the adapter's route signer.
+    function swap(
+        address swapAdapter,
         address tokenIn,
+        address tokenOut,
         uint256 amountIn,
-        uint256 minAmountOut,
-        bytes calldata params
+        uint16 maxLossBps,
+        bytes calldata route
     ) external returns (uint256 amountOut);
 
     /// @notice Sets the Operating Cash floor and top-up of this chain. Manager only (DEC-096; no protocol cap on the
@@ -221,7 +258,8 @@ interface ISpokeVault is IAcrossMessageHandler, ISpokeVaultUnwind, ISpokeVaultIn
     /// @notice Sends base token to the Core Vault through the Mandate bridge adapter of priority `bridgeRank`. Manager
     ///         only; Spoke Chains only.
     /// @dev The vault fixes the recipient (the Core Vault), the token pair (base token to hub USDC) and the message
-    ///      (TransitMessage); the bridge adapter fixes the amount to arrive (DEC-087, DEC-158, DEC-162). `Principal`
+    ///      (TransitMessage); the bridge adapter fixes the amount to arrive and every other bridge term, and the manager
+    ///      passes no bridge parameter (DEC-087, DEC-158, DEC-162; DEC-176: no signed quote in the MVP). `Principal`
     ///      debits Unallocated Balance; `Income` debits the collected income bucket of the base token (who pays
     ///      bridging of income is OPEN, LC-22 / LC-37 / LC-49). Every send is in the base token (the spoke token, USDG
     ///      on Robinhood Chain) and lands on the hub as USDC (CV-OQ-2): an `Income` send is credited on the hub as
@@ -230,9 +268,7 @@ interface ISpokeVault is IAcrossMessageHandler, ISpokeVaultUnwind, ISpokeVaultIn
     ///      never blocked by the bridge adapter's pause or deprecation (DEC-056). Custody: the vault executes the call
     ///      `IBridgeAdapter.buildSend` returns against the pinned target, with an exact approval reset to zero; the
     ///      adapter never holds the base token (DEC-087).
-    function sendToHub(uint256 amount, TransferKind kind, uint256 bridgeRank, BridgeQuote calldata quote)
-        external
-        returns (bytes32 transitId);
+    function sendToHub(uint256 amount, TransferKind kind, uint256 bridgeRank) external returns (bytes32 transitId);
 
     /// @notice Pulls an expired send's refund from its escrow back into the ledger. Permissionless.
     /// @dev Only for a transit in state Sent after its fill deadline, and only once the escrow holds at least
@@ -247,8 +283,23 @@ interface ISpokeVault is IAcrossMessageHandler, ISpokeVaultUnwind, ISpokeVaultIn
     /// @dev `msg.value` pays the Wormhole message fee (0 on Arbitrum and Robinhood Chain today).
     function report() external payable returns (uint64 reportSequence, uint64 wormholeSequence);
 
+    /// @notice Executes an order of the Core Vault delivered as a signed Wormhole VAA, then publishes this vault's
+    ///         report in the same transaction. Permissionless; Spoke Chains only.
+    /// @dev DEC-111, DEC-120 item 2, DEC-139: anyone delivers the order. It is accepted only if this chain's Wormhole
+    ///      Core verifies it, its emitter is the fund's Core Vault on the Hub's Wormhole chain (the Mandate's
+    ///      `hubWormholeChainId`, D-15), its sequence is above every order accepted before (DEC-093), it belongs to
+    ///      this fund and its deadline has not passed (`OrderVerifier`); the order cursor then moves past it, so it
+    ///      executes once. It runs by kind (unwind, closure or income collection) and the post-order report is
+    ///      published with finalized consistency (DEC-093), `msg.value` paying the Wormhole message fee (DEC-120
+    ///      item 2: the report after the unwind in the same transaction). DEC-157: no inactivity switch; an order is
+    ///      the only Hub-to-spoke instruction. Until the order work exists every kind reverts `OrderKindNotSupported`.
+    /// @return reportSequence Sequence of the report published after the order.
+    function executeOrder(bytes calldata vaa) external payable returns (uint64 reportSequence);
+
     /// @notice The data a report would carry now (sequence = the next report sequence). On the hub this is the
     ///         reader the Core Vault uses for the hub Spoke Vault's principal and income (same chain, no message).
+    /// @dev Reverts `ReentrancyGuardReentrantCall` while any guarded call of this vault is in progress, when the ledger
+    ///      is mid-update.
     function buildReport() external view returns (ReportCodec.Report memory);
 
     /// @notice Across fill callback. Only the Across SpokePool; only the base token.

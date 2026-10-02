@@ -29,7 +29,7 @@ abstract contract CoreVaultIncome is CoreVaultBase {
     ///      so it takes the reentrancy guard; the hub Spoke Vault never forwards income from inside a payout's unwind.
     function receiveCollectedIncome(address token, uint256 amount) external nonReentrant {
         if (msg.sender != hubSpokeVault) revert NotHubSpokeVault(msg.sender);
-        if (!_s.income.isRegistered(token)) revert UnknownIncomeToken(token);
+        if (!_s.incomeBook.index.isRegistered(token)) revert UnknownIncomeToken(token);
         if (amount == 0) revert ZeroAmount();
         _requireUnledgered(token, amount);
         CoreVaultIncomeLogic.collectIncome(_s, _wiring(), token, amount);
@@ -39,8 +39,8 @@ abstract contract CoreVaultIncome is CoreVaultBase {
     /// @dev LC-100 stance: pays `min(owed, collectedIncome(token))`. No Payout Fee (DEC-075: Instant Payouts only) and
     ///      no flow fee (DEC-113, which closes LC-143: deposits and Payouts only, never an Income Withdrawal).
     function withdrawIncome(address token) external nonReentrant returns (uint256 amount) {
-        if (!_s.income.isRegistered(token)) revert UnknownIncomeToken(token);
-        _s.income.checkpoint(msg.sender, _sharesOf(msg.sender));
+        if (!_s.incomeBook.index.isRegistered(token)) revert UnknownIncomeToken(token);
+        _s.incomeBook.index.checkpoint(msg.sender, _sharesOf(msg.sender));
         amount = _takeIncome(msg.sender, token);
     }
 
@@ -55,9 +55,9 @@ abstract contract CoreVaultIncome is CoreVaultBase {
     }
 
     function _takeIncome(address holder, address token) internal returns (uint256 amount) {
-        amount = _s.income.takeOwed(holder, token, _s.collectedIncome[token]);
+        amount = _s.incomeBook.index.takeOwed(holder, token, _s.incomeBook.collectedIncome[token]);
         if (amount == 0) return 0;
-        _s.collectedIncome[token] -= amount;
+        _s.incomeBook.collectedIncome[token] -= amount;
         IERC20(token).safeTransfer(holder, amount);
         emit IncomeWithdrawn(holder, token, amount);
     }
@@ -98,18 +98,18 @@ abstract contract CoreVaultIncome is CoreVaultBase {
 
     /// @inheritdoc ICoreVaultIncome
     function incomeTokens() external view returns (address[] memory) {
-        return _s.income.tokens;
+        return _s.incomeBook.index.tokens;
     }
 
     /// @inheritdoc ICoreVaultIncome
     function attributedIncome(address shareholder, address token) external view returns (uint256) {
-        if (!_s.income.isRegistered(token)) return 0;
-        return _s.income.owed(shareholder, token, _sharesOf(shareholder));
+        if (!_s.incomeBook.index.isRegistered(token)) return 0;
+        return _s.incomeBook.index.owed(shareholder, token, _sharesOf(shareholder));
     }
 
     /// @inheritdoc ICoreVaultIncome
     function collectedIncome(address token) external view returns (uint256) {
-        return _s.collectedIncome[token];
+        return _s.incomeBook.collectedIncome[token];
     }
 
     /// @inheritdoc ICoreVaultIncome
@@ -119,12 +119,12 @@ abstract contract CoreVaultIncome is CoreVaultBase {
 
     /// @inheritdoc ICoreVaultIncome
     function ownerlessIncome(address token) external view returns (uint256) {
-        return _s.income.tokenIncome[token].ownerless;
+        return _s.incomeBook.index.tokenIncome[token].ownerless;
     }
 
     /// @inheritdoc ICoreVaultIncome
     function incomeState(address token) external view returns (IncomeAccumulator.TokenIncome memory) {
-        return _s.income.tokenIncome[token];
+        return _s.incomeBook.index.tokenIncome[token];
     }
 
     /// @inheritdoc ICoreVaultIncome

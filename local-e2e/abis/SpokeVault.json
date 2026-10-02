@@ -592,6 +592,16 @@
                 "internalType": "enum TransferKind"
               }
             ]
+          },
+          {
+            "name": "unwindResults",
+            "type": "bytes",
+            "internalType": "bytes"
+          },
+          {
+            "name": "collectionResults",
+            "type": "bytes",
+            "internalType": "bytes"
           }
         ]
       }
@@ -848,6 +858,25 @@
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "executeOrder",
+    "inputs": [
+      {
+        "name": "vaa",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "sequence",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "payable"
   },
   {
     "type": "function",
@@ -1427,33 +1456,6 @@
         "name": "bridgeRank",
         "type": "uint256",
         "internalType": "uint256"
-      },
-      {
-        "name": "quote",
-        "type": "tuple",
-        "internalType": "struct BridgeQuote",
-        "components": [
-          {
-            "name": "outputAmount",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "quoteTimestamp",
-            "type": "uint32",
-            "internalType": "uint32"
-          },
-          {
-            "name": "exclusivityDeadline",
-            "type": "uint32",
-            "internalType": "uint32"
-          },
-          {
-            "name": "exclusiveRelayer",
-            "type": "address",
-            "internalType": "address"
-          }
-        ]
       }
     ],
     "outputs": [
@@ -1485,6 +1487,50 @@
   },
   {
     "type": "function",
+    "name": "swap",
+    "inputs": [
+      {
+        "name": "swapAdapter",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "tokenIn",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "tokenOut",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "amountIn",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maxLossBps",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "route",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "amountOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "swapAdapters",
     "inputs": [],
     "outputs": [
@@ -1501,14 +1547,9 @@
     "name": "swapCollectedIncome",
     "inputs": [
       {
-        "name": "adapter",
+        "name": "swapAdapter",
         "type": "address",
         "internalType": "address"
-      },
-      {
-        "name": "poolKey",
-        "type": "bytes32",
-        "internalType": "bytes32"
       },
       {
         "name": "tokenIn",
@@ -1521,56 +1562,12 @@
         "internalType": "uint256"
       },
       {
-        "name": "minAmountOut",
-        "type": "uint256",
-        "internalType": "uint256"
+        "name": "maxLossBps",
+        "type": "uint16",
+        "internalType": "uint16"
       },
       {
-        "name": "params",
-        "type": "bytes",
-        "internalType": "bytes"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "amountOut",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "swapExactInput",
-    "inputs": [
-      {
-        "name": "adapter",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "poolKey",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "tokenIn",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "amountIn",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "minAmountOut",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "params",
+        "name": "route",
         "type": "bytes",
         "internalType": "bytes"
       }
@@ -1758,21 +1755,15 @@
         "internalType": "address"
       },
       {
-        "name": "poolKey",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
         "name": "tokenIn",
         "type": "address",
-        "indexed": false,
+        "indexed": true,
         "internalType": "address"
       },
       {
         "name": "tokenOut",
         "type": "address",
-        "indexed": false,
+        "indexed": true,
         "internalType": "address"
       },
       {
@@ -1783,6 +1774,24 @@
       },
       {
         "name": "amountOut",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "spotOut",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "maxLossBps",
+        "type": "uint16",
+        "indexed": false,
+        "internalType": "uint16"
+      },
+      {
+        "name": "minOut",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -1861,6 +1870,31 @@
         "type": "uint8",
         "indexed": false,
         "internalType": "enum ExpensePayer"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OrderExecuted",
+    "inputs": [
+      {
+        "name": "kind",
+        "type": "uint8",
+        "indexed": true,
+        "internalType": "uint8"
+      },
+      {
+        "name": "orderId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "wormholeSequence",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
       }
     ],
     "anonymous": false
@@ -2194,21 +2228,15 @@
         "internalType": "address"
       },
       {
-        "name": "poolKey",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
         "name": "tokenIn",
         "type": "address",
-        "indexed": false,
+        "indexed": true,
         "internalType": "address"
       },
       {
         "name": "tokenOut",
         "type": "address",
-        "indexed": false,
+        "indexed": true,
         "internalType": "address"
       },
       {
@@ -2219,6 +2247,24 @@
       },
       {
         "name": "amountOut",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "spotOut",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "maxLossBps",
+        "type": "uint16",
+        "indexed": false,
+        "internalType": "uint16"
+      },
+      {
+        "name": "minOut",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -2740,6 +2786,17 @@
   },
   {
     "type": "error",
+    "name": "OrderKindNotSupported",
+    "inputs": [
+      {
+        "name": "kind",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "PoolAdapterNotListed",
     "inputs": [
       {
@@ -2836,7 +2893,23 @@
   },
   {
     "type": "error",
-    "name": "SwapOutputBelowMinimum",
+    "name": "SwapDebitMismatch",
+    "inputs": [
+      {
+        "name": "expected",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "debited",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SwapOutputNotReceived",
     "inputs": [
       {
         "name": "amountOut",
@@ -2844,9 +2917,20 @@
         "internalType": "uint256"
       },
       {
-        "name": "minAmountOut",
+        "name": "received",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TokenNotInMandate",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
       }
     ]
   },

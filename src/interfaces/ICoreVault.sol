@@ -119,6 +119,16 @@ interface ICoreVault is IAcrossMessageHandler, ICoreVaultLifecycle, ICoreVaultPa
     ///         it any more (security review S-4).
     event UnlistedArrivalRecovered(bytes32 indexed transitId, uint256 indexed originChainId, uint256 amount);
 
+    /// @notice The Core Vault published an order to the fund's Spoke Vaults on the Hub's Wormhole Core: an unwind
+    ///         (DEC-120 item 1, DEC-139), the closure (DEC-147, DEC-149) or an income collection (DEC-122, DEC-161).
+    ///         `orderId` is `OrderCodec.orderId(order)` (kind, fund, request, attempt) and `wormholeSequence` the
+    ///         message's sequence; every Spoke Vault that executes the order emits `ISpokeVault.OrderExecuted` with
+    ///         both, so the two ends of an order can be joined.
+    /// @dev Declared ahead of the work that publishes orders (event audit, doc 15 gap 15); nothing emits it yet.
+    event OrderPublished(
+        uint8 indexed kind, bytes32 indexed orderId, bytes32 indexed requestId, uint32 attempt, uint64 wormholeSequence
+    );
+
     // ---------------------------------------------------------------------------------------------------------------
     // Errors
     // ---------------------------------------------------------------------------------------------------------------
@@ -303,10 +313,10 @@ interface ICoreVault is IAcrossMessageHandler, ICoreVaultLifecycle, ICoreVaultPa
     ///         creation (D-15); the publisher of the Hub's orders to the spokes (DEC-120, DEC-139).
     function wormholeCore() external view returns (address);
 
-    /// @notice Recipient of the protocol slice and the flow fee (DEC-106; LC-132: identity to confirm).
+    /// @notice Recipient of the protocol slice and the flow fee: the fee wallet (DEC-106, DEC-116).
     function protocolRecipient() external view returns (address);
 
-    /// @notice Recipient of swept excess balances (DEC-096, DEC-101; LC-132 OPEN).
+    /// @notice Recipient of swept excess balances: the Protocol Recipient, the fee wallet (DEC-096, DEC-101, DEC-116).
     function excessRecipient() external view returns (address);
 
     /// @notice The fund's ManagerFeeVault, deployed by the Core Vault's constructor (ruling 2026-09-29, DEC-107).

@@ -17,7 +17,6 @@ import {ManagerRegistry} from "../../../src/core/ManagerRegistry.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {UniswapV4Adapter} from "../../../src/adapters/UniswapV4Adapter.sol";
 import {ValueReportReceiver} from "../../../src/report/ValueReportReceiver.sol";
-import {BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
 import {Mandate} from "../../../src/mandate/Mandate.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {MockToken} from "../../mocks/v4/MockToken.sol";
@@ -32,6 +31,7 @@ import {FactoryDeployment} from "../../../script/FactoryDeployment.sol";
 import {FundMandate} from "../../../script/FundMandate.sol";
 import {FundSeed} from "../../utils/FundSeed.sol";
 import {V3Stub} from "../../utils/V3Stub.sol";
+import {MockV3Factory, MockV3Pool} from "../../mocks/swap/MockV3.sol";
 
 /// @notice Shared fixture of the access-control security PoCs: a fund created by the REAL FundFactory (real Core
 ///         Vault, Spoke Vault, ShareToken, ManagerFeeVault, ValueReportReceiver, Uniswap V4, Aave V3 and Across
@@ -59,6 +59,8 @@ abstract contract AccessFundFixture is Test, FactoryDeployment, FundMandate, Fun
     MockWormholeCore internal spokeWormhole;
     MockPermit2 internal permit2;
     MockV4 internal v4;
+    /// @dev The hub's Uniswap V3 stand-in, the only venue of the factory-deployed swap adapter (DEC-136, DEC-153).
+    MockV3Factory internal v3;
     MockPriceSource internal prices;
     ManagerRegistry internal registry;
 
@@ -120,7 +122,8 @@ abstract contract AccessFundFixture is Test, FactoryDeployment, FundMandate, Fun
         w.uniswapV4StateView = hub ? address(v4) : makeAddr("spokeStateView");
         w.permit2 = address(permit2);
         w.aaveV3Pool = hub ? address(aave) : address(0);
-        V3Stub.wire(w);
+        MockV3Factory v3Factory = V3Stub.wire(w);
+        if (hub) v3 = v3Factory;
         w.managerRegistry = hub ? address(registry) : address(0);
         w.priceSource = hub ? address(prices) : address(0);
         w.protocolRecipient = recipient;
@@ -205,10 +208,6 @@ abstract contract AccessFundFixture is Test, FactoryDeployment, FundMandate, Fun
         vm.stopPrank();
     }
 
-    /// @dev The Spoke Vault's vestigial quote argument, ignored since DEC-158 / DEC-162 (the Across adapter fixes the
-    ///      amount to arrive).
-    function _noQuote() internal pure returns (BridgeQuote memory q) {}
-
     /// @dev DEC-162: the Across adapter's fee on a route with no expiry noted: `ceil(amount * 0.08%) + 0.03`.
     function _ruleFee(uint256 amount) internal pure returns (uint256) {
         return (amount * 8e14 + 1e18 - 1) / 1e18 + 30_000;
@@ -257,6 +256,12 @@ abstract contract AccessFundFixture is Test, FactoryDeployment, FundMandate, Fun
                 deadline: block.timestamp
             })
         );
+    }
+
+    /// @dev A WETH / USDC pool in the hub's V3 stand-in at the oracle's raw price 1, in the 0.01% tier, so the fund's
+    ///      swap adapter has a route (DEC-153): a swap of `x` pays `x` less 0.01%.
+    function _v3WethUsdcPool() internal returns (MockV3Pool) {
+        return v3.createPool(address(weth), address(usdc), 100, uint160(1 << 96), 1e24);
     }
 
     function _balance(MockToken token, address who) internal view returns (uint256) {

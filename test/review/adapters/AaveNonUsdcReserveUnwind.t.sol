@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {AaveV3Adapter} from "../../../src/adapters/AaveV3Adapter.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
-import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
+import {SpokeUnwindTypes} from "../../../src/spoke/SpokeUnwindTypes.sol";
 import {TransitEscrow} from "../../../src/core/TransitEscrow.sol";
 import {
     Mandate,
@@ -118,31 +118,32 @@ contract AaveNonUsdcReserveUnwindTest is Test {
         assertTrue(aave.isExactValue(), "an aWETH supply is still declared exact-value");
         MockPriceSource(core.priceSource()).setPrice(address(weth), 2000e6);
 
-        // 1,000 USDC allocated; the manager buys 0.5 WETH through the Mandate WETH/USDC route and supplies it to Aave.
+        // 1,000 USDC allocated; the manager buys 0.5 WETH through the Mandate swap adapter (DEC-136) and supplies it
+        // to Aave. The unwind's hinted route still sells in the Mandate WETH/USDC pool until WP-09: USDC liquidity.
         core.allocate(ISpokeVault(address(vault)), 1000e6);
-        weth.mint(address(hubUni), 1e18);
-        hubUni.addLiquidity(address(weth), 1e18);
-        hubUni.setSwapRate(1e18, 2000e6);
+        hubSwap.setPrice(address(weth), address(usdc), 2000e6, 1e18);
         vm.startPrank(manager);
-        vault.swapExactInput(address(hubUni), HUB_POOL, address(usdc), 1000e6, 0, "");
+        vault.swap(address(hubSwap), address(usdc), address(weth), 1000e6, 0, "");
         vault.openPosition(address(aave), aaveWeth, 0.5e18, 0, abi.encode(uint256(0.5e18)));
         vm.stopPrank();
+        usdc.mint(address(hubUni), 10_000e6);
+        hubUni.addLiquidity(address(usdc), 10_000e6);
         hubUni.setSwapRate(2000e6, 1e18);
         assertEq(vault.positions().length, 1);
 
         // A claim needs 500 USDC of unwind. Without a hint the Aave WETH step is refused by name.
-        vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.MissingUnwindSwap.selector, address(weth)));
+        vm.expectRevert(abi.encodeWithSelector(SpokeUnwindTypes.MissingUnwindSwap.selector, address(weth)));
         core.unwind(ISpokeVault(address(vault)), 500e6, "");
 
         // A hint naming a pool that does not pair WETH with USDC is refused (re-attack: the route stays closed).
-        SpokeVaultTypes.UnwindHint[] memory hints = new SpokeVaultTypes.UnwindHint[](1);
-        hints[0].swaps = new SpokeVaultTypes.UnwindSwap[](1);
-        hints[0].swaps[0] = SpokeVaultTypes.UnwindSwap(address(aave), aaveWeth, address(weth), 0, "");
+        SpokeUnwindTypes.UnwindHint[] memory hints = new SpokeUnwindTypes.UnwindHint[](1);
+        hints[0].swaps = new SpokeUnwindTypes.UnwindSwap[](1);
+        hints[0].swaps[0] = SpokeUnwindTypes.UnwindSwap(address(aave), aaveWeth, address(weth), 0, "");
         vm.expectRevert(abi.encodeWithSelector(ISpokeVault.UnexpectedToken.selector, address(weth)));
         core.unwind(ISpokeVault(address(vault)), 500e6, abi.encode(hints));
 
         // With the hint naming the Mandate WETH/USDC route the step unwinds and reaches the target.
-        hints[0].swaps[0] = SpokeVaultTypes.UnwindSwap(address(hubUni), HUB_POOL, address(weth), 0, "");
+        hints[0].swaps[0] = SpokeUnwindTypes.UnwindSwap(address(hubUni), HUB_POOL, address(weth), 0, "");
         uint256 held = core.unwind(ISpokeVault(address(vault)), 500e6, abi.encode(hints));
         assertGe(held, 500e6, "the unwind reached its target through the hinted route");
         assertGe(core.idleReturned(), 500e6, "and paid it to the Core Vault");

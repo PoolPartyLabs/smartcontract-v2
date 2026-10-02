@@ -15,7 +15,8 @@ import {UniswapV4Adapter} from "../../../src/adapters/UniswapV4Adapter.sol";
 ///         reverted (Partial Payouts from Free Idle only) and closed WETH had no path to Idle.
 /// @notice FIX (S-10, `UniswapV4Adapter.swapExactInput`): a deprecated adapter still runs a swap INTO the vault's base
 ///         token (an exit, DEC-056, DEC-058 "withdraw-only"); a swap out of it stays blocked. The test asserts the
-///         deprecated claim now completes like the one before deprecation, and the manager can sell closed WETH.
+///         deprecated claim now completes like the one before deprecation, and the manager can sell closed WETH, now
+///         through the Mandate swap adapter (DEC-136: the manager never swaps in the position's pool).
 contract POC_DeprecatedAdapterUnwind is HubStackFixture {
     function test_SEC_S10_deprecatedHubAdapterStillUnwindsAndSellsWeth() public {
         _deposit(alice, 200_000e6); // 199,500 Idle after the flow fee
@@ -38,17 +39,18 @@ contract POC_DeprecatedAdapterUnwind is HubStackFixture {
         assertEq(after_.usdcOutstanding, 0, "S-10: paid in full");
         assertApproxEqAbs(after_.unwindProceeds, before.unwindProceeds, 1e6, "S-10: the same unwind as before");
 
-        // The manager can still close and sell the WETH into USDC; a swap out of USDC stays blocked.
+        // The manager can still close and sell the WETH into USDC through the swap adapter; re-entering the
+        // deprecated adapter's pool stays blocked.
         vm.startPrank(manager);
         hubSpoke.closePosition(
             address(adapter), positionKey, abi.encode(UniswapV4Adapter.CloseParams(0, 0, block.timestamp))
         );
         uint256 wethHeld = hubSpoke.unallocatedBalance(address(weth));
         assertGt(wethHeld, 0);
-        hubSpoke.swapExactInput(address(adapter), poolId, address(weth), wethHeld, 0, "");
+        hubSpoke.swap(address(hubSwap), address(weth), address(usdc), wethHeld, 0, "");
         assertEq(hubSpoke.unallocatedBalance(address(weth)), 0, "S-10: no WETH stranded");
         vm.expectRevert(IAdapterGuard.AdapterIsDeprecated.selector);
-        hubSpoke.swapExactInput(address(adapter), poolId, address(usdc), 1e6, 0, "");
+        hubSpoke.openPosition(address(adapter), poolId, 0, 1e6, "");
         vm.stopPrank();
     }
 

@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
-import {TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
+import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {CrossChainFixture} from "./helpers/CrossChainFixture.sol";
 
 /// @title PoC: unbounded Operating Cash parameters move every bridged transfer and all Free Idle out of Share Assets for good
@@ -58,7 +58,7 @@ contract OperatingCashSweepPoC is CrossChainFixture {
         vm.startPrank(manager);
         spoke.setOperatingCashParameters(0, 0);
         vm.expectPartialRevert(ISpokeVault.InsufficientUnallocatedBalance.selector);
-        spoke.sendToHub(1e6, TransferKind.Principal, 0, BridgeQuote(0, 0, 0, address(0)));
+        spoke.sendToHub(1e6, TransferKind.Principal, 0);
         vm.stopPrank();
         assertEq(spoke.sweepExcess(address(usdg)), 0);
         assertEq(spoke.operatingCash(), arrived + 1e6);

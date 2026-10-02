@@ -3,10 +3,14 @@ pragma solidity 0.8.28;
 
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {Transit} from "../interfaces/FundTypes.sol";
+import {OrderVerifier} from "../libraries/OrderVerifier.sol";
+import {SpokeIncomeTypes} from "./SpokeIncomeTypes.sol";
+import {SpokeUnwindTypes} from "./SpokeUnwindTypes.sol";
 
 /// @title SpokeVaultTypes
-/// @notice Storage layout, wiring and caller-encoded types of the Spoke Vault, shared by `SpokeVault` and
-///         `SpokeCrossChainLib`, plus the errors the Spoke Vault raises beyond ISpokeVault.
+/// @notice Storage layout and wiring of the Spoke Vault, shared by `SpokeVault` and its linked libraries, plus the
+///         errors the Spoke Vault raises beyond ISpokeVault. The unwind's caller-encoded hints and errors are in
+///         `SpokeUnwindTypes`.
 library SpokeVaultTypes {
     /// @notice OQ-09 stance: the report carries the ids of the last 256 listed hub-to-spoke arrivals.
     /// @dev Must equal `ReportCodec.ARRIVAL_WINDOW`, which the hub reads (a literal here because it sizes a storage
@@ -64,34 +68,6 @@ library SpokeVaultTypes {
         Collect
     }
 
-    /// @notice The claimant's optional tightening of the swap of one non-USDC token an unwind exit returned, into hub
-    ///         USDC. Final verification (DEC-069, DEC-081, DEC-097, QA3 OPEN): a hint can never widen what the vault
-    ///         would do on its own.
-    /// @param adapter Mandate position adapter on the Hub Chain that runs the swap. When the position's own pool pairs
-    ///        `tokenIn` with USDC the vault swaps there and a hint must name that same route; otherwise the hint names
-    ///        the route (a Mandate pool of a Mandate adapter holding `tokenIn` and USDC) and is required.
-    /// @param poolKey Mandate pool of that adapter.
-    /// @param tokenIn Token the exit returned as principal; the whole amount the exit returned is swapped.
-    /// @param minAmountOut Minimum USDC output; used only when above the vault's floor (the route's spot quote less
-    ///        `SpokeVault.MAX_UNWIND_SLIPPAGE_BPS`).
-    /// @param params Adapter-specific swap parameters (Uniswap V4: price limit and deadline, which can only make the
-    ///        swap revert); empty for the adapter's defaults.
-    struct UnwindSwap {
-        address adapter;
-        bytes32 poolKey;
-        address tokenIn;
-        uint256 minAmountOut;
-        bytes params;
-    }
-
-    /// @notice The claimant's optional hint for one position the automatic unwind visits (registry order): only swap
-    ///         tightenings. The vault sizes every exit itself (`IAdapter.unwindExitParams`) and never takes exit
-    ///         parameters from the claimant (final verification).
-    /// @param swaps Tightenings of the swaps of the non-USDC principal this exit returns, matched by `tokenIn`.
-    struct UnwindHint {
-        UnwindSwap[] swaps;
-    }
-
     /// @notice Immutable wiring the cross-chain library needs, rebuilt in memory from the vault's immutables.
     struct Config {
         bytes32 fundId;
@@ -107,7 +83,9 @@ library SpokeVaultTypes {
 
     /// @notice Every mutable and pinned value of a Spoke Vault.
     /// @dev Chain-local Mandate copy pinned at creation (DEC-030, DEC-053, DEC-087, DEC-088, DEC-136, Q17-4), the
-    ///      internal ledger (DEC-080), Operating Cash (DEC-096) and the cross-chain books (DEC-066, DEC-090, OQ-09).
+    ///      internal ledger (DEC-080), Operating Cash (DEC-096), the cross-chain books (DEC-066, DEC-090, OQ-09), the
+    ///      unwind and income books (WP-07 D1: each grows only in its own types file) and the order cursor
+    ///      (DEC-093, DEC-120: written only by `OrderVerifier.accept`).
     struct State {
         // Pinned at creation.
         address[] adapters;
@@ -139,6 +117,11 @@ library SpokeVaultTypes {
         mapping(bytes32 => uint256) arrivals;
         uint256 arrivalCount;
         bytes32[ARRIVAL_WINDOW] recentArrivals;
+        // Books of the order-driven flows.
+        SpokeUnwindTypes.Book unwind;
+        SpokeIncomeTypes.Book income;
+        // The Core Vault's order stream (DEC-120, DEC-139).
+        OrderVerifier.Cursor orders;
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -167,20 +150,15 @@ library SpokeVaultTypes {
     error LedgerExceedsBalance(address token, uint256 balance, uint256 ledger);
     error PositionAlreadyRegistered(address adapter, bytes32 positionKey);
     error SwapOutputBelowMinimum(uint256 amountOut, uint256 minAmountOut);
+    /// @notice A swap adapter did not take exactly the input the vault approved (DEC-080, DEC-136).
+    error SwapDebitMismatch(uint256 expected, uint256 debited);
+    /// @notice The vault received less than the output the swap adapter returned (DEC-079, DEC-080).
+    error SwapOutputNotReceived(uint256 amountOut, uint256 received);
     error UnexpectedOriginChain(uint256 originChainId);
-    /// @notice An unwind exit returns `token`, the position's own pool does not pair it with USDC and no hint names a
-    ///         route for it (final verification: the unwind is never sized or swapped without a price).
-    error MissingUnwindSwap(address token);
-    error InvalidUnwindSwap(address adapter, bytes32 poolKey, address tokenIn);
     /// @notice The vault did not receive exactly what a refund escrow held when it was released (DEC-066, DEC-080).
     error RefundReleaseMismatch(uint256 held, uint256 received);
     /// @notice `MAX_HUB_BOUND_IN_FLIGHT` sends home are already listed (security review S-11).
     error HubBoundInFlightLimit(uint256 limit);
     /// @notice `MAX_OPEN_POSITIONS` positions are already open (independent review H-04).
     error OpenPositionLimit(uint256 limit);
-
-    /// @notice Encodes the `unwindHints` argument of `ISpokeVault.unwindForPayout`.
-    function encodeHints(UnwindHint[] memory hints) internal pure returns (bytes memory) {
-        return abi.encode(hints);
-    }
 }

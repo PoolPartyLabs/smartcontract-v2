@@ -3,7 +3,7 @@ pragma solidity 0.8.28;
 
 import {Vm} from "forge-std/Vm.sol";
 import {CoreBridgeVM, GuardianSignature} from "wormhole-sdk/interfaces/ICoreBridge.sol";
-import {TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
+import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {IValueReportReceiver} from "../../../src/interfaces/IValueReportReceiver.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {SpokeBCrossChainBase} from "./SpokeBCrossChainBase.sol";
@@ -141,10 +141,9 @@ abstract contract SpokeBFixture is SpokeBCrossChainBase {
 
     /// @dev Manager: `n` sends home of one base unit each (fee 0, so `_checkQuote` accepts any `maxBridgeFeeBps`).
     function _dustSendsHome(uint256 n, TransferKind kind) internal {
-        BridgeQuote memory q = BridgeQuote(1, uint32(block.timestamp), 0, address(0));
         vm.startPrank(manager);
         for (uint256 i; i < n; ++i) {
-            spoke.sendToHub(1, kind, 0, q);
+            spoke.sendToHub(1, kind, 0);
         }
         vm.stopPrank();
     }

@@ -347,7 +347,7 @@ contract LibraryMutationKillTest is Test {
     /// Vault already fail to compile without it): the window is 256 ids, shared by both vaults (OQ-09).
     function test_OQ09_arrivalWindowIs256() public pure {
         assertEq(ReportCodec.ARRIVAL_WINDOW, 256);
-        assertEq(ReportCodec.VERSION, 3); // security review S-6: the report carries the Spoke Vault's mandateHash
+        assertEq(ReportCodec.VERSION, 4); // WP-07 D3: the report carries the order results (S-6's mandateHash in v3)
     }
 
     /// TransferKind values are part of the wire format of both codecs.

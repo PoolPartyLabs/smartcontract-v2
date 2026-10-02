@@ -17,6 +17,8 @@ contract FactoryDeploymentLinkingTest is Test, FactoryDeployment {
         assertTrue(vm.contains(code, _bareHex(d.spokeCrossChainLib)), "SpokeCrossChainLib linked");
         assertTrue(d.spokeUnwindLib.code.length != 0, "SpokeUnwindLib deployed");
         assertTrue(vm.contains(code, _bareHex(d.spokeUnwindLib)), "SpokeUnwindLib linked");
+        assertTrue(d.spokeIncomeLib.code.length != 0, "SpokeIncomeLib deployed");
+        assertTrue(vm.contains(code, _bareHex(d.spokeIncomeLib)), "SpokeIncomeLib linked");
         assertFalse(vm.contains(code, "__$"), "no placeholder left");
     }
 
@@ -33,11 +35,15 @@ contract FactoryDeploymentLinkingTest is Test, FactoryDeployment {
         assertTrue(d.coreVaultPayoutLogic.code.length != 0, "CoreVaultPayoutLogic deployed on the hub");
         assertTrue(vm.contains(code, _bareHex(d.coreVaultPayoutLogic)), "CoreVaultPayoutLogic linked");
         assertFalse(vm.contains(code, "__$"), "no placeholder left");
-        // Library into library: the transit and payout libraries call CoreVaultLogic and CoreVaultIncomeLogic through
-        // their own linked addresses.
+        // Library into library: CoreVaultLogic calls CoreVaultIncomeLogic (the valuation hook, WP-07 D2), the payout
+        // library calls both and the transit library all three (the report hooks), through their own linked
+        // addresses.
+        string memory logic = vm.toString(d.coreVaultLogic.code);
+        assertTrue(vm.contains(logic, _bareHex(d.coreVaultIncomeLogic)), "CoreVaultLogic -> CoreVaultIncomeLogic");
         string memory transit = vm.toString(d.coreVaultTransitLogic.code);
         assertTrue(vm.contains(transit, _bareHex(d.coreVaultLogic)), "transit -> CoreVaultLogic");
         assertTrue(vm.contains(transit, _bareHex(d.coreVaultIncomeLogic)), "transit -> CoreVaultIncomeLogic");
+        assertTrue(vm.contains(transit, _bareHex(d.coreVaultPayoutLogic)), "transit -> CoreVaultPayoutLogic");
         string memory payout = vm.toString(d.coreVaultPayoutLogic.code);
         assertTrue(vm.contains(payout, _bareHex(d.coreVaultLogic)), "payout -> CoreVaultLogic");
         assertTrue(vm.contains(payout, _bareHex(d.coreVaultIncomeLogic)), "payout -> CoreVaultIncomeLogic");

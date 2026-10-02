@@ -8,7 +8,8 @@ import {SwapAdapterTestBase} from "./SwapAdapterTestBase.sol";
 
 /// @notice Routes from the Pool Party API (DEC-129 default path, DEC-136, DEC-143; founder, 2026-10-02: "receive the
 ///         route from uniswap api that we'll send via our api's signed interaction"): only a route signed by the route
-///         signer changes the route (D-01, D-02), within Mandate tokens (D-52), the four V3 tiers and factory pools.
+///         signer changes the route (D-01, D-02), from and to Mandate tokens (DEC-173), in the four V3 tiers and factory
+///         pools.
 contract UniswapV3SwapAdapterRoutesTest is SwapAdapterTestBase {
     /// @dev The API's encoder depends on this exact string.
     function test_D01_routeTypeHashIsTheDocumentedOne() public view {
@@ -35,7 +36,7 @@ contract UniswapV3SwapAdapterRoutesTest is SwapAdapterTestBase {
         emit ISwapAdapter.Swapped(
             address(weth), address(base), AMOUNT, expected, AMOUNT, 0, keccak256(abi.encode(paths, w))
         );
-        (uint256 out, uint256 spot) = adapter.swap(address(weth), address(base), AMOUNT, NO_MAX, route);
+        (uint256 out, uint256 spot,) = adapter.swap(address(weth), address(base), AMOUNT, NO_MAX, route);
         assertEq(out, expected);
         assertEq(spot, AMOUNT, "sum of the legs' mid values");
         assertEq(base.balanceOf(address(this)), expected, "every leg paid the vault");
@@ -68,7 +69,7 @@ contract UniswapV3SwapAdapterRoutesTest is SwapAdapterTestBase {
         _fund(address(weth), AMOUNT);
         vm.expectRevert(ISwapAdapter.InvalidRouteSignature.selector);
         adapter.swap(address(weth), address(base), AMOUNT, NO_MAX, route);
-        (uint256 out,) = adapter.swap(address(weth), address(base), AMOUNT, NO_MAX, "");
+        (uint256 out,,) = adapter.swap(address(weth), address(base), AMOUNT, NO_MAX, "");
         assertEq(out, _out(AMOUNT, 500, 0));
     }
 
@@ -123,25 +124,50 @@ contract UniswapV3SwapAdapterRoutesTest is SwapAdapterTestBase {
         vm.warp(deadline + 1);
         _expectRefused(route, abi.encodeWithSelector(ISwapAdapter.RouteExpired.selector, deadline));
         vm.warp(deadline);
-        (uint256 out,) = adapter.swap(address(weth), address(base), AMOUNT, NO_MAX, route);
+        (uint256 out,,) = adapter.swap(address(weth), address(base), AMOUNT, NO_MAX, route);
         assertEq(out, _out(AMOUNT, 500, 0));
     }
 
     // ------------------------------------------------------------------------------------------------------------
-    // What a signed route may contain (D-52, DEC-153 tiers, factory pools, shape)
+    // What a signed route may contain (DEC-173, DEC-153 tiers, factory pools, shape)
     // ------------------------------------------------------------------------------------------------------------
 
-    /// @dev D-52 (DEC-136 item 2): every hop token is a Mandate token. With USDT outside the Mandate, the same
-    ///      signed route through USDT is refused.
-    function test_D52_aHopThroughATokenOutsideTheMandateIsRefused() public {
+    /// @dev DEC-173: only the route's first and last tokens must be Mandate tokens. With USDT outside the Mandate, the
+    ///      signed split route through USDT runs and pays the vault; USDT never stays in the fund.
+    function test_DEC173_aHopThroughATokenOutsideTheMandateRuns() public {
         address[] memory tokens = new address[](3);
         (tokens[0], tokens[1], tokens[2]) = (address(base), address(weth), address(stock));
         adapter = _deploy(apiSigner, tokens);
+        assertFalse(adapter.isMandateToken(address(usdt)));
         (bytes[] memory paths, uint16[] memory w) = _splitLegs();
-        _expectRefused(
-            _route(paths, w, address(weth), address(base), AMOUNT, 0, apiKey),
-            abi.encodeWithSelector(ISwapAdapter.TokenNotInMandate.selector, address(usdt))
+        uint256 leg0 = AMOUNT * 6000 / 10_000;
+        uint256 expected = _out(_out(leg0, 500, 0), 100, 0) + _out(AMOUNT - leg0, 500, 0);
+
+        (uint256 out,) = _swap(
+            address(weth),
+            address(base),
+            AMOUNT,
+            NO_MAX,
+            _route(paths, w, address(weth), address(base), AMOUNT, 0, apiKey)
         );
+        assertEq(out, expected, "the leg through USDT ran");
+        assertEq(base.balanceOf(address(this)), expected);
+        assertEq(usdt.balanceOf(address(this)), 0, "the hop token never reaches the vault");
+        assertEq(usdt.balanceOf(address(adapter)), 0, "nor stays in the adapter");
+        _assertNothingKept(address(weth));
+    }
+
+    /// @dev DEC-173 keeps DEC-136 item 2 at the route's ends: a signed route whose first or last token is outside the
+    ///      Mandate is refused, even when its paths are valid.
+    function test_DEC173_aRouteEndOutsideTheMandateIsRefused() public {
+        (bytes[] memory paths, uint16[] memory w) = _one(_path1(address(weth), 500, address(usdt)));
+        address[] memory tokens = new address[](3);
+        (tokens[0], tokens[1], tokens[2]) = (address(base), address(weth), address(stock));
+        adapter = _deploy(apiSigner, tokens);
+        bytes memory route = _route(paths, w, address(weth), address(usdt), AMOUNT, 0, apiKey);
+        _fund(address(weth), AMOUNT);
+        vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.TokenNotInMandate.selector, address(usdt)));
+        adapter.swap(address(weth), address(usdt), AMOUNT, NO_MAX, route);
     }
 
     function test_DEC153_aNonStandardFeeIsRefusedEvenWhenSigned() public {
@@ -173,7 +199,7 @@ contract UniswapV3SwapAdapterRoutesTest is SwapAdapterTestBase {
         for (uint256 i; i < 4; ++i) {
             (four[i], w4[i]) = (_path1(address(weth), 500, address(base)), 2500);
         }
-        (uint256 out,) = adapter.swap(
+        (uint256 out,,) = adapter.swap(
             address(weth),
             address(base),
             AMOUNT,
@@ -206,7 +232,7 @@ contract UniswapV3SwapAdapterRoutesTest is SwapAdapterTestBase {
             abi.encodeWithSelector(ISwapAdapter.InvalidPath.selector)
         );
         (paths, w) = _one(three);
-        (uint256 out,) = adapter.swap(
+        (uint256 out,,) = adapter.swap(
             address(weth),
             address(base),
             AMOUNT,
@@ -279,6 +305,41 @@ contract UniswapV3SwapAdapterRoutesTest is SwapAdapterTestBase {
             _route(paths, w, address(weth), address(base), AMOUNT, quoted, apiKey)
         );
         assertEq(out, quoted);
+    }
+
+    /// @dev Checklist doc 15, gap 4: every swap returns the minimum it was held to, so the vault's events carry the
+    ///      limit (DEC-142): none without a maximum or an API minimum, the maximum loss against `spotOut`, the scaled
+    ///      API minimum, and the stricter of the two when both apply. `swapDirect` returns it the same way.
+    function test_DEC142_theSwapReturnsTheMinimumItWasHeldTo() public {
+        (bytes[] memory paths, uint16[] memory w) = _one(_path1(address(weth), 500, address(base)));
+        uint256 quoted = _out(AMOUNT, 500, 0);
+        uint256 minOut;
+
+        _fund(address(weth), AMOUNT);
+        (,, minOut) = adapter.swap(address(weth), address(base), AMOUNT, NO_MAX, "");
+        assertEq(minOut, 0, "no maximum, no API route");
+
+        _fund(address(weth), AMOUNT);
+        (,, minOut) = adapter.swap(address(weth), address(base), AMOUNT, 100, "");
+        assertEq(minOut, AMOUNT * 9900 / 10_000, "1% below the tier's mid");
+
+        // The API minimum, signed for twice the amount sold, scales to the half actually sold.
+        bytes memory route = _route(paths, w, address(weth), address(base), 2 * AMOUNT, quoted, apiKey);
+        _fund(address(weth), AMOUNT);
+        (,, minOut) = adapter.swap(address(weth), address(base), AMOUNT, NO_MAX, route);
+        assertEq(minOut, quoted / 2, "the scaled API minimum");
+
+        _fund(address(weth), AMOUNT);
+        (,, minOut) = adapter.swap(address(weth), address(base), AMOUNT, 10, route);
+        assertEq(minOut, AMOUNT * 9990 / 10_000, "the caller's maximum is stricter");
+
+        _fund(address(weth), AMOUNT);
+        (,, minOut) = adapter.swap(address(weth), address(base), AMOUNT, 9000, route);
+        assertEq(minOut, quoted / 2, "the API minimum is stricter");
+
+        _fund(address(weth), AMOUNT);
+        (,, minOut) = adapter.swapDirect(address(weth), address(base), AMOUNT, 3000, 50);
+        assertEq(minOut, AMOUNT * 9950 / 10_000, "swapDirect: 0.5% below the tier's mid");
     }
 
     /// @dev A route signed for 10 sells 9.5: the legs split 9.5 and the API minimum scales to 9.5 / 10 of itself.

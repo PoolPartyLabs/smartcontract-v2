@@ -12,7 +12,8 @@ import {SpokeAHubFixture} from "./SpokeAHubFixture.sol";
 ///         the first V4 step made the whole automatic unwind revert (Mallory paid 47,370.86 from Idle, 1,629.14
 ///         outstanding) and the WETH of a closed position could never become USDC (Alice left 249,125.25 short for
 ///         good). Security review S-10: a deprecated adapter still runs a swap INTO the vault's base token, so the
-///         unwind and the manager's exit swap work again; a swap out of the base token (an entry) stays blocked.
+///         unwind works again; entries stay blocked. Since DEC-136 the manager's sale of the closed WETH runs through
+///         the Mandate swap adapter, never in the position's pool.
 contract H01_DeprecatedAdapterStrandsWeth is SpokeAHubFixture {
     bytes32 internal exactKey;
 
@@ -69,14 +70,14 @@ contract H01_DeprecatedAdapterStrandsWeth is SpokeAHubFixture {
         uint256 wethHeld = hubVault.unallocatedBalance(address(weth));
         assertEq(wethHeld, 99_999_999_999_999_999_999);
 
-        // An entry (USDC -> WETH) stays blocked on the deprecated adapter (DEC-058) ...
+        // An entry stays blocked on the deprecated adapter (DEC-058) ...
         vm.prank(manager);
         vm.expectRevert(IAdapterGuard.AdapterIsDeprecated.selector);
-        hubVault.swapExactInput(address(adapter), poolId, address(usdc), 1e6, 0, "");
+        hubVault.openPosition(address(adapter), poolId, 0, 1e6, "");
 
-        // ... but the exit swap into the base token runs (S-10): the WETH becomes USDC at the oracle rate.
+        // ... and the WETH becomes USDC at the oracle rate through the Mandate swap adapter (DEC-136).
         vm.prank(manager);
-        uint256 usdcOut = hubVault.swapExactInput(address(adapter), poolId, address(weth), wethHeld, 0, "");
+        uint256 usdcOut = hubVault.swap(address(hubSwap), address(weth), address(usdc), wethHeld, 0, "");
         console2.log("USDC from the stranded WETH", usdcOut);
         assertEq(hubVault.unallocatedBalance(address(weth)), 0, "no WETH left behind");
         assertEq(usdcOut, wethHeld * 2500e6 / 1e18);

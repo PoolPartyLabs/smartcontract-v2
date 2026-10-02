@@ -24,7 +24,7 @@ import {Transit, TransitState, TransferKind} from "../../../src/interfaces/FundT
 import {FundFactory} from "../../../src/factory/FundFactory.sol";
 import {AcrossBridgeAdapter} from "../../../src/adapters/AcrossBridgeAdapter.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
-import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
+import {SpokeUnwindTypes} from "../../../src/spoke/SpokeUnwindTypes.sol";
 import {Mandate, MandateLib} from "../../../src/mandate/Mandate.sol";
 import {ShareMath} from "../../../src/libraries/ShareMath.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
@@ -88,6 +88,7 @@ abstract contract EndToEndScenario is EndToEndBase {
         hubUniswap = a.chains[0].uniswapV4Adapter;
         hubAave = a.chains[0].aaveV3Adapter;
         hubAcross = a.chains[0].acrossBridgeAdapter;
+        hubSwapAdapter = a.chains[0].uniswapV3SwapAdapter;
         assertEq(core.mandateHash(), mandateHash, "DEC-053: the Mandate is written once at creation");
         assertEq(core.flowFeeBps(), FLOW_FEE_BPS, "DEC-106: default flow fee");
         // DEC-127, DEC-061, DEC-113: the fund is born with the manager's seed, at least the Mandate minimum, at 1.00.
@@ -141,6 +142,7 @@ abstract contract EndToEndScenario is EndToEndBase {
         spokeVault = ISpokeVault(s.spokeVault);
         spokeUniswap = s.uniswapV4Adapter;
         spokeAcross = s.acrossBridgeAdapter;
+        spokeSwapAdapter = s.uniswapV3SwapAdapter;
         assertEq(spokeVault.mandateHash(), mandateHash, "FF-OQ-1: the spoke's Mandate is the hub's");
         assertEq(spokeVault.coreVault(), address(core));
         assertEq(spokeVault.fundId(), fundId);
@@ -230,12 +232,13 @@ abstract contract EndToEndScenario is EndToEndBase {
         assertEq(hubSpoke.positions().length, 2);
     }
 
-    /// @dev OQ-04 stance: the manager swaps Unallocated Balance through the adapter in a Mandate pool, with a minimum
-    ///      from the hub price source.
+    /// @dev DEC-136, DEC-153: the manager swaps Unallocated Balance through the fund's Uniswap V3 swap adapter (the
+    ///      best direct tier on the live fork, never the fund's V4 pool), with a maximum loss against the pool mid
+    ///      (DEC-142); the output also clears a floor from the hub price source.
     function _swapHubUsdcForWeth(uint256 usdcIn) internal returns (uint256 weth) {
-        uint256 minWeth = _minWethFor(usdcIn);
         vm.prank(manager);
-        weth = hubSpoke.swapExactInput(hubUniswap, ARB_WETH_USDC_POOL_ID, ARB_USDC, usdcIn, minWeth, _swapParams());
+        weth = hubSpoke.swap(hubSwapAdapter, ARB_USDC, ARB_WETH, usdcIn, uint16(SWAP_TOLERANCE_BPS), "");
+        assertGe(weth, _minWethFor(usdcIn), "within the tolerance of the price source");
         assertEq(hubSpoke.unallocatedBalance(ARB_WETH), weth, "DEC-080: swap output credited from the adapter");
     }
 
@@ -351,9 +354,8 @@ abstract contract EndToEndScenario is EndToEndBase {
     function _openSpokeUniswapPosition() internal {
         uint256 half = SPOKE_V4_USDG / 2;
         vm.prank(manager);
-        uint256 weth = spokeVault.swapExactInput(
-            spokeUniswap, RH_WETH_USDG_POOL_ID, RH_USDG, half, spokeSwapMinWeth, _swapParams()
-        );
+        uint256 weth = spokeVault.swap(spokeSwapAdapter, RH_USDG, RH_WETH, half, uint16(SWAP_TOLERANCE_BPS), "");
+        assertGe(weth, spokeSwapMinWeth, "within the tolerance of the hub price source");
         int24 center = _center(RH_V4_STATE_VIEW, RH_WETH_USDG_POOL_ID);
         vm.prank(manager);
         (bytes32 key, uint256 used0, uint256 used1) =
@@ -750,17 +752,17 @@ abstract contract EndToEndScenario is EndToEndBase {
         uint256 shortfall = target > covered ? target - covered : 0;
         uint256 value = _spotValue(v4);
         uint256 wethOut = value <= shortfall ? v4.principal0 : Math.mulDiv(v4.principal0, shortfall, value);
-        SpokeVaultTypes.UnwindSwap[] memory swaps = new SpokeVaultTypes.UnwindSwap[](1);
-        swaps[0] = SpokeVaultTypes.UnwindSwap({
+        SpokeUnwindTypes.UnwindSwap[] memory swaps = new SpokeUnwindTypes.UnwindSwap[](1);
+        swaps[0] = SpokeUnwindTypes.UnwindSwap({
             adapter: hubUniswap,
             poolKey: ARB_WETH_USDC_POOL_ID,
             tokenIn: ARB_WETH,
             minAmountOut: _usdcValue(ARB_WETH, wethOut) * (10_000 - SWAP_TOLERANCE_BPS) / 10_000,
             params: _swapParams()
         });
-        SpokeVaultTypes.UnwindHint[] memory hints = new SpokeVaultTypes.UnwindHint[](2);
-        hints[0] = SpokeVaultTypes.UnwindHint({swaps: new SpokeVaultTypes.UnwindSwap[](0)});
-        hints[1] = SpokeVaultTypes.UnwindHint({swaps: swaps});
+        SpokeUnwindTypes.UnwindHint[] memory hints = new SpokeUnwindTypes.UnwindHint[](2);
+        hints[0] = SpokeUnwindTypes.UnwindHint({swaps: new SpokeUnwindTypes.UnwindSwap[](0)});
+        hints[1] = SpokeUnwindTypes.UnwindHint({swaps: swaps});
         return abi.encode(hints);
     }
 

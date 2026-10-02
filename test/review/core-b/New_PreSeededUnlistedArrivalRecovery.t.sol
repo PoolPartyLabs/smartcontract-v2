@@ -4,7 +4,7 @@ pragma solidity 0.8.28;
 import {console2} from "forge-std/console2.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
-import {TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
+import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {CoreBCrossChainFixture} from "./CoreBCrossChainFixture.sol";
@@ -50,8 +50,9 @@ contract New_PreSeededUnlistedArrivalRecovery is CoreBCrossChainFixture {
         vm.warp(seededAt + 6 hours + ReportCodec.HUB_BOUND_RETENTION + 2 * uint256(MAX_REPORT_AGE));
         _refreshPrices();
         _report();
+        _willArrive(HOME_OUT);
         vm.prank(manager);
-        bytes32 home = spoke.sendToHub(ARRIVES, TransferKind.Principal, 0, _homeQuote(HOME_OUT));
+        bytes32 home = spoke.sendToHub(ARRIVES, TransferKind.Principal, 0);
         assertEq(home, predicted, "the id Bob seeded");
         vm.warp(block.timestamp + 2 minutes);
         _fillOnHub(home, HOME_OUT, TransferKind.Principal);
@@ -88,8 +89,9 @@ contract New_PreSeededUnlistedArrivalRecovery is CoreBCrossChainFixture {
         vm.prank(bob);
         vault.requestPayout(1_000_000e6, ICoreVaultPayouts.PayoutMode.Standard);
 
+        _willArrive(HOME_OUT);
         vm.prank(manager);
-        bytes32 home = spoke.sendToHub(ARRIVES, TransferKind.Principal, 0, _homeQuote(HOME_OUT));
+        bytes32 home = spoke.sendToHub(ARRIVES, TransferKind.Principal, 0);
         vm.warp(block.timestamp + 2 minutes);
         _fillOnHub(home, HOME_OUT, TransferKind.Principal);
 
@@ -128,8 +130,9 @@ contract New_PreSeededUnlistedArrivalRecovery is CoreBCrossChainFixture {
         vm.warp(block.timestamp + 6 hours + ReportCodec.HUB_BOUND_RETENTION + 2 * uint256(MAX_REPORT_AGE));
         _refreshPrices();
         _report();
+        _willArrive(9995e6);
         vm.prank(manager);
-        bytes32 home = spoke.sendToHub(10_000e6, TransferKind.Income, 0, _homeQuote(9995e6));
+        bytes32 home = spoke.sendToHub(10_000e6, TransferKind.Income, 0);
         assertEq(home, predicted);
         vm.warp(block.timestamp + 2 minutes);
         _fillOnHub(home, 9995e6, TransferKind.Income);

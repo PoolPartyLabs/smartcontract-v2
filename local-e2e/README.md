@@ -71,7 +71,7 @@ actor keys below, and read every address from `local-e2e/.state/deployment.json`
 | Wormhole Cores | Real contracts: `report()` publishes on the Robinhood Core and `parseAndVerifyVM` runs on the Arbitrum Core; Hub orders publish on the Arbitrum Core and verify on the Robinhood Core | Live |
 | Wormhole guardians | **Simulated**: one local guardian (the SDK's devnet key) replaces the guardian set of **both** Cores in storage (quorum 1 of 1); the keeper signs reports after `KEEPER_VAA_DELAY_SECONDS` and orders after `KEEPER_ORDER_DELAY_SECONDS` | 13 of 19 guardians, after 15 to 20 minutes of Robinhood finality for reports, at once for instant-consistency orders |
 | VAA delivery and report cadence | The keeper (`deliver` and `executeOrder` are permissionless; `--auto-report` calls `report()`); the API publishes a report after each deposit (DEC-159) | The protocol's keeper, the API (or anyone) |
-| Uniswap V3 (swaps, DEC-136) | Real factory, QuoterV2, SwapRouter02 and pools; the factory deploys each fund's own swap adapter per chain (Mandate v2, DEC-136; vault its Spoke Vault); the API signs routes with QuoterV2 on the fork for it and for a harness adapter per chain whose vault is the manager's wallet, which the probe executes routes through until the Spoke Vault's manager swap verb lands (WP-07 C) | The Pool Party API signs routes from the Uniswap Trading API's quote |
+| Uniswap V3 (swaps, DEC-136) | Real factory, QuoterV2, SwapRouter02 and pools; the factory deploys each fund's own swap adapter per chain (Mandate v2, DEC-136; vault its Spoke Vault); the API signs routes with QuoterV2 on the fork for it, which the Spoke Vault's `swap` executes (WP-07C), and for a harness adapter per chain whose vault is the manager's wallet, which the probe executes routes through from a wallet | The Pool Party API signs routes from the Uniswap Trading API's quote |
 | Chainlink ETH / USD | Real feed with its answer frozen at the fork block; the round's timestamp is re-stamped by the keeper and by `warp` (no rounds are posted on a fork) | Live rounds (heartbeat and deviation) |
 | Balances | Written into the tokens' balance mappings (USDC, USDG) and wrapped from ETH (WETH) | Real funds |
 | Time | Both anvil clocks, advanced together by `warp` | Wall clock |
@@ -290,11 +290,11 @@ the report after each deposit. Routes:
 | `GET /holders/:address` | shares, their value at the Share Price, Attributed Income and owed transfers per income token, the open Payout Request |
 | `GET /quote/deposit?from=&amount=` | the exact shares and USDC charged, by simulating `deposit`, or the decoded revert (`StaleSpokeReport`, `StalePrice`, `SharePriceBelowOneUnit`, ...) |
 | `GET /quote/claim?from=` | the exact payout receipt by simulating `claimPayout` with the API's hints |
-| `GET /quote/swap?tokenIn=&amountIn=` | a manager swap minimum: the oracle value less 1% (the vault enforces none: security review S-8, open) |
+| `GET /quote/swap?tokenIn=&amountIn=` | a manager swap minimum: the oracle value less 1%; the vault holds a swap only to the manager's `maxLossBps` and a signed route's minimum (DEC-142; security review S-8, open), so `/tx/swap` signs this one into its route |
 | `GET /quote/swap-route?chain=&tokenIn=&tokenOut=&amountIn=&slippageBps=&adapter=&hops=` | the best single Uniswap V3 path QuoterV2 quotes on the fork (1,000,000 gas per quote, D-21), direct in one of the four fee tiers or two hops through another Mandate token of the adapter (D-52; `hops=1` or `hops=2` keeps only those), over the tiers with at least 1% of the pair's deepest in-range liquidity, signed by the API signer as the EIP-712 `SwapRoute` of `UniswapV3SwapAdapter` (domain bound to the adapter); `encodedRoute` is the `route` argument of `swap`; the minimum is the quote less `slippageBps` (default 100, at most 500, the Spoke Vault's own unwind floor: the API never signs a near-zero minimum, DEC-142); `adapter` may name the harness's adapter (the default) or the fund's own swap adapter on that chain (422 for any other), since every production adapter accepts the API signer's routes (D-01) |
 | `GET /quote/bridge?direction=to-spoke\|to-hub&amount=` | what the fund's Across adapter fixes for a send of `amount` now (`quoteSend`: amount to arrive, fee, rate) and the route's fee state; `signed: false` until signed quotes (R-162-B, WP-11) |
 | `GET /share-price/history?fromBlock=&toBlock=` | the Share Price, Share Assets and shares at every hub block where the Core Vault emitted an event, with the event names |
-| `POST /tx/deposit`, `/tx/request`, `/tx/claim`, `/tx/swap` | unsigned transactions (approval first when needed); `/tx/deposit` answers 409 while mints are closed |
+| `POST /tx/deposit`, `/tx/request`, `/tx/claim`, `/tx/swap` | unsigned transactions (approval first when needed); `/tx/deposit` answers 409 while mints are closed; `/tx/swap` is the hub Spoke Vault's `swap` through the fund's swap adapter, on a route the API signs with the stricter of the quote and the oracle minimum, and `slippageBps` as the manager's `maxLossBps` |
 | `POST /report/after-deposit {txHash}` | DEC-159: checks the transaction is a deposit into the fund, publishes `report()` on every spoke with the API signer and waits for the keeper to deliver it (or, with no keeper running, delivers it with the harness guardian); once per deposit: a replayed hash gets the first answer, and a spoke whose report accepted on the Hub is already later than the deposit gets no new one (`published: false`) |
 | `GET /events?fromBlock=` | the Core Vault's events, decoded |
 
@@ -391,8 +391,8 @@ a run report keeps the host of a URL only.
   publishes one from the Core Vault's address and the keeper only logs it.
 - **The API signer.** Its key is a public anvil key held by the local API; in production it is the API's own key, the
   ManagerRegistry owner and the swap route signer wired at deployment (reading D-01, DEC-170). Besides each fund's own
-  swap adapters, the harness deploys one per chain whose vault is the manager's wallet, so a signed route can be
-  executed from a wallet until the Spoke Vault's manager swap verb lands (WP-07 C). The local API also
+  swap adapters, the harness deploys one per chain whose vault is the manager's wallet, so a signed route can also be
+  executed from a wallet, besides through the Spoke Vault's `swap` (WP-07C). The local API also
   pays the reports after deposits with it; production sends those from a separate gas key, never from the
   registry-owner and route-signer key, and keeps the deposits it answered in its store rather than in memory.
 - **Across.** Real SpokePools, but one keeper fills every deposit to a fund vault at whatever fee the quote left, within

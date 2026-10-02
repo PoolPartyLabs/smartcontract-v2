@@ -44,6 +44,7 @@ struct FundSystem {
     MockPositionAdapter hubUni;
     MockPositionAdapter hubAave;
     MockPositionAdapter spokeUni;
+    MockSwapAdapter spokeSwap;
     MockWormholeCore wormhole;
     MockPriceSource prices;
     address manager;
@@ -125,6 +126,9 @@ abstract contract FundSystemFixture is Test, FundSeed {
 
         hubSwap = new MockSwapAdapter();
         spokeSwap = new MockSwapAdapter();
+        // WETH income is swapped into USDG one base unit for one base unit (DEC-136: through the swap adapter).
+        spokeSwap.setPrice(address(sys.spokeWeth), address(sys.usdg), 1, 1);
+        sys.spokeSwap = spokeSwap;
         sys.manager = manager;
         sys.protocolRecipient = protocolRecipient;
         sys.excessRecipient = excessRecipient;

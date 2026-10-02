@@ -107,9 +107,11 @@ abstract contract EndToEndBase is Test, FactoryDeployment, FundMandate, FundSeed
     address internal hubUniswap;
     address internal hubAave;
     address internal hubAcross;
+    address internal hubSwapAdapter;
     ISpokeVault internal spokeVault;
     address internal spokeUniswap;
     address internal spokeAcross;
+    address internal spokeSwapAdapter;
 
     V4SwapRouter internal arbitrumRouter;
     V4SwapRouter internal robinhoodRouter;

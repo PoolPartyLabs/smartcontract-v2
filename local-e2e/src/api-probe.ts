@@ -6,7 +6,7 @@
 // adapters are the Mandate's (Mandate v2) and the API signs for them, every operation ends with an event a server can
 // index, and the Share Price history follows the mints. Each run writes a run report.
 // Run: `pnpm run up && pnpm api:probe; pnpm run down`.
-import { zeroAddress, type Address, type Hex, type TransactionReceipt } from "viem";
+import { type Address, type Hex, type TransactionReceipt } from "viem";
 import { coreVaultAbi, erc20Abi, spokeVaultAbi, uniswapV3SwapAdapterAbi } from "./abis.ts";
 import { explain, nodes, read, recordTransaction, send, simulateRevert, wallet, type Side } from "./chain.ts";
 import { actors, ARBITRUM, ROBINHOOD, isMain, type ActorName } from "./config.ts";
@@ -71,8 +71,8 @@ async function waitFor(what: string, probe: () => Promise<boolean>, seconds = 12
 }
 
 /** Executes a signed route through the harness's swap adapter of the chain as its vault (the manager's wallet: the
- *  fund's own adapter takes `swap` only from its Spoke Vault, whose manager swap verb lands in WP-07 C), and checks that
- *  a tampered copy is refused. `hops` asks the API for a path of that many hops; `twoHopCandidates` requires two-hop
+ *  fund's own adapter takes `swap` only from its Spoke Vault, which step 6 drives), and checks that a tampered copy is
+ *  refused. `hops` asks the API for a path of that many hops; `twoHopCandidates` requires two-hop
  *  paths among those quoted. */
 async function signedRoute(
   side: Side,
@@ -224,8 +224,9 @@ export async function probe() {
     h = await get("/health");
     record("a fresh report reopens mints", h.mintsOpen === true, `report ${h.spokeReport.reportSequence}, age ${h.spokeReport.ageSeconds}s`);
 
-    // 6. Manager swap guard (security review S-8, open): the chain accepts any minimum; the API only builds swaps with
-    //    the oracle value less its slippage, and a minimum the pool cannot meet reverts by name.
+    // 6. Manager swap guard (security review S-8, open): the vault's `swap` through the fund's swap adapter holds a swap
+    //    only to the manager's loss bound and a signed route's minimum (DEC-142); the API only builds swaps on a route
+    //    it signs with the oracle value less its slippage, and a minimum the pool cannot meet reverts by name.
     await send("arbitrum", "manager", { address: core, abi: coreVaultAbi, functionName: "allocateToHubSpokeVault", args: [2_000_000_000n] });
     const swapQuote = await get(`/quote/swap?tokenIn=${ARBITRUM.usdc}&amountIn=1000000000`);
     const wethBefore = await read<bigint>("arbitrum", { address: fund.hub.spokeVault, abi: spokeVaultAbi, functionName: "unallocatedBalance", args: [ARBITRUM.weth] });
@@ -255,8 +256,7 @@ export async function probe() {
       read<boolean>("robinhood", { address: fund.spoke.spokeVault, abi: spokeVaultAbi, functionName: "hasArrived", args: [sent.result] }),
     );
     const toHub = await get(`/quote/bridge?direction=to-hub&amount=200000000`);
-    const zeroQuote = { outputAmount: 0n, quoteTimestamp: 0, exclusivityDeadline: 0, exclusiveRelayer: zeroAddress };
-    const home = await send<Hex>("robinhood", "manager", { address: fund.spoke.spokeVault, abi: spokeVaultAbi, functionName: "sendToHub", args: [200_000_000n, 0, 0n, zeroQuote] });
+    const home = await send<Hex>("robinhood", "manager", { address: fund.spoke.spokeVault, abi: spokeVaultAbi, functionName: "sendToHub", args: [200_000_000n, 0, 0n] });
     const homeTransit = await read<{ amountToArrive: bigint }>("robinhood", { address: fund.spoke.spokeVault, abi: spokeVaultAbi, functionName: "hubBoundTransit", args: [home.result] });
     record(
       "the bridge quote is what the adapter fixes",

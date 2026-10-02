@@ -49,6 +49,7 @@ contract FeeRecipientLivenessPoC is AccessFundFixture {
     CoreVault internal core;
     SpokeVault internal hub;
     address internal adapter;
+    address internal swapAdapter;
     bytes32 internal poolId;
 
     function _newUsdc() internal override returns (MockToken) {
@@ -62,6 +63,7 @@ contract FeeRecipientLivenessPoC is AccessFundFixture {
         core = CoreVault(a.coreVault);
         hub = _hubVault(a);
         adapter = a.chains[0].uniswapV4Adapter;
+        swapAdapter = a.chains[0].uniswapV3SwapAdapter;
         poolId = _hubPoolId();
         _deposit(core, alice, 600_000e6);
         _deposit(core, bob, 400_000e6);
@@ -109,11 +111,13 @@ contract FeeRecipientLivenessPoC is AccessFundFixture {
     }
 
     function test_SEC_S12_blacklistedFeeAddressNoLongerBlocksIncomeCollection() public {
+        _v3WethUsdcPool();
         vm.startPrank(manager);
         core.allocateToHubSpokeVault(400_000e6);
-        hub.swapExactInput(adapter, poolId, address(usdc), 200_000e6, 0, "");
+        // DEC-136: the manager's swap runs through the fund's swap adapter (0.01% V3 pool at price 1).
+        uint256 wethOut = hub.swap(swapAdapter, address(usdc), address(weth), 200_000e6, 0, "");
         (bytes32 positionKey,,) =
-            hub.openPosition(adapter, poolId, 200_000e6, 200_000e6, _openParams(200_000e6, 200_000e6));
+            hub.openPosition(adapter, poolId, wethOut, wethOut, _openParams(uint128(wethOut), uint128(wethOut)));
         v4.accrueFees(poolId, 1 << 100, 1 << 100);
         hub.collectIncome(adapter, positionKey);
         vm.stopPrank();

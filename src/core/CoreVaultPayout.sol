@@ -51,7 +51,7 @@ abstract contract CoreVaultPayout is CoreVaultTransit {
     ///      the receipt shows the USDC paid below the amount requested.
     function claimPayout(bytes calldata unwindHints) external nonReentrant returns (PayoutReceipt memory receipt) {
         _requireOpen();
-        PayoutRequest storage req = _s.requests[msg.sender];
+        PayoutRequest storage req = _s.payouts.requests[msg.sender];
         if (!req.open) revert NoOpenPayoutRequest(msg.sender);
         if (req.mode == PayoutMode.Standard && block.timestamp < req.termEndsAt) {
             revert PayoutTermNotEnded(req.termEndsAt);
@@ -68,7 +68,7 @@ abstract contract CoreVaultPayout is CoreVaultTransit {
 
     /// @inheritdoc ICoreVaultPayouts
     function payoutRequest(address shareholder) external view returns (PayoutRequest memory) {
-        return _s.requests[shareholder];
+        return _s.payouts.requests[shareholder];
     }
 
     /// @inheritdoc ICoreVaultPayouts
