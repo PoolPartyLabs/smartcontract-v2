@@ -85,7 +85,7 @@ abstract contract SwapAdapterTestBase is Test {
         returns (uint256 amountOut, uint256 spotOut)
     {
         _fund(tokenIn, amountIn);
-        (amountOut, spotOut) = adapter.swap(tokenIn, tokenOut, amountIn, maxLossBps, route);
+        (amountOut, spotOut,) = adapter.swap(tokenIn, tokenOut, amountIn, maxLossBps, route);
     }
 
     function _fund(address token, uint256 amount) internal {

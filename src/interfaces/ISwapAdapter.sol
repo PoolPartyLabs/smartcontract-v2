@@ -132,9 +132,12 @@ interface ISwapAdapter is IAdapterGuard {
     /// @return amountOut Output delivered to the vault.
     /// @return spotOut Mid value of `amountIn` along the route before the trade, without fee or price impact: the
     ///         reference of the sale's loss (DEC-118, DEC-141).
+    /// @return minOut The minimum output the swap was held to: the stricter of `spotOut` less `maxLossBps` and the API
+    ///         route's minimum scaled to `amountIn` (DEC-142), 0 when neither applies. Returned so the vault's events
+    ///         carry the limit each swap was accepted under (checklist doc 15, gap 4).
     function swap(address tokenIn, address tokenOut, uint256 amountIn, uint16 maxLossBps, bytes calldata route)
         external
-        returns (uint256 amountOut, uint256 spotOut);
+        returns (uint256 amountOut, uint256 spotOut, uint256 minOut);
 
     /// @notice The direct fee tier the adapter would choose for this swap (DEC-153) and its quoted output. Anyone.
     /// @dev State-changing only because QuoterV2 simulates each swap and reverts; meant for `eth_call` by the API and
@@ -153,7 +156,7 @@ interface ISwapAdapter is IAdapterGuard {
     ///      loss as `swap`.
     function swapDirect(address tokenIn, address tokenOut, uint256 amountIn, uint24 fee, uint16 maxLossBps)
         external
-        returns (uint256 amountOut, uint256 spotOut);
+        returns (uint256 amountOut, uint256 spotOut, uint256 minOut);
 
     /// @notice Mid value of `amountIn` of `tokenIn` in `tokenOut` in the direct pool of `fee`, at its current
     ///         `slot0` price, without fee or price impact. Not an oracle: a spot price can be moved within a block.

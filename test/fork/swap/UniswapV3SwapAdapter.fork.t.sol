@@ -104,7 +104,7 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
         a.mint(address(this), 1e18);
         a.approve(address(adapter), 1e18);
         uint256 g = gasleft();
-        (uint256 out,) = adapter.swap(address(a), address(b), 1e18, NO_MAX, "");
+        (uint256 out,,) = adapter.swap(address(a), address(b), 1e18, NO_MAX, "");
         uint256 used = g - gasleft();
         console2.log("griefed pair, adapter.swap gas", used, "out", out);
         assertGt(out, 0, "the real tier filled");
@@ -193,7 +193,7 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
         assertEq(out, 0);
         assertEq(spot, 0);
         _fund(ARB_WETH, 1e5);
-        (out,) = adapter.swapDirect(ARB_WETH, ARB_USDC, 1e5, 500, 100);
+        (out,,) = adapter.swapDirect(ARB_WETH, ARB_USDC, 1e5, 500, 100);
         assertEq(out, 0, "swapDirect sells it too");
     }
 
@@ -218,7 +218,7 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
         assertLt(_lossBps(spot, quoted), 100, "within 1% of the quote");
         _fund(RH_WETH, 10e18);
         uint256 g = gasleft();
-        (uint256 out, uint256 spotOut) = adapter.swapDirect(RH_WETH, RH_USDG, 10e18, fee, 100);
+        (uint256 out, uint256 spotOut,) = adapter.swapDirect(RH_WETH, RH_USDG, 10e18, fee, 100);
         console2.log("swapDirect 10 WETH -> USDG, gas", g - gasleft(), "fee", uint256(fee));
         assertEq(out, quoted, "pays the chosen tier's quote");
         assertEq(spotOut, spot);
@@ -470,7 +470,7 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
     ) internal returns (uint256 out, uint256 spot, uint256 used) {
         uint256 before = IERC20(tokenOut).balanceOf(address(this));
         uint256 g = gasleft();
-        (out, spot) = adapter.swap(tokenIn, tokenOut, amountIn, maxLossBps, route);
+        (out, spot,) = adapter.swap(tokenIn, tokenOut, amountIn, maxLossBps, route);
         used = g - gasleft();
         console2.log(label);
         console2.log("  adapter.swap gas", used, "route bytes", route.length);

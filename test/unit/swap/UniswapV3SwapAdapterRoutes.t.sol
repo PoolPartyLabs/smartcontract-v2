@@ -36,7 +36,7 @@ contract UniswapV3SwapAdapterRoutesTest is SwapAdapterTestBase {
         emit ISwapAdapter.Swapped(
             address(weth), address(base), AMOUNT, expected, AMOUNT, 0, keccak256(abi.encode(paths, w))
         );
-        (uint256 out, uint256 spot) = adapter.swap(address(weth), address(base), AMOUNT, NO_MAX, route);
+        (uint256 out, uint256 spot,) = adapter.swap(address(weth), address(base), AMOUNT, NO_MAX, route);
         assertEq(out, expected);
         assertEq(spot, AMOUNT, "sum of the legs' mid values");
         assertEq(base.balanceOf(address(this)), expected, "every leg paid the vault");
@@ -69,7 +69,7 @@ contract UniswapV3SwapAdapterRoutesTest is SwapAdapterTestBase {
         _fund(address(weth), AMOUNT);
         vm.expectRevert(ISwapAdapter.InvalidRouteSignature.selector);
         adapter.swap(address(weth), address(base), AMOUNT, NO_MAX, route);
-        (uint256 out,) = adapter.swap(address(weth), address(base), AMOUNT, NO_MAX, "");
+        (uint256 out,,) = adapter.swap(address(weth), address(base), AMOUNT, NO_MAX, "");
         assertEq(out, _out(AMOUNT, 500, 0));
     }
 
@@ -124,7 +124,7 @@ contract UniswapV3SwapAdapterRoutesTest is SwapAdapterTestBase {
         vm.warp(deadline + 1);
         _expectRefused(route, abi.encodeWithSelector(ISwapAdapter.RouteExpired.selector, deadline));
         vm.warp(deadline);
-        (uint256 out,) = adapter.swap(address(weth), address(base), AMOUNT, NO_MAX, route);
+        (uint256 out,,) = adapter.swap(address(weth), address(base), AMOUNT, NO_MAX, route);
         assertEq(out, _out(AMOUNT, 500, 0));
     }
 
@@ -199,7 +199,7 @@ contract UniswapV3SwapAdapterRoutesTest is SwapAdapterTestBase {
         for (uint256 i; i < 4; ++i) {
             (four[i], w4[i]) = (_path1(address(weth), 500, address(base)), 2500);
         }
-        (uint256 out,) = adapter.swap(
+        (uint256 out,,) = adapter.swap(
             address(weth),
             address(base),
             AMOUNT,
@@ -232,7 +232,7 @@ contract UniswapV3SwapAdapterRoutesTest is SwapAdapterTestBase {
             abi.encodeWithSelector(ISwapAdapter.InvalidPath.selector)
         );
         (paths, w) = _one(three);
-        (uint256 out,) = adapter.swap(
+        (uint256 out,,) = adapter.swap(
             address(weth),
             address(base),
             AMOUNT,
@@ -305,6 +305,41 @@ contract UniswapV3SwapAdapterRoutesTest is SwapAdapterTestBase {
             _route(paths, w, address(weth), address(base), AMOUNT, quoted, apiKey)
         );
         assertEq(out, quoted);
+    }
+
+    /// @dev Checklist doc 15, gap 4: every swap returns the minimum it was held to, so the vault's events carry the
+    ///      limit (DEC-142): none without a maximum or an API minimum, the maximum loss against `spotOut`, the scaled
+    ///      API minimum, and the stricter of the two when both apply. `swapDirect` returns it the same way.
+    function test_DEC142_theSwapReturnsTheMinimumItWasHeldTo() public {
+        (bytes[] memory paths, uint16[] memory w) = _one(_path1(address(weth), 500, address(base)));
+        uint256 quoted = _out(AMOUNT, 500, 0);
+        uint256 minOut;
+
+        _fund(address(weth), AMOUNT);
+        (,, minOut) = adapter.swap(address(weth), address(base), AMOUNT, NO_MAX, "");
+        assertEq(minOut, 0, "no maximum, no API route");
+
+        _fund(address(weth), AMOUNT);
+        (,, minOut) = adapter.swap(address(weth), address(base), AMOUNT, 100, "");
+        assertEq(minOut, AMOUNT * 9900 / 10_000, "1% below the tier's mid");
+
+        // The API minimum, signed for twice the amount sold, scales to the half actually sold.
+        bytes memory route = _route(paths, w, address(weth), address(base), 2 * AMOUNT, quoted, apiKey);
+        _fund(address(weth), AMOUNT);
+        (,, minOut) = adapter.swap(address(weth), address(base), AMOUNT, NO_MAX, route);
+        assertEq(minOut, quoted / 2, "the scaled API minimum");
+
+        _fund(address(weth), AMOUNT);
+        (,, minOut) = adapter.swap(address(weth), address(base), AMOUNT, 10, route);
+        assertEq(minOut, AMOUNT * 9990 / 10_000, "the caller's maximum is stricter");
+
+        _fund(address(weth), AMOUNT);
+        (,, minOut) = adapter.swap(address(weth), address(base), AMOUNT, 9000, route);
+        assertEq(minOut, quoted / 2, "the API minimum is stricter");
+
+        _fund(address(weth), AMOUNT);
+        (,, minOut) = adapter.swapDirect(address(weth), address(base), AMOUNT, 3000, 50);
+        assertEq(minOut, AMOUNT * 9950 / 10_000, "swapDirect: 0.5% below the tier's mid");
     }
 
     /// @dev A route signed for 10 sells 9.5: the legs split 9.5 and the API minimum scales to 9.5 / 10 of itself.
