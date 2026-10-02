@@ -14,6 +14,8 @@
 //                                        the best V3 path by QuoterV2, signed for a swap adapter (DEC-136, DEC-153)
 //   GET  /quote/bridge?direction=to-spoke|to-hub&amount=
 //                                        what the fund's Across adapter fixes for a send (DEC-158, DEC-162)
+//   GET  /share-price/history?fromBlock=&toBlock=
+//                                        the Share Price at every hub block with a Core Vault event (DEC-084, DEC-103)
 //   POST /tx/deposit      {from, amount, minShares?}      approve + deposit, unsigned
 //   POST /tx/request      {from, amount, mode}            requestPayout, unsigned
 //   POST /tx/claim        {from}                          claimPayout with the unwind route hints the API computes
@@ -34,6 +36,7 @@ import {
 } from "./abis.ts";
 import { latestTimestamp, nodes, nodesUp, read, type Side } from "./chain.ts";
 import { ARBITRUM, HUB_POOL_ID, ROBINHOOD, SWAP_ADAPTER_TOKENS, actors, isMain } from "./config.ts";
+import { sharePriceHistory } from "./history.ts";
 import { runningKeeperPid } from "./keeper.ts";
 import { readState, type DeploymentState, type FundRecord } from "./state.ts";
 import { encodeRoute, legsHash, quotePaths, signRoute } from "./swap-route.ts";
@@ -564,6 +567,16 @@ const routes: { method: string; pattern: RegExp; handler: Handler }[] = [
       if (direction !== "to-spoke" && direction !== "to-hub") throw new HttpError(400, "direction must be to-spoke or to-hub");
       return quoteBridge(s, direction, amountParam(u.searchParams.get("amount") ?? undefined, "amount"));
     },
+  },
+  {
+    method: "GET",
+    pattern: /^\/share-price\/history$/,
+    handler: (s, _m, u) =>
+      sharePriceHistory(
+        hub(s),
+        u.searchParams.has("fromBlock") ? amountParam(u.searchParams.get("fromBlock") ?? undefined, "fromBlock") : undefined,
+        u.searchParams.has("toBlock") ? amountParam(u.searchParams.get("toBlock") ?? undefined, "toBlock") : undefined,
+      ),
   },
   {
     method: "POST",
