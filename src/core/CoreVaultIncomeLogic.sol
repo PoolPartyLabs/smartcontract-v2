@@ -49,8 +49,8 @@ library CoreVaultIncomeLogic {
         uint256 slice = managerFee * sliceBps / BPS;
         managerFee -= slice;
         uint256 net = amount - managerFee - slice;
-        s.collectedIncome[token] += net;
-        s.income.distribute(token, net, IERC20(w.shareToken).totalSupply());
+        s.incomeBook.collectedIncome[token] += net;
+        s.incomeBook.index.distribute(token, net, IERC20(w.shareToken).totalSupply());
         emit ICoreVaultIncome.CollectedIncomeReceived(token, amount, managerFee, slice, sliceBps);
         CoreVaultLogic.payFee(s, token, w.protocolRecipient, slice);
         CoreVaultLogic.payFee(s, token, w.managerFeeVault, managerFee);
@@ -80,12 +80,12 @@ library CoreVaultIncomeLogic {
     ///      by the permissionless `claimOwedFees(token, holder)`. `withdrawIncome` still reverts on a failed transfer:
     ///      there the holder asked for that one token.
     function payAllIncome(CoreVaultState storage s, address holder) public {
-        address[] memory tokens = s.income.tokens;
+        address[] memory tokens = s.incomeBook.index.tokens;
         for (uint256 i; i < tokens.length; ++i) {
             address token = tokens[i];
-            uint256 amount = s.income.takeOwed(holder, token, s.collectedIncome[token]);
+            uint256 amount = s.incomeBook.index.takeOwed(holder, token, s.incomeBook.collectedIncome[token]);
             if (amount == 0) continue;
-            s.collectedIncome[token] -= amount;
+            s.incomeBook.collectedIncome[token] -= amount;
             CoreVaultLogic.payFee(s, token, holder, amount);
             emit ICoreVaultIncome.IncomeWithdrawn(holder, token, amount);
         }

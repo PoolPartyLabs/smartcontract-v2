@@ -70,7 +70,7 @@ contract CoreVault is CoreVaultPayout {
         usdcCharged = usdcForShares + fee;
 
         // DEC-014, Q60: checkpoint with the balance before the mint.
-        _s.income.checkpoint(msg.sender, _sharesOf(msg.sender));
+        _s.incomeBook.index.checkpoint(msg.sender, _sharesOf(msg.sender));
         _s.idle += usdcForShares;
         emit Deposited(msg.sender, usdcForShares, fee, shares, price, assets, supply, consolidation);
 

@@ -66,7 +66,7 @@ library CoreVaultPayoutLogic {
         uint256 usdcAmount,
         ICoreVaultPayouts.PayoutMode mode
     ) public {
-        ICoreVaultPayouts.PayoutRequest storage req = s.requests[msg.sender];
+        ICoreVaultPayouts.PayoutRequest storage req = s.payouts.requests[msg.sender];
         // DEC-024, DEC-046: one open request per address, never cancellable.
         if (req.open) revert ICoreVaultPayouts.PayoutRequestAlreadyOpen(msg.sender);
         uint256 balance = IERC20(w.shareToken).balanceOf(msg.sender);
@@ -89,7 +89,7 @@ library CoreVaultPayoutLogic {
             termEndsAt += STANDARD_PAYOUT_TERM;
         }
         // DEC-077: nothing is burned or locked at request.
-        s.requests[msg.sender] = ICoreVaultPayouts.PayoutRequest({
+        s.payouts.requests[msg.sender] = ICoreVaultPayouts.PayoutRequest({
             mode: mode,
             open: true,
             requestedAt: uint64(block.timestamp),
@@ -142,7 +142,7 @@ library CoreVaultPayoutLogic {
         uint256 balance,
         bytes calldata unwindHints
     ) public returns (ICoreVaultPayouts.PayoutReceipt memory receipt) {
-        ICoreVaultPayouts.PayoutRequest storage req = s.requests[msg.sender];
+        ICoreVaultPayouts.PayoutRequest storage req = s.payouts.requests[msg.sender];
         Claim memory c;
         c.balance = balance;
         c.burnable = msg.sender == w.manager ? _managerBurnable(s, c.balance) : c.balance;
@@ -253,7 +253,7 @@ library CoreVaultPayoutLogic {
         }
 
         // Effects. DEC-014: checkpoint with the balance before the burn.
-        s.income.checkpoint(msg.sender, c.balance);
+        s.incomeBook.index.checkpoint(msg.sender, c.balance);
         // DEC-144: the Payout Fee never leaves Idle, so it raises the Share Price of those who stay (R-144-A).
         s.idle -= r.usdcGross - r.payoutFee;
         uint256 reserved = req.reserved;

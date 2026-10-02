@@ -130,9 +130,10 @@ library CoreVaultLogic {
         Prices memory p = _newPrices(VIEW);
         (total,,,) = _grossValuation(s, w, p);
         total += s.operatingCash + _positionsIncome(s, w, p, ISpokeVault(w.hubSpokeVault).buildReport());
-        address[] memory tokens = s.income.tokens;
+        address[] memory tokens = s.incomeBook.index.tokens;
         for (uint256 i; i < tokens.length; ++i) {
-            uint256 held = s.collectedIncome[tokens[i]] + ISpokeVault(w.hubSpokeVault).collectedIncome(tokens[i]);
+            uint256 held =
+                s.incomeBook.collectedIncome[tokens[i]] + ISpokeVault(w.hubSpokeVault).collectedIncome(tokens[i]);
             total += _usdcValue(s, w, p, tokens[i], held);
         }
         IValueReportReceiver receiver = IValueReportReceiver(w.reportReceiver);
