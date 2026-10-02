@@ -140,10 +140,10 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
     ///      honest 0.05% tier at price 1 with L = 1e24 over the full range, and a 1% tier someone created at price 0.1
     ///      (one token1 worth ten token0) with dust over the full range and L = 3.2e21 in ticks [-23000, -22800], about
     ///      101 token0 just above its price. Selling 100 token1, the trap fills the whole input and quotes more than
-    ///      the honest tier, at a mid value of 1,000 token0, so it is chosen (DEC-153 item 2). It is arbitrageable, so
-    ///      it only works inside the sale's own transaction (a permissionless unwind), and its only LP is the attacker.
-    ///      With a 1% maximum it loses about 90% against its own mid and the sale reverts, although the honest tier
-    ///      fills it within that maximum.
+    ///      the honest tier, at a mid value of 1,000 token0, so it is chosen (DEC-153 item 2). This one sells token0 far
+    ///      below the market, so arbitrage would take it; one that stands in place is in the contract's open note. With
+    ///      a 1% maximum it loses about 90% against its own mid and the sale reverts, although the honest tier fills it
+    ///      within that maximum.
     function test_arbitrum_noApi_aThirdPartyTierAboveTheMarketFailsABoundedSale() public {
         V3Chain memory c = _arbitrum();
         (address t0, address t1) = _trappedPair(c);
