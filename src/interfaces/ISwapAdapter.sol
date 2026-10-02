@@ -25,7 +25,7 @@ import {IAdapterGuard} from "./IAdapterGuard.sol";
 ///      API route the stricter of that bound and the API's minimum applies (DEC-142). No oracle floor (DEC-129,
 ///      DEC-132); no protocol cap on the maximum (DEC-140 item 3, DEC-142 item 2). Open (founder): the `spotOut` of an
 ///      empty-route swap is the chosen tier's own mid, which a third party can set through a tier it creates or
-///      pushes; do not charge a cost against it until ruled (see `UniswapV3SwapAdapter`).
+///      pushes; without a maximum, do not charge a cost against it until ruled (see `UniswapV3SwapAdapter`).
 /// @dev Custody: the vault approves exactly `amountIn` of `tokenIn` before calling `swap` or `swapDirect`; the adapter
 ///      pulls it, approves the router for exactly that amount, has every leg pay the vault directly, clears the
 ///      approval and keeps nothing. A swap that does not spend the whole input reverts with `PartialFill`.

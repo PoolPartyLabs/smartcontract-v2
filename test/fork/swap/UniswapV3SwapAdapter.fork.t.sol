@@ -540,10 +540,10 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
         assertEq(IERC20(tokenIn).allowance(address(this), address(adapter)), 0, "vault approval consumed");
     }
 
-    /// @dev The adapter's tier equals the highest of QuoterV2's capped quotes that fill the whole input
-    ///      among the direct pair's live pools with in-range liquidity, taken here independently in the same state
-    ///      (DEC-153). A quote whose price ends at QuoterV2's default limit is a partial fill (a drained tier) and is
-    ///      skipped, as the adapter does; the first fill wins even at a zero quote.
+    /// @dev The adapter's tier equals the highest of QuoterV2's capped quotes that fill the whole input among the direct
+    ///      pair's live pools with in-range liquidity, taken here independently in the same state (DEC-153). A quote
+    ///      whose price ends at QuoterV2's default limit is a partial fill (a drained tier) and is skipped, as the
+    ///      adapter does; the first fill wins even at a zero quote.
     function _assertBestTier(address tokenIn, address tokenOut, uint256 amountIn) internal returns (uint24 fee) {
         uint160 limit = tokenIn < tokenOut ? MIN_SQRT_RATIO + 1 : MAX_SQRT_RATIO - 1;
         uint256 best;

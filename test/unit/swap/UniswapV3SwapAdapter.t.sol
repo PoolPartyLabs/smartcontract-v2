@@ -264,7 +264,7 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
     /// @dev Open for the founder (review round 2): without a maximum the same trap wins on output and the fund receives
     ///      more than any honest tier pays, but `spotOut` is the trap's own mid, so the sale reports a loss it did not
     ///      have. Until the founder rules, a vault must not charge a cost measured against the `spotOut` of an
-    ///      empty-route sale.
+    ///      empty-route sale without a maximum.
     function test_DEC153_withoutAMaximumAThirdPartyTierStillSetsSpotOut() public {
         uint256 trapOut = _trapTier().out(address(weth), AMOUNT);
         (uint24 fee,) = adapter.bestDirectFee(address(weth), address(base), AMOUNT);

@@ -40,21 +40,22 @@ import {ISwapRouter02} from "../interfaces/external/ISwapRouter02.sol";
 /// @dev Open, for the founder (swap adapter review, rounds 2 and 3): the empty route chooses the tier on output alone
 ///      (DEC-153 item 2), and the loss reference is that tier's own mid price (DEC-153 consequence, D-19). Anyone can
 ///      create a missing tier or push a dust one to a mid price of their choosing:
-///      - A tier above the market that fills the whole input and outbids the honest tier is chosen. With a maximum, the
-///        sale reverts `InsufficientOutput` although the honest tier fills within it (DEC-148 leaves the position out);
-///        without one, the fund receives more but `spotOut` is the third party's price, a loss the sale did not have
-///        (899 on a sale worth 100 on a fork), which a vault would charge to the leaver (DEC-118 item 2, DEC-141) or
-///        the manager (D-29). Anyone can arbitrage such a tier, so this needs the sale's own transaction (a
-///        permissionless unwind the third party triggers).
+///      - A tier above the market that fills the whole input and outbids the honest tier is chosen. The fund receives
+///        more, but `spotOut` is the third party's price. With a maximum, the sale reverts `InsufficientOutput`
+///        although the honest tier fills within it (DEC-148 leaves the position out), or reports a loss it did not
+///        have of at most that maximum; without one, the reported loss has no bound (899 on a sale worth 100 on a
+///        fork), and a vault would charge it to the leaver (DEC-118 item 2, DEC-141) or the manager (D-29). Anyone can
+///        arbitrage such a tier, so this needs the sale's own transaction (a permissionless unwind the third party
+///        triggers).
 ///      - A tier below the market cannot outbid an honest tier that fills. Ranking the tiers by the maximum against
 ///        each tier's own mid (review round 2) let it win every sale whose maximum no honest tier meets: holding only
 ///        the output token below its price, it offers no arbitrage, waits in place at almost no cost, and buys the
 ///        input at its own price (a tenth of the market on a fork). That ranking was withdrawn (review round 3).
 ///      - When the sale exceeds what every honest tier can fill, such a tier below the market is the only one that
-///        fills, so it is chosen and meets the maximum against its own mid.
+///        fills, so it is chosen, meets the maximum against its own mid, and buys the input at its own price.
 ///      Proposed ruling (review round 2): measure every empty-route sale against the mid of the pair's tier with the
 ///      most in-range liquidity. Until ruled, a vault must not charge a cost measured against the `spotOut` of an
-///      empty-route sale.
+///      empty-route sale without a maximum.
 contract UniswapV3SwapAdapter is AdapterGuard, EIP712, ISwapAdapter {
     using SafeERC20 for IERC20;
 
