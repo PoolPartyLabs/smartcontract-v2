@@ -34,8 +34,9 @@ import {ISwapRouter02} from "../interfaces/external/ISwapRouter02.sol";
 ///      gas and still complete the trade. A vault that wraps a swap in try/catch must guard its own catch.
 /// @dev Known limit: SwapRouter02 does not require a hop of a multi-hop path to consume its whole input. The adapter
 ///      checks the first hop (the vault's input is spent exactly) and the output against the maximum loss; an
-///      intermediate hop that stops at a price limit leaves its unspent intermediate token in the router. The API
-///      chooses multi-hop routes; a direct swap has one hop.
+///      intermediate hop that stops at a price limit leaves its unspent intermediate token in the router, where anyone
+///      can take it with `sweepToken`. For such a route DEC-136 item 2 (the output always returns to the fund) holds
+///      only up to the output minimum. Only signed API routes have more than one hop; a direct swap has one.
 contract UniswapV3SwapAdapter is AdapterGuard, EIP712, ISwapAdapter {
     using SafeERC20 for IERC20;
 
