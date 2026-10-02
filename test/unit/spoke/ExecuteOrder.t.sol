@@ -264,7 +264,7 @@ contract ExecuteOrderTest is SpokeVaultTestBase {
     }
 
     function test_DEC120_refusesAnUnknownKind() public {
-        uint8[2] memory kinds = [0, 4];
+        uint8[2] memory kinds = [0, 5];
         for (uint256 i; i < kinds.length; ++i) {
             OrderCodec.Order memory o = _order(OrderCodec.COLLECT, 1);
             o.kind = kinds[i];

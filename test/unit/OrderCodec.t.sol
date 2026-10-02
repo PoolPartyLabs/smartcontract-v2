@@ -154,7 +154,7 @@ contract OrderCodecTest is Test {
     }
 
     function test_rejectsUnknownKinds() public {
-        uint8[3] memory kinds = [uint8(0), 4, 255];
+        uint8[3] memory kinds = [uint8(0), 5, 255];
         for (uint256 i; i < kinds.length; ++i) {
             OrderCodec.Order memory o = _unwind();
             o.kind = kinds[i];

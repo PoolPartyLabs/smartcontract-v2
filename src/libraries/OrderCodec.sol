@@ -33,6 +33,9 @@ library OrderCodec {
     ///         DEC-124, DEC-161). The fraction is not read.
     uint8 internal constant COLLECT = 3;
 
+    /// @notice DEC-068/139: Hub acknowledgement of a resolved spoke Principal transit.
+    uint8 internal constant ACKNOWLEDGE = 4;
+
     /// @notice Wormhole consistency level of an order: instant (DEC-120 item 1, DEC-111). Reports stay finalized
     ///         (DEC-093). A Hub reorg could orphan an executed order; its proceeds land in Idle as Principal.
     uint8 internal constant CONSISTENCY_INSTANT = 200;
@@ -135,7 +138,7 @@ library OrderCodec {
         } else if (kind == CLOSE) {
             o.fracNum = 1;
             o.fracDen = 1;
-        } else if (kind != COLLECT) {
+        } else if (kind != COLLECT && kind != ACKNOWLEDGE) {
             revert UnknownOrderKind(kind);
         }
         if (o.payoutMode > MAX_PAYOUT_MODE) revert InvalidPayoutMode(o.payoutMode);

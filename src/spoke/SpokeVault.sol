@@ -264,6 +264,7 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
         // `OrderCodec.check` admits these three kinds only.
         if (o.kind == OrderCodec.UNWIND) _executeUnwindOrder(o);
         else if (o.kind == OrderCodec.CLOSE) _executeCloseOrder(o);
+        else if (o.kind == OrderCodec.ACKNOWLEDGE) SpokeUnwindLib.acknowledge(_s, _config(), o);
         else _executeCollectOrder(o);
         emit OrderExecuted(o.kind, orderId, orderSequence);
         (sequence,) = _publishReport();
