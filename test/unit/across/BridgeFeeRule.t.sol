@@ -103,6 +103,28 @@ contract BridgeFeeRuleTest is Test {
         assertGe(next, market, "delivered without another expiry");
     }
 
+    /// DEC-162, DEC-066 (review round 1, L-2): each noted expiry owes one send the step, as doc 12's model keeps the
+    /// step until a delivery. Three deposits of a split transfer expire at 0.08% against a 0.11% market, in any order of
+    /// notes: the three retries all go at 0.12%.
+    function test_DEC162_eachNotedExpiryStepsOneSend() public {
+        BridgeFeeRuleHarness h = new BridgeFeeRuleHarness(8e14, 3e14, CAP, 0.5e18);
+        (uint64 s1, uint256 r1) = h.send();
+        (uint64 s2, uint256 r2) = h.send();
+        (uint64 s3, uint256 r3) = h.send();
+        h.noteExpiry(s3, r3); // the latest first: it leaves the window
+        h.noteExpiry(s1, r1);
+        h.noteExpiry(s2, r2);
+        assertEq(h.steps(), 3);
+        for (uint256 i; i < 3; ++i) {
+            (, uint256 rate) = h.send();
+            assertEq(rate, 12e14, "every retry steps");
+        }
+        assertEq(h.steps(), 0, "every step consumed");
+        (,, uint64 expired) = h.window();
+        assertEq(expired, 0, "the last step clears the expired rate");
+        assertEq(h.nextRate(), h.referenceRate());
+    }
+
     // ------------------------------------------------------------------ the fee
 
     /// DEC-162: the fee is `ceil(amount * rate) + fixed`; a fee that reaches the amount is refused.

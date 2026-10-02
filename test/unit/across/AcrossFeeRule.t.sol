@@ -184,8 +184,9 @@ contract AcrossFeeRuleTest is Test {
         assertEq(rate, ref);
     }
 
-    /// DEC-162: two expiries before the next send step from the highest expired rate, once.
-    function test_DEC162_severalExpiriesStepFromTheHighestOnce() public {
+    /// DEC-162 (review round 1, L-2): two expiries before the next send step two sends from the highest expired rate;
+    /// the third send is back at the reference.
+    function test_DEC162_severalExpiriesStepAsManySendsFromTheHighest() public {
         (IBridgeAdapter.BridgeCall memory a,) = _send();
         _expire(a);
         (IBridgeAdapter.BridgeCall memory b, uint256 rateB) = _send(); // 0.12%
@@ -197,6 +198,41 @@ contract AcrossFeeRuleTest is Test {
         (uint256 next,, uint256 expired) = adapter.feeState(HUB_CHAIN);
         assertEq(expired, 12e14, "highest expired rate");
         assertEq(next, 18e14, "0.12% * 1.5");
+        (,,, uint32 steps) = adapter.feeWindow(HUB_CHAIN);
+        assertEq(steps, 2, "one step per noted expiry");
+
+        (, uint256 first) = _send();
+        (, uint256 second) = _send();
+        assertEq(first, 18e14);
+        assertEq(second, 18e14, "the second retry steps too");
+        uint256 ref;
+        (next, ref, expired) = adapter.feeState(HUB_CHAIN);
+        assertEq(expired, 0, "both steps consumed");
+        assertEq(next, ref, "the next send is back at the reference");
+    }
+
+    /// DEC-162, DEC-066 (review round 1, L-2): a transfer split into three deposits, all expired by a market move to
+    /// 0.11%, retries every deposit one band up (0.12%), so one round of about 7.4 h is lost, not two. Before, only one
+    /// retry stepped and the others went at the reference that had just failed (0.0933%, 0.0978%).
+    function test_DEC162_everyDepositOfASplitTransferRetriesOneBandUp() public {
+        uint256 market = 11e14;
+        IBridgeAdapter.BridgeCall[3] memory deposits;
+        for (uint256 i; i < 3; ++i) {
+            (deposits[i],) = _send(); // 0.08%
+        }
+        for (uint256 i; i < 3; ++i) {
+            _expire(deposits[i]);
+        }
+        for (uint256 i; i < 3; ++i) {
+            (, uint256 rate) = _send();
+            assertEq(rate, 12e14, "every retry steps");
+            assertGe(rate, market, "and is delivered");
+        }
+        (,,, uint32 steps) = adapter.feeWindow(HUB_CHAIN);
+        assertEq(steps, 0);
+        (uint256 next, uint256 ref,) = adapter.feeState(HUB_CHAIN);
+        assertEq(ref, 12e14, "the window holds the three delivered retries");
+        assertEq(next, ref);
     }
 
     /// DEC-162, founder chat 2: the cap is the adapter's hard ceiling. A route where every send expires climbs one band

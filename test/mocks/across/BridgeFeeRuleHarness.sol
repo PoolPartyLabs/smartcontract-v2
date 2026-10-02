@@ -39,4 +39,8 @@ contract BridgeFeeRuleHarness {
     function window() external view returns (uint64[3] memory rates, uint64 sends, uint64 expiredRate) {
         return (_route.rates, _route.sends, _route.expiredRate);
     }
+
+    function steps() external view returns (uint32) {
+        return _route.steps;
+    }
 }
