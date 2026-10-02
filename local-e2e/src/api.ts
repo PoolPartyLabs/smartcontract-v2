@@ -19,7 +19,8 @@
 //   POST /tx/deposit      {from, amount, minShares?}      approve + deposit, unsigned
 //   POST /tx/request      {from, amount, mode}            requestPayout, unsigned
 //   POST /tx/claim        {from}                          claimPayout with the unwind route hints the API computes
-//   POST /tx/swap         {amountIn, tokenIn, slippageBps?} manager swap on the hub Spoke Vault with an oracle minimum
+//   POST /tx/swap         {amountIn, tokenIn, slippageBps?} manager swap on the hub Spoke Vault through the fund's swap
+//                                        adapter, on a route the API signs with an oracle minimum
 //   POST /report/after-deposit {txHash}                  DEC-159: a report published on every spoke and delivered
 //   GET  /events?fromBlock=                 Core Vault events, decoded (the indexer a server would run)
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -287,8 +288,8 @@ export async function quoteClaim(state: DeploymentState, from: Address) {
 }
 
 /** A manager swap minimum the API will sign off on: the oracle value of `amountIn` less the API slippage. The vault
- *  itself accepts any minimum, zero included (security review S-8, open), so this bound lives off chain until the
- *  founder rules. */
+ *  holds a swap only to the manager's optional loss bound against the pool mid and, with a signed route, the API's
+ *  minimum (DEC-142; security review S-8 stays open), so the API signs this bound into the routes it builds. */
 export async function quoteSwap(state: DeploymentState, tokenIn: Address, amountIn: bigint, slippageBps = API_SLIPPAGE_BPS) {
   const priceSource = state.protocol.arbitrum.priceSource;
   const [value] = await read<readonly [bigint, bigint]>("arbitrum", { address: priceSource, abi: chainlinkPriceSourceAbi, functionName: "usdcValue", args: [tokenIn, amountIn] });
@@ -348,17 +349,20 @@ export async function buildClaim(state: DeploymentState): Promise<UnsignedTx[]> 
   return [{ chainId: nodes.arbitrum.chain.id, to: core, data: encodeFunctionData({ abi: coreVaultAbi, functionName: "claimPayout", args: [await unwindHints(state)] }), description: "claimPayout" }];
 }
 
+/** The manager's swap on the hub Spoke Vault (`SpokeVault.swap`, WP-07C) through the fund's own swap adapter (Mandate
+ *  v2, DEC-136): a route the API signs whose minimum is the stricter of the quote and the oracle value, each less
+ *  `slippageBps` (`quoteSwap`), with `slippageBps` also as the manager's loss bound against the pool mid (DEC-142: the
+ *  stricter applies; 0 is none). */
 export async function buildSwap(state: DeploymentState, tokenIn: Address, amountIn: bigint, slippageBps: bigint): Promise<UnsignedTx[]> {
   const fund = hub(state);
   const quote = await quoteSwap(state, tokenIn, amountIn, slippageBps);
-  const deadline = (await nodes.arbitrum.client.getBlock()).timestamp + 600n;
-  const params = encodeAbiParameters([{ type: "tuple", components: [{ name: "sqrtPriceLimitX96", type: "uint160" }, { name: "deadline", type: "uint256" }] }], [{ sqrtPriceLimitX96: 0n, deadline }]);
+  const routed = await quoteSwapRoute(state, "arbitrum", tokenIn, quote.tokenOut, amountIn, slippageBps, fund.hub.uniswapV3SwapAdapter, undefined, quote.minAmountOut);
   return [
     {
       chainId: nodes.arbitrum.chain.id,
       to: fund.hub.spokeVault,
-      data: encodeFunctionData({ abi: spokeVaultAbi, functionName: "swapExactInput", args: [fund.hub.uniswapV4Adapter, HUB_POOL_ID, tokenIn, amountIn, quote.minAmountOut, params] }),
-      description: `swap ${amountIn} of ${tokenIn} with minimum ${quote.minAmountOut} (oracle less ${slippageBps} bps)`,
+      data: encodeFunctionData({ abi: spokeVaultAbi, functionName: "swap", args: [routed.adapter, tokenIn, quote.tokenOut, amountIn, Number(slippageBps), routed.encodedRoute] }),
+      description: `swap ${amountIn} of ${tokenIn} through the fund's swap adapter, signed minimum ${routed.route.minAmountOut} (quote and oracle less ${slippageBps} bps)`,
     },
   ];
 }
@@ -401,8 +405,8 @@ function swapAdapterOf(state: DeploymentState, side: Side, adapter?: string): Ad
 
 /** The best single V3 path for the swap, direct or through another Mandate token of the adapter (D-52: the API never
  *  signs a hop the adapter would refuse), quoted by QuoterV2 on the fork and signed by the API signer; `hops` (1 or 2)
- *  restricts it to direct or two-hop paths. The minimum is the quote less `slippageBps`; the adapter scales it to the
- *  amount it actually sells. */
+ *  restricts it to direct or two-hop paths. The minimum is the quote less `slippageBps`, or `minimumFloor` when that
+ *  is stricter; the adapter scales it to the amount it actually sells. */
 export async function quoteSwapRoute(
   state: DeploymentState,
   side: Side,
@@ -412,6 +416,7 @@ export async function quoteSwapRoute(
   slippageBps: bigint,
   adapterParam?: string,
   hops?: 1 | 2,
+  minimumFloor = 0n,
 ) {
   if (amountIn === 0n) throw new HttpError(400, "amountIn must be above zero");
   if (slippageBps > MAX_ROUTE_SLIPPAGE_BPS) throw new HttpError(400, `slippageBps must be at most ${MAX_ROUTE_SLIPPAGE_BPS}`);
@@ -426,11 +431,12 @@ export async function quoteSwapRoute(
   const quotes = await quotePaths(side, tokenIn, tokenOut, amountIn, mandateTokens);
   const best = quotes.find((q) => hops === undefined || q.fees.length === hops);
   if (!best) throw new HttpError(422, `no Uniswap V3 path${hops ? ` of ${hops} hop(s)` : ""} quotes this swap`);
+  const quotedMinimum = (best.amountOut * (10_000n - slippageBps)) / 10_000n;
   const unsigned = {
     paths: [best.path],
     weightsBps: [10_000],
     quotedAmountIn: amountIn,
-    minAmountOut: (best.amountOut * (10_000n - slippageBps)) / 10_000n,
+    minAmountOut: quotedMinimum > minimumFloor ? quotedMinimum : minimumFloor,
     deadline: (await latestTimestamp(side)) + ROUTE_LIFETIME_SECONDS,
   };
   const chainId = nodes[side].chain.id;
