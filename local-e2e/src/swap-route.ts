@@ -18,6 +18,7 @@ const V3: Record<Side, { factory: Address; quoterV2: Address }> = {
 };
 
 const v3FactoryAbi = parseAbi(["function getPool(address tokenA, address tokenB, uint24 fee) view returns (address pool)"]);
+const v3PoolAbi = parseAbi(["function liquidity() view returns (uint128)"]);
 const quoterV2Abi = parseAbi([
   "function quoteExactInput(bytes path, uint256 amountIn) returns (uint256 amountOut, uint160[] sqrtPriceX96AfterList, uint32[] initializedTicksCrossedList, uint256 gasEstimate)",
 ]);
@@ -81,38 +82,60 @@ export interface PathQuote {
   gasEstimate: bigint;
 }
 
-/** Every direct path and every two-hop path through another of `mandateTokens` whose pools exist, quoted by QuoterV2
- *  for `amountIn` (by `eth_call`); the best first. A path whose quote reverts (no liquidity in range) is dropped. */
+/** Gas of each QuoterV2 call, the adapter's own cap (`UniswapV3SwapAdapter.QUOTE_GAS_CAP`, D-21): a quote that walks
+ *  a near-empty pool's ticks fails instead of reading thousands of slots from the fork's upstream. */
+export const QUOTE_GAS_CAP = 1_000_000n;
+
+/** API pruning (off chain only): a fee tier whose in-range liquidity is below 1% of the deepest tier of the same pair
+ *  is not quoted. The adapter itself quotes every tier with liquidity (DEC-153, D-21); the API, choosing among routes it
+ *  signs, need not. */
+const MIN_LIQUIDITY_SHARE = 100n;
+
+/** The fee tiers of a pair worth quoting: deployed, with in-range liquidity, and at least 1% as deep as the deepest. */
+async function liveTiers(side: Side, a: Address, b: Address): Promise<number[]> {
+  const { factory } = V3[side];
+  const tiers = await Promise.all(
+    FEE_TIERS.map(async (fee) => {
+      const pool = await read<Address>(side, { address: factory, abi: v3FactoryAbi, functionName: "getPool", args: [a, b, fee] });
+      const liquidity = pool === zeroAddress ? 0n : await read<bigint>(side, { address: pool, abi: v3PoolAbi, functionName: "liquidity" });
+      return { fee, liquidity };
+    }),
+  );
+  const deepest = tiers.reduce((max, t) => (t.liquidity > max ? t.liquidity : max), 0n);
+  return tiers.filter((t) => t.liquidity > 0n && t.liquidity * MIN_LIQUIDITY_SHARE >= deepest).map((t) => t.fee);
+}
+
+/** Every direct path and every two-hop path through another of `mandateTokens`, over the tiers `liveTiers` keeps,
+ *  quoted by QuoterV2 for `amountIn` (by `eth_call`, capped at QUOTE_GAS_CAP each); the best first. A path whose quote
+ *  reverts (not enough liquidity in range, or the cap) is dropped. */
 export async function quotePaths(side: Side, tokenIn: Address, tokenOut: Address, amountIn: bigint, mandateTokens: Address[]): Promise<PathQuote[]> {
-  const { factory, quoterV2 } = V3[side];
-  const exists = async (a: Address, b: Address, fee: number) =>
-    (await read<Address>(side, { address: factory, abi: v3FactoryAbi, functionName: "getPool", args: [a, b, fee] })) !== zeroAddress;
   const routes: { tokens: Address[]; fees: number[] }[] = [];
-  for (const fee of FEE_TIERS) if (await exists(tokenIn, tokenOut, fee)) routes.push({ tokens: [tokenIn, tokenOut], fees: [fee] });
+  for (const fee of await liveTiers(side, tokenIn, tokenOut)) routes.push({ tokens: [tokenIn, tokenOut], fees: [fee] });
   const mids = mandateTokens.filter((t) => ![tokenIn.toLowerCase(), tokenOut.toLowerCase()].includes(t.toLowerCase()));
   for (const mid of mids) {
-    const first = [];
-    for (const fee of FEE_TIERS) if (await exists(tokenIn, mid, fee)) first.push(fee);
-    const second = [];
-    for (const fee of FEE_TIERS) if (await exists(mid, tokenOut, fee)) second.push(fee);
+    const [first, second] = await Promise.all([liveTiers(side, tokenIn, mid), liveTiers(side, mid, tokenOut)]);
     for (const f1 of first) for (const f2 of second) routes.push({ tokens: [tokenIn, mid, tokenOut], fees: [f1, f2] });
   }
-  const quotes: PathQuote[] = [];
-  for (const r of routes) {
-    const path = packPath(r.tokens, r.fees);
-    try {
-      const { result } = await nodes[side].client.simulateContract({
-        address: quoterV2,
-        abi: quoterV2Abi,
-        functionName: "quoteExactInput",
-        args: [path, amountIn],
-      });
-      quotes.push({ ...r, path, amountOut: result[0], gasEstimate: result[3] });
-    } catch {
-      // a pool without liquidity in range for this amount
-    }
-  }
-  return quotes.sort((a, b) => (a.amountOut === b.amountOut ? 0 : a.amountOut > b.amountOut ? -1 : 1));
+  const quoted = await Promise.all(
+    routes.map(async (r): Promise<PathQuote | undefined> => {
+      const path = packPath(r.tokens, r.fees);
+      try {
+        const { result } = await nodes[side].client.simulateContract({
+          address: V3[side].quoterV2,
+          abi: quoterV2Abi,
+          functionName: "quoteExactInput",
+          args: [path, amountIn],
+          gas: QUOTE_GAS_CAP,
+        });
+        return { ...r, path, amountOut: result[0], gasEstimate: result[3] };
+      } catch {
+        return undefined;
+      }
+    }),
+  );
+  return quoted
+    .filter((q): q is PathQuote => q !== undefined)
+    .sort((a, b) => (a.amountOut === b.amountOut ? 0 : a.amountOut > b.amountOut ? -1 : 1));
 }
 
 /** Signs `route` (without its signature) for `adapter` on `chainId` with the API signer (EIP-712, domain
