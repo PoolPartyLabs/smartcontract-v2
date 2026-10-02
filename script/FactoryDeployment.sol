@@ -124,7 +124,7 @@ abstract contract FactoryDeployment is CommonBase {
     }
 
     /// @notice Deploys the whole protocol stack of this chain (Arbitrum One or Robinhood Chain) and its factory.
-    /// @param protocolRecipient Fee wallet (DEC-106; LC-132 OPEN).
+    /// @param protocolRecipient Fee wallet (DEC-106, DEC-116).
     /// @param guardian Adapter guardian (ruling 2026-09-29, Q17-2b).
     /// @param registryOwner Owner of the hub `ManagerRegistry` (LC-142, OQ-11; reading D-01: the API key).
     /// @param apiSigner The Pool Party API key (reading D-01): swap route signer and Across quoter of every fund.

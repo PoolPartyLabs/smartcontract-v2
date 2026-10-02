@@ -171,7 +171,7 @@ interface ISpokeVault is IAcrossMessageHandler, ISpokeVaultUnwind, ISpokeVaultIn
     /// @notice Whether `token` is a Mandate token of this chain (DEC-136): the closed list of the ledger.
     function isMandateToken(address token) external view returns (bool);
 
-    /// @notice Address that receives swept excess balances. OPEN (LC-132): whether it is the Protocol Recipient.
+    /// @notice Address that receives swept excess balances: the Protocol Recipient, the fee wallet (DEC-116).
     function excessRecipient() external view returns (address);
 
     // ---------------------------------------------------------------------------------------------------------------

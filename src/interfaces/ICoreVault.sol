@@ -313,10 +313,10 @@ interface ICoreVault is IAcrossMessageHandler, ICoreVaultLifecycle, ICoreVaultPa
     ///         creation (D-15); the publisher of the Hub's orders to the spokes (DEC-120, DEC-139).
     function wormholeCore() external view returns (address);
 
-    /// @notice Recipient of the protocol slice and the flow fee (DEC-106; LC-132: identity to confirm).
+    /// @notice Recipient of the protocol slice and the flow fee: the fee wallet (DEC-106, DEC-116).
     function protocolRecipient() external view returns (address);
 
-    /// @notice Recipient of swept excess balances (DEC-096, DEC-101; LC-132 OPEN).
+    /// @notice Recipient of swept excess balances: the Protocol Recipient, the fee wallet (DEC-096, DEC-101, DEC-116).
     function excessRecipient() external view returns (address);
 
     /// @notice The fund's ManagerFeeVault, deployed by the Core Vault's constructor (ruling 2026-09-29, DEC-107).

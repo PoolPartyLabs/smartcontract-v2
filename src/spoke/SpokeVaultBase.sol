@@ -93,7 +93,8 @@ abstract contract SpokeVaultBase is ISpokeVault, ReentrancyGuard {
     /// @param acrossSpokePool_ Across SpokePool on this chain, the only `handleV3AcrossMessage` caller.
     /// @param wormholeCore_ Wormhole Core Bridge on a spoke; address(0) on the hub (no report is published there).
     /// @param transitEscrowImplementation_ TransitEscrow cloned per send home (DEC-066, QA6); unused on the hub.
-    /// @param excessRecipient_ Destination of swept excess (DEC-096, DEC-101; LC-132 OPEN).
+    /// @param excessRecipient_ Destination of swept excess: the Protocol Recipient, the fee wallet (DEC-096, DEC-101,
+    ///        DEC-116).
     /// @dev Q17-4 (OPEN, stance: pin in the vault, OQ-13): the codehash of every Mandate adapter on this chain, swap
     ///      adapters included (DEC-136), is pinned here and revalidated on every later call. The ledger's closed token
     ///      list is this chain's Mandate tokens, base token first (DEC-123, DEC-136). OQ-12: `poolTokens` is called for
