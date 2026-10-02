@@ -291,6 +291,22 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
         adapter.spotValue(t0, t1, AMOUNT, 2500);
     }
 
+    /// @dev Anyone can create a factory pool without initializing it (`sqrtPriceX96 == 0`). It has no mid value: the
+    ///      read reverts in both directions instead of returning 0 one way and dividing by zero the other.
+    function test_DEC118_anUninitializedPoolHasNoSpotValue() public {
+        MockV3Pool pool = factory.createPool(address(stock), address(usdt), 3000, 0, 0);
+        (address t0, address t1) = (pool.token0(), pool.token1());
+        vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.PoolNotFound.selector, t0, t1, uint24(3000)));
+        adapter.spotValue(t0, t1, AMOUNT, 3000);
+        vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.PoolNotFound.selector, t1, t0, uint24(3000)));
+        adapter.spotValue(t1, t0, AMOUNT, 3000);
+        _fund(address(stock), AMOUNT);
+        vm.expectRevert(
+            abi.encodeWithSelector(ISwapAdapter.PoolNotFound.selector, address(stock), address(usdt), uint24(3000))
+        );
+        adapter.swapDirect(address(stock), address(usdt), AMOUNT, 3000, NO_MAX);
+    }
+
     /// @dev The pool's mid price moves after a swap; `spotOut` is the price read before it.
     function test_DEC118_spotOutIsReadBeforeTheTrade() public {
         wethBase[1].setDriftBps(100);

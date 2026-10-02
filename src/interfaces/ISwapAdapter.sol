@@ -89,7 +89,7 @@ interface ISwapAdapter is IAdapterGuard {
     /// @notice A fee outside the four V3 tiers (100, 500, 3,000, 10,000).
     error InvalidFee(uint24 fee);
 
-    /// @notice The V3 factory has no pool for this pair and tier.
+    /// @notice The V3 factory has no pool for this pair and tier, or the pool was never initialized (no price).
     error PoolNotFound(address tokenA, address tokenB, uint24 fee);
 
     /// @notice A path is malformed, too long, or does not run from `tokenIn` to `tokenOut`.

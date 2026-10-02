@@ -333,6 +333,8 @@ contract UniswapV3SwapAdapter is AdapterGuard, EIP712, ISwapAdapter {
             address pool = v3Factory.getPool(a, b, fee);
             if (pool == address(0)) revert PoolNotFound(a, b, fee);
             (uint160 sqrtPriceX96,,,,,,) = IUniswapV3Pool(pool).slot0();
+            // Anyone can create a factory pool without initializing it: no price, no mid value, no swap.
+            if (sqrtPriceX96 == 0) revert PoolNotFound(a, b, fee);
             out = _atSpot(out, sqrtPriceX96, a < b);
             a = b;
         }
