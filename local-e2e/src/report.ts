@@ -17,6 +17,9 @@ export interface ReportStep {
   n: number;
   phase: string;
   message: string;
+  transactions?: ReportTx[];
+  balances?: Balances;
+  fees?: FeeLedger;
 }
 
 export interface TimelinePoint {
@@ -44,7 +47,7 @@ interface ReportTx extends TxRecord {
 
 interface Balances {
   /** Hub USDC, Robinhood USDG, hub WETH and shares of each actor. */
-  actors: Record<string, { usdc: bigint; usdg: bigint; weth: bigint; shares: bigint }>;
+  actors: Record<string, { usdc: bigint; usdg: bigint; weth: bigint; shares: bigint; incomeOwed: bigint; shareValue: bigint }>;
   managerFeeVault: { usdc: bigint; weth: bigint };
   coreVault: Record<string, bigint | number>;
 }
@@ -73,6 +76,7 @@ export class RunReport {
   assertions = 0;
   private currentPhase = "";
   private readonly firstTx = transactionLog.length;
+  private capturedTx = this.firstTx;
 
   constructor(
     readonly kind: "scenario" | "api-probe",
@@ -86,6 +90,38 @@ export class RunReport {
 
   step(message: string): void {
     this.steps.push({ n: this.steps.length + 1, phase: this.currentPhase, message });
+  }
+
+  async capture(): Promise<void> {
+    const step = this.steps.at(-1);
+    if (!step) return;
+    const labels = this.labels();
+    step.transactions = transactionLog.slice(this.capturedTx).map((entry) => ({ ...entry, contract: entry.to ? labels.get(entry.to.toLowerCase()) ?? entry.to : "deployment" }));
+    this.capturedTx = transactionLog.length;
+    step.balances = await this.balances();
+    step.fees = await feeLedger(this.fund);
+    await this.mark(`step ${step.n}: ${step.message}`);
+  }
+
+  async conservation() {
+    const core = this.fund.hub.coreVault.toLowerCase();
+    const recipient = this.state.protocol.arbitrum.protocolRecipient.toLowerCase();
+    const feeVault = this.fund.hub.managerFeeVault.toLowerCase();
+    const logs = await nodes.arbitrum.client.getContractEvents({ address: ARBITRUM.usdc, abi: erc20Abi, eventName: "Transfer", fromBlock: BigInt(this.fund.hub.createdInBlock) });
+    let valueIn = 0n;
+    let valueOut = 0n;
+    let fees = 0n;
+    for (const log of logs) {
+      const entry = log.args as { from: Address; to: Address; value: bigint };
+      if (entry.to.toLowerCase() === core) valueIn += entry.value;
+      if (entry.from.toLowerCase() === core) {
+        if ([recipient, feeVault].includes(entry.to.toLowerCase())) fees += entry.value;
+        else valueOut += entry.value;
+      }
+    }
+    const remaining = await read<bigint>("arbitrum", { address: ARBITRUM.usdc, abi: erc20Abi, functionName: "balanceOf", args: [this.fund.hub.coreVault] });
+    const residual = valueIn - valueOut - fees - remaining;
+    return { scope: "Core Vault USDC cash, including bridge/Hub allocation transfers and excess sweeps; not a substitute for fund-wide market P&L", valueIn, valueOut, fees, remaining, residual, passed: residual === 0n };
   }
 
   /** A point of the Share Price timeline: the fund's books at the hub's latest block. */
@@ -172,14 +208,16 @@ export class RunReport {
         balance("arbitrum", ARBITRUM.weth, holder),
         balance("arbitrum", f.hub.shareToken, holder),
       ]);
-      result.actors[name] = { usdc: hubUsdc, usdg, weth, shares };
+      const incomeOwed = await read<bigint>("arbitrum", { address: f.hub.coreVault, abi: coreVaultAbi, functionName: "incomeOwed", args: [holder] });
+      const sharePrice = await read<bigint>("arbitrum", { address: f.hub.coreVault, abi: coreVaultAbi, functionName: "sharePrice" });
+      result.actors[name] = { usdc: hubUsdc, usdg, weth, shares, incomeOwed, shareValue: shares * sharePrice / 10n ** 36n };
     }
     result.managerFeeVault = {
       usdc: await balance("arbitrum", ARBITRUM.usdc, f.hub.managerFeeVault),
       weth: await balance("arbitrum", ARBITRUM.weth, f.hub.managerFeeVault),
     };
     const view = (functionName: string) => read<bigint | number>("arbitrum", { address: f.hub.coreVault, abi: coreVaultAbi, functionName });
-    for (const name of ["sharePrice", "shareAssets", "grossAssets", "idle", "freeIdle", "payoutReserve", "inFlightValue", "operatingCash", "fundState"]) {
+    for (const name of ["sharePrice", "shareAssets", "grossAssets", "idle", "freeIdle", "payoutReserve", "inFlightValue", "operatingCash", "fundState", "managementFeeAccrued"]) {
       result.coreVault[name] = await view(name);
     }
     result.coreVault.totalShares = await read<bigint>("arbitrum", { address: f.hub.shareToken, abi: shareTokenAbi, functionName: "totalSupply" });
@@ -203,6 +241,7 @@ export class RunReport {
     const history = await safely(() => sharePriceHistory(this.fund));
     const fees = await safely(() => feeLedger(this.fund));
     const balances = await safely(() => this.balances());
+    const conservation = await safely(() => this.conservation());
     const report = {
       kind: this.kind,
       result: outcome.passed ? "pass" : "fail",
@@ -231,6 +270,7 @@ export class RunReport {
       gasByVerb: gas,
       transactions,
       balances,
+      conservation,
       ...outcome.extra,
     };
     mkdirSync(REPORTS_DIR, { recursive: true });
@@ -242,7 +282,7 @@ export class RunReport {
   }
 
   private markdown(
-    r: { result: string; error?: string; startedAt: string; durationSeconds: number; commit: string; uncommittedChanges: boolean },
+    r: { result: string; error?: string; startedAt: string; durationSeconds: number; commit: string; uncommittedChanges: boolean; conservation: unknown },
     history: SharePricePoint[] | { error: string },
     fees: FeeLedger | { error: string },
     balances: Balances | { error: string },
@@ -269,6 +309,18 @@ export class RunReport {
 
     out.push("## Steps", "");
     table(["#", "Phase", "Step"], this.steps.map((s) => [s.n, s.phase, s.message.replace(/\|/g, "\\|")]));
+
+    out.push("## Step accounting", "", "Full transaction hashes, gas, fees and every actor's balances are also stored with each step in JSON.", "");
+    for (const step of this.steps) {
+      if (!step.balances) continue;
+      const books = step.balances.coreVault;
+      out.push(`### Step ${step.n}`, "", step.message, "");
+      table(["Share Price", "Share Assets", "Gross Assets", "Management fee accrued"], [[priceOf(BigInt(books.sharePrice)), usdcExact(BigInt(books.shareAssets)), usdcExact(BigInt(books.grossAssets)), usdcExact(BigInt(books.managementFeeAccrued))]]);
+      table(["Actor", "USDC", "USDG", "WETH", "Shares", "Share value", "Attributed Income"], Object.entries(step.balances.actors).map(([name, position]) => [name, usdcExact(position.usdc), usdcExact(position.usdg), units(position.weth, 18, 12), units(position.shares, 18, 6), usdcExact(position.shareValue), usdcExact(position.incomeOwed)]));
+      table(["Operation", "Gas", "Transaction"], (step.transactions ?? []).map((transaction) => [transaction.label, String(transaction.gasUsed), `\`${transaction.hash}\``]));
+      out.push(`Fees paid: flow ${usdcExact(step.fees!.flowFee.total)} USDC; performance ${usdcExact(step.fees!.performanceFee.reduce((sum, entry) => sum + entry.performanceFee, 0n))} USDC; management ${usdcExact(step.fees!.managementFeePaid)} USDC.`, "");
+    }
+    out.push("## Conservation check", "", "```json", json(r.conservation), "```", "");
 
     out.push("## Share Price timeline", "");
     table(

@@ -187,7 +187,7 @@ export const FUND_PLAN = {
   // DEC-127: the manager's seed at creation, in USDC base units; the script approves the factory for it.
   SEED_AMOUNT: process.env.SEED_AMOUNT ?? process.env.MIN_FIRST_DEPOSIT ?? "100000000",
   PERFORMANCE_FEE_BPS: process.env.PERFORMANCE_FEE_BPS ?? "2000", // 20% (DEC-107; 1,000 to 9,000, DEC-184)
-  MANAGEMENT_FEE_BPS: process.env.MANAGEMENT_FEE_BPS ?? "0", // DEC-108, DEC-114 (0 to 500, DEC-186)
+  MANAGEMENT_FEE_BPS: process.env.MANAGEMENT_FEE_BPS ?? "100", // DEC-108, DEC-114 (0 to 500, DEC-186)
   SPOKE_OPERATING_CASH_FLOOR: process.env.SPOKE_OPERATING_CASH_FLOOR ?? "0", // USDG base units (DEC-096)
   SPOKE_OPERATING_CASH_TOP_UP: process.env.SPOKE_OPERATING_CASH_TOP_UP ?? "0", // USDG base units (DEC-096)
 } as const;

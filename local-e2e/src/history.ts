@@ -73,6 +73,7 @@ export interface FeeLedger {
   performanceFee: PerformanceFeeLine[];
   /** DEC-108, DEC-114: management fee accrued; null while the Core Vault has no accrual (WP-07). */
   managementFeeAccrued: bigint | null;
+  managementFeePaid: bigint;
   /** DEC-085, DEC-162: what the bridge adapters left to relayers per direction (amount sent minus amount to arrive),
    *  and the number of sends. */
   bridgeFees: { toSpokes: bigint; toSpokesSends: number; toHub: bigint; toHubSends: number };
@@ -88,6 +89,7 @@ export async function feeLedger(fund: FundRecord): Promise<FeeLedger> {
     payoutFee: 0n,
     performanceFee: [],
     managementFeeAccrued: null,
+    managementFeePaid: 0n,
     bridgeFees: { toSpokes: 0n, toSpokesSends: 0, toHub: 0n, toHubSends: 0 },
   };
   const perToken = new Map<string, PerformanceFeeLine>();
@@ -114,6 +116,10 @@ export async function feeLedger(fund: FundRecord): Promise<FeeLedger> {
       line.performanceFee = line.managerPart + line.protocolSlice;
       line.toHolders += a.attributed as bigint;
       perToken.set(token.toLowerCase(), line);
+    } else if (e.eventName === "ClosedFundExited") {
+      ledger.flowFee.payouts += a.flowFee as bigint;
+    } else if (e.eventName === "FundClosed") {
+      ledger.managementFeePaid += a.managementFeePaid as bigint;
     } else if (e.eventName === "SentToSpoke") {
       ledger.bridgeFees.toSpokes += (a.transit.amountSent as bigint) - (a.transit.amountToArrive as bigint);
       ledger.bridgeFees.toSpokesSends++;
