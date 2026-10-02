@@ -188,9 +188,11 @@ manager keys: an app can hard-code them for local development, and the factory a
    so the hub never sees a report older than `maxReportAge` (1,588 s) and deposits keep working; it also re-stamps the
    Chainlink round when it is older than `KEEPER_FEED_MAX_AGE_SECONDS`.
 
-Funds are discovered from the factories' `FundCreated` and `SpokeCreated` events, so funds created later (by the
-frontend, by the API, or by `pnpm scenario` on a used deployment) are served without a restart. A restart rescans from
-the fork block; every action is idempotent.
+Every fund, the deployed one included, is discovered from the factories' `FundCreated` and `SpokeCreated` events, so
+funds created later (by the frontend, by the API, or by `pnpm scenario` on a used deployment) are served without a
+restart. Each poll reads Arbitrum, then Robinhood, and registers both chains' creations before it relays anything, so
+a Hub order always finds its fund's Spoke Vault. A restart rescans both chains from the fork block and relays what is
+still pending; every action is idempotent.
 
 | Environment | Default | Meaning |
 |---|---|---|

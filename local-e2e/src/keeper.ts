@@ -19,9 +19,11 @@
 //       production keeper would (the hub refuses mints once the last report is older than maxReportAge, 1588 s).
 //   plus: re-stamps the Chainlink ETH / USD round when it gets old (see price-feed.ts).
 //
-// Funds are discovered from the factories' `FundCreated` and `SpokeCreated` events, so funds created by the frontend
-// or by `pnpm scenario --new-fund` are served too. Every action is idempotent (fill status and last delivered
-// sequence are checked first), so a restart rescans from the fork block safely.
+// Every fund, the deployment's own included, is discovered from the factories' `FundCreated` and `SpokeCreated` events,
+// so funds created by the frontend or by `pnpm scenario --new-fund` are served too. Each poll reads both chains and
+// registers both chains' creations before it relays anything, so a Hub order always finds its fund's Spoke Vault, on a
+// live run as on a restart. Every action is idempotent (fill status and last delivered sequence are checked first), so
+// a restart rescans from the fork block safely.
 //
 // Usage: pnpm keeper [--auto-report <seconds>] [--vaa-delay <seconds>] [--order-delay <seconds>] [--fill-delay <seconds>]
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
@@ -124,6 +126,9 @@ export interface KeeperStats {
 
 export interface Keeper {
   stats: KeeperStats;
+  /** Whether the Hub order `sequence` of the Core Vault `emitter` reached its Spoke Vault: executed, already executed,
+   *  expired, or skipped because the vault has no `executeOrder` yet. */
+  handledOrder(emitter: Address, sequence: bigint): boolean;
   /** Stops polling, cancels scheduled work that has not started, and waits for what is running. */
   stop(): Promise<void>;
 }
@@ -193,23 +198,19 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
   const guardianSets: Partial<Record<Side, number>> = {};
   const guardianSetOf = async (side: Side) => (guardianSets[side] ??= await guardianSetIndexOf(side));
 
+  // One entry per fund, updated in place: work scheduled earlier (an order waiting out its delay) reads what discovery
+  // learned since, such as the Spoke Vault.
   const register = (entry: FundEntry) => {
-    const existing = funds.get(entry.fundId);
-    const merged = existing ? { ...existing, ...Object.fromEntries(Object.entries(entry).filter(([, v]) => v !== undefined)) } : entry;
-    funds.set(entry.fundId, merged as FundEntry);
-    byVault.set(merged.coreVault.toLowerCase(), merged as FundEntry);
-    if (merged.spokeVault) byVault.set(merged.spokeVault.toLowerCase(), merged as FundEntry);
-    return merged as FundEntry;
+    const known = funds.get(entry.fundId);
+    const merged = known ? Object.assign(known, Object.fromEntries(Object.entries(entry).filter(([, v]) => v !== undefined))) : entry;
+    funds.set(merged.fundId, merged);
+    byVault.set(merged.coreVault.toLowerCase(), merged);
+    if (merged.spokeVault) byVault.set(merged.spokeVault.toLowerCase(), merged);
+    return merged;
   };
-
-  register({
-    fundId: state.fund.fundId,
-    coreVault: state.fund.hub.coreVault,
-    receiver: state.fund.hub.valueReportReceiver,
-    hubSpokeVault: state.fund.hub.spokeVault,
-    spokeVault: state.fund.spoke.spokeVault,
-    spokeIndex: state.fund.spoke.spokeIndex,
-  });
+  /** `${Core Vault}:${sequence}` of every Hub order that reached its Spoke Vault. */
+  const handledOrders = new Set<string>();
+  const orderKey = (emitter: Address, sequence: bigint) => `${emitter.toLowerCase()}:${sequence}`;
 
   const track = <T>(task: Promise<T>) => {
     pending.add(task);
@@ -507,8 +508,9 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
   }
 
   /** DEC-120 items 1-2, DEC-139: the order VAA, signed for the Robinhood Core, executed on the fund's Spoke Vault by
-   *  the keeper (any address may), paying the message fee of the report `executeOrder` publishes. */
-  async function executeOrder(fund: FundEntry, message: DecodedLog, blockTimestamp: number) {
+   *  the keeper (any address may), paying the message fee of the report `executeOrder` publishes. Returns whether the
+   *  order reached the Spoke Vault. */
+  async function executeOrder(fund: FundEntry, message: DecodedLog, blockTimestamp: number): Promise<boolean> {
     const a = message.args;
     const order = decodeOrder(a.payload);
     const fields = {
@@ -518,14 +520,16 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
       orderId: order ? orderId(order).slice(0, 18) : undefined,
       spokeVault: fund.spokeVault,
     };
+    // Both chains' creations are registered before any order is dispatched, so this is a fund whose Robinhood spoke
+    // was never created.
     if (!fund.spokeVault) {
-      wormholeLog.warn("Hub order for a fund without a known Robinhood Spoke Vault; not relayed", fields);
-      return;
+      wormholeLog.warn("Hub order for a fund with no Robinhood Spoke Vault; not relayed", fields);
+      return false;
     }
     if (!(await canExecuteOrders(fund.spokeVault))) {
       stats.ordersSkipped++;
       wormholeLog.warn("Hub order seen, but the Spoke Vault has no executeOrder yet (WP-07): skipped", fields);
-      return;
+      return true;
     }
     const vaa = await signVaa(
       {
@@ -554,14 +558,15 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
       const revert = revertOf(err)?.name;
       if (revert === "OrderSequenceTooLow") {
         wormholeLog.info("order already executed or superseded by a later one", fields);
-        return;
+        return true;
       }
       if (revert === "OrderExpired") {
         wormholeLog.warn("order expired before delivery; the request's retry republishes it (DEC-151)", fields);
-        return;
+        return true;
       }
       throw err;
     }
+    return true;
   }
 
   async function onOrderMessage(message: DecodedLog) {
@@ -569,13 +574,16 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
     const fund = byVault.get(sender);
     if (!fund || fund.coreVault.toLowerCase() !== sender) return;
     const block = await nodes.arbitrum.client.getBlock({ blockNumber: message.blockNumber! });
+    const sequence = message.args.sequence as bigint;
     wormholeLog.info("Hub order published", {
       emitter: fund.coreVault,
-      sequence: message.args.sequence,
+      sequence,
       consistency: message.args.consistencyLevel,
       executeIn: `${options.orderDelaySeconds}s`,
     });
-    inSequence(fund.coreVault, options.orderDelaySeconds, () => executeOrder(fund, message, Number(block.timestamp)));
+    inSequence(fund.coreVault, options.orderDelaySeconds, async () => {
+      if (await executeOrder(fund, message, Number(block.timestamp))) handledOrders.add(orderKey(fund.coreVault, sequence));
+    });
   }
 
   // --------------------------------------------------------------------------------------------------------------
@@ -644,28 +652,41 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
     return logs as unknown as DecodedLog[];
   }
 
-  async function pollSide(side: Side) {
+  /** The logs of `side` past its cursor, up to its latest block (the cursor moves once both chains were read). */
+  async function newLogs(side: Side): Promise<{ logs: DecodedLog[]; next: bigint }> {
     const latest = await nodes[side].client.getBlockNumber();
     if (latest < cursor[side] - 1n) {
       // A snapshot revert took the chain back: rescan from the fork block (every action is idempotent).
       log.warn("chain went back (snapshot revert?); rescanning from the fork block", { chain: nodes[side].chain.id });
       cursor[side] = BigInt(state.nodes[side].forkBlockNumber) + 1n;
     }
-    if (latest < cursor[side]) return;
-    const logs = await logsOf(side, cursor[side], latest);
-    cursor[side] = latest + 1n;
-    for (const entry of logs.filter((l) => l.eventName === "FundCreated")) await onFundCreated(entry);
-    for (const entry of logs.filter((l) => l.eventName === "SpokeCreated")) await onSpokeCreated(entry);
+    if (latest < cursor[side]) return { logs: [], next: cursor[side] };
+    return { logs: await logsOf(side, cursor[side], latest), next: latest + 1n };
+  }
+
+  /** One poll of both chains. Arbitrum is read first, and both chains' creations are registered before anything is
+   *  relayed: a Spoke Vault created before a Hub order was published is in the Robinhood logs read after it, so the
+   *  order finds it, whether the keeper follows the chains live or rescans them from the fork block after a restart. */
+  async function poll() {
+    const hub = await newLogs("arbitrum");
+    const spoke = await newLogs("robinhood");
+    cursor.arbitrum = hub.next;
+    cursor.robinhood = spoke.next;
+    for (const entry of hub.logs.filter((l) => l.eventName === "FundCreated")) await onFundCreated(entry);
+    for (const entry of spoke.logs.filter((l) => l.eventName === "SpokeCreated")) await onSpokeCreated(entry);
     for (const [fundId, spokeVault] of orphanSpokes) {
       if (!funds.has(fundId)) continue;
       orphanSpokes.delete(fundId);
       const known = funds.get(fundId)!;
       register({ ...known, spokeVault, spokeIndex: await spokeIndexOf(known.coreVault, spokeVault) });
     }
-    for (const entry of logs) {
-      if (entry.eventName === "FundsDeposited") onDeposit(side, entry);
-      else if (entry.eventName === "LogMessagePublished" && side === "robinhood") await onReportMessage(entry);
+    for (const entry of hub.logs) {
+      if (entry.eventName === "FundsDeposited") onDeposit("arbitrum", entry);
       else if (entry.eventName === "LogMessagePublished") await onOrderMessage(entry);
+    }
+    for (const entry of spoke.logs) {
+      if (entry.eventName === "FundsDeposited") onDeposit("robinhood", entry);
+      else if (entry.eventName === "LogMessagePublished") await onReportMessage(entry);
     }
   }
 
@@ -703,8 +724,7 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
     let failures = 0;
     while (!stopped) {
       try {
-        await pollSide("arbitrum");
-        await pollSide("robinhood");
+        await poll();
         await autoReport();
         await feed();
         failures = 0;
@@ -721,7 +741,6 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
   }
 
   log.info("watching", {
-    funds: funds.size,
     fillMode: options.fillMode,
     fillDelay: `${options.fillDelaySeconds}s`,
     vaaDelay: `${options.vaaDelaySeconds}s`,
@@ -733,6 +752,7 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
 
   return {
     stats,
+    handledOrder: (emitter, sequence) => handledOrders.has(orderKey(emitter, sequence)),
     async stop() {
       stopped = true;
       wake?.();
