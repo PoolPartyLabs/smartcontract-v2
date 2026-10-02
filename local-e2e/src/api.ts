@@ -1,7 +1,8 @@
 // A minimal API over the two forks: what the product API needs from the contracts, in one file, so its concepts can
 // be exercised against the real protocols before the product API is written. It reads chain state and builds
 // unsigned transactions for the user to sign. It holds one key, the API signer's (reading D-01 of DEC-112), with which
-// it signs swap routes (EIP-712, founder chat 1 of 2026-10-02). Run: `pnpm api` (after `pnpm run up`).
+// it signs swap routes (EIP-712, founder chat 1 of 2026-10-02) and publishes the report after each deposit (DEC-159).
+// Run: `pnpm api` (after `pnpm run up`).
 //
 //   GET  /health                         nodes, clocks, report and price freshness, whether mints are open
 //   GET  /fund                           identity, value bases, Share Price, Spoke Cap usage, latest spoke report
@@ -17,9 +18,10 @@
 //   POST /tx/request      {from, amount, mode}            requestPayout, unsigned
 //   POST /tx/claim        {from}                          claimPayout with the unwind route hints the API computes
 //   POST /tx/swap         {amountIn, tokenIn, slippageBps?} manager swap on the hub Spoke Vault with an oracle minimum
+//   POST /report/after-deposit {txHash}                  DEC-159: a report published on every spoke and delivered
 //   GET  /events?fromBlock=                 Core Vault events, decoded (the indexer a server would run)
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { decodeErrorResult, encodeAbiParameters, encodeFunctionData, type Abi, type Address, type Hex } from "viem";
+import { decodeErrorResult, decodeEventLog, encodeAbiParameters, encodeFunctionData, type Abi, type Address, type Hex } from "viem";
 import {
   acrossBridgeAdapterAbi,
   allErrorsAbi,
@@ -32,8 +34,10 @@ import {
 } from "./abis.ts";
 import { latestTimestamp, nodes, nodesUp, read, type Side } from "./chain.ts";
 import { ARBITRUM, HUB_POOL_ID, ROBINHOOD, SWAP_ADAPTER_TOKENS, actors, isMain } from "./config.ts";
-import { readState, type DeploymentState } from "./state.ts";
+import { runningKeeperPid } from "./keeper.ts";
+import { readState, type DeploymentState, type FundRecord } from "./state.ts";
 import { encodeRoute, legsHash, quotePaths, signRoute } from "./swap-route.ts";
+import { deliverDirectly, publishReport, waitForDelivery, type SpokeRef } from "./warp.ts";
 
 export const API_PORT = Number(process.env.LOCAL_E2E_API_PORT ?? 8787);
 
@@ -454,10 +458,80 @@ export async function quoteBridge(state: DeploymentState, direction: "to-spoke" 
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+// The report after each deposit (DEC-159)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** DEC-159: after a deposit a report is published on every spoke of the fund and delivered on the Hub, so the new
+ *  shares start earning spoke income from the next report (DEC-145). The API publishes with its own key; the VAA is
+ *  delivered by the keeper (the guardians and relayer of production) or, when none runs, by the API with the harness's
+ *  guardian. Anyone may do both; a depositor who skips it only delays his own income. */
+export async function reportAfterDeposit(state: DeploymentState, txHash: Hex, deliverer: "keeper" | "api") {
+  const fund = hub(state);
+  const receipt = await nodes.arbitrum.client.getTransactionReceipt({ hash: txHash }).catch(() => undefined);
+  if (!receipt) throw new HttpError(404, `no transaction ${txHash} on the hub`);
+  const deposits = receipt.logs
+    .filter((l) => l.address.toLowerCase() === fund.hub.coreVault.toLowerCase())
+    .map((l) => {
+      try {
+        return decodeEventLog({ abi: coreVaultAbi, data: l.data, topics: l.topics }) as unknown as { eventName: string; args: Record<string, any> };
+      } catch {
+        return undefined;
+      }
+    })
+    .filter((e) => e?.eventName === "Deposited");
+  if (deposits.length === 0) throw new HttpError(422, "the transaction is not a deposit into this fund");
+  const spokes: SpokeRef[] = [
+    { fundId: fund.fundId, spokeVault: fund.spoke.spokeVault, receiver: fund.hub.valueReportReceiver, spokeIndex: fund.spoke.spokeIndex },
+  ];
+  const reports = [];
+  for (const spoke of spokes) {
+    const published = await publishReport(spoke, "apiSigner");
+    let deliveredBy: string;
+    if (deliverer === "keeper") {
+      await waitForDelivery(spoke, published.wormholeSequence, 120);
+      deliveredBy = "keeper";
+    } else {
+      await deliverDirectly(spoke, published.message, "apiSigner");
+      deliveredBy = "api (no keeper running: VAA signed by the harness guardian)";
+    }
+    const [latest] = await read<readonly [{ sequence: bigint; timestamp: bigint }, bigint, bigint]>("arbitrum", {
+      address: spoke.receiver,
+      abi: valueReportReceiverAbi,
+      functionName: "latestReport",
+      args: [BigInt(spoke.spokeIndex)],
+    });
+    reports.push({
+      chainId: nodes.robinhood.chain.id,
+      spokeVault: spoke.spokeVault,
+      reportSequence: published.reportSequence,
+      wormholeSequence: published.wormholeSequence,
+      publishTx: published.tx,
+      reportTimestamp: published.message.timestamp,
+      deliveredBy,
+      hubReportSequence: latest.sequence,
+    });
+  }
+  const d = deposits[0]!.args;
+  return {
+    deposit: { tx: txHash, block: receipt.blockNumber, shareholder: d.shareholder, shares: d.shares, sharePrice: d.sharePrice },
+    reports,
+  };
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 // HTTP
 // ---------------------------------------------------------------------------------------------------------------------
 
-const routes: { method: string; pattern: RegExp; handler: (state: DeploymentState, m: RegExpMatchArray, url: URL, body: Record<string, string>) => Promise<unknown> }[] = [
+export interface ApiOptions {
+  /** Serve this fund instead of the state file's default fund. */
+  fund?: FundRecord;
+  /** A keeper runs in this process (the probe's), so reports are left to it to deliver. */
+  keeperInProcess?: boolean;
+}
+
+type Handler = (state: DeploymentState, m: RegExpMatchArray, url: URL, body: Record<string, string>, options: ApiOptions) => Promise<unknown>;
+
+const routes: { method: string; pattern: RegExp; handler: Handler }[] = [
   { method: "GET", pattern: /^\/health$/, handler: (s) => health(s) },
   { method: "GET", pattern: /^\/fund$/, handler: (s) => fundState(s) },
   { method: "GET", pattern: /^\/holders\/(0x[0-9a-fA-F]{40})$/, handler: (s, m) => holderState(s, m[1] as Address) },
@@ -491,6 +565,14 @@ const routes: { method: string; pattern: RegExp; handler: (state: DeploymentStat
       return quoteBridge(s, direction, amountParam(u.searchParams.get("amount") ?? undefined, "amount"));
     },
   },
+  {
+    method: "POST",
+    pattern: /^\/report\/after-deposit$/,
+    handler: (s, _m, _u, b, o) => {
+      if (!b.txHash || !/^0x[0-9a-fA-F]{64}$/.test(b.txHash)) throw new HttpError(400, "txHash must be a transaction hash");
+      return reportAfterDeposit(s, b.txHash as Hex, o.keeperInProcess || runningKeeperPid() ? "keeper" : "api");
+    },
+  },
   { method: "GET", pattern: /^\/events$/, handler: (s, _m, u) => coreEvents(s, BigInt(u.searchParams.get("fromBlock") ?? hub(s).hub.createdInBlock)) },
 ];
 
@@ -510,15 +592,15 @@ async function readBody(req: IncomingMessage): Promise<Record<string, string>> {
   }
 }
 
-export function startApi(port = API_PORT) {
+export function startApi(port = API_PORT, options: ApiOptions = {}) {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://127.0.0.1:${port}`);
     const route = routes.find((r) => r.method === req.method && r.pattern.test(url.pathname));
     if (!route) return json(res, 404, { error: "not found" });
     try {
-      const state = readState();
+      const state = options.fund ? { ...readState(), fund: options.fund } : readState();
       const body = req.method === "POST" ? await readBody(req) : {};
-      json(res, 200, await route.handler(state, url.pathname.match(route.pattern)!, url, body));
+      json(res, 200, await route.handler(state, url.pathname.match(route.pattern)!, url, body, options));
     } catch (err) {
       if (err instanceof HttpError) return json(res, err.status, { error: err.message, detail: err.detail });
       json(res, 500, { error: (err as Error).message, revert: decodeRevert(err) });
