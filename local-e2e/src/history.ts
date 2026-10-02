@@ -120,6 +120,8 @@ export async function feeLedger(fund: FundRecord): Promise<FeeLedger> {
       ledger.flowFee.payouts += a.flowFee as bigint;
     } else if (e.eventName === "FundClosed") {
       ledger.managementFeePaid += a.managementFeePaid as bigint;
+      const managerGross = (a.managerSharesBurned as bigint) * (a.closingSharePrice as bigint) / 10n ** 36n;
+      ledger.flowFee.payouts += managerGross * 25n / 10_000n;
     } else if (e.eventName === "SentToSpoke") {
       ledger.bridgeFees.toSpokes += (a.transit.amountSent as bigint) - (a.transit.amountToArrive as bigint);
       ledger.bridgeFees.toSpokesSends++;

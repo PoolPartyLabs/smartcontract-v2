@@ -430,8 +430,9 @@ export class RunReport {
         "Management fee (DEC-108, DEC-114)",
         fees.managementFeeAccrued === null ? "n/a" : usdcExact(fees.managementFeeAccrued),
         "USDC",
-        fees.managementFeeAccrued === null ? "no accrual in this Core Vault yet (WP-07)" : "accrued",
+        "remaining liability",
       ]);
+      rows.push(["Management fee paid at closure (DEC-114)", usdcExact(fees.managementFeePaid), "USDC", "ManagerFeeVault and Protocol Recipient"]);
       rows.push([`Bridge fees, Hub to spokes (${fees.bridgeFees.toSpokesSends} sends)`, usdcExact(fees.bridgeFees.toSpokes), "USDC", "relayers (DEC-162)"]);
       rows.push([`Bridge fees, Robinhood to the Hub (${fees.bridgeFees.toHubSends} sends)`, usdcExact(fees.bridgeFees.toHub), "USDG", "relayers (DEC-162)"]);
       table(["Fee", "Amount", "Token", "Goes to"], rows);
