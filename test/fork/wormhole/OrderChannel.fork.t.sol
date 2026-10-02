@@ -19,9 +19,11 @@ import {OrderReceiverHarness, OrderVerifierHarness} from "../../mocks/wormhole/O
 ///         Chain Core (`vm.store`, the SDK's WormholeOverride, as in `ValueReportReceiverFork.t.sol`) and verified there
 ///         through `OrderVerifier` by a stand-in Spoke Vault. Same-size guardian set and quorum as the live one, so the
 ///         verification gas is realistic.
-/// @dev Fresh pins at run time (`ARBITRUM_FORK_BLOCK`, `ROBINHOOD_FORK_BLOCK`); no block-specific constants. Both
-///      pins are taken at the same moment, so the two forks' clocks are within a minute of each other, well inside
-///      an order's lifetime (`OrderCodec.ORDER_LIFETIME`).
+/// @dev Fresh pins at run time (`ARBITRUM_FORK_BLOCK`, `ROBINHOOD_FORK_BLOCK`); no block-specific constants. The
+///      Robinhood clock at delivery is set from the publish time the message carries (`_onRobinhoodAtDelivery`), never
+///      read from the Robinhood fork: the two pins are independent, and `forge test` hands every fork of one url and
+///      block the block env last left on any of them, warps by other suites in the same run included (CI saw the
+///      Robinhood fork 7h45m ahead of its pin).
 contract OrderChannelForkTest is Test {
     using AdvancedWormholeOverride for ICoreBridge;
 
@@ -30,6 +32,9 @@ contract OrderChannelForkTest is Test {
     uint16 internal constant WH_ARBITRUM = 23;
     uint16 internal constant WH_ROBINHOOD = 72;
     bytes32 internal constant FUND = keccak256("pool-party/fund/1");
+    /// @dev From the Hub's publish to the delivery on Robinhood. Delivery takes seconds to minutes at instant
+    ///      consistency (see `OrderCodec.ORDER_LIFETIME`); one minute is far inside the one-hour lifetime.
+    uint256 internal constant DELIVERY_DELAY = 1 minutes;
 
     uint256 internal arbitrumFork;
     uint256 internal robinhoodFork;
@@ -94,9 +99,17 @@ contract OrderChannelForkTest is Test {
         (pm,) = _publish(ARB_WORMHOLE_CORE, emitter, o);
     }
 
-    /// @dev The VAA the guardian quorum signs for `pm`, built on the Robinhood fork (whose Core holds the test set).
-    function _signOnRobinhood(VaaBody memory pm) internal returns (bytes memory) {
+    /// @dev Selects the Robinhood fork at the moment `pm` is delivered there: `DELIVERY_DELAY` after the publish time the
+    ///      message carries (the VAA's timestamp, the publishing chain's clock).
+    function _onRobinhoodAtDelivery(VaaBody memory pm) internal {
         vm.selectFork(robinhoodFork);
+        vm.warp(pm.envelope.timestamp + DELIVERY_DELAY);
+    }
+
+    /// @dev The VAA the guardian quorum signs for `pm`, built on the Robinhood fork (whose Core holds the test set), left
+    ///      selected at the delivery moment.
+    function _signOnRobinhood(VaaBody memory pm) internal returns (bytes memory) {
+        _onRobinhoodAtDelivery(pm);
         return VaaLib.encode(ICoreBridge(RH_WORMHOLE_CORE).sign(pm));
     }
 
@@ -146,7 +159,7 @@ contract OrderChannelForkTest is Test {
         assertEq(pm.envelope.timestamp, publishedAt, "the VAA's timestamp is the Hub's publish time");
 
         bytes memory vaa = _signOnRobinhood(pm);
-        assertLe(block.timestamp, o.deadline, "the Robinhood fork's clock is inside the order's lifetime");
+        assertEq(block.timestamp, publishedAt + DELIVERY_DELAY, "delivered DELIVERY_DELAY after the publish");
         console2.log("Robinhood Core messageFee (wei):", ICoreBridge(RH_WORMHOLE_CORE).messageFee());
         console2.log("order VAA bytes (live-size guardian quorum):", vaa.length);
 
@@ -276,7 +289,7 @@ contract OrderChannelForkTest is Test {
 
     function test_DEC086_forkRejectsAVaaBelowTheGuardianQuorum() public {
         VaaBody memory pm = _publishOnArbitrum(coreVault, _unwind(FUND, 1));
-        vm.selectFork(robinhoodFork);
+        _onRobinhoodAtDelivery(pm);
         ICoreBridge rhCore = ICoreBridge(RH_WORMHOLE_CORE);
         uint256 quorum = CoreBridgeLib.minSigsForQuorum(rhCore.getGuardianPrivateKeysLength());
         bytes memory indices = new bytes(quorum - 1);
