@@ -3,7 +3,7 @@ pragma solidity 0.8.28;
 
 import {UniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
 import {ISwapAdapter} from "../../../src/interfaces/ISwapAdapter.sol";
-import {MockRouteSigner1271} from "../../mocks/swap/MockV3.sol";
+import {MockRouteSigner1271, MockSwapRouter02} from "../../mocks/swap/MockV3.sol";
 import {SwapAdapterTestBase} from "./SwapAdapterTestBase.sol";
 
 /// @notice Routes from the Pool Party API (DEC-129 default path, DEC-136, DEC-143; founder, 2026-10-02: "receive the
@@ -313,16 +313,30 @@ contract UniswapV3SwapAdapterRoutesTest is SwapAdapterTestBase {
         );
     }
 
-    /// @dev An unwind can sell dust: a leg whose share rounds to zero is skipped (a V3 pool rejects a zero amount), and
-    ///      the rest of the input runs through the other legs.
+    /// @dev An unwind can sell dust: a leg whose share rounds to zero is skipped and the rest of the input runs through
+    ///      the other legs. SwapRouter02 reads a zero amount as Constants.CONTRACT_BALANCE: the skipped leg would have
+    ///      sold whatever the router holds (here a residue someone left there) instead of the vault's input.
     function test_D20_aLegWhoseShareRoundsToZeroIsSkipped() public {
+        weth.mint(address(router), 1e18);
         (bytes[] memory paths, uint16[] memory w) = _splitLegs();
         (uint256 out,) = _swap(
             address(weth), address(base), 1, NO_MAX, _route(paths, w, address(weth), address(base), AMOUNT, 0, apiKey)
         );
         assertEq(router.calls(), 1, "only the leg with a non-zero share ran");
         assertEq(out, _out(1, 500, 0));
+        assertEq(weth.balanceOf(address(router)), 1e18, "the router's balance was not sold");
         _assertNothingKept(address(weth));
+    }
+
+    /// @dev The mock router follows SwapRouter02 for a zero amount: it sells its own balance, paid by itself.
+    function test_D20_mockRouterReadsAZeroAmountAsItsOwnBalance() public {
+        weth.mint(address(router), 1e18);
+        MockSwapRouter02.ExactInputParams memory p =
+            MockSwapRouter02.ExactInputParams(_path1(address(weth), 500, address(base)), stranger, 0, 0);
+        assertEq(router.exactInput(p), _out(1e18, 500, 0));
+        assertEq(weth.balanceOf(address(router)), 0);
+        vm.expectRevert(bytes("AS"));
+        router.exactInput(p);
     }
 
     /// @dev Any split of any amount spends the whole input, and every pool's mid price is read before any leg trades:

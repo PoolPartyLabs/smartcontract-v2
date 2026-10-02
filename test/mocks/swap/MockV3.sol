@@ -146,7 +146,7 @@ contract MockQuoterV2 {
 /// @notice SwapRouter02 stand-in: `exactInput` along a packed path through factory pools, paying the first pool from
 ///         the caller with `transferFrom` and minting the output to the recipient. A hop spends only what its pool
 ///         fills (`MockV3Pool.fillableIn`), and `partialBps` makes the first hop spend less than the input (a fill
-///         stopped at a price limit).
+///         stopped at a price limit). Like SwapRouter02, a zero `amountIn` sells the router's own balance.
 contract MockSwapRouter02 {
     struct ExactInputParams {
         bytes path;
@@ -169,11 +169,15 @@ contract MockSwapRouter02 {
 
     function exactInput(ExactInputParams calldata params) external payable returns (uint256 amountOut) {
         calls++;
-        // UniswapV3Pool.swap: `require(amountSpecified != 0, 'AS')`.
-        require(params.amountIn != 0, "AS");
         bytes memory path = params.path;
         address tokenIn = _addr(path, 0);
-        amountOut = params.amountIn - params.amountIn * partialBps / 10_000;
+        // V3SwapRouter.exactInput: `amountIn == Constants.CONTRACT_BALANCE` (0) swaps the router's own balance of
+        // tokenIn, paid by the router.
+        bool routerPays = params.amountIn == 0;
+        uint256 amountIn = routerPays ? IERC20(tokenIn).balanceOf(address(this)) : params.amountIn;
+        // UniswapV3Pool.swap: `require(amountSpecified != 0, 'AS')`.
+        require(amountIn != 0, "AS");
+        amountOut = amountIn - amountIn * partialBps / 10_000;
         address a = tokenIn;
         for (uint256 off = 20; off < path.length; off += 23) {
             uint24 fee = _fee(path, off);
@@ -181,8 +185,11 @@ contract MockSwapRouter02 {
             MockV3Pool pool = MockV3Pool(factory.getPool(a, b, fee));
             require(address(pool) != address(0), "no pool");
             uint256 used = pool.filled(amountOut);
-            // The caller pays the first pool what it took, in the pool's callback.
-            if (off == 20) require(IERC20(tokenIn).transferFrom(msg.sender, address(pool), used), "pull failed");
+            if (off == 20) {
+                // The payer pays the first pool what it took, in the pool's callback.
+                if (routerPays) require(IERC20(tokenIn).transfer(address(pool), used), "pay failed");
+                else require(IERC20(tokenIn).transferFrom(msg.sender, address(pool), used), "pull failed");
+            }
             amountOut = pool.out(a, used);
             pool.swapped(a);
             a = b;

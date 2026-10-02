@@ -300,7 +300,9 @@ contract UniswapV3SwapAdapter is AdapterGuard, EIP712, ISwapAdapter {
         token.safeTransferFrom(vault, address(this), amountIn);
         token.forceApprove(address(swapRouter), amountIn);
         for (uint256 i; i < paths.length; ++i) {
-            // A leg whose share of a dust amount rounds to zero is skipped: a V3 pool rejects a zero amount.
+            // A leg whose share of a dust amount rounds to zero is skipped: SwapRouter02 reads `amountIn == 0` as
+            // Constants.CONTRACT_BALANCE and would sell the router's own balance of the token, paid by the router (or
+            // revert when it holds none).
             if (amounts[i] == 0) continue;
             amountOut += swapRouter.exactInput(ISwapRouter02.ExactInputParams(paths[i], vault, amounts[i], 0));
         }
