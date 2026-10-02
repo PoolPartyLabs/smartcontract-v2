@@ -185,6 +185,20 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
         assertEq(fee, 500, "an input the tiers can fill still routes");
     }
 
+    /// @dev DEC-129 item 3 ("em qualquer quantia"): a dust input that every tier fills with a zero output still sells,
+    ///      in the first tier that fills, as it does through `swapDirect`; an unwind's dust remainder must not revert.
+    function test_DEC129_aDustInputEveryTierFillsAtZeroStillSells() public {
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), 1, NO_MAX);
+        assertEq(fee, 100, "the first tier that fills");
+        assertEq(quoted, 0);
+        (uint256 out, uint256 spot) = _swap(address(weth), address(base), 1, 100, "");
+        assertEq(out, 0);
+        assertEq(spot, 1);
+        _assertNothingKept(address(weth));
+        (out,) = _directSwap(address(weth), address(base), 1, 500);
+        assertEq(out, 0, "swapDirect sells it too");
+    }
+
     /// @dev Review round 2: a third party's tier (here it replaces the 1% one) at a mid price four times the market's
     ///      fills the whole input and outbids every honest tier, yet loses 74% against its own mid. With a maximum it
     ///      does not compete, and the sale fills in the 0.05% tier within the maximum. Chosen on output alone, it would

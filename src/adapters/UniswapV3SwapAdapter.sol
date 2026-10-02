@@ -244,6 +244,8 @@ contract UniswapV3SwapAdapter is AdapterGuard, EIP712, ISwapAdapter {
     ///        if that tier won on output alone, it would set the loss reference and fail a sale an honest tier fills
     ///        within the maximum. When no tier meets the maximum, the best overall is returned, and the swap in it
     ///        reverts `InsufficientOutput`, as before.
+    ///      A tier that fills counts even at a zero output: a dust input sells, as it does through `swapDirect`
+    ///      (DEC-129 item 3, "em qualquer quantia"), and the first such tier wins ties.
     function _bestDirectFee(address tokenIn, address tokenOut, uint256 amountIn, uint16 maxLossBps)
         private
         returns (uint24 fee, uint256 best)
@@ -254,11 +256,11 @@ contract UniswapV3SwapAdapter is AdapterGuard, EIP712, ISwapAdapter {
         for (uint256 i; i < 4; ++i) {
             (bool fills, uint256 out, bool withinLoss) = _quoteTier(tokenIn, tokenOut, amountIn, tiers[i], maxLossBps);
             if (!fills) continue;
-            if (out > anyBest) (anyBest, anyFee) = (out, tiers[i]);
-            if (withinLoss && out > best) (best, fee) = (out, tiers[i]);
+            if (anyFee == 0 || out > anyBest) (anyBest, anyFee) = (out, tiers[i]);
+            if (withinLoss && (fee == 0 || out > best)) (best, fee) = (out, tiers[i]);
         }
-        if (anyBest == 0) revert NoRoute(tokenIn, tokenOut);
-        if (best == 0) (fee, best) = (anyFee, anyBest);
+        if (anyFee == 0) revert NoRoute(tokenIn, tokenOut);
+        if (fee == 0) (fee, best) = (anyFee, anyBest);
     }
 
     /// @dev One tier of `_bestDirectFee`: whether its pool quotes a fill of the whole input within the gas cap, the
