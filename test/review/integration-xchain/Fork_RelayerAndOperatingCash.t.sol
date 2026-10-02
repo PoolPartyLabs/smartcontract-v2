@@ -6,7 +6,7 @@ import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
 import {IAcrossSpokePool} from "../../../src/interfaces/external/IAcrossSpokePool.sol";
-import {TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
+import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {AcrossBridgeAdapter} from "../../../src/adapters/AcrossBridgeAdapter.sol";
 import {ShareMath} from "../../../src/libraries/ShareMath.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
@@ -18,7 +18,8 @@ import {XChainBase, LiveRelayData} from "./XChainBase.sol";
 ///         H-02, 05 H-02, register S-5: Operating Cash with no bound and no outflow) on the factory-created fund.
 /// @dev Adaptation to the fix branch, interface only: the spoke's first report is delivered before the first send
 ///      (S-14); since DEC-158 / DEC-162 the Across adapter fixes every term of a send (no exclusivity, the amount to
-///      arrive by its fee rule), so neither the manager's quote nor the Mandate's bound sets what a relayer keeps.
+///      arrive by its fee rule; the manager passes no bridge parameter), so no Mandate bound or manager input sets
+///      what a relayer keeps.
 contract Fork_RelayerAndOperatingCash is XChainBase {
     uint256 internal constant ARRIVES = BRIDGE_AMOUNT - BRIDGE_FEE;
 
@@ -29,7 +30,7 @@ contract Fork_RelayerAndOperatingCash is XChainBase {
     // -----------------------------------------------------------------------------------------------------------------
 
     /// @notice PARTIAL, bounded by DEC-162. The manager can name no relayer and no amount (a quote to the hub's Across
-    ///         adapter is refused; the Spoke Vault ignores its quote argument), so the live pools take a stranger's
+    ///         adapter is refused; `sendToHub` takes no bridge parameter), so the live pools take a stranger's
     ///         fill; no rule keeps the manager's relayer from filling the fund's own sends when it is first, and Across
     ///         then repays it the input. What it keeps is the adapter's rule fee (0.08% plus 0.03 per send), never a
     ///         gap the manager chose.
@@ -62,20 +63,18 @@ contract Fork_RelayerAndOperatingCash is XChainBase {
         assertEq(IERC20(ARB_USDC).balanceOf(managerRelayer), BRIDGE_AMOUNT, "repaid 4,000 USDC for 3,996.77 USDG");
         _report();
 
-        // Spoke to hub: the same on the way home. The manager's quote (one unit out, its own relayer exclusive) is
-        // ignored: the deposit carries the adapter's terms.
+        // Spoke to hub: the same on the way home. The manager has no quote to pass (no amount out, no relayer of its
+        // own): the deposit carries the adapter's terms.
         _onRobinhood();
         uint256 all = spokeVault.unallocatedBalance(RH_USDG);
         vm.recordLogs();
         vm.prank(manager);
-        spokeVault.sendToHub(
-            all, TransferKind.Principal, 0, BridgeQuote(1, uint32(block.timestamp), 21_600, managerRelayer)
-        );
+        spokeVault.sendToHub(all, TransferKind.Principal, 0);
         LiveRelayData memory home = _one(_relaysFrom(vm.getRecordedLogs(), RH_ACROSS_SPOKE_POOL, ROBINHOOD));
         assertEq(home.exclusiveRelayer, bytes32(0), "no exclusive relayer");
         assertEq(home.exclusivityDeadline, 0);
         uint256 homeFee = _ruleFee(all);
-        assertEq(home.outputAmount, all - homeFee, "the adapter's amount, not the quote's");
+        assertEq(home.outputAmount, all - homeFee, "the adapter's amount");
         _onArbitrum();
         _advance(2 minutes);
         _fillOnArbitrum(home, managerRelayer);
@@ -178,7 +177,7 @@ contract Fork_RelayerAndOperatingCash is XChainBase {
         assertEq(spokeVault.operatingCash(), SPOKE_OPERATING_CASH_TOP_UP + principal + 1e6);
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(ISpokeVault.InsufficientUnallocatedBalance.selector, RH_USDG, 0, 1e6));
-        spokeVault.sendToHub(1e6, TransferKind.Principal, 0, BridgeQuote(0, 0, 0, address(0)));
+        spokeVault.sendToHub(1e6, TransferKind.Principal, 0);
         assertEq(spokeVault.sweepExcess(RH_USDG), 0, "ledger, never swept");
 
         _report();

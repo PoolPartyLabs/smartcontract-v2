@@ -6,7 +6,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ICoreBridge} from "wormhole-sdk/interfaces/ICoreBridge.sol";
 import {IAcrossSpokePool} from "../../../src/interfaces/external/IAcrossSpokePool.sol";
 import {UniswapV4Adapter} from "../../../src/adapters/UniswapV4Adapter.sol";
-import {TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
+import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {XChainBase, LiveRelayData, BatchRelayer} from "./XChainBase.sol";
@@ -147,11 +147,10 @@ contract Fork_ReportBloat is XChainBase {
 
     function _dustSendsHome(uint256 n, TransferKind kind) internal {
         _onRobinhood();
-        BridgeQuote memory q;
         uint32 before = IAcrossSpokePool(RH_ACROSS_SPOKE_POOL).numberOfDeposits();
         vm.startPrank(manager);
         for (uint256 i; i < n; ++i) {
-            spokeVault.sendToHub(DUST_HOME, kind, 0, q);
+            spokeVault.sendToHub(DUST_HOME, kind, 0);
         }
         vm.stopPrank();
         assertEq(IAcrossSpokePool(RH_ACROSS_SPOKE_POOL).numberOfDeposits() - before, n, "every deposit accepted");
@@ -199,7 +198,7 @@ contract Fork_ReportBloat is XChainBase {
                 SpokeVaultTypes.HubBoundInFlightLimit.selector, SpokeVaultTypes.MAX_HUB_BOUND_IN_FLIGHT
             )
         );
-        spokeVault.sendToHub(DUST_HOME, TransferKind.Principal, 0, BridgeQuote(0, 0, 0, address(0)));
+        spokeVault.sendToHub(DUST_HOME, TransferKind.Principal, 0);
     }
 
     // -----------------------------------------------------------------------------------------------------------------
@@ -271,11 +270,10 @@ contract Fork_ReportBloat is XChainBase {
         _strangerArrivals(256);
         _dustPositions(SpokeVaultTypes.MAX_OPEN_POSITIONS);
         _onRobinhood();
-        BridgeQuote memory q;
         vm.recordLogs();
         vm.startPrank(manager);
         for (uint256 i; i < SpokeVaultTypes.MAX_HUB_BOUND_IN_FLIGHT; ++i) {
-            spokeVault.sendToHub(DUST_HOME, TransferKind.Income, 0, q);
+            spokeVault.sendToHub(DUST_HOME, TransferKind.Income, 0);
         }
         vm.stopPrank();
         LiveRelayData[] memory homes = _relaysFrom(vm.getRecordedLogs(), RH_ACROSS_SPOKE_POOL, ROBINHOOD);

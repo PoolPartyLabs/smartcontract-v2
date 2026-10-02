@@ -4,7 +4,7 @@ pragma solidity 0.8.28;
 import {CoreBridgeVM, GuardianSignature} from "wormhole-sdk/interfaces/ICoreBridge.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
-import {Transit, TransitState, TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
+import {Transit, TransitState, TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {ShareMath} from "../../../src/libraries/ShareMath.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {MockAcrossSpokePool} from "../../mocks/core/MockAcrossSpokePool.sol";
@@ -48,8 +48,9 @@ contract FundSystemPoCTest is FundSystemFixture {
 
         // The manager sends the spoke's 50,000 USDG home with a quote no relayer fills (no fee for the relayer).
         uint256 depositIndex = sys.spokePool.numberOfDeposits();
+        _willArrive(50_000e6);
         vm.prank(manager);
-        bytes32 transitId = sys.spokeVault.sendToHub(50_000e6, TransferKind.Principal, 0, _quote(50_000e6));
+        bytes32 transitId = sys.spokeVault.sendToHub(50_000e6, TransferKind.Principal, 0);
         _report();
         assertEq(sys.core.shareAssets(), assetsBefore, "in flight home, still counted (DEC-085)");
 
@@ -89,8 +90,9 @@ contract FundSystemPoCTest is FundSystemFixture {
         uint256 brunoShares = sys.shares.balanceOf(bruno);
         uint256 fairValue = ShareMath.usdcFor(brunoShares, sys.core.sharePrice());
 
+        _willArrive(50_000e6);
         vm.prank(manager);
-        bytes32 transitId = sys.spokeVault.sendToHub(50_000e6, TransferKind.Principal, 0, _quote(50_000e6));
+        bytes32 transitId = sys.spokeVault.sendToHub(50_000e6, TransferKind.Principal, 0);
         Transit memory t = sys.spokeVault.hubBoundTransit(transitId);
         _warp(uint256(t.fillDeadline) + MAX_REPORT_AGE + 1 - block.timestamp);
         _report();
@@ -117,8 +119,9 @@ contract FundSystemPoCTest is FundSystemFixture {
         uint256 assetsBefore = sys.core.shareAssets();
 
         uint256 depositIndex = sys.spokePool.numberOfDeposits();
+        _willArrive(49_900e6);
         vm.prank(manager);
-        bytes32 transitId = sys.spokeVault.sendToHub(50_000e6, TransferKind.Principal, 0, _quote(49_900e6));
+        bytes32 transitId = sys.spokeVault.sendToHub(50_000e6, TransferKind.Principal, 0);
 
         MockAcrossSpokePool.Deposit memory d = sys.spokePool.deposit(depositIndex);
         sys.hubPool.fill(address(sys.core), address(sys.usdc), d.outputAmount, d.message);
@@ -254,11 +257,10 @@ contract FundSystemPoCTest is FundSystemFixture {
         vm.stopPrank();
     }
 
-    /// @dev The spoke's mock bridge adapter delivers `outputAmount` on the next send home; the returned quote is the
-    ///      Spoke Vault's vestigial argument, which it ignores (DEC-158, DEC-162).
-    function _quote(uint256 outputAmount) internal returns (BridgeQuote memory q) {
+    /// @dev The spoke's mock bridge adapter delivers `outputAmount` on the next send home (DEC-158, DEC-162: the
+    ///      manager passes no bridge parameter).
+    function _willArrive(uint256 outputAmount) internal {
         MockBridgeNextArrive.set(address(spokeBridge), outputAmount);
-        q.outputAmount = outputAmount;
     }
 
     /// @dev Anyone publishes the spoke's report and delivers its VAA to the hub.

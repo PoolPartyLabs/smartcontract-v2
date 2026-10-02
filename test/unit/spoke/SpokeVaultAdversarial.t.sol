@@ -92,8 +92,9 @@ contract SpokeVaultAdversarialSpokeTest is SpokeVaultTestBase {
         fee = bound(fee, 0, amount - 1);
         _arrive(amount, GENUINE, TransferKind.Principal);
 
+        _willArrive(amount - fee);
         vm.prank(manager);
-        bytes32 id = vault.sendToHub(amount, TransferKind.Principal, 0, _quote(amount - fee));
+        bytes32 id = vault.sendToHub(amount, TransferKind.Principal, 0);
         assertEq(vault.hubBoundTransit(id).amountSent, amount);
         assertEq(vault.hubBoundTransit(id).amountToArrive, amount - fee);
         assertEq(vault.unallocatedBalance(address(usdg)), 0);

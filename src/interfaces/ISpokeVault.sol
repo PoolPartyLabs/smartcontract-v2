@@ -6,7 +6,7 @@ import {ISpokeVaultUnwind} from "./ISpokeVaultUnwind.sol";
 import {ISpokeVaultIncome} from "./ISpokeVaultIncome.sol";
 import {IAdapter} from "./IAdapter.sol";
 import {ReportCodec} from "../libraries/ReportCodec.sol";
-import {Transit, TransferKind, ExpensePayer, BridgeQuote} from "./FundTypes.sol";
+import {Transit, TransferKind, ExpensePayer} from "./FundTypes.sol";
 
 /// @title ISpokeVault
 /// @notice The fund's account on one chain, the Hub Chain included: holds positions, drives the Mandate's adapters,
@@ -250,7 +250,8 @@ interface ISpokeVault is IAcrossMessageHandler, ISpokeVaultUnwind, ISpokeVaultIn
     /// @notice Sends base token to the Core Vault through the Mandate bridge adapter of priority `bridgeRank`. Manager
     ///         only; Spoke Chains only.
     /// @dev The vault fixes the recipient (the Core Vault), the token pair (base token to hub USDC) and the message
-    ///      (TransitMessage); the bridge adapter fixes the amount to arrive (DEC-087, DEC-158, DEC-162). `Principal`
+    ///      (TransitMessage); the bridge adapter fixes the amount to arrive and every other bridge term, and the manager
+    ///      passes no bridge parameter (DEC-087, DEC-158, DEC-162; DEC-176: no signed quote in the MVP). `Principal`
     ///      debits Unallocated Balance; `Income` debits the collected income bucket of the base token (who pays
     ///      bridging of income is OPEN, LC-22 / LC-37 / LC-49). Every send is in the base token (the spoke token, USDG
     ///      on Robinhood Chain) and lands on the hub as USDC (CV-OQ-2): an `Income` send is credited on the hub as
@@ -259,9 +260,7 @@ interface ISpokeVault is IAcrossMessageHandler, ISpokeVaultUnwind, ISpokeVaultIn
     ///      never blocked by the bridge adapter's pause or deprecation (DEC-056). Custody: the vault executes the call
     ///      `IBridgeAdapter.buildSend` returns against the pinned target, with an exact approval reset to zero; the
     ///      adapter never holds the base token (DEC-087).
-    function sendToHub(uint256 amount, TransferKind kind, uint256 bridgeRank, BridgeQuote calldata quote)
-        external
-        returns (bytes32 transitId);
+    function sendToHub(uint256 amount, TransferKind kind, uint256 bridgeRank) external returns (bytes32 transitId);
 
     /// @notice Pulls an expired send's refund from its escrow back into the ledger. Permissionless.
     /// @dev Only for a transit in state Sent after its fill deadline, and only once the escrow holds at least

@@ -11,7 +11,7 @@ import {toUniversalAddress} from "wormhole-sdk/Utils.sol";
 import {SpokeVaultForkBase} from "./SpokeVaultForkBase.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {TransitEscrow} from "../../../src/core/TransitEscrow.sol";
-import {Transit, TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
+import {Transit, TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {IAcrossSpokePool} from "../../../src/interfaces/external/IAcrossSpokePool.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
@@ -113,11 +113,11 @@ contract SpokeVaultRobinhoodForkTest is SpokeVaultForkBase {
         _arrive(1000e6);
 
         uint32 depositId = IAcrossSpokePool(RH_SPOKE_POOL).numberOfDeposits();
-        // DEC-162: the bridge adapter (a mock here) fixes the amount to arrive; the quote argument is ignored.
+        // DEC-162: the bridge adapter (a mock here) fixes the amount to arrive; the manager passes no bridge parameter.
         spokeBridge.setFee(1e6);
         vm.recordLogs();
         vm.prank(manager);
-        bytes32 id = vault.sendToHub(500e6, TransferKind.Principal, 0, BridgeQuote(0, 0, 0, address(0)));
+        bytes32 id = vault.sendToHub(500e6, TransferKind.Principal, 0);
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         Transit memory t = vault.hubBoundTransit(id);

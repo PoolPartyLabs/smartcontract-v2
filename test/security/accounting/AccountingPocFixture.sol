@@ -23,7 +23,7 @@ import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {UniswapV4Adapter} from "../../../src/adapters/UniswapV4Adapter.sol";
 import {ValueReportReceiver} from "../../../src/report/ValueReportReceiver.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
-import {BridgeQuote, TransferKind} from "../../../src/interfaces/FundTypes.sol";
+import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {
     Mandate,
     AdapterConfig,
@@ -332,11 +332,10 @@ abstract contract AccountingPocFixture is Test, FundSeed {
 
     /// @dev Manager sends Unallocated Balance (or collected income) home through Across.
     function _sendHome(uint256 amount, uint256 outputAmount, TransferKind kind) internal returns (bytes32 transitId) {
-        // The spoke's mock adapter delivers `outputAmount`; the Spoke Vault ignores its vestigial quote argument.
+        // The spoke's mock adapter delivers `outputAmount`; the manager passes no bridge parameter (DEC-158).
         MockBridgeNextArrive.set(address(spokeBridge), outputAmount);
-        BridgeQuote memory none;
         vm.prank(manager);
-        transitId = spokeVault.sendToHub(amount, kind, 0, none);
+        transitId = spokeVault.sendToHub(amount, kind, 0);
     }
 
     /// @dev An Across relayer fills a spoke-to-hub deposit on Arbitrum: USDC to the Core Vault with the message.

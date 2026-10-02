@@ -73,9 +73,10 @@ contract SpokeVaultHubTest is SpokeVaultTestBase {
     function test_DEC054_spokeVerbsRevertOnHub() public {
         vm.expectRevert(ISpokeVault.NotOnSpokeChain.selector);
         vault.report();
+        _willArrive(1);
         vm.prank(manager);
         vm.expectRevert(ISpokeVault.NotOnSpokeChain.selector);
-        vault.sendToHub(1, TransferKind.Principal, 0, _quote(1));
+        vault.sendToHub(1, TransferKind.Principal, 0);
         vm.expectRevert(ISpokeVault.NotOnSpokeChain.selector);
         vault.recognizeRefund(bytes32(0));
         vm.prank(vault.acrossSpokePool());

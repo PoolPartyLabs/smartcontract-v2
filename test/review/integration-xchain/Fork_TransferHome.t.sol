@@ -5,7 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {AcrossBridgeAdapter} from "../../../src/adapters/AcrossBridgeAdapter.sol";
-import {Transit, TransitState, TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
+import {Transit, TransitState, TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {ShareMath} from "../../../src/libraries/ShareMath.sol";
 import {XChainBase, LiveRelayData, ILiveSpokePool} from "./XChainBase.sol";
@@ -202,23 +202,20 @@ contract Fork_TransferHome is XChainBase {
     /// @notice FIXED. On e5c778a the manager named its own relayer exclusive and did not fill; from the first report
     ///         built after `fillDeadline + maxReportAge` until the refund was reported the transfer was in no base, and
     ///         a 10,000 deposit in that window was worth 12,468.77 (+24.7%) while Ana fell from 9,963.40 to 7,469.13. Now
-    ///         the manager cannot name a relayer (DEC-158, DEC-162: the quote argument is ignored, the deposit carries
+    ///         the manager cannot name a relayer (DEC-158, DEC-162: `sendToHub` takes no bridge parameter, the deposit carries
     ///         the Across adapter's terms); the same unfilled send (nobody fills it) stays listed (S-3), the refund
     ///         comes through the live pool's refund leaf at deadline + 55 min, and the next report recognizes it with
     ///         no `recognizeRefund` call: the Share Price never leaves the fee-only level. The recognized refund also
     ///         tells the adapter the send expired, so the next send home steps up one band (DEC-162).
     function test_REVIEW_H01_unfilledTransferHomeStaysInShareAssetsUntilItsRefund() public {
         uint256 principal = _setUpSpokeHoldsPrincipal();
-        address managerRelayer = makeAddr("managerRelayer");
         _onRobinhood();
         vm.recordLogs();
         vm.prank(manager);
-        bytes32 home = spokeVault.sendToHub(
-            principal, TransferKind.Principal, 0, BridgeQuote(1, uint32(block.timestamp), 21_600, managerRelayer)
-        );
+        bytes32 home = spokeVault.sendToHub(principal, TransferKind.Principal, 0);
         LiveRelayData memory relay = _one(_relaysFrom(vm.getRecordedLogs(), RH_ACROSS_SPOKE_POOL, ROBINHOOD));
         assertEq(relay.exclusiveRelayer, bytes32(0), "the manager's relayer is not exclusive");
-        assertEq(relay.outputAmount, principal - HOME_FEE, "the adapter's amount, not the quote's");
+        assertEq(relay.outputAmount, principal - HOME_FEE, "the adapter's amount");
         _report();
         assertApproxEqAbs(core.shareAssets(), assetsBefore - HOME_FEE, 1, "in flight home: counted");
 

@@ -3,7 +3,7 @@ pragma solidity 0.8.28;
 
 import {console2} from "forge-std/console2.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
-import {Transit, TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
+import {Transit, TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {CoreBCrossChainFixture} from "./CoreBCrossChainFixture.sol";
 
@@ -33,8 +33,9 @@ contract H02_ReturnTransferStrandedInUnmatched is CoreBCrossChainFixture {
         assertEq(assetsBefore, SEED_IDLE + 997_450e6);
 
         // The manager brings the principal home; a relayer fills it on Arbitrum within minutes.
+        _willArrive(HOME_OUT);
         vm.prank(manager);
-        home = spoke.sendToHub(ARRIVES, TransferKind.Principal, 0, _homeQuote(HOME_OUT));
+        home = spoke.sendToHub(ARRIVES, TransferKind.Principal, 0);
         vm.warp(block.timestamp + 2 minutes);
         filledAt = block.timestamp;
         _fillOnHub(home, HOME_OUT, TransferKind.Principal);

@@ -12,7 +12,7 @@ import {IAdapter} from "../../../src/interfaces/IAdapter.sol";
 import {IAdapterGuard} from "../../../src/interfaces/IAdapterGuard.sol";
 import {ISwapAdapter} from "../../../src/interfaces/ISwapAdapter.sol";
 import {ITransitEscrow} from "../../../src/interfaces/ITransitEscrow.sol";
-import {Transit, TransitState, TransferKind, ExpensePayer, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
+import {Transit, TransitState, TransferKind, ExpensePayer} from "../../../src/interfaces/FundTypes.sol";
 import {MandateLib} from "../../../src/mandate/Mandate.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
@@ -160,6 +160,7 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         _arrive(100e6, ARRIVAL, TransferKind.Principal);
         bytes32 expected = address(spokeBridge).codehash;
         vm.etch(address(spokeBridge), address(spokePool).code);
+        _willArrive(10e6);
         vm.expectRevert(
             abi.encodeWithSelector(
                 ISpokeVault.AdapterCodehashMismatch.selector,
@@ -169,7 +170,7 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
             )
         );
         vm.prank(manager);
-        vault.sendToHub(10e6, TransferKind.Principal, 0, _quote(10e6));
+        vault.sendToHub(10e6, TransferKind.Principal, 0);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -190,8 +191,9 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         vault.collectIncome(address(spokeUni), bytes32(0));
         vm.expectRevert(abi.encodeWithSelector(ISpokeVault.NotManager.selector, stranger));
         vault.swap(address(spokeSwap), address(usdg), address(weth), 1, 0, "");
+        _willArrive(1);
         vm.expectRevert(abi.encodeWithSelector(ISpokeVault.NotManager.selector, stranger));
-        vault.sendToHub(1, TransferKind.Principal, 0, _quote(1));
+        vault.sendToHub(1, TransferKind.Principal, 0);
         vm.expectRevert(abi.encodeWithSelector(ISpokeVault.NotManager.selector, stranger));
         vault.setOperatingCashParameters(0, 0);
         vm.stopPrank();
@@ -438,8 +440,9 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
     function test_DEC096_topUpLimitedToUnallocatedBalance() public {
         _arrive(4e6, ARRIVAL, TransferKind.Principal);
         _arrive(50e6, keccak256("income"), TransferKind.Income);
+        _willArrive(50e6);
         vm.prank(manager);
-        vault.sendToHub(50e6, TransferKind.Income, 0, _quote(50e6));
+        vault.sendToHub(50e6, TransferKind.Income, 0);
         assertEq(vault.operatingCash(), 4e6);
         assertEq(vault.unallocatedBalance(address(usdg)), 0);
     }
@@ -595,8 +598,9 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         _disableOperatingCash();
         _arrive(1000e6, ARRIVAL, TransferKind.Principal);
         vm.recordLogs();
+        _willArrive(499e6);
         vm.prank(manager);
-        bytes32 id = vault.sendToHub(500e6, TransferKind.Principal, 0, _quote(499e6));
+        bytes32 id = vault.sendToHub(500e6, TransferKind.Principal, 0);
 
         MockAcrossSpokePool.Deposit memory d = spokePool.deposit(0);
         Transit memory t = vault.hubBoundTransit(id);
@@ -645,21 +649,20 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
     function test_DEC156_spokeVaultKeepsNoBridgeFeeCap() public {
         _disableOperatingCash();
         _arrive(1000e6, ARRIVAL, TransferKind.Principal);
+        _willArrive(994.9e6);
         vm.prank(manager);
-        bytes32 id = vault.sendToHub(1000e6, TransferKind.Principal, 0, _quote(994.9e6));
+        bytes32 id = vault.sendToHub(1000e6, TransferKind.Principal, 0);
         assertEq(vault.hubBoundTransit(id).amountToArrive, 994.9e6, "51 bps, above the old Mandate bound");
     }
 
-    /// DEC-158, DEC-162: the quote argument is vestigial: an output of one unit and an exclusive relayer are ignored;
+    /// DEC-158, DEC-162 (WP-07 C3): `sendToHub` takes no bridge quote, so the manager can name no amount and no relayer;
     /// the deposit carries the adapter's amount and no exclusivity.
-    function test_DEC158_quoteArgumentIsIgnored() public {
+    function test_DEC158_managerPassesNoBridgeParameter() public {
         _disableOperatingCash();
         _arrive(1000e6, ARRIVAL, TransferKind.Principal);
         spokeBridge.setFee(0.83e6);
         vm.prank(manager);
-        bytes32 id = vault.sendToHub(
-            1000e6, TransferKind.Principal, 0, BridgeQuote(1, uint32(block.timestamp), 21_600, stranger)
-        );
+        bytes32 id = vault.sendToHub(1000e6, TransferKind.Principal, 0);
         assertEq(vault.hubBoundTransit(id).amountToArrive, 1000e6 - 0.83e6, "the adapter's amount");
         MockAcrossSpokePool.Deposit memory d = spokePool.deposit(0);
         assertEq(d.outputAmount, 1000e6 - 0.83e6);
@@ -671,14 +674,18 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
     function test_DEC085_amountToArriveZeroOrAboveSentReverts() public {
         _disableOperatingCash();
         _arrive(100e6, ARRIVAL, TransferKind.Principal);
+        _willArrive(0);
         vm.startPrank(manager);
         vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.BridgeAmountMismatch.selector, 10e6, 0));
-        vault.sendToHub(10e6, TransferKind.Principal, 0, _quote(0));
+        vault.sendToHub(10e6, TransferKind.Principal, 0);
+        _willArrive(11e6);
         vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.BridgeAmountMismatch.selector, 10e6, 11e6));
-        vault.sendToHub(10e6, TransferKind.Principal, 0, _quote(11e6));
+        vault.sendToHub(10e6, TransferKind.Principal, 0);
+        _willArrive(0);
         vm.expectRevert(ISpokeVault.ZeroAmount.selector);
-        vault.sendToHub(0, TransferKind.Principal, 0, _quote(0));
-        vault.sendToHub(10e6, TransferKind.Principal, 0, _quote(10e6)); // a send that pays no fee is a valid one
+        vault.sendToHub(0, TransferKind.Principal, 0);
+        _willArrive(10e6);
+        vault.sendToHub(10e6, TransferKind.Principal, 0); // a send that pays no fee is a valid one
         vm.stopPrank();
     }
 
@@ -689,19 +696,22 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         spokeBridge.setPaused(true);
         spokeBridge.deprecate();
         vm.stopPrank();
+        _willArrive(100e6);
         vm.prank(manager);
-        bytes32 id = vault.sendToHub(100e6, TransferKind.Principal, 0, _quote(100e6));
+        bytes32 id = vault.sendToHub(100e6, TransferKind.Principal, 0);
         assertEq(uint8(vault.hubBoundTransit(id).state), uint8(TransitState.Sent));
     }
 
     function test_DEC088_bridgeRankSelectsFallbackAndUnknownRankReverts() public {
         _disableOperatingCash();
         _arrive(100e6, ARRIVAL, TransferKind.Principal);
+        _willArrive(10e6);
         vm.startPrank(manager);
-        bytes32 id = vault.sendToHub(10e6, TransferKind.Principal, 1, _quote(10e6));
+        bytes32 id = vault.sendToHub(10e6, TransferKind.Principal, 1);
         assertEq(vault.hubBoundTransit(id).bridgeAdapter, address(spokeBridgeFallback));
+        _willArrive(10e6);
         vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.UnknownBridgeRank.selector, 2));
-        vault.sendToHub(10e6, TransferKind.Principal, 2, _quote(10e6));
+        vault.sendToHub(10e6, TransferKind.Principal, 2);
         vm.stopPrank();
     }
 
@@ -709,22 +719,24 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         _disableOperatingCash();
         _arrive(100e6, ARRIVAL, TransferKind.Principal);
         spokeBridge.setBuiltTargetOverride(stranger);
+        _willArrive(10e6);
         vm.prank(manager);
         vm.expectRevert(
             abi.encodeWithSelector(
                 SpokeVaultTypes.BridgeTargetMismatch.selector, address(spokeBridge), address(spokePool), stranger
             )
         );
-        vault.sendToHub(10e6, TransferKind.Principal, 0, _quote(10e6));
+        vault.sendToHub(10e6, TransferKind.Principal, 0);
     }
 
     function test_DEC085_builtAmountToArriveAboveSentReverts() public {
         _disableOperatingCash();
         _arrive(100e6, ARRIVAL, TransferKind.Principal);
         spokeBridge.setAmountToArriveDelta(1);
+        _willArrive(10e6);
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.BridgeAmountMismatch.selector, 10e6, 10e6 + 1));
-        vault.sendToHub(10e6, TransferKind.Principal, 0, _quote(10e6));
+        vault.sendToHub(10e6, TransferKind.Principal, 0);
     }
 
     /// Independent review L-09: the Spoke Vault refuses a built call whose fill deadline is not in the future, as the
@@ -733,32 +745,36 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         _disableOperatingCash();
         _arrive(100e6, ARRIVAL, TransferKind.Principal);
         spokeBridge.setDeadlineNow(true);
+        _willArrive(9.99e6);
         vm.prank(manager);
         vm.expectRevert(
             abi.encodeWithSelector(SpokeVaultTypes.BridgeDeadlineNotInFuture.selector, uint32(block.timestamp))
         );
-        vault.sendToHub(10e6, TransferKind.Principal, 0, _quote(9.99e6));
+        vault.sendToHub(10e6, TransferKind.Principal, 0);
     }
 
     function test_DEC087_inexactDebitReverts() public {
         _disableOperatingCash();
         _arrive(100e6, ARRIVAL, TransferKind.Principal);
         spokePool.setPullShortfall(1);
+        _willArrive(10e6);
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.BridgeDebitMismatch.selector, 10e6, 10e6 - 1));
-        vault.sendToHub(10e6, TransferKind.Principal, 0, _quote(10e6));
+        vault.sendToHub(10e6, TransferKind.Principal, 0);
     }
 
     function test_DEC092_incomeSendDebitsCollectedBucket() public {
         _disableOperatingCash();
         _arrive(100e6, ARRIVAL, TransferKind.Principal);
         _arrive(50e6, keccak256("income"), TransferKind.Income);
+        _willArrive(60e6);
         vm.startPrank(manager);
         vm.expectRevert(
             abi.encodeWithSelector(ISpokeVault.InsufficientCollectedIncome.selector, address(usdg), 50e6, 60e6)
         );
-        vault.sendToHub(60e6, TransferKind.Income, 0, _quote(60e6));
-        bytes32 id = vault.sendToHub(50e6, TransferKind.Income, 0, _quote(50e6));
+        vault.sendToHub(60e6, TransferKind.Income, 0);
+        _willArrive(50e6);
+        bytes32 id = vault.sendToHub(50e6, TransferKind.Income, 0);
         vm.stopPrank();
         assertEq(vault.collectedIncome(address(usdg)), 0);
         assertEq(vault.unallocatedBalance(address(usdg)), 100e6);
@@ -803,8 +819,9 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         assertEq(vault.unallocatedBalance(address(usdg)), unallocatedUsdg);
         assertEq(vault.unallocatedBalance(address(weth)), unallocatedWeth);
 
+        _willArrive(20e6);
         vm.prank(manager);
-        bytes32 id = vault.sendToHub(20e6, TransferKind.Income, 0, _quote(20e6));
+        bytes32 id = vault.sendToHub(20e6, TransferKind.Income, 0);
         assertEq(uint8(vault.hubBoundTransit(id).kind), uint8(TransferKind.Income));
         assertEq(vault.hubBoundTransit(id).outputToken, address(usdc), "lands on the hub as USDC");
         assertEq(vault.collectedIncome(address(usdg)), 0);
@@ -834,11 +851,12 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
     function test_DEC080_sendAboveUnallocatedReverts() public {
         _disableOperatingCash();
         _arrive(100e6, ARRIVAL, TransferKind.Principal);
+        _willArrive(101e6);
         vm.prank(manager);
         vm.expectRevert(
             abi.encodeWithSelector(ISpokeVault.InsufficientUnallocatedBalance.selector, address(usdg), 100e6, 101e6)
         );
-        vault.sendToHub(101e6, TransferKind.Principal, 0, _quote(101e6));
+        vault.sendToHub(101e6, TransferKind.Principal, 0);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -848,8 +866,9 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
     function test_DEC066_recognizeRefundAfterDeadlineCreditsTheDebitedBucket() public {
         _disableOperatingCash();
         _arrive(1000e6, ARRIVAL, TransferKind.Principal);
+        _willArrive(499e6);
         vm.prank(manager);
-        bytes32 id = vault.sendToHub(500e6, TransferKind.Principal, 0, _quote(499e6));
+        bytes32 id = vault.sendToHub(500e6, TransferKind.Principal, 0);
         Transit memory t = vault.hubBoundTransit(id);
 
         vm.expectRevert(abi.encodeWithSelector(ISpokeVault.FillDeadlineNotReached.selector, id, t.fillDeadline));
@@ -902,8 +921,9 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
     function test_SEC_S3_hubBoundTransitDroppedOnlyAfterDeadlinePlusRetention() public {
         _disableOperatingCash();
         _arrive(1000e6, ARRIVAL, TransferKind.Principal);
+        _willArrive(499e6);
         vm.prank(manager);
-        bytes32 id = vault.sendToHub(500e6, TransferKind.Principal, 0, _quote(499e6));
+        bytes32 id = vault.sendToHub(500e6, TransferKind.Principal, 0);
         uint32 deadline = vault.hubBoundTransit(id).fillDeadline;
 
         vm.warp(uint256(deadline) + MAX_REPORT_AGE + 1);
@@ -930,8 +950,9 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
     function test_SEC_S3_reportRecognizesALandedRefundItself() public {
         _disableOperatingCash();
         _arrive(1000e6, ARRIVAL, TransferKind.Principal);
+        _willArrive(499e6);
         vm.prank(manager);
-        bytes32 id = vault.sendToHub(500e6, TransferKind.Principal, 0, _quote(499e6));
+        bytes32 id = vault.sendToHub(500e6, TransferKind.Principal, 0);
         uint32 deadline = vault.hubBoundTransit(id).fillDeadline;
 
         spokePool.refund(vault.hubBoundTransit(id).escrow, address(usdg), 500e6);
@@ -1082,9 +1103,11 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
     function test_DEC162_recognizedRefundIsNotedToTheBridgeAdapter() public {
         _disableOperatingCash();
         _arrive(1000e6, ARRIVAL, TransferKind.Principal);
+        _willArrive(399e6);
         vm.startPrank(manager);
-        bytes32 first = vault.sendToHub(400e6, TransferKind.Principal, 0, _quote(399e6));
-        bytes32 second = vault.sendToHub(400e6, TransferKind.Principal, 0, _quote(399e6));
+        bytes32 first = vault.sendToHub(400e6, TransferKind.Principal, 0);
+        _willArrive(399e6);
+        bytes32 second = vault.sendToHub(400e6, TransferKind.Principal, 0);
         vm.stopPrank();
         Transit memory a = vault.hubBoundTransit(first);
         Transit memory b = vault.hubBoundTransit(second);
@@ -1103,8 +1126,9 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
     function test_DEC162_sendDroppedAfterRetentionIsNotNoted() public {
         _disableOperatingCash();
         _arrive(1000e6, ARRIVAL, TransferKind.Principal);
+        _willArrive(399e6);
         vm.prank(manager);
-        bytes32 id = vault.sendToHub(400e6, TransferKind.Principal, 0, _quote(399e6));
+        bytes32 id = vault.sendToHub(400e6, TransferKind.Principal, 0);
         Transit memory t = vault.hubBoundTransit(id);
         vm.warp(uint256(t.fillDeadline) + ReportCodec.HUB_BOUND_RETENTION + 1);
         vault.report();
@@ -1116,8 +1140,9 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
     function test_DEC056_failingNoteExpiryNeverBlocksARefund() public {
         _disableOperatingCash();
         _arrive(1000e6, ARRIVAL, TransferKind.Principal);
+        _willArrive(399e6);
         vm.prank(manager);
-        bytes32 id = vault.sendToHub(400e6, TransferKind.Principal, 0, _quote(399e6));
+        bytes32 id = vault.sendToHub(400e6, TransferKind.Principal, 0);
         Transit memory t = vault.hubBoundTransit(id);
         spokeBridge.setNoteExpiryReverts(true);
         vm.warp(uint256(t.fillDeadline) + 1);
@@ -1134,8 +1159,9 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
     function test_DEC162_starvedRefundRecognitionNeverSkipsTheNote() public {
         _disableOperatingCash();
         _arrive(1000e6, ARRIVAL, TransferKind.Principal);
+        _willArrive(399e6);
         vm.prank(manager);
-        bytes32 id = vault.sendToHub(400e6, TransferKind.Principal, 0, _quote(399e6));
+        bytes32 id = vault.sendToHub(400e6, TransferKind.Principal, 0);
         Transit memory t = vault.hubBoundTransit(id);
         vm.warp(uint256(t.fillDeadline) + 1);
         spokePool.refund(t.escrow, address(usdg), 400e6);

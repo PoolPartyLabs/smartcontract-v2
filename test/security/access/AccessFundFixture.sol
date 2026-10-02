@@ -17,7 +17,6 @@ import {ManagerRegistry} from "../../../src/core/ManagerRegistry.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {UniswapV4Adapter} from "../../../src/adapters/UniswapV4Adapter.sol";
 import {ValueReportReceiver} from "../../../src/report/ValueReportReceiver.sol";
-import {BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
 import {Mandate} from "../../../src/mandate/Mandate.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {MockToken} from "../../mocks/v4/MockToken.sol";
@@ -208,10 +207,6 @@ abstract contract AccessFundFixture is Test, FactoryDeployment, FundMandate, Fun
         (minted,) = core.deposit(amount, 0);
         vm.stopPrank();
     }
-
-    /// @dev The Spoke Vault's vestigial quote argument, ignored since DEC-158 / DEC-162 (the Across adapter fixes the
-    ///      amount to arrive).
-    function _noQuote() internal pure returns (BridgeQuote memory q) {}
 
     /// @dev DEC-162: the Across adapter's fee on a route with no expiry noted: `ceil(amount * 0.08%) + 0.03`.
     function _ruleFee(uint256 amount) internal pure returns (uint256) {

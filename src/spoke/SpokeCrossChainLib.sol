@@ -10,7 +10,7 @@ import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {IAdapter} from "../interfaces/IAdapter.sol";
 import {IBridgeAdapter} from "../interfaces/IBridgeAdapter.sol";
 import {ITransitEscrow} from "../interfaces/ITransitEscrow.sol";
-import {Transit, TransitState, TransferKind, BridgeQuote, ExpensePayer} from "../interfaces/FundTypes.sol";
+import {Transit, TransitState, TransferKind, ExpensePayer} from "../interfaces/FundTypes.sol";
 import {ReportCodec} from "../libraries/ReportCodec.sol";
 import {TransitMessage} from "../libraries/TransitMessage.sol";
 import {SpokeVaultTypes} from "./SpokeVaultTypes.sol";
@@ -36,22 +36,6 @@ library SpokeCrossChainLib {
     // ---------------------------------------------------------------------------------------------------------------
     // Send home (DEC-056, DEC-066, DEC-085, DEC-087, DEC-088, DEC-158, DEC-162, QA6)
     // ---------------------------------------------------------------------------------------------------------------
-
-    /// @notice `ISpokeVault.sendToHub`: a send home through `sendHome`; the quote argument is vestigial and ignored.
-    /// @dev DEC-158, DEC-162: whoever triggers a send passes no bridge parameter; the bridge adapter fixes the amount
-    ///      to arrive. The vault's `sendToHub` keeps its `BridgeQuote` argument until the Spoke Vault entry is
-    ///      replaced (Mandate v2), so nothing in it is read: not the output amount, the relayer, the exclusivity nor
-    ///      the quote time.
-    function sendToHub(
-        SpokeVaultTypes.State storage s,
-        SpokeVaultTypes.Config memory c,
-        uint256 amount,
-        TransferKind kind,
-        uint256 bridgeRank,
-        BridgeQuote calldata
-    ) external returns (bytes32 transitId) {
-        return sendHome(s, c, amount, kind, bridgeRank, "");
-    }
 
     /// @notice Debits the ledger, clones the per-send escrow, executes the bridge call and books the transit: the
     ///         single send path home (the manager's `sendToHub` now; order executors later).

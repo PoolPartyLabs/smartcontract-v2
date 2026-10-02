@@ -7,7 +7,7 @@ import {ICoreBridge} from "wormhole-sdk/interfaces/ICoreBridge.sol";
 
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {IAdapter} from "../interfaces/IAdapter.sol";
-import {Transit, TransferKind, BridgeQuote} from "../interfaces/FundTypes.sol";
+import {Transit, TransferKind} from "../interfaces/FundTypes.sol";
 import {Mandate} from "../mandate/Mandate.sol";
 import {ReportCodec} from "../libraries/ReportCodec.sol";
 import {TransitMessage} from "../libraries/TransitMessage.sol";
@@ -204,11 +204,12 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
     // ---------------------------------------------------------------------------------------------------------------
 
     /// @inheritdoc ISpokeVault
-    /// @dev See `SpokeCrossChainLib.sendToHub`: DEC-056, DEC-066, DEC-085, DEC-087, DEC-088, QA6, QA19. Security review
-    ///      S-3: the transit stays in `inFlightToHub` until its refund is recognized (by anyone, or at the next report
-    ///      or send once it landed) or until `fillDeadline + ReportCodec.HUB_BOUND_RETENTION` has passed.
+    /// @dev See `SpokeCrossChainLib.sendHome`: DEC-056, DEC-066, DEC-085, DEC-087, DEC-088, DEC-158, DEC-162, QA6, QA19.
+    ///      No bridge data: the Across adapter refuses any (DEC-176: no signed quote in the MVP). Security review S-3:
+    ///      the transit stays in `inFlightToHub` until its refund is recognized (by anyone, or at the next report or
+    ///      send once it landed) or until `fillDeadline + ReportCodec.HUB_BOUND_RETENTION` has passed.
     ///      `cumulativeSentHome` grows by `amount`.
-    function sendToHub(uint256 amount, TransferKind kind, uint256 bridgeRank, BridgeQuote calldata quote)
+    function sendToHub(uint256 amount, TransferKind kind, uint256 bridgeRank)
         external
         onlyOnSpokeChain
         onlyManager
@@ -216,7 +217,7 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
         returns (bytes32 transitId)
     {
         _topUpOperatingCash();
-        transitId = SpokeCrossChainLib.sendToHub(_s, _config(), amount, kind, bridgeRank, quote);
+        transitId = SpokeCrossChainLib.sendHome(_s, _config(), amount, kind, bridgeRank, "");
     }
 
     /// @inheritdoc ISpokeVault

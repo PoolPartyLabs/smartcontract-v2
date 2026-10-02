@@ -6,7 +6,7 @@ import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
-import {Transit, TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
+import {Transit, TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {Mandate, AdapterConfig, PoolConfig, BridgeAdapterConfig} from "../../../src/mandate/Mandate.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
@@ -106,11 +106,10 @@ contract POC_ReturnLegValuationGap is CoreVaultFixture {
         _deliverSpokeReport();
         assertEq(vault.inFlightValue(), 0, "arrival confirmed");
 
-        // The spoke's mock bridge adapter fixes the amount to arrive (DEC-162); the quote argument is ignored.
+        // The spoke's mock bridge adapter fixes the amount to arrive (DEC-162); the manager passes no bridge parameter.
         MockBridgeNextArrive.set(address(spokeAcrossAdapter), 399_800e6);
-        BridgeQuote memory none;
         vm.prank(manager);
-        bytes32 homebound = spoke.sendToHub(400_000e6, TransferKind.Principal, 0, none);
+        bytes32 homebound = spoke.sendToHub(400_000e6, TransferKind.Principal, 0);
         Transit memory t = spoke.hubBoundTransit(homebound);
         _deliverSpokeReport();
         uint256 listedAssets = vault.shareAssets();

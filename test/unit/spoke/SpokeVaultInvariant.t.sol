@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {SpokeVaultTestBase} from "./SpokeVaultTestBase.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
-import {Transit, TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
+import {Transit, TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {MockSpokeToken} from "../../mocks/spoke/MockSpokeToken.sol";
 import {MockPositionAdapter} from "../../mocks/spoke/MockPositionAdapter.sol";
@@ -147,11 +147,8 @@ contract SpokeVaultHandler is Test {
         uint256 available = _usdgAfterTopUp();
         if (available < 10_000) return;
         amount = bound(amount, 10_000, available);
-        uint256 outputAmount = amount - amount * 50 / 10_000;
         vm.prank(manager);
-        bytes32 id = vault.sendToHub(
-            amount, TransferKind.Principal, 0, BridgeQuote(outputAmount, uint32(block.timestamp), 0, address(0))
-        );
+        bytes32 id = vault.sendToHub(amount, TransferKind.Principal, 0);
         sent.push(id);
         _check();
     }
