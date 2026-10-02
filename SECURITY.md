@@ -2,6 +2,9 @@
 
 ## Status
 
+Decision register range: **DEC-001..DEC-187** (merged-code disposition at `1db9a9d`, 2026-10-02:
+[`docs/DECISIONS.md`](docs/DECISIONS.md) and [`docs/security/KNOWN-LIMITATIONS.md`](docs/security/KNOWN-LIMITATIONS.md)).
+
 **These contracts have not been audited by an independent third party.** Nothing is deployed to production. The
 code is a buildathon MVP under active development; do not put real value into any deployment of it until the
 [pre-mainnet checklist](docs/security/PRE-MAINNET-CHECKLIST.md) is complete.
