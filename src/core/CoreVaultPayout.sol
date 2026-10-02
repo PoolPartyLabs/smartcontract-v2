@@ -24,13 +24,14 @@ abstract contract CoreVaultPayout is CoreVaultTransit {
     ///      an Instant request is a claim, so Operating Cash is topped up first, as before every claim.
     function requestPayout(uint256 usdcAmount, PayoutMode mode, uint16 maxLossBps)
         external
+        payable
         nonReentrant
         returns (PayoutReceipt memory receipt)
     {
         if (usdcAmount == 0) revert ZeroAmount();
         _requireOpen();
         if (mode == PayoutMode.Instant) _topUpOperatingCash();
-        receipt = CoreVaultPayoutLogic.requestPayout(_s, _wiring(), usdcAmount, mode, maxLossBps);
+        receipt = CoreVaultPayoutLogic.requestPayout(_s, _wiring(), usdcAmount, mode, maxLossBps, msg.value);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -46,10 +47,25 @@ abstract contract CoreVaultPayout is CoreVaultTransit {
     ///      Price did since the request. When that cap binds the request closes like one capped at the balance
     ///      (DEC-024: it can never be cancelled, so leaving it open would block the manager's next request and keep a
     ///      Standard reserve locked); the receipt says so (`cappedByManagerBase`).
-    function claimPayout(uint16 maxLossBps) external nonReentrant returns (PayoutReceipt memory receipt) {
+    function claimPayout(uint16 maxLossBps) external payable nonReentrant returns (PayoutReceipt memory receipt) {
         _requireOpen();
         _topUpOperatingCash();
-        receipt = CoreVaultPayoutLogic.claimPayout(_s, _wiring(), maxLossBps);
+        receipt = CoreVaultPayoutLogic.claimPayout(_s, _wiring(), maxLossBps, msg.value);
+    }
+
+    /// @notice DEC-068/139: permissionless delivery of authenticated Hub resolution to the Spoke Vault.
+    function acknowledgeSpokeTransit(uint256 spokeIndex, bytes32 transitId)
+        external
+        payable
+        nonReentrant
+        returns (uint64 sequence)
+    {
+        sequence = CoreVaultPayoutLogic.acknowledgeSpokeTransit(_s, _wiring(), spokeIndex, transitId, msg.value);
+    }
+
+    function settlePayout(address holder) external payable nonReentrant returns (PayoutReceipt memory receipt) {
+        _requireOpen();
+        receipt = CoreVaultPayoutLogic.settlePayout(_s, _wiring(), holder, msg.value);
     }
 
     // ---------------------------------------------------------------------------------------------------------------

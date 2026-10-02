@@ -5,7 +5,10 @@ import {ISpokeVaultUnwind} from "../interfaces/ISpokeVaultUnwind.sol";
 import {OrderCodec} from "../libraries/OrderCodec.sol";
 import {SpokeVaultBase} from "./SpokeVaultBase.sol";
 import {SpokeUnwindLib} from "./SpokeUnwindLib.sol";
+import {SpokeCloseLib} from "./SpokeCloseLib.sol";
 import {SpokeUnwindTypes} from "./SpokeUnwindTypes.sol";
+import {SpokeCrossChainLib} from "./SpokeCrossChainLib.sol";
+import {TransferKind} from "../interfaces/FundTypes.sol";
 
 /// @title SpokeVaultUnwind
 /// @notice The hub Spoke Vault's automatic unwind for a payout, and the executors of the Core Vault's unwind and
@@ -13,6 +16,10 @@ import {SpokeUnwindTypes} from "./SpokeUnwindTypes.sol";
 /// @dev The entries keep the chain, caller and reentrancy checks; the bodies run in the linked library
 ///      `SpokeUnwindLib` (DEC-131). Split out of SpokeVault (WP-07 A3) so the unwind has its own source file.
 abstract contract SpokeVaultUnwind is SpokeVaultBase {
+    function _requireSpokeOpen() internal view {
+        if (_s.unwind.closed) revert SpokeUnwindTypes.SpokeClosed();
+        if (_s.unwind.reservedBase != 0) revert SpokeUnwindTypes.UnwindProceedsReserved();
+    }
     /// @notice DEC-141: in a Standard Payout the fund absorbs each unwind sale's loss up to this share of the value
     ///         sold, in bps; the requester bears the excess. Applied by the linked `SpokeUnwindLib`, whose constant
     ///         this is.
@@ -52,15 +59,26 @@ abstract contract SpokeVaultUnwind is SpokeVaultBase {
     /// @notice Executes an accepted unwind order (`OrderCodec.UNWIND`): the same fraction of every position, proceeds
     ///         home through the bridge adapter (DEC-120 item 2, DEC-137, DEC-139). `SpokeVault.executeOrder` calls it
     ///         after the order checks and publishes the report after it.
-    /// @dev Stub until the spoke unwind orders are built: the order is refused whole (the cursor does not move).
     function _executeUnwindOrder(OrderCodec.Order memory o) internal virtual {
-        revert OrderKindNotSupported(o.kind);
+        SpokeUnwindLib.executeUnwindOrder(_s, _config(), o);
     }
 
     /// @notice Executes an accepted closure order (`OrderCodec.CLOSE`): everything home (DEC-121, DEC-147, DEC-149).
     ///         `SpokeVault.executeOrder` calls it after the order checks and publishes the report after it.
-    /// @dev Stub until the closure is built: the order is refused whole (the cursor does not move).
     function _executeCloseOrder(OrderCodec.Order memory o) internal virtual {
-        revert OrderKindNotSupported(o.kind);
+        SpokeCloseLib.executeCloseOrder(_s, _config(), o);
+    }
+
+    function spokeClosed() external view returns (bool) {
+        return _s.unwind.closed;
+    }
+
+    function closureCost() external view returns (uint256) {
+        return _s.unwind.closureExcessCost;
+    }
+
+    function unwindSend(uint256 amount) external returns (bytes32 transitId) {
+        if (msg.sender != address(this)) revert SpokeUnwindTypes.UnwindStepNotSelf(msg.sender);
+        return SpokeCrossChainLib.sendHome(_s, _config(), amount, TransferKind.Principal, 0, "");
     }
 }

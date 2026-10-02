@@ -10,6 +10,13 @@ import {ICoreVaultPayouts} from "./ICoreVaultPayouts.sol";
 /// @dev Split out of ISpokeVault (WP-07 A4) so the unwind verbs and events sit with `SpokeVaultUnwind` and
 ///      `SpokeUnwindLib`. ISpokeVault inherits it.
 interface ISpokeVaultUnwind {
+    event UnwindBridgeExcluded(bytes32 indexed requestId, uint256 amount, uint256 amountToArrive, uint16 maxLossBps);
+
+    function spokeClosed() external view returns (bool);
+    function closureCost() external view returns (uint256);
+
+    function unwindSend(uint256 amount) external returns (bytes32 transitId);
+
     /// @notice What the Core Vault asks of the hub Spoke Vault's automatic unwind for one Payout Request.
     /// @param requestId The Payout Request (`ICoreVaultPayouts.PayoutRequest.requestId`): what delivered is remembered
     ///        under it (DEC-151).

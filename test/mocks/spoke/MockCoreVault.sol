@@ -6,6 +6,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
 import {ISpokeVaultUnwind} from "../../../src/interfaces/ISpokeVaultUnwind.sol";
 import {MockPriceSource} from "../core/MockPriceSource.sol";
+import {ICoreVaultLifecycle} from "../../../src/interfaces/ICoreVaultLifecycle.sol";
 
 /// @notice Core Vault mock for the hub Spoke Vault: records `returnToIdle` and the hub collection's USDC
 ///         (`ISpokeVaultIncome.collectIncomeAll`), and drives the Core Vault-only verbs of the vault.
@@ -13,6 +14,11 @@ contract MockCoreVault {
     using SafeERC20 for IERC20;
 
     uint256 public idleReturned;
+    ICoreVaultLifecycle.FundState public fundState;
+
+    function setFundState(ICoreVaultLifecycle.FundState state) external {
+        fundState = state;
+    }
     uint256 public returnToIdleCalls;
     uint256 public lastReturnBalance;
     mapping(address => uint256) public incomeReceived;

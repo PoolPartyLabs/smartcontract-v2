@@ -178,4 +178,11 @@ struct CoreVaultState {
     uint64 closingStartedAt;
     uint256 managementFeeAccrued;
     uint64 managementFeeLastAccrual;
+    uint256 closedSupply;
+    uint256 closedIdle;
+    uint256 closureExcessCost;
+    uint32 closureAttempt;
+    mapping(uint256 spokeIndex => bytes32[]) closureTransits;
+    mapping(bytes32 key => uint256) closureExpected;
+    mapping(bytes32 key => bool) closureRefunded;
 }

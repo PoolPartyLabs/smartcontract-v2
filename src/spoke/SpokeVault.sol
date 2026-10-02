@@ -16,6 +16,8 @@ import {SpokeVaultTypes} from "./SpokeVaultTypes.sol";
 import {SpokeCrossChainLib} from "./SpokeCrossChainLib.sol";
 import {SpokeLedger} from "./SpokeLedger.sol";
 import {SpokeUnwindLib} from "./SpokeUnwindLib.sol";
+import {SpokeCloseLib} from "./SpokeCloseLib.sol";
+import {SpokeUnwindTypes} from "./SpokeUnwindTypes.sol";
 import {SpokeVaultBase} from "./SpokeVaultBase.sol";
 import {SpokeVaultUnwind} from "./SpokeVaultUnwind.sol";
 import {SpokeVaultIncome} from "./SpokeVaultIncome.sol";
@@ -96,6 +98,7 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
         nonReentrant
         returns (bytes32 positionKey, uint256 used0, uint256 used1)
     {
+        _requireSpokeOpen();
         IAdapter a = _s.positionAdapter(adapter);
         SpokeVaultTypes.PoolTokens memory p = _s.pool(adapter, poolKey);
         if (amount0 == 0 && amount1 == 0) revert ZeroAmount();
@@ -125,6 +128,7 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
         uint256 amount1,
         bytes calldata params
     ) external onlyManager nonReentrant returns (uint256 used0, uint256 used1, uint256 income0, uint256 income1) {
+        _requireSpokeOpen();
         IAdapter a = _s.positionAdapter(adapter);
         SpokeVaultTypes.PoolTokens memory p = _s.pool(adapter, _s.positionPool(adapter, positionKey));
         if (amount0 == 0 && amount1 == 0) revert ZeroAmount();
@@ -186,11 +190,13 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
         uint16 maxLossBps,
         bytes calldata route
     ) external onlyManager nonReentrant returns (uint256 amountOut) {
+        _requireSpokeOpen();
         _topUpOperatingCash();
         uint256 spotOut;
         uint256 minOut;
-        (amountOut, spotOut, minOut) =
-            _s.swapThrough(swapAdapter, tokenIn, tokenOut, amountIn, maxLossBps, route, false);
+        (amountOut, spotOut, minOut) = SpokeCloseLib.manualSwap(
+            _s, _config(), SpokeUnwindTypes.ManualSale(swapAdapter, tokenIn, tokenOut, amountIn, maxLossBps, route)
+        );
         emit Swapped(swapAdapter, tokenIn, tokenOut, amountIn, amountOut, spotOut, maxLossBps, minOut);
     }
 
@@ -216,10 +222,13 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
     function sendToHub(uint256 amount, TransferKind kind, uint256 bridgeRank)
         external
         onlyOnSpokeChain
-        onlyManager
         nonReentrant
         returns (bytes32 transitId)
     {
+        if (!_s.unwind.closed && msg.sender != manager) revert NotManager(msg.sender);
+        if (_s.unwind.reservedBase != 0 && amount > _s.unallocated[baseToken] - _s.unwind.reservedBase) {
+            revert SpokeUnwindTypes.UnwindProceedsReserved();
+        }
         if (kind != TransferKind.Principal) revert IncomeSentOnlyByCollection();
         _topUpOperatingCash();
         transitId = SpokeCrossChainLib.sendHome(_s, _config(), amount, kind, bridgeRank, "");
@@ -230,6 +239,7 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
     function recognizeRefund(bytes32 transitId) external onlyOnSpokeChain nonReentrant returns (uint256 amount) {
         _topUpOperatingCash();
         amount = SpokeCrossChainLib.recognizeRefund(_s, baseToken, transitId);
+        SpokeUnwindLib.onRefund(_s, transitId);
     }
 
     /// @inheritdoc ISpokeVault
@@ -253,9 +263,9 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
     function executeOrder(bytes calldata vaa) external payable onlyOnSpokeChain nonReentrant returns (uint64 sequence) {
         (OrderCodec.Order memory o, bytes32 orderId, uint64 orderSequence) =
             SpokeUnwindLib.acceptOrder(_s, wormholeCore, _hubWormholeChainId, coreVault, fundId, vaa);
-        // `OrderCodec.check` admits these three kinds only.
         if (o.kind == OrderCodec.UNWIND) _executeUnwindOrder(o);
         else if (o.kind == OrderCodec.CLOSE) _executeCloseOrder(o);
+        else if (o.kind == OrderCodec.ACKNOWLEDGE) SpokeUnwindLib.acknowledge(_s, _config(), o);
         else _executeCollectOrder(o);
         emit OrderExecuted(o.kind, orderId, orderSequence);
         (sequence,) = _publishReport();
@@ -313,11 +323,7 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
     /// @dev DEC-070, DEC-093: builds the next report and publishes it with finalized consistency; `msg.value` is the
     ///      Wormhole message fee.
     function _publishReport() private returns (uint64 sequence, uint64 wormholeSequence) {
-        bytes memory payload;
-        (sequence, payload) = SpokeCrossChainLib.nextReport(_s, _config());
-        wormholeSequence =
-            ICoreBridge(wormholeCore).publishMessage{value: msg.value}(WORMHOLE_NONCE, payload, WORMHOLE_FINALIZED);
-        emit ReportPublished(sequence, wormholeSequence, uint64(block.number));
+        return SpokeUnwindLib.publishReport(_s, _config(), wormholeCore, msg.value);
     }
 
     // ---------------------------------------------------------------------------------------------------------------

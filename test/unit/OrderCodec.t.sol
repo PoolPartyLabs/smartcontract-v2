@@ -63,7 +63,7 @@ contract OrderCodecTest is Test {
         o.fundId = FUND;
         o.requestId = bytes32(uint256(7));
         bytes memory payload = h.encode(o);
-        assertEq(payload.length, 10 * 32, "ten static words: the version and the nine fields");
+        assertEq(payload.length, 11 * 32, "eleven static words: the version and the ten fields");
         OrderCodec.Order memory d = h.decode(payload);
         _same(o, d);
         assertEq(d.fracDen, 0, "the fraction of a collection is not read");
@@ -154,7 +154,7 @@ contract OrderCodecTest is Test {
     }
 
     function test_rejectsUnknownKinds() public {
-        uint8[3] memory kinds = [uint8(0), 4, 255];
+        uint8[3] memory kinds = [uint8(0), 5, 255];
         for (uint256 i; i < kinds.length; ++i) {
             OrderCodec.Order memory o = _unwind();
             o.kind = kinds[i];
@@ -294,7 +294,8 @@ contract OrderCodecTest is Test {
             fracNum: fracNum,
             fracDen: fracDen,
             maxLossBps: maxLossBps,
-            payoutMode: standard ? 1 : 0
+            payoutMode: standard ? 1 : 0,
+            closingStartedAt: 0
         });
         _same(o, h.decode(h.encode(o)));
     }

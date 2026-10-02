@@ -67,7 +67,9 @@ contract DeprecatedAdapterFork is EndToEndScenario {
         vm.recordLogs();
         vm.prank(bruno);
         ICoreVault.PayoutReceipt memory r = core.requestPayout(plan.request, ICoreVaultPayouts.PayoutMode.Instant, 0);
-        bool failed = _sawUnwindFailed(vm.getRecordedLogs());
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bool failed = _sawUnwindFailed(logs);
+        (r,,,) = _settleSpokeUnwind(bruno, logs);
         console2.log("===== hub V4 adapter deprecated");
         console2.log("Bruno asked / paid gross / outstanding", plan.request, r.usdcGross, r.usdcOutstanding);
         console2.log("unwind proceeds", r.unwindProceeds);

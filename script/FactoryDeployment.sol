@@ -33,6 +33,7 @@ abstract contract FactoryDeployment is CommonBase {
     string internal constant CORE_VAULT_ARTIFACT = "out/CoreVault.sol/CoreVault.json";
     string internal constant CORE_VAULT_LOGIC_ARTIFACT = "out/CoreVaultLogic.sol/CoreVaultLogic.json";
     string internal constant CORE_VAULT_LOGIC_ID = "src/core/CoreVaultLogic.sol:CoreVaultLogic";
+    string internal constant CORE_VAULT_CLOSURE_LOGIC_ID = "src/core/CoreVaultClosureLogic.sol:CoreVaultClosureLogic";
     string internal constant CORE_VAULT_INCOME_LOGIC_ARTIFACT =
         "out/CoreVaultIncomeLogic.sol/CoreVaultIncomeLogic.json";
     string internal constant CORE_VAULT_INCOME_LOGIC_ID = "src/core/CoreVaultIncomeLogic.sol:CoreVaultIncomeLogic";
@@ -47,6 +48,7 @@ abstract contract FactoryDeployment is CommonBase {
     string internal constant SPOKE_VAULT_ARTIFACT = "out/SpokeVault.sol/SpokeVault.json";
     string internal constant SPOKE_CROSS_CHAIN_LIB_ID = "src/spoke/SpokeCrossChainLib.sol:SpokeCrossChainLib";
     string internal constant SPOKE_UNWIND_LIB_ID = "src/spoke/SpokeUnwindLib.sol:SpokeUnwindLib";
+    string internal constant SPOKE_CLOSE_LIB_ID = "src/spoke/SpokeCloseLib.sol:SpokeCloseLib";
     string internal constant SPOKE_INCOME_LIB_ARTIFACT = "out/SpokeIncomeLib.sol/SpokeIncomeLib.json";
     string internal constant SPOKE_INCOME_LIB_ID = "src/spoke/SpokeIncomeLib.sol:SpokeIncomeLib";
 
@@ -127,6 +129,8 @@ abstract contract FactoryDeployment is CommonBase {
         FundFactory factory;
         address spokeIncomeLib;
         address coreVaultIncomeCollectionLogic;
+        address coreVaultClosureLogic;
+        address spokeCloseLib;
     }
 
     /// @notice Deploys the whole protocol stack of this chain (Arbitrum One or Robinhood Chain) and its factory.
@@ -234,8 +238,11 @@ abstract contract FactoryDeployment is CommonBase {
     }
 
     function _libraries(bool hub, Deployment memory d, bool deploy) private {
-        d.spokeCrossChainLib = _library(vm.getCode("SpokeCrossChainLib.sol:SpokeCrossChainLib"), deploy);
-        d.spokeUnwindLib = _library(vm.getCode("SpokeUnwindLib.sol:SpokeUnwindLib"), deploy);
+        d.spokeCrossChainLib =
+            _library(_linkedToSpokeVaultLibraries("out/SpokeCrossChainLib.sol/SpokeCrossChainLib.json", d), deploy);
+        d.spokeUnwindLib =
+            _library(_linkedToSpokeVaultLibraries("out/SpokeUnwindLib.sol/SpokeUnwindLib.json", d), deploy);
+        d.spokeCloseLib = _library(_linkedToSpokeVaultLibraries("out/SpokeCloseLib.sol/SpokeCloseLib.json", d), deploy);
         // SpokeIncomeLib sends the collections home through SpokeCrossChainLib (WP-10), so it is linked to it.
         d.spokeIncomeLib = _library(_linkedToSpokeVaultLibraries(SPOKE_INCOME_LIB_ARTIFACT, d), deploy);
         if (!hub) return;
@@ -243,11 +250,18 @@ abstract contract FactoryDeployment is CommonBase {
         // linked to the addresses deployed so far. CoreVaultIncomeCollectionLogic calls none of them,
         // CoreVaultIncomeLogic calls it (WP-10), CoreVaultLogic calls CoreVaultIncomeLogic (the valuation hook, WP-07
         // D2), the payout library calls both and the transit library all three (the report hooks).
-        d.coreVaultIncomeCollectionLogic =
-            _library(vm.getCode("CoreVaultIncomeCollectionLogic.sol:CoreVaultIncomeCollectionLogic"), deploy);
+        d.coreVaultIncomeCollectionLogic = _library(
+            _linkedToCoreVaultLibraries(
+                "out/CoreVaultIncomeCollectionLogic.sol/CoreVaultIncomeCollectionLogic.json", d
+            ),
+            deploy
+        );
         d.coreVaultIncomeLogic = _library(_linkedToCoreVaultLibraries(CORE_VAULT_INCOME_LOGIC_ARTIFACT, d), deploy);
         d.coreVaultLogic = _library(_linkedToCoreVaultLibraries(CORE_VAULT_LOGIC_ARTIFACT, d), deploy);
         d.coreVaultPayoutLogic = _library(_linkedToCoreVaultLibraries(CORE_VAULT_PAYOUT_LOGIC_ARTIFACT, d), deploy);
+        d.coreVaultClosureLogic = _library(
+            _linkedToCoreVaultLibraries("out/CoreVaultClosureLogic.sol/CoreVaultClosureLogic.json", d), deploy
+        );
         d.coreVaultTransitLogic = _library(_linkedToCoreVaultLibraries(CORE_VAULT_TRANSIT_LOGIC_ARTIFACT, d), deploy);
     }
 
@@ -342,13 +356,14 @@ abstract contract FactoryDeployment is CommonBase {
         pure
         returns (string[] memory ids, address[] memory libraries)
     {
-        ids = new string[](5);
-        libraries = new address[](5);
+        ids = new string[](6);
+        libraries = new address[](6);
         (ids[0], libraries[0]) = (CORE_VAULT_LOGIC_ID, d.coreVaultLogic);
         (ids[1], libraries[1]) = (CORE_VAULT_TRANSIT_LOGIC_ID, d.coreVaultTransitLogic);
         (ids[2], libraries[2]) = (CORE_VAULT_INCOME_LOGIC_ID, d.coreVaultIncomeLogic);
         (ids[3], libraries[3]) = (CORE_VAULT_PAYOUT_LOGIC_ID, d.coreVaultPayoutLogic);
         (ids[4], libraries[4]) = (CORE_VAULT_INCOME_COLLECTION_LOGIC_ID, d.coreVaultIncomeCollectionLogic);
+        (ids[5], libraries[5]) = (CORE_VAULT_CLOSURE_LOGIC_ID, d.coreVaultClosureLogic);
     }
 
     /// @notice The Spoke Vault creation code linked to the deployment's Spoke Vault libraries (the code the factory
@@ -364,11 +379,12 @@ abstract contract FactoryDeployment is CommonBase {
         view
         returns (bytes memory)
     {
-        string[] memory ids = new string[](3);
-        address[] memory libraries = new address[](3);
+        string[] memory ids = new string[](4);
+        address[] memory libraries = new address[](4);
         (ids[0], libraries[0]) = (SPOKE_CROSS_CHAIN_LIB_ID, d.spokeCrossChainLib);
         (ids[1], libraries[1]) = (SPOKE_UNWIND_LIB_ID, d.spokeUnwindLib);
         (ids[2], libraries[2]) = (SPOKE_INCOME_LIB_ID, d.spokeIncomeLib);
+        (ids[3], libraries[3]) = (SPOKE_CLOSE_LIB_ID, d.spokeCloseLib);
         return _linked(artifact, ids, libraries);
     }
 
@@ -394,7 +410,8 @@ abstract contract FactoryDeployment is CommonBase {
         for (uint256 i; i < libraryIds.length; ++i) {
             bytes32 id = keccak256(bytes(libraryIds[i]));
             string memory placeholder = string.concat("__$", _hex(abi.encodePacked(id), 17), "$__");
-            if (libraries[i] == address(0) && vm.contains(code, placeholder)) revert UnlinkedLibrary(artifact);
+            if (!vm.contains(code, placeholder)) continue;
+            if (libraries[i] == address(0)) revert UnlinkedLibrary(artifact);
             code = vm.replace(code, placeholder, _hex(abi.encodePacked(libraries[i]), 20));
         }
         if (vm.contains(code, "__$")) revert UnlinkedLibrary(artifact);

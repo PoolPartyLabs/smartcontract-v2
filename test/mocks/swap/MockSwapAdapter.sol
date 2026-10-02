@@ -77,6 +77,12 @@ contract MockSwapAdapter {
     /// @notice The tier `bestDirectFee` reports (`directFee`, 0.05% by default) and the calls it got.
     uint24 public directFee = 500;
     uint256 public tierChoices;
+
+    function spotValue(address tokenIn, address tokenOut, uint256 amountIn, uint24) external view returns (uint256) {
+        Rate memory rate = rates[tokenIn][tokenOut];
+        require(rate.denominator != 0, "MockSwapAdapter: no rate");
+        return amountIn * rate.numerator / rate.denominator;
+    }
     /// @notice The tier the last `swapDirect` was asked for.
     uint24 public lastFee;
     /// @notice When set, `bestDirectFee` reverts `NoRoute` (a pair without a direct V3 pool, DEC-153).

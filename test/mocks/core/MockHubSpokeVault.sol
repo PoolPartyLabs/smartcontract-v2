@@ -46,6 +46,7 @@ contract MockHubSpokeVault {
     /// @dev The last unwind request and how many unwinds ran.
     ISpokeVaultUnwind.UnwindRequest public lastRequest;
     uint256 public unwindCalls;
+    uint256 public closureCost;
     mapping(bytes32 requestId => bool) public delivered;
     /// @dev When set, `receiveFromCoreVault` calls back `returnToIdle`: a hub callback outside a payout's unwind.
     bool public returnOnReceive;

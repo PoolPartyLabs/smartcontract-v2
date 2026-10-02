@@ -24,6 +24,7 @@ abstract contract CoreVaultTransit is CoreVaultIncome {
     /// @dev Payout liveness (DEC-021, DEC-056; consolidation verifier finding): the amount is an exact USDC leg of the
     ///      hub value, so the last known hub value follows it; a payout falling back to it then counts the USDC once.
     function allocateToHubSpokeVault(uint256 usdcAmount) external onlyManager nonReentrant {
+        if (_s.fundState == FundState.Closed) revert FundNotOpen(_s.fundState);
         if (usdcAmount == 0) revert ZeroAmount();
         _topUpOperatingCash();
         uint256 free = freeIdle();
@@ -41,6 +42,7 @@ abstract contract CoreVaultTransit is CoreVaultIncome {
     ///      verifier finding): the USDC leaves the hub value, so the last known hub value drops by it (floored at 0: a
     ///      market gain since the last valuation can return more than it holds).
     function returnToIdle(uint256 usdcAmount) external onlyHubSpokeVaultCallback {
+        if (_s.fundState == FundState.Closed) return;
         if (usdcAmount == 0) revert ZeroAmount();
         _requireUnledgered(usdc, usdcAmount);
         _s.idle += usdcAmount;
@@ -63,6 +65,7 @@ abstract contract CoreVaultTransit is CoreVaultIncome {
         nonReentrant
         returns (bytes32 transitId)
     {
+        if (_s.fundState == FundState.Closed) revert FundNotOpen(_s.fundState);
         if (usdcAmount == 0) revert ZeroAmount();
         if (spokeIndex >= _s.mandate.spokes.length) revert UnknownSpoke(spokeIndex);
         // DEC-096: Operating Cash top-up before Free Idle is measured.
@@ -125,6 +128,7 @@ abstract contract CoreVaultTransit is CoreVaultIncome {
         nonReentrant
     {
         if (msg.sender != acrossSpokePool) revert NotAcrossSpokePool(msg.sender);
+        if (_s.fundState == FundState.Closed) return;
         if (tokenSent != usdc) revert UnexpectedToken(tokenSent);
         if (amount == 0) revert ZeroAmount();
         (bytes32 messageFundId, uint256 originChainId, bytes32 transitId, TransferKind kind) =
@@ -143,6 +147,7 @@ abstract contract CoreVaultTransit is CoreVaultIncome {
 
     /// @inheritdoc ICoreVault
     function sweepExcess(address token) external nonReentrant returns (uint256 amount) {
+        if (_s.fundState == FundState.Closed && token == usdc && _totalShares() == 0) _s.idle = 0;
         amount = _unledgered(token);
         if (amount == 0) return 0;
         IERC20(token).safeTransfer(excessRecipient, amount);

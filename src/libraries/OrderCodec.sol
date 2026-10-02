@@ -33,6 +33,9 @@ library OrderCodec {
     ///         DEC-124, DEC-161). The fraction is not read.
     uint8 internal constant COLLECT = 3;
 
+    /// @notice DEC-068/139: Hub acknowledgement of a resolved spoke Principal transit.
+    uint8 internal constant ACKNOWLEDGE = 4;
+
     /// @notice Wormhole consistency level of an order: instant (DEC-120 item 1, DEC-111). Reports stay finalized
     ///         (DEC-093). A Hub reorg could orphan an executed order; its proceeds land in Idle as Principal.
     uint8 internal constant CONSISTENCY_INSTANT = 200;
@@ -57,7 +60,7 @@ library OrderCodec {
     uint8 internal constant MAX_PAYOUT_MODE = uint8(type(ICoreVaultPayouts.PayoutMode).max);
 
     /// @notice An order from the Core Vault to every Spoke Vault of the fund.
-    /// @param kind `UNWIND`, `CLOSE` or `COLLECT`.
+    /// @param kind `UNWIND`, `CLOSE`, `COLLECT` or `ACKNOWLEDGE`.
     /// @param fundId Fund identifier; a Spoke Vault refuses another fund's order (DEC-111).
     /// @param requestId What the order serves: the Payout Request (requester and request nonce) for `UNWIND`, the
     ///        closure for `CLOSE`, the collection for `COLLECT`. Chosen by the Hub.
@@ -80,6 +83,7 @@ library OrderCodec {
         uint256 fracDen;
         uint16 maxLossBps;
         uint8 payoutMode;
+        uint64 closingStartedAt;
     }
 
     /// @notice The payload carries a version this code does not know.
@@ -88,7 +92,7 @@ library OrderCodec {
     /// @notice The payload is shorter than one ABI word.
     error OrderPayloadTooShort(uint256 length);
 
-    /// @notice The order kind is not `UNWIND`, `CLOSE` or `COLLECT`.
+    /// @notice The order kind is not `UNWIND`, `CLOSE`, `COLLECT` or `ACKNOWLEDGE`.
     error UnknownOrderKind(uint8 kind);
 
     /// @notice An unwind order's denominator is zero or its numerator exceeds it.
@@ -135,7 +139,7 @@ library OrderCodec {
         } else if (kind == CLOSE) {
             o.fracNum = 1;
             o.fracDen = 1;
-        } else if (kind != COLLECT) {
+        } else if (kind != COLLECT && kind != ACKNOWLEDGE) {
             revert UnknownOrderKind(kind);
         }
         if (o.payoutMode > MAX_PAYOUT_MODE) revert InvalidPayoutMode(o.payoutMode);
