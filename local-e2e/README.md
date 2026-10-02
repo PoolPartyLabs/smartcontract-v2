@@ -114,9 +114,10 @@ created with the same script or from the frontend; the keeper serves every fund 
   "actors": { "operator": "0x…", "manager": "0x…", "ana": "0x…", "bruno": "0x…", "keeper": "0x…", "stranger": "0x…", "protocolRecipient": "0x…", "trader": "0x…" },
   "guardian": { "address": "0xbeFA…0FBe", "coreBridge": "0xa5f2…CA46", "guardianSetIndex": 8 },
   "protocol": {
-    "arbitrum":  { "fundFactory", "create3Deployer", "coreVaultLogic", "spokeCrossChainLib", "managerRegistry", "priceSource",
-                   "transitEscrowImplementation", "protocolRecipient", "adapterGuardian", "registryOwner" },
-    "robinhood": { "fundFactory", "create3Deployer", "spokeCrossChainLib", "transitEscrowImplementation" }
+    "arbitrum":  { "fundFactory", "create3Deployer", "coreVaultLogic", "spokeCrossChainLib", "spokeUnwindLib",
+                   "managerRegistry", "priceSource", "transitEscrowImplementation", "protocolRecipient", "adapterGuardian",
+                   "registryOwner" },
+    "robinhood": { "fundFactory", "create3Deployer", "spokeCrossChainLib", "spokeUnwindLib", "transitEscrowImplementation" }
   },
   "external": { "arbitrum": { "usdc", "weth", "acrossSpokePool", "wormholeCore", "v4PoolManager", "v4PositionManager", "v4StateView",
                               "aaveV3Pool", "aaveV3AddressesProvider", "aUsdc", "ethUsdFeed", "permit2", "deterministicDeployer" },

@@ -81,6 +81,7 @@ export interface FactoryDeployment {
   create3Deployer: Address;
   coreVaultLogic: Address;
   spokeCrossChainLib: Address;
+  spokeUnwindLib: Address;
   managerRegistry: Address;
   priceSource: Address;
   fundFactory: Address;
@@ -112,11 +113,12 @@ export async function deployFactory(side: Side, log: Logger): Promise<FactoryDep
     log,
   );
   // `run()` returns FactoryDeployment.Deployment: (create3Deployer, coreVaultLogic, spokeCrossChainLib,
-  // managerRegistry, priceSource, factory), printed by forge as a tuple.
+  // spokeUnwindLib, managerRegistry, priceSource, factory), printed by forge as a tuple.
   const tuple = broadcast.returns.d?.value ?? "";
   const addresses = tuple.match(/0x[0-9a-fA-F]{40}/g)?.map((a) => getAddress(a)) ?? [];
-  if (addresses.length !== 6) throw new Error(`unexpected DeployFactory return value: ${tuple}`);
-  const [create3Deployer, coreVaultLogic, spokeCrossChainLib, managerRegistry, priceSource, fundFactory] = addresses;
+  if (addresses.length !== 7) throw new Error(`unexpected DeployFactory return value: ${tuple}`);
+  const [create3Deployer, coreVaultLogic, spokeCrossChainLib, spokeUnwindLib, managerRegistry, priceSource, fundFactory] =
+    addresses;
   const code = await nodes[side].client.getCode({ address: fundFactory });
   if (!code || code === "0x") throw new Error(`no FundFactory code at ${fundFactory} on ${nodes[side].label}`);
   const transitEscrowImplementation = await read<Address>(side, {
@@ -129,6 +131,7 @@ export async function deployFactory(side: Side, log: Logger): Promise<FactoryDep
     create3Deployer,
     coreVaultLogic,
     spokeCrossChainLib,
+    spokeUnwindLib,
     managerRegistry,
     priceSource,
     fundFactory,
