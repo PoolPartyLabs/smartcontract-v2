@@ -5,11 +5,12 @@ import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { decodeEventLog, getAddress, type Address, type Hex, type Log } from "viem";
-import { fundFactoryAbi, shareTokenAbi } from "./abis.ts";
+import { coreVaultAbi, fundFactoryAbi, shareTokenAbi, valueReportReceiverAbi } from "./abis.ts";
 import { PRUNED_STATE_HINT, isPrunedStateError, nodes, read, recordTransaction, type Side } from "./chain.ts";
 import {
   ACTOR_KEYS,
   AAVE_USDC_POOL_KEY,
+  ARBITRUM,
   FUND_PLAN,
   HUB_POOL_ID,
   HUB_POOL_KEY,
@@ -20,8 +21,9 @@ import {
   WORMHOLE_ROBINHOOD,
   actors,
 } from "./config.ts";
+import { TARGETS, layoutOf, topUpToken } from "./fund-accounts.ts";
 import type { Logger } from "./log.ts";
-import type { FundRecord } from "./state.ts";
+import type { DeploymentState, FundRecord } from "./state.ts";
 
 const BROADCAST_DIR = join(STATE_DIR, "broadcast");
 
@@ -238,4 +240,27 @@ export async function createFund(fundFactory: Address, log: Logger): Promise<Fun
     poolKeys: { hub: [HUB_POOL_KEY], spoke: [SPOKE_POOL_KEY] },
     poolIds: { hub: [HUB_POOL_ID], spoke: [SPOKE_POOL_ID], aave: AAVE_USDC_POOL_KEY },
   };
+}
+
+/** Whether a fund is past its creation: no longer Open, holders other than the manager's seed (DEC-127: every fund is
+ *  born with shares), or a spoke report already accepted. */
+export async function fundUsed(fund: FundRecord): Promise<boolean> {
+  const at = <T>(address: Address, abi: typeof coreVaultAbi, functionName: string, args: readonly unknown[] = []) =>
+    read<T>("arbitrum", { address, abi, functionName, args });
+  const [state, supply, managerShares, reported] = await Promise.all([
+    at<number>(fund.hub.coreVault, coreVaultAbi, "fundState"),
+    at<bigint>(fund.hub.shareToken, shareTokenAbi, "totalSupply"),
+    at<bigint>(fund.hub.shareToken, shareTokenAbi, "balanceOf", [fund.manager]),
+    at<boolean>(fund.hub.valueReportReceiver, valueReportReceiverAbi, "hasReport", [BigInt(fund.spoke.spokeIndex)]),
+  ]);
+  return state !== 0 || supply !== managerShares || reported;
+}
+
+/** The deployment's default fund while it is unused, else (or when `force`) a new fund through
+ *  script/CreateFund.s.sol, after the manager's USDC is topped up for its seed (DEC-127). */
+export async function freshFund(state: DeploymentState, log: Logger, force = false): Promise<{ fund: FundRecord; created: boolean }> {
+  if (!force && !(await fundUsed(state.fund))) return { fund: state.fund, created: false };
+  const usdc = layoutOf(state, "arbitrum", ARBITRUM.usdc);
+  await topUpToken("arbitrum", usdc, actors.manager.address, TARGETS.arbitrum.usdc.manager);
+  return { fund: await createFund(state.protocol.arbitrum.fundFactory, log), created: true };
 }
