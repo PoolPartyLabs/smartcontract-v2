@@ -28,7 +28,7 @@ library BridgeFeeRule {
     /// @notice 100% as a rate.
     uint256 internal constant WAD = 1e18;
 
-    /// @notice How many past sends the reference averages (the founder's "3 últimas").
+    /// @notice How many past sends the reference averages (the founder's "last 3").
     uint256 internal constant WINDOW = 3;
 
     /// @notice The rule's numbers, all WAD fractions of the amount sent.
