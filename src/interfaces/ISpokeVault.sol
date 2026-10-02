@@ -90,6 +90,11 @@ interface ISpokeVault is IAcrossMessageHandler, ISpokeVaultUnwind, ISpokeVaultIn
     /// @notice A value report was published through Wormhole (DEC-070, DEC-086, DEC-093).
     event ReportPublished(uint64 indexed reportSequence, uint64 wormholeSequence, uint64 blockNumber);
 
+    /// @notice An order of the Core Vault was executed here (DEC-120 item 2, DEC-139); the report published in the same
+    ///         transaction (`ReportPublished`) carries its results. `orderId` (`OrderCodec.orderId`) and
+    ///         `wormholeSequence` (the order message's) are those of the Core Vault's `ICoreVault.OrderPublished`.
+    event OrderExecuted(uint8 indexed kind, bytes32 indexed orderId, uint64 wormholeSequence);
+
     /// @notice An Operating Expense was paid, with its funding source (DEC-041). `shareholder` is zero for a
     ///         fund-level expense.
     event OperatingExpensePaid(
@@ -135,6 +140,9 @@ interface ISpokeVault is IAcrossMessageHandler, ISpokeVaultUnwind, ISpokeVaultIn
     error UnknownTransit(bytes32 transitId);
     error FillDeadlineNotReached(bytes32 transitId, uint32 fillDeadline);
     error NoRefund(bytes32 transitId);
+    /// @notice This vault cannot execute orders of `kind` yet (`OrderCodec.UNWIND`, `CLOSE` or `COLLECT`): the order
+    ///         is refused whole and the order cursor does not move.
+    error OrderKindNotSupported(uint8 kind);
 
     // ---------------------------------------------------------------------------------------------------------------
     // Identity and configuration
@@ -180,7 +188,7 @@ interface ISpokeVault is IAcrossMessageHandler, ISpokeVaultUnwind, ISpokeVaultIn
     /// @notice Whether `token` is a Mandate token of this chain (DEC-136): the closed list of the ledger.
     function isMandateToken(address token) external view returns (bool);
 
-    /// @notice Address that receives swept excess balances. OPEN (LC-132): whether it is the Protocol Recipient.
+    /// @notice Address that receives swept excess balances: the Protocol Recipient, the fee wallet (DEC-116).
     function excessRecipient() external view returns (address);
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -274,6 +282,19 @@ interface ISpokeVault is IAcrossMessageHandler, ISpokeVaultUnwind, ISpokeVaultIn
     ///         Chains only (DEC-070, DEC-086, DEC-093; Q66 keeper cadence is off-chain).
     /// @dev `msg.value` pays the Wormhole message fee (0 on Arbitrum and Robinhood Chain today).
     function report() external payable returns (uint64 reportSequence, uint64 wormholeSequence);
+
+    /// @notice Executes an order of the Core Vault delivered as a signed Wormhole VAA, then publishes this vault's
+    ///         report in the same transaction. Permissionless; Spoke Chains only.
+    /// @dev DEC-111, DEC-120 item 2, DEC-139: anyone delivers the order. It is accepted only if this chain's Wormhole
+    ///      Core verifies it, its emitter is the fund's Core Vault on the Hub's Wormhole chain (the Mandate's
+    ///      `hubWormholeChainId`, D-15), its sequence is above every order accepted before (DEC-093), it belongs to
+    ///      this fund and its deadline has not passed (`OrderVerifier`); the order cursor then moves past it, so it
+    ///      executes once. It runs by kind (unwind, closure or income collection) and the post-order report is
+    ///      published with finalized consistency (DEC-093), `msg.value` paying the Wormhole message fee (DEC-120
+    ///      item 2: the report after the unwind in the same transaction). DEC-157: no inactivity switch; an order is
+    ///      the only Hub-to-spoke instruction. Until the order work exists every kind reverts `OrderKindNotSupported`.
+    /// @return reportSequence Sequence of the report published after the order.
+    function executeOrder(bytes calldata vaa) external payable returns (uint64 reportSequence);
 
     /// @notice The data a report would carry now (sequence = the next report sequence). On the hub this is the
     ///         reader the Core Vault uses for the hub Spoke Vault's principal and income (same chain, no message).

@@ -24,7 +24,7 @@ import {Transit, TransitState, TransferKind} from "../../../src/interfaces/FundT
 import {FundFactory} from "../../../src/factory/FundFactory.sol";
 import {AcrossBridgeAdapter} from "../../../src/adapters/AcrossBridgeAdapter.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
-import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
+import {SpokeUnwindTypes} from "../../../src/spoke/SpokeUnwindTypes.sol";
 import {Mandate, MandateLib} from "../../../src/mandate/Mandate.sol";
 import {ShareMath} from "../../../src/libraries/ShareMath.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
@@ -752,17 +752,17 @@ abstract contract EndToEndScenario is EndToEndBase {
         uint256 shortfall = target > covered ? target - covered : 0;
         uint256 value = _spotValue(v4);
         uint256 wethOut = value <= shortfall ? v4.principal0 : Math.mulDiv(v4.principal0, shortfall, value);
-        SpokeVaultTypes.UnwindSwap[] memory swaps = new SpokeVaultTypes.UnwindSwap[](1);
-        swaps[0] = SpokeVaultTypes.UnwindSwap({
+        SpokeUnwindTypes.UnwindSwap[] memory swaps = new SpokeUnwindTypes.UnwindSwap[](1);
+        swaps[0] = SpokeUnwindTypes.UnwindSwap({
             adapter: hubUniswap,
             poolKey: ARB_WETH_USDC_POOL_ID,
             tokenIn: ARB_WETH,
             minAmountOut: _usdcValue(ARB_WETH, wethOut) * (10_000 - SWAP_TOLERANCE_BPS) / 10_000,
             params: _swapParams()
         });
-        SpokeVaultTypes.UnwindHint[] memory hints = new SpokeVaultTypes.UnwindHint[](2);
-        hints[0] = SpokeVaultTypes.UnwindHint({swaps: new SpokeVaultTypes.UnwindSwap[](0)});
-        hints[1] = SpokeVaultTypes.UnwindHint({swaps: swaps});
+        SpokeUnwindTypes.UnwindHint[] memory hints = new SpokeUnwindTypes.UnwindHint[](2);
+        hints[0] = SpokeUnwindTypes.UnwindHint({swaps: new SpokeUnwindTypes.UnwindSwap[](0)});
+        hints[1] = SpokeUnwindTypes.UnwindHint({swaps: swaps});
         return abi.encode(hints);
     }
 

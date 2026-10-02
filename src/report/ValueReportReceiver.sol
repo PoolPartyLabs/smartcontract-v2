@@ -130,7 +130,8 @@ contract ValueReportReceiver is IValueReportReceiver, ReentrancyGuard {
     ///      2. consistency level is finalized (`NotFinalized`), DEC-093;
     ///      3. the emitter pair is a Mandate Spoke Vault (`UnknownEmitter`), DEC-086;
     ///      4. the VAA sequence is strictly greater than the last accepted one (`SequenceNotIncreasing`), DEC-093;
-    ///      5. the payload decodes with the current ReportCodec version and carries this fund's id and the emitter's
+    ///      5. the payload decodes with the current ReportCodec version (4: the order results travel opaque, WP-07 D3,
+    ///         and are left to the Core Vault's hooks) and carries this fund's id and the emitter's
     ///         EVM chain id (`ReportMismatch`), DEC-070, DEC-086;
     ///      6. the report sequence is strictly greater than the last accepted one (`ReportSequenceNotIncreasing`),
     ///         DEC-093;

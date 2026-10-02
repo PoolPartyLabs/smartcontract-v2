@@ -7,11 +7,12 @@ import {ICoreVault} from "../interfaces/ICoreVault.sol";
 import {ICoreVaultLifecycle} from "../interfaces/ICoreVaultLifecycle.sol";
 import {Mandate} from "../mandate/Mandate.sol";
 import {ShareMath} from "../libraries/ShareMath.sol";
-import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 import {ShareToken} from "./ShareToken.sol";
 import {CoreVaultBase, CoreVaultConfig} from "./CoreVaultBase.sol";
+import {CoreVaultWiring} from "./CoreVaultTypes.sol";
 import {CoreVaultPayout} from "./CoreVaultPayout.sol";
 import {CoreVaultLogic} from "./CoreVaultLogic.sol";
+import {CoreVaultIncomeLogic} from "./CoreVaultIncomeLogic.sol";
 
 /// @title CoreVault
 /// @notice Hub Chain contract of a fund: custody of Idle USDC, the Share ledger, the manager's seed and the fund
@@ -28,7 +29,6 @@ import {CoreVaultLogic} from "./CoreVaultLogic.sol";
 ///      guarded as described in the base).
 contract CoreVault is CoreVaultPayout {
     using SafeERC20 for IERC20;
-    using IncomeAccumulator for IncomeAccumulator.State;
 
     /// @param m The fund's Mandate, validated with MandateLib (DEC-053).
     /// @param c Wiring; see CoreVaultConfig.
@@ -55,7 +55,8 @@ contract CoreVault is CoreVaultPayout {
         _topUpOperatingCash();
         // Q57 reading: a mint reverts on a stale spoke report or a stale price. DEC-014: the entrant's checkpoint below
         // gives it no income collected before entry (ruling 2026-09-29: the index moves only at collection).
-        (uint256 assets, NavConsolidation memory consolidation) = CoreVaultLogic.recordValuation(_s, _wiring(), true);
+        CoreVaultWiring memory w = _wiring();
+        (uint256 assets, NavConsolidation memory consolidation) = CoreVaultLogic.recordValuation(_s, w, true);
         uint256 price = ShareMath.sharePrice(assets, supply);
         // Independent verification plan MM-3 (DEC-035, DEC-061 residual OPEN): below one base unit per whole share a
         // deposit's charge rounds to zero for whole shares, and repeated one-unit deposits compounded to more than 99%
@@ -69,8 +70,8 @@ contract CoreVault is CoreVaultPayout {
         if (shares < minShares) revert SharesBelowMinimum(shares, minShares);
         usdcCharged = usdcForShares + fee;
 
-        // DEC-014, Q60: checkpoint with the balance before the mint.
-        _s.income.checkpoint(msg.sender, _sharesOf(msg.sender));
+        // DEC-014, Q60: the income hook checkpoints with the balance before the mint (WP-07 D2).
+        CoreVaultIncomeLogic.beforeBalanceChange(_s, w, msg.sender, _sharesOf(msg.sender));
         _s.idle += usdcForShares;
         emit Deposited(msg.sender, usdcForShares, fee, shares, price, assets, supply, consolidation);
 
@@ -79,6 +80,7 @@ contract CoreVault is CoreVaultPayout {
         // fails it is owed, never a reason to refuse the deposit.
         CoreVaultLogic.payFee(_s, usdc, protocolRecipient, fee);
         ShareToken(shareToken).mint(msg.sender, shares);
+        CoreVaultIncomeLogic.afterMint(_s, w, msg.sender, shares);
         // DEC-146: the peak moves on every mint to the manager address.
         if (msg.sender == manager) _recordManagerPeak();
     }
@@ -108,8 +110,11 @@ contract CoreVault is CoreVaultPayout {
         if (minted == 0) revert DepositBelowOneShare(usdcAmount - fee, price);
         shares = minted;
 
-        // DEC-014: no income checkpoint is needed: no share ever existed, so every income index is still 0 (income met
-        // at supply 0 is kept ownerless and never moves an index, IncomeAccumulator.distribute).
+        // DEC-014: the income hooks run around the seed like around every mint (WP-07 D2). The manager's balance before
+        // it is 0 (no share exists yet) and every income index is still 0 (income met at supply 0 is kept ownerless and
+        // never moves an index, IncomeAccumulator.distribute), so the checkpoint records nothing.
+        CoreVaultWiring memory w = _wiring();
+        CoreVaultIncomeLogic.beforeBalanceChange(_s, w, manager, 0);
         _s.idle += usdcForShares;
         // DEC-146: the manager's first balance is the first peak.
         _s.managerPeakShares = shares;
@@ -118,6 +123,7 @@ contract CoreVault is CoreVaultPayout {
         IERC20(usdc).safeTransferFrom(msg.sender, address(this), usdcForShares + fee);
         CoreVaultLogic.payFee(_s, usdc, protocolRecipient, fee);
         ShareToken(shareToken).mint(manager, shares);
+        CoreVaultIncomeLogic.afterMint(_s, w, manager, shares);
     }
 
     /// @inheritdoc ICoreVaultLifecycle

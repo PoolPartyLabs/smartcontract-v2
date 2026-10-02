@@ -54,6 +54,9 @@ abstract contract SpokeVaultBase is ISpokeVault, ReentrancyGuard {
     address public immutable excessRecipient;
     /// @notice This spoke's report lifetime from the Mandate (DEC-099; value OPEN, Q57 / Q66). 0 on the hub.
     uint32 public immutable maxReportAge;
+    /// @dev The Mandate's Hub Wormhole chain id (D-15): the only emitter chain whose orders `executeOrder` accepts
+    ///      (DEC-120, DEC-139).
+    uint16 internal immutable _hubWormholeChainId;
 
     /// @dev Pinned Mandate copy, ledger and cross-chain books.
     SpokeVaultTypes.State internal _s;
@@ -90,7 +93,8 @@ abstract contract SpokeVaultBase is ISpokeVault, ReentrancyGuard {
     /// @param acrossSpokePool_ Across SpokePool on this chain, the only `handleV3AcrossMessage` caller.
     /// @param wormholeCore_ Wormhole Core Bridge on a spoke; address(0) on the hub (no report is published there).
     /// @param transitEscrowImplementation_ TransitEscrow cloned per send home (DEC-066, QA6); unused on the hub.
-    /// @param excessRecipient_ Destination of swept excess (DEC-096, DEC-101; LC-132 OPEN).
+    /// @param excessRecipient_ Destination of swept excess: the Protocol Recipient, the fee wallet (DEC-096, DEC-101,
+    ///        DEC-116).
     /// @dev Q17-4 (OPEN, stance: pin in the vault, OQ-13): the codehash of every Mandate adapter on this chain, swap
     ///      adapters included (DEC-136), is pinned here and revalidated on every later call. The ledger's closed token
     ///      list is this chain's Mandate tokens, base token first (DEC-123, DEC-136). OQ-12: `poolTokens` is called for
@@ -134,6 +138,7 @@ abstract contract SpokeVaultBase is ISpokeVault, ReentrancyGuard {
         mandateHash = mandate_.hash();
         manager = mandate_.manager;
         hubChainId = mandate_.hubChainId;
+        _hubWormholeChainId = mandate_.hubWormholeChainId;
         chainId = chainId_;
         onHubChain = hub;
         coreVault = coreVault_;

@@ -116,13 +116,13 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
         _pinBridgeAdapters(m);
 
         // Q60: closed list of income tokens; USDC always, then the Mandate's other hub tokens (WP-07 B2).
-        _s.income.registerToken(c.usdc);
+        _s.incomeBook.index.registerToken(c.usdc);
         for (uint256 i; i < m.tokens.length; ++i) {
             TokenConfig memory t = m.tokens[i];
             bool hubToken = t.chainId == m.hubChainId;
             if (hubToken && t.token == c.usdc) continue;
             _requirePriced(c.priceSource, t);
-            if (hubToken) _s.income.registerToken(t.token);
+            if (hubToken) _s.incomeBook.index.registerToken(t.token);
         }
 
         // Q59 OPEN: name and symbol are factory strings; the Core Vault deploys and owns its Share token.
@@ -372,7 +372,7 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
     ///      added a second time; no fee is ever owed here (ruling 2026-09-29: fees leave at collection).
     function _ledger(address token) internal view returns (uint256 amount) {
         // Security review S-12: fees whose transfer failed are owed to their recipient, never swept.
-        amount = _s.collectedIncome[token] + _s.owedFeesTotal[token];
+        amount = _s.incomeBook.collectedIncome[token] + _s.owedFeesTotal[token];
         if (token == usdc) amount += _s.idle + _s.operatingCash + _s.unmatchedArrivals;
     }
 

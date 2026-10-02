@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {ICoreVaultPayouts} from "../interfaces/ICoreVaultPayouts.sol";
 import {ICoreVaultLifecycle} from "../interfaces/ICoreVaultLifecycle.sol";
 import {Transit, TransferKind} from "../interfaces/FundTypes.sol";
 import {Mandate} from "../mandate/Mandate.sol";
-import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
+import {CoreVaultIncomeTypes} from "./CoreVaultIncomeTypes.sol";
+import {CoreVaultPayoutTypes} from "./CoreVaultPayoutTypes.sol";
 
 /// @notice Wiring of a Core Vault, fixed at construction.
 /// @param fundId Fund identifier shared by every contract of the fund.
@@ -123,10 +123,9 @@ struct HubBoundTransfer {
 /// @param unmatchedArrivals Spoke-to-hub arrivals held apart: pending plus strays; outside every base, never swept
 ///        (DEC-080, DEC-104, OQ-01).
 /// @param transitNonce Counter behind transit ids.
-/// @param income Attributed Income accumulator (Q60).
-/// @param collectedIncome Collected income per token, net of fees, payable now to holders (LC-100; ruling 2026-09-29:
-///        fees leave at collection, so nothing owed to the manager or the protocol waits here).
-/// @param requests Payout Request per address (DEC-024, DEC-046).
+/// @param incomeBook The income path's state: the Attributed Income accumulator and the collected income
+///        (`CoreVaultIncomeTypes.Book`, WP-07 D1).
+/// @param payouts The payout path's state: the Payout Requests (`CoreVaultPayoutTypes.Book`, WP-07 D1).
 /// @param transits Hub-to-spoke transits (DEC-066).
 /// @param transitSpoke Mandate spoke index of each transit.
 /// @param spokeBooks Transit book per spoke.
@@ -161,9 +160,8 @@ struct CoreVaultState {
     uint16 managementFeeBps;
     uint256 unmatchedArrivals;
     uint256 transitNonce;
-    IncomeAccumulator.State income;
-    mapping(address token => uint256) collectedIncome;
-    mapping(address shareholder => ICoreVaultPayouts.PayoutRequest) requests;
+    CoreVaultIncomeTypes.Book incomeBook;
+    CoreVaultPayoutTypes.Book payouts;
     mapping(bytes32 transitId => Transit) transits;
     mapping(bytes32 transitId => uint256) transitSpoke;
     mapping(uint256 spokeIndex => SpokeBook) spokeBooks;

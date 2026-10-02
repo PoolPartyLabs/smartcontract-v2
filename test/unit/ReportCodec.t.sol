@@ -62,6 +62,8 @@ contract ReportCodecTest is Test {
         r.arrivedTransits[0] = ReportCodec.TransitAmount(keccak256("t1"), 9994e6);
         r.inFlightToHub = new ReportCodec.HubBoundAmount[](1);
         r.inFlightToHub[0] = ReportCodec.HubBoundAmount(keccak256("t2"), 999e6, TransferKind.Income);
+        r.unwindResults = abi.encode(keccak256("order-1"), uint256(1457), uint256(10_000));
+        r.collectionResults = hex"c011ec7ed0";
     }
 
     function _assertSame(ReportCodec.Report memory a, ReportCodec.Report memory b) internal pure {
@@ -78,6 +80,36 @@ contract ReportCodecTest is Test {
         assertEq(d.positions[0].tickLower, -887_220);
         assertEq(d.inFlightToHub[0].amount, 999e6);
         assertEq(uint8(d.inFlightToHub[0].kind), uint8(TransferKind.Income), "CV-OQ-1: the kind travels");
+        assertEq(d.unwindResults, r.unwindResults, "WP-07 D3: the unwind results travel as they are");
+        assertEq(d.collectionResults, hex"c011ec7ed0", "WP-07 D3: the collection results travel as they are");
+    }
+
+    /// @dev WP-07 D3: version 4 appends the two opaque order-result fields after `inFlightToHub`; every field before
+    ///      them keeps its place in the head, and empty results cost two empty `bytes`.
+    function test_WP07D3_versionFourCarriesTheOrderResults() public view {
+        assertEq(ReportCodec.VERSION, 4);
+        ReportCodec.Report memory r;
+        bytes memory payload = h.encode(r);
+        // Version word, the report's offset, its 17-word head (15 fields of version 3 plus the two results), then the
+        // tails: 6 empty arrays and 2 empty `bytes`, one length word each.
+        assertEq(payload.length, 32 * (2 + 17 + 8));
+        ReportCodec.Report memory d = h.decode(payload);
+        assertEq(d.unwindResults.length, 0);
+        assertEq(d.collectionResults.length, 0);
+    }
+
+    /// @dev Results of any length travel unchanged, whatever their encoding (opaque to the codec).
+    function testFuzz_WP07D3_orderResultsRoundTrip(bytes memory unwindResults, bytes memory collectionResults)
+        public
+        view
+    {
+        ReportCodec.Report memory r = _sample();
+        r.unwindResults = unwindResults;
+        r.collectionResults = collectionResults;
+        ReportCodec.Report memory d = h.decode(h.encode(r));
+        assertEq(d.unwindResults, unwindResults);
+        assertEq(d.collectionResults, collectionResults);
+        _assertSame(r, d);
     }
 
     function test_DEC093_roundTripOfEmptyReport() public view {
@@ -93,8 +125,12 @@ contract ReportCodecTest is Test {
         payload = abi.encode(uint256(2), _sample());
         vm.expectRevert(abi.encodeWithSelector(ReportCodec.UnsupportedReportVersion.selector, 2));
         h.decode(payload);
-        payload = abi.encode(uint256(4), _sample());
-        vm.expectRevert(abi.encodeWithSelector(ReportCodec.UnsupportedReportVersion.selector, 4));
+        // Version 3, the layout before the order results (WP-07 D3), is refused on its version word.
+        payload = abi.encode(uint256(3), _sample());
+        vm.expectRevert(abi.encodeWithSelector(ReportCodec.UnsupportedReportVersion.selector, 3));
+        h.decode(payload);
+        payload = abi.encode(uint256(5), _sample());
+        vm.expectRevert(abi.encodeWithSelector(ReportCodec.UnsupportedReportVersion.selector, 5));
         h.decode(payload);
         payload = abi.encode(uint256(0), _sample());
         vm.expectRevert(abi.encodeWithSelector(ReportCodec.UnsupportedReportVersion.selector, 0));
@@ -136,6 +172,8 @@ contract ReportCodecTest is Test {
         r.operatingCash = seed >> 32;
         r.arrivedTransits = _transitAmounts(seed, nArrived % 8, "arrived");
         r.inFlightToHub = _hubBoundAmounts(seed, nInFlight % 8, "inflight");
+        r.unwindResults = abi.encode(seed, "unwind", nArrived);
+        r.collectionResults = nIncome % 2 == 0 ? bytes("") : abi.encode(seed, "collection");
         r.positions = new ReportCodec.PositionReport[](nPositions % 6);
         for (uint256 i; i < r.positions.length; ++i) {
             uint256 x = uint256(keccak256(abi.encode(seed, "position", i)));

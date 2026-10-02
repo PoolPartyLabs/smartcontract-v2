@@ -1,0 +1,19 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.28;
+
+import {ICoreVaultPayouts} from "../interfaces/ICoreVaultPayouts.sol";
+
+/// @title CoreVaultPayoutTypes
+/// @notice The payout book of the Core Vault: the state the payout path (`CoreVaultPayout`, `CoreVaultPayoutLogic`)
+///         keeps inside `CoreVaultState`.
+/// @dev WP-07 D1: the payout path and the income path each keep their state in a book of their own, so the work
+///      that builds them out (the proportional unwind and its settlement, DEC-120, DEC-137, DEC-139) adds fields here
+///      without editing `CoreVaultTypes.sol`. The book lives inside `CoreVaultState`; no fund sits behind a proxy
+///      (DEC-022, DEC-058), so a new field only changes the storage layout of funds created after it.
+library CoreVaultPayoutTypes {
+    /// @notice Payout state of the Core Vault.
+    /// @param requests Payout Request per address (DEC-024, DEC-046).
+    struct Book {
+        mapping(address shareholder => ICoreVaultPayouts.PayoutRequest) requests;
+    }
+}

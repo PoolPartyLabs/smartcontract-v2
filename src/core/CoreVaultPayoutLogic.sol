@@ -10,7 +10,7 @@ import {ICoreVaultPayouts} from "../interfaces/ICoreVaultPayouts.sol";
 import {ICoreVaultLifecycle} from "../interfaces/ICoreVaultLifecycle.sol";
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {ShareMath} from "../libraries/ShareMath.sol";
-import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
+import {ReportCodec} from "../libraries/ReportCodec.sol";
 import {ShareToken} from "./ShareToken.sol";
 import {CoreVaultState, CoreVaultWiring, CORE_VAULT_UNWINDING_SLOT, STANDARD_PAYOUT_TERM} from "./CoreVaultTypes.sol";
 import {CoreVaultLogic} from "./CoreVaultLogic.sol";
@@ -30,7 +30,6 @@ import {CoreVaultIncomeLogic} from "./CoreVaultIncomeLogic.sol";
 ///      ICoreVaultPayouts, ICoreVault and ICoreVaultLifecycle.
 library CoreVaultPayoutLogic {
     using SafeERC20 for IERC20;
-    using IncomeAccumulator for IncomeAccumulator.State;
     using TransientSlot for *;
 
     /// @notice DEC-081: the unwind targets the shortfall plus 2%.
@@ -66,7 +65,7 @@ library CoreVaultPayoutLogic {
         uint256 usdcAmount,
         ICoreVaultPayouts.PayoutMode mode
     ) public {
-        ICoreVaultPayouts.PayoutRequest storage req = s.requests[msg.sender];
+        ICoreVaultPayouts.PayoutRequest storage req = s.payouts.requests[msg.sender];
         // DEC-024, DEC-046: one open request per address, never cancellable.
         if (req.open) revert ICoreVaultPayouts.PayoutRequestAlreadyOpen(msg.sender);
         uint256 balance = IERC20(w.shareToken).balanceOf(msg.sender);
@@ -89,7 +88,7 @@ library CoreVaultPayoutLogic {
             termEndsAt += STANDARD_PAYOUT_TERM;
         }
         // DEC-077: nothing is burned or locked at request.
-        s.requests[msg.sender] = ICoreVaultPayouts.PayoutRequest({
+        s.payouts.requests[msg.sender] = ICoreVaultPayouts.PayoutRequest({
             mode: mode,
             open: true,
             requestedAt: uint64(block.timestamp),
@@ -142,7 +141,7 @@ library CoreVaultPayoutLogic {
         uint256 balance,
         bytes calldata unwindHints
     ) public returns (ICoreVaultPayouts.PayoutReceipt memory receipt) {
-        ICoreVaultPayouts.PayoutRequest storage req = s.requests[msg.sender];
+        ICoreVaultPayouts.PayoutRequest storage req = s.payouts.requests[msg.sender];
         Claim memory c;
         c.balance = balance;
         c.burnable = msg.sender == w.manager ? _managerBurnable(s, c.balance) : c.balance;
@@ -223,6 +222,19 @@ library CoreVaultPayoutLogic {
         proceeds = s.idle - idleBefore;
     }
 
+    // ---------------------------------------------------------------------------------------------------------------
+    // Report hook (WP-07 D2; DEC-105, DEC-120, DEC-139)
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// @notice Called after the Core Vault applied a newly accepted report of spoke `spokeIndex`
+    ///         (`CoreVaultTransitLogic.applyReport`). Nothing to do yet.
+    /// @dev The payout work reads the report's `unwindResults` here: DEC-105 and DEC-120 item 3, the settlement waits
+    ///      for every reached spoke's post-unwind report. It runs inside the report delivery, so it must not revert (a
+    ///      revert would refuse the report) and must stay bounded in gas.
+    function onReportAccepted(CoreVaultState storage, CoreVaultWiring memory, uint256, ReportCodec.Report memory)
+        public
+        pure {}
+
     /// @notice Burn and pay atomically (DEC-047), fees, reserve release and the full-burn income payment (DEC-045).
     function _executePayout(
         CoreVaultState storage s,
@@ -252,8 +264,8 @@ library CoreVaultPayoutLogic {
             r.payoutSettlementPrice = Math.mulDiv(c.proceeds, ShareMath.WHOLE_SHARE * ShareMath.PRICE_SCALE, c.shares);
         }
 
-        // Effects. DEC-014: checkpoint with the balance before the burn.
-        s.income.checkpoint(msg.sender, c.balance);
+        // Effects. DEC-014: the income hook checkpoints with the balance before the burn.
+        CoreVaultIncomeLogic.beforeBalanceChange(s, w, msg.sender, c.balance);
         // DEC-144: the Payout Fee never leaves Idle, so it raises the Share Price of those who stay (R-144-A).
         s.idle -= r.usdcGross - r.payoutFee;
         uint256 reserved = req.reserved;
@@ -277,6 +289,7 @@ library CoreVaultPayoutLogic {
         // Security review S-12: a failed flow-fee transfer is owed to the protocol, never a reason to refuse the claim.
         CoreVaultLogic.payFee(s, w.usdc, w.protocolRecipient, r.flowFee);
         if (r.usdcPaid != 0) IERC20(w.usdc).safeTransfer(msg.sender, r.usdcPaid);
-        if (c.shares == c.balance) CoreVaultIncomeLogic.payAllIncome(s, msg.sender);
+        // DEC-045, DEC-047: after a full burn the hook pays all Attributed Income.
+        if (c.shares != 0) CoreVaultIncomeLogic.afterBurn(s, w, msg.sender, c.shares, c.balance - c.shares);
     }
 }
