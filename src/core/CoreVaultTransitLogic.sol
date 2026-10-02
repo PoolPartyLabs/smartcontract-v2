@@ -26,9 +26,9 @@ import {CoreVaultPayoutLogic} from "./CoreVaultPayoutLogic.sol";
 ///      each linked library keeps room under the 24,576-byte limit. It calls `CoreVaultLogic` (Spoke Cap usage),
 ///      `CoreVaultIncomeLogic` (the income hooks) and `CoreVaultPayoutLogic` (the payout hook) through their own linked
 ///      addresses, so its creation code links them and its address is part of the Core Vault's creation code and trust
-///      surface (immutable: no proxy, no upgrade path, DEC-022, DEC-058). Report application lives here, not in `CoreVaultLogic`: it confirms transits and
-///      credits hub-bound arrivals, and a link back from `CoreVaultLogic` would make the two libraries' CREATE2
-///      addresses depend on each other.
+///      surface (immutable: no proxy, no upgrade path, DEC-022, DEC-058). Report application lives here, not in
+///      `CoreVaultLogic`: it confirms transits and credits hub-bound arrivals, and a link back from `CoreVaultLogic`
+///      would make the two libraries' CREATE2 addresses depend on each other.
 /// @dev The Core Vault applies access control, the reentrancy guard and the Operating Cash top-up before calling in.
 ///      Events are emitted with the Core Vault as their address; they and the errors are declared in ICoreVault.
 library CoreVaultTransitLogic {
@@ -179,8 +179,8 @@ library CoreVaultTransitLogic {
         }
     }
 
-    /// @dev The Mandate spoke on `chainId` (spoke chain ids are unique, MandateLib.validate). Only called for a transfer an
-    ///      accepted report of that spoke listed, so the spoke exists.
+    /// @dev The Mandate spoke on `chainId` (spoke chain ids are unique, MandateLib.validate). Only called for a
+    ///      transfer an accepted report of that spoke listed, so the spoke exists.
     function _spokeIndexOf(CoreVaultState storage s, uint256 chainId) private view returns (uint256 i) {
         while (s.mandate.spokes[i].chainId != chainId) ++i;
     }

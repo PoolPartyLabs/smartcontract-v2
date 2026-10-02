@@ -255,16 +255,16 @@ interface ISpokeVault is IAcrossMessageHandler, ISpokeVaultUnwind, ISpokeVaultIn
     /// @dev `msg.value` pays the Wormhole message fee (0 on Arbitrum and Robinhood Chain today).
     function report() external payable returns (uint64 reportSequence, uint64 wormholeSequence);
 
-    /// @notice Executes an order of the Core Vault delivered as a signed Wormhole VAA, then publishes this vault's report
-    ///         in the same transaction. Permissionless; Spoke Chains only.
+    /// @notice Executes an order of the Core Vault delivered as a signed Wormhole VAA, then publishes this vault's
+    ///         report in the same transaction. Permissionless; Spoke Chains only.
     /// @dev DEC-111, DEC-120 item 2, DEC-139: anyone delivers the order. It is accepted only if this chain's Wormhole
     ///      Core verifies it, its emitter is the fund's Core Vault on the Hub's Wormhole chain (the Mandate's
-    ///      `hubWormholeChainId`, D-15), its sequence is above every order accepted before (DEC-093), it belongs to this
-    ///      fund and its deadline has not passed (`OrderVerifier`); the order cursor then moves past it, so it executes
-    ///      once. It runs by kind (unwind, closure or income collection) and the post-order report is published with
-    ///      finalized consistency (DEC-093), `msg.value` paying the Wormhole message fee (DEC-120 item 2: the report
-    ///      after the unwind in the same transaction). DEC-157: no inactivity switch; an order is the only Hub-to-spoke
-    ///      instruction. Until the order work exists every kind reverts `OrderKindNotSupported`.
+    ///      `hubWormholeChainId`, D-15), its sequence is above every order accepted before (DEC-093), it belongs to
+    ///      this fund and its deadline has not passed (`OrderVerifier`); the order cursor then moves past it, so it
+    ///      executes once. It runs by kind (unwind, closure or income collection) and the post-order report is
+    ///      published with finalized consistency (DEC-093), `msg.value` paying the Wormhole message fee (DEC-120
+    ///      item 2: the report after the unwind in the same transaction). DEC-157: no inactivity switch; an order is
+    ///      the only Hub-to-spoke instruction. Until the order work exists every kind reverts `OrderKindNotSupported`.
     /// @return reportSequence Sequence of the report published after the order.
     function executeOrder(bytes calldata vaa) external payable returns (uint64 reportSequence);
 

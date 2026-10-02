@@ -179,7 +179,8 @@ contract ExecuteOrderTest is SpokeVaultTestBase {
         bytes memory vaa = _vaa(_order(OrderCodec.UNWIND, 1), 0);
         harness.setReentry(vaa);
         _deliver(harness, vaa);
-        assertEq(harness.reentryRevert(), abi.encodeWithSelector(ReentrancyGuard.ReentrancyGuardReentrantCall.selector));
+        bytes memory reentrancyRefused = abi.encodeWithSelector(ReentrancyGuard.ReentrancyGuardReentrantCall.selector);
+        assertEq(harness.reentryRevert(), reentrancyRefused);
         assertEq(harness.executed().length, 1, "executed once");
         assertEq(harness.reportSequence(), 1);
     }

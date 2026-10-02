@@ -9,8 +9,8 @@ pragma solidity 0.8.28;
 library SpokeUnwindTypes {
     /// @notice The unwind's state inside `SpokeVaultTypes.State`.
     /// @param reportBlob What the next reports carry as `ReportCodec.Report.unwindResults`: the results of the unwind
-    ///        orders this vault executed (DEC-120 item 2, DEC-105: the Hub settles on the post-unwind report), opaque to
-    ///        the report builder. Empty until the unwind orders exist; their work owns its encoding and how long an
+    ///        orders this vault executed (DEC-120 item 2, DEC-105: the Hub settles on the post-unwind report), opaque
+    ///        to the report builder. Empty until the unwind orders exist; their work owns its encoding and how long an
     ///        entry stays in it.
     struct Book {
         bytes reportBlob;

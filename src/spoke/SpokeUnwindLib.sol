@@ -22,8 +22,8 @@ import {SpokeLedger} from "./SpokeLedger.sol";
 /// @dev DEC-131 (alternative C, b1, b2): moved out of the vault unchanged, before the fix batch, so the vault keeps room
 ///      under the smallest code limit across the chains (24,576 bytes, Arbitrum One; b3, b4). The vault keeps the
 ///      access control (hub only, Core Vault only), the reentrancy guard and the public `MAX_UNWIND_SLIPPAGE_BPS`.
-///      Events and errors are the vault's (ISpokeVault, SpokeVaultTypes, SpokeUnwindTypes), emitted from the vault's address. The
-///      library is part of the vault's creation code and trust surface, like `SpokeCrossChainLib`.
+///      Events and errors are the vault's (ISpokeVault, SpokeVaultTypes, SpokeUnwindTypes), emitted from the vault's
+///      address. The library is part of the vault's creation code and trust surface, like `SpokeCrossChainLib`.
 library SpokeUnwindLib {
     /// @notice Largest shortfall below the pool's current price, in bps, that an automatic unwind swap accepts: the
     ///         swap's minimum output is at least the route's `IAdapter.spotQuote` less this share.
@@ -33,10 +33,11 @@ library SpokeUnwindLib {
     ///      vault as `SpokeVault.MAX_UNWIND_SLIPPAGE_BPS`.
     uint256 internal constant MAX_UNWIND_SLIPPAGE_BPS = 500;
 
-    /// @notice The checks of `SpokeVault.executeOrder` (DEC-111, DEC-120 item 2, DEC-139, DEC-093): `OrderVerifier.accept`
-    ///         on the vault's order cursor, which also moves the cursor past the order, then the order's id.
-    /// @dev Here rather than inlined in the vault: the checks and the id take about 2.1 KB, measured (plan §9, WP-07 D4).
-    ///      The vault checks the chain and reentrancy first and executes the order after.
+    /// @notice The checks of `SpokeVault.executeOrder` (DEC-111, DEC-120 item 2, DEC-139, DEC-093):
+    ///         `OrderVerifier.accept` on the vault's order cursor, which also moves the cursor past the order, then
+    ///         the order's id.
+    /// @dev Here rather than inlined in the vault: the checks and the id take about 2.1 KB (measured, WP-07 D4). The
+    ///      vault checks the chain and reentrancy first and executes the order after.
     /// @return o The decoded and checked order (`OrderCodec.check`).
     /// @return orderId `OrderCodec.orderId(o)`, the id the Core Vault published it under.
     /// @return wormholeSequence The order message's Wormhole sequence.
@@ -48,7 +49,8 @@ library SpokeUnwindLib {
         bytes32 fundId,
         bytes calldata vaa
     ) external returns (OrderCodec.Order memory o, bytes32 orderId, uint64 wormholeSequence) {
-        (o, wormholeSequence) = OrderVerifier.accept(s.orders, wormholeCore, vaa, hubWormholeChainId, coreVault, fundId);
+        OrderVerifier.Cursor storage cursor = s.orders;
+        (o, wormholeSequence) = OrderVerifier.accept(cursor, wormholeCore, vaa, hubWormholeChainId, coreVault, fundId);
         orderId = OrderCodec.orderId(o);
     }
 
