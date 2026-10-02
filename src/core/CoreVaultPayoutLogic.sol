@@ -283,6 +283,7 @@ library CoreVaultPayoutLogic {
     function _sharesFor(Claim memory c, uint256 usdcAmount) private pure returns (uint256 shares) {
         if (c.price == 0) return 0;
         shares = ShareMath.sharesToBurn(usdcAmount, c.price);
+        if (shares == 0 && c.leaverCost != 0) shares = ShareMath.WHOLE_SHARE;
         if (shares > c.burnable) shares = c.burnable;
         if (c.served != 0 && shares > c.served) shares = c.served;
     }
@@ -388,6 +389,12 @@ library CoreVaultPayoutLogic {
         r.flowFee = ShareMath.flowFee(r.usdcGross, w.flowFeeBps);
         r.leaverCost = Math.min(c.leaverCost, r.usdcGross - r.payoutFee - r.flowFee);
         req.pendingLeaverCost = c.leaverCost - r.leaverCost;
+        if (
+            c.complete && c.shares == ShareMath.WHOLE_SHARE && req.usdcOutstanding < r.usdcGross && c.leaverCost != 0
+                && req.pendingLeaverCost == 0
+        ) {
+            r.leaverCost = r.usdcGross - r.payoutFee - r.flowFee;
+        }
         if (req.pendingLeaverCost != 0) c.complete = false;
         r.marketCost = c.marketCost;
         r.marketCostAbsorbed = c.marketCostAbsorbed;
