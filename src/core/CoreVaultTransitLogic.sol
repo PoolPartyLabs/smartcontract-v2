@@ -173,6 +173,7 @@ library CoreVaultTransitLogic {
             emit ICoreVault.TransitReceived(transitId, originChainId, kind, credit, true);
             if (kind == TransferKind.Principal) {
                 s.idle += credit;
+                CoreVaultPayoutLogic.onPrincipalCredit(s, originChainId, transitId);
             } else {
                 uint256 spokeIndex = _spokeIndexOf(s, originChainId);
                 CoreVaultIncomeLogic.onIncomeArrival(s, w, spokeIndex, w.usdc, credit, transitId);
@@ -223,6 +224,7 @@ library CoreVaultTransitLogic {
         h.credited += amount;
         s.unmatchedArrivals -= amount;
         if (s.fundState != ICoreVaultLifecycle.FundState.Closed) s.idle += amount;
+        CoreVaultPayoutLogic.onPrincipalCredit(s, originChainId, transitId);
         emit ICoreVault.UnlistedArrivalRecovered(transitId, originChainId, amount);
     }
 
