@@ -47,12 +47,42 @@ jobs:
       - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
-      # The fork suites read ARBITRUM_FORK_BLOCK and ROBINHOOD_FORK_BLOCK; unset, every fork setUp reverted. Public
-      # RPCs serve recent state only, so the pins are taken from the latest block at run time (an archive RPC in the
-      # secrets lets them be fixed instead).
-      - name: Pin fork blocks
+      # Compiled before any pin is taken, so the compile does not spend the RPCs' state window.
+      - name: Build
+        id: build
+        run: forge build
+      # The fork suites read ARBITRUM_FORK_BLOCK and ROBINHOOD_FORK_BLOCK. Public RPCs serve recent state only: the
+      # Robinhood Chain node about 10 minutes of it (6,000 to 8,000 blocks, measured 2026-10-02), arb1.arbitrum.io about
+      # 30. The fork suite as one run takes about 10 minutes and outlasted the Robinhood window, so it runs in shards,
+      # each pinned at latest - 300 right before it starts. The shard paths are complementary, their union is
+      # test/{fork/**,review/**/*Fork*}, so a new fork suite cannot fall outside them; the two longest suites
+      # (UniswapV3SwapAdapter, DepthProbe, about 5 minutes each) get a shard of their own. Every shard runs even when an
+      # earlier one failed. An archive RPC in the secrets serves any pin, so fresh pins work there too.
+      - name: "Fork shard 1/4: test/fork, except swap"
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
-          echo "ARBITRUM_FORK_BLOCK=$(( $(cast block-number --rpc-url "$ARBITRUM_RPC_URL") - 300 ))" >> "$GITHUB_ENV"
-          echo "ROBINHOOD_FORK_BLOCK=$(( $(cast block-number --rpc-url "$ROBINHOOD_RPC_URL") - 300 ))" >> "$GITHUB_ENV"
-      - name: Fork suites
-        run: forge test --match-path "test/{fork/**,review/**/*Fork*}" -j 2 -vvv
+          arbitrum=$(cast block-number --rpc-url "$ARBITRUM_RPC_URL")
+          robinhood=$(cast block-number --rpc-url "$ROBINHOOD_RPC_URL")
+          export ARBITRUM_FORK_BLOCK=$((arbitrum - 300)) ROBINHOOD_FORK_BLOCK=$((robinhood - 300))
+          forge test --match-path "test/fork/**" --no-match-path "test/fork/swap/**" -j 2 -vvv
+      - name: "Fork shard 2/4: test/fork/swap"
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          arbitrum=$(cast block-number --rpc-url "$ARBITRUM_RPC_URL")
+          robinhood=$(cast block-number --rpc-url "$ROBINHOOD_RPC_URL")
+          export ARBITRUM_FORK_BLOCK=$((arbitrum - 300)) ROBINHOOD_FORK_BLOCK=$((robinhood - 300))
+          forge test --match-path "test/fork/swap/**" -j 2 -vvv
+      - name: "Fork shard 3/4: review integration-price"
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          arbitrum=$(cast block-number --rpc-url "$ARBITRUM_RPC_URL")
+          robinhood=$(cast block-number --rpc-url "$ROBINHOOD_RPC_URL")
+          export ARBITRUM_FORK_BLOCK=$((arbitrum - 300)) ROBINHOOD_FORK_BLOCK=$((robinhood - 300))
+          forge test --match-path "test/review/integration-price/*Fork*" -j 2 -vvv
+      - name: "Fork shard 4/4: review, except integration-price"
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          arbitrum=$(cast block-number --rpc-url "$ARBITRUM_RPC_URL")
+          robinhood=$(cast block-number --rpc-url "$ROBINHOOD_RPC_URL")
+          export ARBITRUM_FORK_BLOCK=$((arbitrum - 300)) ROBINHOOD_FORK_BLOCK=$((robinhood - 300))
+          forge test --match-path "test/review/**/*Fork*" --no-match-path "test/review/integration-price/*Fork*" -j 2 -vvv
