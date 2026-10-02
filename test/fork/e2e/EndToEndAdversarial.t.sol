@@ -56,14 +56,15 @@ contract EndToEndAdversarialForkTest is EndToEndScenario {
         assertGt(proceeds, 0, "DEC-095: the reserve did not pay, the unwind did");
         assertEq(core.payoutReserve(), reserve, "DEC-095: the Payout Reserve survives the Instant claim");
         assertLe(core.payoutReserve(), core.idle(), "DEC-072: Payout Reserve <= Idle");
+        // DEC-144: the Payout Fee stays in Idle.
         assertEq(
             core.idle(),
-            idleBefore + proceeds - receipt.usdcGross,
+            idleBefore + proceeds - receipt.usdcGross + receipt.payoutFee,
             "DEC-080: Idle moved by the proceeds and the payout only"
         );
         assertEq(receipt.usdcOutstanding, 0, "paid in full");
         assertFalse(core.payoutRequest(bruno).open, "DEC-074: closed");
-        assertEq(receipt.payoutFee, ShareMath.bpsOf(receipt.usdcGross, 200), "DEC-102: Payout Fee");
+        assertEq(receipt.payoutFee, ShareMath.bpsOf(receipt.usdcGross, 200), "DEC-075: Payout Fee");
 
         _advance(72 hours);
         uint256 anaBefore = IERC20(ARB_USDC).balanceOf(ana);
@@ -167,7 +168,7 @@ contract EndToEndAdversarialForkTest is EndToEndScenario {
         uint256 anaShares = IERC20(shareToken).balanceOf(ana);
         uint256 brunoShares = IERC20(shareToken).balanceOf(bruno);
         uint256 supply = IERC20(shareToken).totalSupply();
-        assertEq(anaShares + brunoShares, supply);
+        assertEq(MANAGER_SEED_SHARES + anaShares + brunoShares, supply, "the manager's seed shares too (DEC-127)");
 
         (uint256 netUsdc, uint256 netWeth) = _collectHubIncome();
         uint256 brunoUsdc = core.attributedIncome(bruno, ARB_USDC);

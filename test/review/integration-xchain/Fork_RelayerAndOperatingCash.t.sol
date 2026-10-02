@@ -214,16 +214,17 @@ contract Fork_RelayerAndOperatingCash is XChainBase {
     function test_REVIEW_S63_sinkWithoutReleaseHandsTheAllyNothing() public {
         _createForks();
         _phase1CreateFund();
-        _phase2AnaDeposits(); // Ana: 9,975 shares, Share Assets 9,975
+        _phase2AnaDeposits(); // Ana: 9,975 shares and the manager's 99 seed shares, Share Assets 10,074
         address ally = makeAddr("managersAlly");
 
+        // 0.02 USDC of Share Assets left, about two base units per whole share: a mint is still priced (MM-3).
         uint256 free = core.freeIdle();
         vm.startPrank(manager);
-        core.setOperatingCashParameters(type(uint256).max, free - 10_000);
+        core.setOperatingCashParameters(type(uint256).max, free - 20_000);
         core.allocateToHubSpokeVault(1);
         core.setOperatingCashParameters(0, 0);
         vm.stopPrank();
-        assertEq(core.shareAssets(), 10_000, "0.01 USDC of Share Assets left");
+        assertEq(core.shareAssets(), 20_000, "0.02 USDC of Share Assets left");
 
         uint256 allyShares = _depositAs(ally, 10_000e6);
         uint256 cash = core.operatingCash();

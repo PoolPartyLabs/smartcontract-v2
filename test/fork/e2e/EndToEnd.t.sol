@@ -37,7 +37,9 @@ import {EndToEndBase} from "./EndToEndBase.sol";
 abstract contract EndToEndScenario is EndToEndBase {
     using AdvancedWormholeOverride for ICoreBridge;
 
-    uint256 internal constant ANA_BELOW_MINIMUM = MIN_FIRST_DEPOSIT - 1;
+    /// @dev DEC-127: the manager seeds the Mandate minimum, 100 USDC: 0.25 of flow fee, 99 whole shares at 1.00.
+    uint256 internal constant MANAGER_SEED_SHARES = 99e18;
+    uint256 internal constant MANAGER_SEED_IDLE = 99e6;
     uint256 internal constant HUB_ALLOCATION = 5000e6;
     uint256 internal constant AAVE_SUPPLY = 2000e6;
     uint256 internal constant HUB_V4_USDC = 3000e6;
@@ -86,6 +88,11 @@ abstract contract EndToEndScenario is EndToEndBase {
         hubAcross = a.chains[0].acrossBridgeAdapter;
         assertEq(core.mandateHash(), mandateHash, "DEC-053: the Mandate is written once at creation");
         assertEq(core.flowFeeBps(), FLOW_FEE_BPS, "DEC-106: default flow fee");
+        // DEC-127, DEC-061, DEC-113: the fund is born with the manager's seed, at least the Mandate minimum, at 1.00.
+        assertEq(p.seedAmount, MIN_FIRST_DEPOSIT, "the manager seeds the minimum");
+        assertEq(IERC20(shareToken).balanceOf(manager), MANAGER_SEED_SHARES, "DEC-127: the first shares");
+        assertEq(core.idle(), MANAGER_SEED_IDLE);
+        assertEq(core.sharePrice(), ShareMath.INITIAL_SHARE_PRICE, "DEC-061: 1 share = 1.00 USDC");
 
         _createSpoke(m, predicted);
     }
@@ -147,17 +154,13 @@ abstract contract EndToEndScenario is EndToEndBase {
     // Phase 2: Ana deposits 10,000 USDC
     // -----------------------------------------------------------------------------------------------------------------
 
-    /// @dev DEC-061: first deposit at least the Mandate minimum, first price 1.00. DEC-106: 25 bps flow fee to the
-    ///      Protocol Recipient, taken before pricing. DEC-035: whole shares only.
+    /// @dev DEC-127: the first deposit after the manager's seed, at 1.00 (the Mandate minimum bound the seed). DEC-106:
+    ///      25 bps flow fee to the Protocol Recipient, taken before pricing. DEC-035: whole shares only.
     function _phase2AnaDeposits() internal {
         _onArbitrum();
         deal(ARB_USDC, ana, ANA_DEPOSIT);
         vm.startPrank(ana);
         IERC20(ARB_USDC).approve(address(core), ANA_DEPOSIT);
-        vm.expectRevert(
-            abi.encodeWithSelector(ICoreVault.BelowMinFirstDeposit.selector, ANA_BELOW_MINIMUM, MIN_FIRST_DEPOSIT)
-        );
-        core.deposit(ANA_BELOW_MINIMUM, 0);
         uint256 recipientBefore = IERC20(ARB_USDC).balanceOf(recipient);
         (uint256 shares, uint256 charged) = core.deposit(ANA_DEPOSIT, 0);
         vm.stopPrank();
@@ -169,8 +172,8 @@ abstract contract EndToEndScenario is EndToEndBase {
         assertEq(shares % 1e18, 0, "DEC-035: whole shares");
         assertEq(charged, ANA_DEPOSIT, "DEC-035: nothing left over at 1.00");
         assertEq(IERC20(shareToken).balanceOf(ana), shares);
-        assertEq(core.idle(), ANA_DEPOSIT - fee);
-        assertEq(core.shareAssets(), ANA_DEPOSIT - fee);
+        assertEq(core.idle(), MANAGER_SEED_IDLE + ANA_DEPOSIT - fee);
+        assertEq(core.shareAssets(), MANAGER_SEED_IDLE + ANA_DEPOSIT - fee);
         assertEq(core.sharePrice(), ShareMath.INITIAL_SHARE_PRICE, "DEC-061: 1 share = 1.00 USDC");
     }
 
@@ -480,8 +483,17 @@ abstract contract EndToEndScenario is EndToEndBase {
     function _phase7IncomeAndBrunoDeposit() internal {
         _onArbitrum();
         (uint256 netUsdc, uint256 netWeth) = _collectHubIncome();
-        assertApproxEqAbs(core.attributedIncome(ana, ARB_USDC), netUsdc, 1, "DEC-014: Ana held while it was earned");
-        assertApproxEqAbs(core.attributedIncome(ana, ARB_WETH), netWeth, 1);
+        // DEC-014: the holders while it was earned, Ana and the manager's seed (DEC-127), pro rata to their shares.
+        uint256 anaShares = IERC20(shareToken).balanceOf(ana);
+        uint256 supply = IERC20(shareToken).totalSupply();
+        assertEq(supply, MANAGER_SEED_SHARES + anaShares);
+        assertApproxEqAbs(
+            core.attributedIncome(ana, ARB_USDC),
+            netUsdc * anaShares / supply,
+            1,
+            "DEC-014: Ana held while it was earned"
+        );
+        assertApproxEqAbs(core.attributedIncome(ana, ARB_WETH), netWeth * anaShares / supply, 1);
 
         _brunoDeposits();
 

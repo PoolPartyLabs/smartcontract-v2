@@ -131,7 +131,7 @@ contract CoreVaultAcrossForkTest is Test, FundSeed {
         assertEq(IAcrossSpokePool(SPOKE_POOL).numberOfDeposits(), depositId + 1);
         assertEq(IERC20(USDC).balanceOf(SPOKE_POOL), poolBefore + 1000e6);
         assertEq(IERC20(USDC).allowance(address(vault), SPOKE_POOL), 0);
-        assertEq(vault.idle(), 9975e6 - 1000e6);
+        assertEq(vault.idle(), SEED_IDLE + 9975e6 - 1000e6);
         assertEq(vault.inFlightValue(), 999.4e6);
     }
 
@@ -153,7 +153,7 @@ contract CoreVaultAcrossForkTest is Test, FundSeed {
         r.inFlightToHub[0] = ReportCodec.HubBoundAmount(homeId, 500e6, TransferKind.Principal);
         receiver.deliver(0, r);
         assertEq(vault.unmatchedArrivals(), 0);
-        assertEq(vault.idle(), 9975e6 + 500e6);
+        assertEq(vault.idle(), SEED_IDLE + 9975e6 + 500e6);
         assertEq(vault.sweepExcess(USDC), 0);
     }
 }

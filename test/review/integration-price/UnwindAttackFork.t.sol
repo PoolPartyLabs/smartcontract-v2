@@ -288,6 +288,16 @@ contract UnwindAttackFork is IntegrationPriceBase {
         _logFixChecks(o0, o1);
     }
 
+    /// @dev DEC-144: the claimant's Payout Fee now stays in Idle and mostly goes to Alice, which more than covers the
+    ///      sale's market cost at today's pool depth; net of her part of that fee, the 2% push still costs her.
+    function _assertAliceLosesNetOfTheFee(ICoreVault.PayoutReceipt memory r) internal view {
+        uint256 feePart =
+            Math.mulDiv(r.payoutFee, IERC20(shareToken).balanceOf(alice), IERC20(shareToken).totalSupply());
+        assertGt(
+            pre.alice + feePart, post.alice + 100e6, "Alice still loses over 100 USDC on a 2% push, net of the fee"
+        );
+    }
+
     function hubSqrtP0Now() internal view returns (uint160 s) {
         (s,,,) = IStateView(ARB_V4_STATE_VIEW).getSlot0(hubKey.toId());
     }
@@ -307,7 +317,7 @@ contract UnwindAttackFork is IntegrationPriceBase {
         assertFalse(unwindFailed, "the floor lets a 2% push through");
         assertGt(r.unwindProceeds, 30_000e6, "the unwind ran");
         assertEq(hubSpoke.positions().length, 2, "the V4 position was only decreased");
-        assertGt(pre.alice, post.alice + 300e6, "Alice still loses over 300 USDC on a 2% push");
+        _assertAliceLosesNetOfTheFee(r);
         assertGe(swapOut, Math.mulDiv(swapIn, _oracle(), 1e18) * 95 / 100, "the sale is above the oracle floor");
     }
 
@@ -331,7 +341,7 @@ contract UnwindAttackFork is IntegrationPriceBase {
         _logFixChecks(o0, o1);
         assertFalse(unwindFailed, "the floor lets a 2% push through");
         assertGt(r.unwindProceeds, 30_000e6, "the unwind ran");
-        assertGt(pre.alice, post.alice + 300e6, "Alice still loses over 300 USDC on a 2% push");
+        _assertAliceLosesNetOfTheFee(r);
     }
 
     // ------------------------------------------------------------------ 3. several positions, one pool / two pools
