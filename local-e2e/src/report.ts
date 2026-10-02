@@ -61,6 +61,8 @@ function git(args: string[]): string {
 
 const json = (value: unknown) => JSON.stringify(value, (_k, v) => (typeof v === "bigint" ? v.toString() : v), 2);
 const usdc = (value: bigint) => units(value, 6, 2);
+/** Fees can be fractions of a cent: the ledger keeps every base unit. */
+const usdcExact = (value: bigint) => units(value, 6, 6);
 const priceOf = (sharePrice: bigint) => units(sharePrice / 10n ** 18n, 6, 6);
 const time = (timestamp: bigint) => new Date(Number(timestamp) * 1000).toISOString().replace(".000Z", "Z");
 
@@ -283,15 +285,15 @@ export class RunReport {
     if ("error" in fees) out.push(`not available: ${fees.error}`, "");
     else {
       const rows: string[][] = [
-        ["Flow fee (DEC-106), seed", usdc(fees.flowFee.seed), "USDC", "Protocol Recipient"],
-        ["Flow fee, deposits", usdc(fees.flowFee.deposits), "USDC", "Protocol Recipient"],
-        ["Flow fee, payouts", usdc(fees.flowFee.payouts), "USDC", "Protocol Recipient"],
-        ["Payout Fee (DEC-102, DEC-144)", usdc(fees.payoutFee), "USDC", "stays in Idle"],
+        ["Flow fee (DEC-106), seed", usdcExact(fees.flowFee.seed), "USDC", "Protocol Recipient"],
+        ["Flow fee, deposits", usdcExact(fees.flowFee.deposits), "USDC", "Protocol Recipient"],
+        ["Flow fee, payouts", usdcExact(fees.flowFee.payouts), "USDC", "Protocol Recipient"],
+        ["Payout Fee (DEC-102, DEC-144)", usdcExact(fees.payoutFee), "USDC", "stays in Idle"],
       ];
       for (const line of fees.performanceFee) {
         const token = line.token.toLowerCase() === ARBITRUM.usdc.toLowerCase() ? "USDC" : "WETH";
         const decimals = token === "USDC" ? 6 : 18;
-        const fmt = (v: bigint) => units(v, decimals, token === "USDC" ? 2 : 8);
+        const fmt = (v: bigint) => units(v, decimals, token === "USDC" ? 6 : 12);
         rows.push([`Performance fee (DEC-107) on ${fmt(line.collected)} ${token} collected`, fmt(line.performanceFee), token, "see the two slices"]);
         rows.push(["  manager part", fmt(line.managerPart), token, "ManagerFeeVault (DEC-109)"]);
         rows.push(["  protocol slice", fmt(line.protocolSlice), token, "Protocol Recipient (DEC-106)"]);
@@ -299,12 +301,12 @@ export class RunReport {
       }
       rows.push([
         "Management fee (DEC-108, DEC-114)",
-        fees.managementFeeAccrued === null ? "n/a" : usdc(fees.managementFeeAccrued),
+        fees.managementFeeAccrued === null ? "n/a" : usdcExact(fees.managementFeeAccrued),
         "USDC",
         fees.managementFeeAccrued === null ? "no accrual in this Core Vault yet (WP-07)" : "accrued",
       ]);
-      rows.push([`Bridge fees to the spokes (${fees.bridgeFees.sends} sends both ways)`, usdc(fees.bridgeFees.toSpokes), "USDC", "relayers (DEC-162)"]);
-      rows.push(["Bridge fees home", usdc(fees.bridgeFees.toHub), "USDG", "relayers (DEC-162)"]);
+      rows.push([`Bridge fees, Hub to spokes (${fees.bridgeFees.toSpokesSends} sends)`, usdcExact(fees.bridgeFees.toSpokes), "USDC", "relayers (DEC-162)"]);
+      rows.push([`Bridge fees, Robinhood to the Hub (${fees.bridgeFees.toHubSends} sends)`, usdcExact(fees.bridgeFees.toHub), "USDG", "relayers (DEC-162)"]);
       table(["Fee", "Amount", "Token", "Goes to"], rows);
     }
 

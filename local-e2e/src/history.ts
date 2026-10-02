@@ -72,8 +72,9 @@ export interface FeeLedger {
   performanceFee: PerformanceFeeLine[];
   /** DEC-108, DEC-114: management fee accrued; null while the Core Vault has no accrual (WP-07). */
   managementFeeAccrued: bigint | null;
-  /** DEC-085, DEC-162: what the bridge adapters kept per direction (amount sent minus amount to arrive). */
-  bridgeFees: { toSpokes: bigint; toHub: bigint; sends: number };
+  /** DEC-085, DEC-162: what the bridge adapters left to relayers per direction (amount sent minus amount to arrive),
+   *  and the number of sends. */
+  bridgeFees: { toSpokes: bigint; toSpokesSends: number; toHub: bigint; toHubSends: number };
 }
 
 /** The fund's fee ledger from its creation: Core Vault events on the hub and the Robinhood Spoke Vault's sends home. */
@@ -86,7 +87,7 @@ export async function feeLedger(fund: FundRecord): Promise<FeeLedger> {
     payoutFee: 0n,
     performanceFee: [],
     managementFeeAccrued: null,
-    bridgeFees: { toSpokes: 0n, toHub: 0n, sends: 0 },
+    bridgeFees: { toSpokes: 0n, toSpokesSends: 0, toHub: 0n, toHubSends: 0 },
   };
   const perToken = new Map<string, PerformanceFeeLine>();
   for (const e of hubEvents) {
@@ -114,13 +115,13 @@ export async function feeLedger(fund: FundRecord): Promise<FeeLedger> {
       perToken.set(token.toLowerCase(), line);
     } else if (e.eventName === "SentToSpoke") {
       ledger.bridgeFees.toSpokes += (a.transit.amountSent as bigint) - (a.transit.amountToArrive as bigint);
-      ledger.bridgeFees.sends++;
+      ledger.bridgeFees.toSpokesSends++;
     }
   }
   for (const e of spokeEvents) {
     if (e.eventName !== "SentToHub") continue;
     ledger.bridgeFees.toHub += (e.args.transit.amountSent as bigint) - (e.args.transit.amountToArrive as bigint);
-    ledger.bridgeFees.sends++;
+    ledger.bridgeFees.toHubSends++;
   }
   ledger.flowFee.total = ledger.flowFee.seed + ledger.flowFee.deposits + ledger.flowFee.payouts;
   ledger.performanceFee = [...perToken.values()];
