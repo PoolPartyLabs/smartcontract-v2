@@ -52,7 +52,7 @@ The factory address is what every fund prediction is a function of: deploy the f
 
 ```bash
 set -a; . ./.env; set +a
-export PROTOCOL_RECIPIENT=0x... ADAPTER_GUARDIAN=0x... REGISTRY_OWNER=0x...
+export PROTOCOL_RECIPIENT=0x... ADAPTER_GUARDIAN=0x... API_SIGNER=0x...
 # fork first
 forge script script/DeployFactory.s.sol --fork-url $ARBITRUM_RPC_URL --sender <operator>
 forge script script/DeployFactory.s.sol --fork-url $ROBINHOOD_RPC_URL --sender <operator>
@@ -60,6 +60,11 @@ forge script script/DeployFactory.s.sol --fork-url $ROBINHOOD_RPC_URL --sender <
 forge script script/DeployFactory.s.sol --rpc-url $ARBITRUM_RPC_URL --account <operator> --broadcast --slow
 forge script script/DeployFactory.s.sol --rpc-url $ROBINHOOD_RPC_URL --account <operator> --broadcast --slow
 ```
+
+`API_SIGNER` is the Pool Party API key: the route signer of every fund's swap adapters and, on the hub, the owner of
+the `ManagerRegistry` (DEC-170 item 3), so `REGISTRY_OWNER` defaults to it; set `REGISTRY_OWNER` only to choose another
+owner (required when `API_SIGNER` is zero). In the MVP the key is never rotated: a new key needs a new factory (DEC-170
+item 4). The Across adapters take no API key (DEC-176).
 
 Check that both runs print the same `FundFactory` address and the same Spoke Vault code hash. The factory records
 `creationCodeHash(role)` for every stored role and `coreVaultCreationCodeHash`, the hash of the Core Vault creation
