@@ -247,7 +247,8 @@ Across (the keeper's fill on Arbitrum), the Hub-to-spoke order channel, and the 
 13. Invariants: Payout Reserve within Idle, whole shares, Share Assets = sum of buckets, a donation swept
 14. The order channel: until the Core Vault publishes orders itself, an UNWIND order is published from its address on
     the live Arbitrum Core (instant consistency); the keeper relays it (skipped until the Spoke Vault has
-    `executeOrder`), and its VAA passes `OrderVerifier` on the live Robinhood Core through the test receiver, once
+    `executeOrder`), and so does a second keeper started after the publication (a restart: it rescans from the fork
+    block); its VAA passes `OrderVerifier` on the live Robinhood Core through the test receiver, once
 15. The manager's base (`ManagerMustCloseFund` under half of the peak, DEC-146) and `closeFund`: Closing refuses
     deposits, requests, claims and a second closure; Income Withdrawal stays open
 

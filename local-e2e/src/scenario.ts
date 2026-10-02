@@ -1112,6 +1112,16 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
       if (keeper) {
         await waitFor("the keeper's relay of the order", async () => keeper!.stats.orders + keeper!.stats.ordersSkipped > relayedBefore);
         run.ok("the keeper picked the order up; the Spoke Vault has no executeOrder yet (WP-07), so it logged it and skipped it");
+        // A restart: a second keeper started after the publication rescans both chains from the fork block, discovers
+        // the fund from the factories' events (as it does every fund) and still relays the order. It runs in the same
+        // process as the first keeper, so their transactions share one nonce queue.
+        const restarted = await startKeeper(state, { ...DEFAULT_KEEPER_OPTIONS, autoReportSeconds: 0, quiet: true }, log.child("restarted"));
+        try {
+          await waitFor("a restarted keeper's relay of the order", async () => restarted.handledOrder(core, message.sequence));
+        } finally {
+          await restarted.stop();
+        }
+        run.ok("a keeper started after the order was published rescans from the fork block and relays it too");
       } else {
         run.note("external keeper: its log shows the order relayed and skipped until the Spoke Vault has executeOrder");
       }
