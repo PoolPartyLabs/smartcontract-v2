@@ -229,7 +229,8 @@ library CoreVaultPayoutLogic {
     /// @notice Called after the Core Vault applied a newly accepted report of spoke `spokeIndex`
     ///         (`CoreVaultTransitLogic.applyReport`). Nothing to do yet.
     /// @dev The payout work reads the report's `unwindResults` here: DEC-105 and DEC-120 item 3, the settlement waits
-    ///      for every reached spoke's post-unwind report.
+    ///      for every reached spoke's post-unwind report. It runs inside the report delivery, so it must not revert (a
+    ///      revert would refuse the report) and must stay bounded in gas.
     function onReportAccepted(CoreVaultState storage, CoreVaultWiring memory, uint256, ReportCodec.Report memory)
         public
         pure {}

@@ -80,7 +80,9 @@ library CoreVaultIncomeLogic {
     /// @notice Called when an Income transfer of spoke `spokeIndex` reaches the Core Vault and is credited
     ///         (`CoreVaultTransitLogic`: up to what an accepted report of that spoke listed for `transitId`).
     /// @dev Ruling 2026-09-29: the collected income is split at once (`collectIncome`). The income work (DEC-161: the
-    ///      Hub dollar index with each collection's rates) changes this body.
+    ///      Hub dollar index with each collection's rates) changes this body. It runs inside a report delivery or an
+    ///      Across fill (`handleV3AcrossMessage`), so it must not revert: a revert would refuse the report or fail the
+    ///      relayer's fill.
     function onIncomeArrival(
         CoreVaultState storage s,
         CoreVaultWiring memory w,
@@ -93,7 +95,9 @@ library CoreVaultIncomeLogic {
     }
 
     /// @notice Called after the Core Vault applied a newly accepted report of spoke `spokeIndex`. Nothing to do yet.
-    /// @dev The income work reads the report's `collectionResults` here (DEC-122 item 5, DEC-161).
+    /// @dev The income work reads the report's `collectionResults` here (DEC-122 item 5, DEC-161). It runs inside the
+    ///      report delivery, so it must not revert (Q60 fitness function: report admission never reverts because of
+    ///      income) and must stay bounded in gas.
     function onReportAccepted(CoreVaultState storage, CoreVaultWiring memory, uint256, ReportCodec.Report memory)
         public
         pure {}
@@ -114,7 +118,8 @@ library CoreVaultIncomeLogic {
     /// @dev DEC-117: the income work recognizes hub income here, inside the valuation and so before the operation
     ///      checkpoints any holder. `hubRead` is false when a payout's valuation could not read the hub report (payout
     ///      liveness, DEC-021, DEC-056), and `hubReport` is then empty; `mint` tells a mint's valuation (every
-    ///      dependency answered, fresh) from a payout's.
+    ///      dependency answered, fresh) from a payout's. In a payout's valuation it must never revert: an exit is never
+    ///      blocked (DEC-021, DEC-056).
     function onValuation(CoreVaultState storage, CoreVaultWiring memory, ReportCodec.Report memory, bool, bool)
         public
         pure {}
