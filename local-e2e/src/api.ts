@@ -364,10 +364,20 @@ export async function coreEvents(state: DeploymentState, fromBlock: bigint) {
 /** How long a signed route stays valid: long enough for the manager or an executor to send it. */
 const ROUTE_LIFETIME_SECONDS = 600n;
 
-/** The swap adapter routes are signed for: the one `adapter` names, else the harness's instance on that chain (the
- *  fund's own adapter once the factory deploys swap adapters, WP-07). */
+/** The loosest minimum the API signs: the Spoke Vault's own unwind floor (`MAX_UNWIND_SLIPPAGE_BPS`, 5%). The API's
+ *  minimum is one of the two the adapter applies (DEC-142: the stricter wins), so it never signs a near-zero one for
+ *  whoever asks. */
+export const MAX_ROUTE_SLIPPAGE_BPS = 500n;
+
+/** The swap adapter routes are signed for: the harness's instance on that chain (the fund's own adapter from its record
+ *  once the factory deploys swap adapters, WP-07). `adapter` may name it; the API never signs for any other address,
+ *  since every production adapter accepts the API signer's routes (D-01). */
 function swapAdapterOf(state: DeploymentState, side: Side, adapter?: string): Address {
-  return adapter ? addressParam(adapter, "adapter") : state.helpers.swapAdapters[side];
+  const known = state.helpers.swapAdapters[side];
+  if (adapter !== undefined && addressParam(adapter, "adapter").toLowerCase() !== known.toLowerCase()) {
+    throw new HttpError(422, `the API signs routes only for the swap adapter it serves on ${side} (${known})`);
+  }
+  return known;
 }
 
 /** The best single V3 path for the swap, direct or through another Mandate token of the adapter (D-52: the API never
@@ -383,7 +393,7 @@ export async function quoteSwapRoute(
   adapterParam?: string,
 ) {
   if (amountIn === 0n) throw new HttpError(400, "amountIn must be above zero");
-  if (slippageBps > 10_000n) throw new HttpError(400, "slippageBps must be at most 10000");
+  if (slippageBps > MAX_ROUTE_SLIPPAGE_BPS) throw new HttpError(400, `slippageBps must be at most ${MAX_ROUTE_SLIPPAGE_BPS}`);
   const adapter = swapAdapterOf(state, side, adapterParam);
   const isMandateToken = (token: Address) =>
     read<boolean>(side, { address: adapter, abi: uniswapV3SwapAdapterAbi, functionName: "isMandateToken", args: [token] });
