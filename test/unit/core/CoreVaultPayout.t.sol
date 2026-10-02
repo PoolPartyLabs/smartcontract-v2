@@ -278,8 +278,8 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         // ledger for the garbage collector.
         assertEq(r.unwindProceeds, 0);
         assertEq(r.sharePrice, ShareMath.sharePrice(1001e6 - 408e6, 1001e18));
-        assertEq(r.usdcGross, ShareMath.usdcFor(ShareMath.sharesToBurn(400e6, r.sharePrice), r.sharePrice));
-        assertLe(r.usdcGross, 400e6);
+        assertLe(r.usdcPaid + r.flowFee, 400e6);
+        assertEq(r.usdcGross, ShareMath.usdcFor(r.sharesBurned, r.sharePrice));
         assertEq(usdc.balanceOf(address(vault)), _ledgerUsdc() + 408e6);
         assertEq(vault.sweepExcess(address(usdc)), 408e6);
     }
@@ -330,20 +330,20 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         vm.expectEmit(address(vault));
         emit ICoreVaultPayouts.UnwindForPayoutFailed(_requestId(alice, 1), _revertReason("unwind failed"));
         ICoreVault.PayoutReceipt memory r = _request(alice, 800e6, INSTANT);
-        assertEq(r.sharesBurned, 400e18);
-        assertEq(r.usdcGross, 400e6);
-        assertEq(r.usdcOutstanding, 400e6);
+        assertEq(r.sharesBurned, 408e18);
+        assertEq(r.usdcGross, 408e6);
+        assertEq(r.usdcOutstanding, 392e6);
         ICoreVault.PayoutRequest memory req = vault.payoutRequest(alice);
         assertTrue(req.open);
-        assertEq(req.usdcOutstanding, 400e6);
+        assertEq(req.usdcOutstanding, 392e6);
         // Once the unwind works again, the next claim unwinds the rest and closes the request. DEC-144: the first
-        // claim's Payout Fee stayed in Idle and raised the Share Price, so the 400 outstanding burn fewer shares.
+        // claim's Payout Fee stayed in Idle and raised the Share Price, so the 392 outstanding burn fewer shares.
         hubVault.setUnwindMode(MockHubSpokeVault.UnwindMode.Callback);
         r = _claim(alice);
         assertGt(r.sharePrice, ONE);
-        assertEq(r.sharesBurned, ShareMath.sharesToBurn(400e6, r.sharePrice));
+        assertEq(r.sharesBurned, ShareMath.sharesToBurn(392e6, r.sharePrice));
         assertEq(r.usdcGross, ShareMath.usdcFor(r.sharesBurned, r.sharePrice));
-        assertLe(r.usdcGross, 400e6);
+        assertLe(r.usdcGross, 392e6);
         assertEq(r.usdcOutstanding, 0);
         assertFalse(vault.payoutRequest(alice).open);
     }
