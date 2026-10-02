@@ -429,3 +429,41 @@ local-e2e/
   reports/              run reports (gitignored)
   .state/               pids, logs, deployment.json, broadcast files (gitignored)
 ```
+
+## WP-15b lifecycle extension
+
+The scenario now includes permissionless spoke UNWIND settlement, closure with CLOSE orders,
+final income collection, management fee payment, and frozen closed-fund exits. The harness
+defaults to a 100 bps management fee to exercise payment; override `MANAGEMENT_FEE_BPS=0`
+to retain the former zero-fee configuration. Operating Cash remains zero.
+
+Before every fork run, source the handoff's `tools/rpc-env.sh` in the same shell. Use private
+ports via `LOCAL_E2E_ARBITRUM_PORT=48645`, `LOCAL_E2E_ROBINHOOD_PORT=48646`, and
+`LOCAL_E2E_API_PORT=48787`. Run `pnpm run up --warm-up none`, `pnpm scenario --keeper
+inprocess`, `pnpm api:probe`, and `pnpm run down`. `pnpm up` is pnpm's update alias; use
+`pnpm run up`. Failed CLI startup now stops the forks it started.
+
+Offline checks: `pnpm typecheck`, `pnpm check:lifecycle`, and `pnpm check:urls`.
+
+New API builders: `POST /tx/request` and `/tx/claim` accept optional `maxLossBps`
+(0 disables the optional bound; valid range 0–10000). `GET /quote/claim` accepts the
+same query parameter. Additional builders are `/tx/settle-payout`, `/tx/income-request`,
+`/tx/income-settle`, `/tx/income-withdraw`, `/tx/close`, `/tx/closure-unwind`,
+`/tx/closure-finalize`, and `/tx/closed-exit`. Holder-specific settlement/exit builders
+require `holder`; request builders use `amount`, `mode` (`instant` or `standard`), and
+optional `maxLossBps`. `GET /closure` reads the lifecycle state and frozen split.
+Unsigned transactions carry an optional decimal-string native `value` for payable orders.
+The HTTP probe verifies every new builder's calldata and input validation; the scenario
+executes the lifecycle directly against the same contracts.
+
+Each scenario step captures transactions/gas, Share Price, Share Assets, Gross Assets,
+management fee accrual, paid fees, and every actor's token/share balance, share value and
+Attributed Income. JSON contains full hashes; Markdown includes per-step tables and totals.
+The conservation check currently proves **Core Vault USDC cash conservation**, including
+bridge/Hub transfers and excess sweeps. It is explicitly not fund-wide economic conservation;
+that additionally needs realized market P&L, bridge costs and external pool value changes.
+
+**Verification is blocked, not green:** see `reports/2026-10-02-wp15b-blocked.md`.
+No successful WP-15b scenario report or gas claim is available until the parent deployment
+linking bug is fixed and these new phases are exercised. Max-loss exclusion/retry scenario
+coverage and full fund-wide economic conservation remain unfinished.
