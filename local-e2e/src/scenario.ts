@@ -847,9 +847,9 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
       "0x",
     ]);
     const returnFee = RETURN_AMOUNT - returnToArrive;
-    // DEC-158: the quote argument is vestigial until Mandate v2 drops it (WP-07); the spoke's adapter ignores it.
-    const zeroQuote = { outputAmount: 0n, quoteTimestamp: 0, exclusivityDeadline: 0, exclusiveRelayer: zeroAddress };
-    const returnTx = await tx<Hex>("robinhood", "manager", spokeVault, spokeVaultAbi, "sendToHub", [RETURN_AMOUNT, PRINCIPAL, 0n, zeroQuote]);
+    // DEC-158, DEC-176: the manager names the amount, the kind and the bridge rank only; the spoke's Across adapter fixes
+    // every bridge term (WP-07C dropped the quote argument).
+    const returnTx = await tx<Hex>("robinhood", "manager", spokeVault, spokeVaultAbi, "sendToHub", [RETURN_AMOUNT, PRINCIPAL, 0n]);
     const returnId = returnTx.result;
     const returnTransit = await view<any>("robinhood", spokeVault, spokeVaultAbi, "hubBoundTransit", [returnId]);
     run.eq(returnTransit.amountToArrive, returnToArrive, "DEC-162: the spoke adapter's amount to arrive is its quote");
@@ -860,7 +860,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     run.eq(returnDeposit.outputToken, universal(ARBITRUM.usdc), "USDC out");
     run.eq(returnDeposit.outputAmount, returnToArrive, "DEC-162: output amount fixed by the adapter");
     run.ok(
-      `manager sends 500 USDG home with a zero quote: Across deposit ${returnDeposit.depositId} from Robinhood, ` +
+      `manager sends 500 USDG home with no bridge parameter: Across deposit ${returnDeposit.depositId} from Robinhood, ` +
         `${units(returnToArrive)} USDC to arrive (fee ${units(returnFee)}, fixed by the spoke adapter)`,
     );
 
