@@ -2,8 +2,9 @@
 // on, on a fund whose spoke never reported (the deployed one if unused, else a fresh one): quotes are exact, the API's
 // transactions do what they say, a report follows each deposit and only one (DEC-159), freshness gates mints and not
 // payouts, the bridge quote is what the adapter fixes (DEC-162), the API signs routes only within its limits, a signed
-// swap route executes on the live V3 pools, direct and in two hops, and a tampered one is refused, every operation ends
-// with an event a server can index, and the Share Price history follows the mints. Each run writes a run report.
+// swap route executes on the live V3 pools, direct and in two hops, and a tampered one is refused, the fund's own swap
+// adapters are the Mandate's (Mandate v2) and the API signs for them, every operation ends with an event a server can
+// index, and the Share Price history follows the mints. Each run writes a run report.
 // Run: `pnpm run up && pnpm api:probe; pnpm run down`.
 import { zeroAddress, type Address, type Hex, type TransactionReceipt } from "viem";
 import { coreVaultAbi, erc20Abi, spokeVaultAbi, uniswapV3SwapAdapterAbi } from "./abis.ts";
@@ -69,9 +70,10 @@ async function waitFor(what: string, probe: () => Promise<boolean>, seconds = 12
   throw new Error(`timed out after ${seconds}s waiting for ${what}`);
 }
 
-/** Executes a signed route through the chain's swap adapter as its vault (the manager's wallet stands in for the Spoke
- *  Vault until the factory deploys the fund's own adapter, WP-07), and checks that a tampered copy is refused. `hops`
- *  asks the API for a path of that many hops; `twoHopCandidates` requires two-hop paths among those quoted. */
+/** Executes a signed route through the harness's swap adapter of the chain as its vault (the manager's wallet: the
+ *  fund's own adapter takes `swap` only from its Spoke Vault, whose manager swap verb lands in WP-07 C), and checks that
+ *  a tampered copy is refused. `hops` asks the API for a path of that many hops; `twoHopCandidates` requires two-hop
+ *  paths among those quoted. */
 async function signedRoute(
   side: Side,
   tokenIn: Address,
@@ -279,6 +281,34 @@ export async function probe() {
     await signedRoute("robinhood", ROBINHOOD.usdg, ROBINHOOD.nvda, 1_000_000_000n, "Robinhood USDG -> NVDA, direct or through WETH", { twoHopCandidates: true });
     // Two hops through WETH, a Mandate token: the packed path with two fees and the adapter's check of every hop.
     await signedRoute("robinhood", ROBINHOOD.usdg, ROBINHOOD.nvda, 1_000_000_000n, "Robinhood USDG -> WETH -> NVDA, two hops", { hops: 2 });
+
+    // Mandate v2 (DEC-136 and its closing note, D-01): the factory deployed one swap adapter per chain at the address
+    // the Mandate lists; its vault is that chain's Spoke Vault, which pins it, its route signer is the API key, and it
+    // swaps only that chain's Mandate tokens, so the API signs USDG -> WETH for it and refuses USDG -> NVDA.
+    const fundSwap = { arbitrum: { adapter: fund.hub.uniswapV3SwapAdapter, vault: fund.hub.spokeVault }, robinhood: { adapter: fund.spoke.uniswapV3SwapAdapter, vault: fund.spoke.spokeVault } };
+    const wiring: string[] = [];
+    let wired = true;
+    for (const side of ["arbitrum", "robinhood"] as const) {
+      const { adapter, vault } = fundSwap[side];
+      const at = <T>(functionName: string, args: unknown[] = []) => read<T>(side, { address: adapter, abi: uniswapV3SwapAdapterAbi, functionName, args });
+      const [adapterVault, signer, pinned] = await Promise.all([
+        at<Address>("vault"),
+        at<Address>("routeSigner"),
+        read<Address[]>(side, { address: vault, abi: spokeVaultAbi, functionName: "swapAdapters" }),
+      ]);
+      const ok = adapterVault === vault && signer === actors.apiSigner.address && pinned.length === 1 && pinned[0] === adapter;
+      wired &&= ok;
+      wiring.push(`${side} ${adapter}: vault ${adapterVault === vault ? "its Spoke Vault" : adapterVault}, signer ${signer === actors.apiSigner.address ? "the API key" : signer}, pinned ${pinned.join("/")}`);
+    }
+    const fundRoute = await get(`${routeQuery}&adapter=${fund.spoke.uniswapV3SwapAdapter}`);
+    const outsideMandate = await statusOf(
+      `/quote/swap-route?chain=robinhood&tokenIn=${ROBINHOOD.usdg}&tokenOut=${ROBINHOOD.nvda}&amountIn=1000000000&adapter=${fund.spoke.uniswapV3SwapAdapter}`,
+    );
+    record(
+      "the fund's swap adapters are the Mandate's (Mandate v2)",
+      wired && fundRoute.adapter === fund.spoke.uniswapV3SwapAdapter && BigInt(fundRoute.quotedAmountOut) > 0n && outsideMandate === 422,
+      `${wiring.join("; ")}; the API signed USDG -> WETH for the fund's Robinhood adapter (${fundRoute.path.fees.join("/")}) and answers ${outsideMandate} for NVDA, outside its Mandate`,
+    );
 
     // 9. Indexer: every operation above ended with an event the API can serve.
     report.phase("indexer, Share Price history and holders");

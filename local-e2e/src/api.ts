@@ -1,6 +1,6 @@
 // A minimal API over the two forks: what the product API needs from the contracts, in one file, so its concepts can
 // be exercised against the real protocols before the product API is written. It reads chain state and builds
-// unsigned transactions for the user to sign. It holds one key, the API signer's (reading D-01 of DEC-112), with which
+// unsigned transactions for the user to sign. It holds one key, the API signer's (reading D-01, DEC-170), with which
 // it signs swap routes (EIP-712, founder chat 1 of 2026-10-02) and publishes the report after each deposit (DEC-159).
 // Run: `pnpm api` (after `pnpm run up`).
 //
@@ -384,15 +384,19 @@ const ROUTE_LIFETIME_SECONDS = 600n;
  *  whoever asks. */
 export const MAX_ROUTE_SLIPPAGE_BPS = 500n;
 
-/** The swap adapter routes are signed for: the harness's instance on that chain (the fund's own adapter from its record
- *  once the factory deploys swap adapters, WP-07). `adapter` may name it; the API never signs for any other address,
- *  since every production adapter accepts the API signer's routes (D-01). */
+/** The swap adapter routes are signed for: by default the harness's instance on that chain (its vault is the manager's
+ *  wallet, so a signed route can be executed from a wallet); `adapter` may name it or the fund's own swap adapter on
+ *  that chain, which the factory deployed from the Mandate (Mandate v2, DEC-136). The API never signs for any other
+ *  address, since every production adapter accepts the API signer's routes (D-01). */
 function swapAdapterOf(state: DeploymentState, side: Side, adapter?: string): Address {
-  const known = state.helpers.swapAdapters[side];
-  if (adapter !== undefined && addressParam(adapter, "adapter").toLowerCase() !== known.toLowerCase()) {
-    throw new HttpError(422, `the API signs routes only for the swap adapter it serves on ${side} (${known})`);
-  }
-  return known;
+  const helper = state.helpers.swapAdapters[side];
+  if (adapter === undefined) return helper;
+  const fundAdapter = side === "arbitrum" ? hub(state).hub.uniswapV3SwapAdapter : hub(state).spoke.uniswapV3SwapAdapter;
+  const served = [helper, fundAdapter].filter((a): a is Address => a !== undefined);
+  const named = addressParam(adapter, "adapter");
+  const match = served.find((a) => a.toLowerCase() === named.toLowerCase());
+  if (!match) throw new HttpError(422, `the API signs routes only for the swap adapters it serves on ${side} (${served.join(", ")})`);
+  return match;
 }
 
 /** The best single V3 path for the swap, direct or through another Mandate token of the adapter (D-52: the API never
