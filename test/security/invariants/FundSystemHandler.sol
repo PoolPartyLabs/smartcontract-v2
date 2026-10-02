@@ -101,9 +101,9 @@ contract FundSystemHandler is Test {
     /// @notice Bridge fees the fund got back through recognized refunds: a holder who entered between the send and
     ///         the refund legitimately gains a part of it.
     uint256 public refundedBridgeFees;
-    /// @notice Payout Fees of executed Instant Payouts: they stay in Idle (DEC-144), so the holders who stay
-    ///         legitimately gain them.
-    uint256 public payoutFees;
+    /// @notice Each shareholder's part of the Payout Fees of executed Instant Payouts: a fee stays in Idle (DEC-144),
+    ///         so the holders who stay legitimately gain it, pro rata to their shares after the leaver's burn.
+    mapping(address => uint256) public payoutFeeGain;
     /// @notice Principal that entered the fund's ledgers from outside: what deposits bought, plus Principal a
     ///         stranger bridged to the Spoke Vault.
     uint256 public principalIn;
@@ -211,7 +211,7 @@ contract FundSystemHandler is Test {
             assertEq(r.sharesBurned % 1e18, 0, "DEC-091: whole shares");
             paidOut[who] += r.usdcPaid;
             principalOut += r.usdcGross - r.payoutFee;
-            payoutFees += r.payoutFee;
+            _creditPayoutFee(r.payoutFee);
             returnedFromHubVault += hubVaultBefore - _hubVaultPrincipal();
             ++valueOps;
             ++done["claimPayout"];
@@ -885,6 +885,15 @@ contract FundSystemHandler is Test {
 
     function _actor(uint256 seed) internal view returns (address) {
         return _actors[seed % _actors.length];
+    }
+
+    /// @dev Credits each shareholder with its part of a Payout Fee left in Idle, rounded up (DEC-144).
+    function _creditPayoutFee(uint256 fee) internal {
+        uint256 supply = s.shares.totalSupply();
+        if (fee == 0 || supply == 0) return;
+        for (uint256 i; i < _actors.length; ++i) {
+            payoutFeeGain[_actors[i]] += (fee * s.shares.balanceOf(_actors[i]) + supply - 1) / supply;
+        }
     }
 
     function _quote(uint256 outputAmount) internal view returns (BridgeQuote memory) {
