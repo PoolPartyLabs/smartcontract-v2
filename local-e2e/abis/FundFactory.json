@@ -53,6 +53,26 @@
             "internalType": "address"
           },
           {
+            "name": "uniswapV3Factory",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "uniswapV3SwapRouter02",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "uniswapV3QuoterV2",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "apiSigner",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
             "name": "managerRegistry",
             "type": "address",
             "internalType": "address"
@@ -123,6 +143,11 @@
             "name": "valueReportReceiver",
             "type": "address[]",
             "internalType": "address[]"
+          },
+          {
+            "name": "uniswapV3SwapAdapter",
+            "type": "address[]",
+            "internalType": "address[]"
           }
         ]
       }
@@ -184,6 +209,19 @@
   {
     "type": "function",
     "name": "ROLE_SPOKE_VAULT",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "ROLE_UNISWAP_V3_SWAP_ADAPTER",
     "inputs": [],
     "outputs": [
       {
@@ -282,9 +320,31 @@
             "internalType": "uint256"
           },
           {
+            "name": "hubWormholeChainId",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
             "name": "usdc",
             "type": "address",
             "internalType": "address"
+          },
+          {
+            "name": "tokens",
+            "type": "tuple[]",
+            "internalType": "struct TokenConfig[]",
+            "components": [
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "token",
+                "type": "address",
+                "internalType": "address"
+              }
+            ]
           },
           {
             "name": "adapters",
@@ -304,9 +364,9 @@
             ]
           },
           {
-            "name": "pools",
+            "name": "swapAdapters",
             "type": "tuple[]",
-            "internalType": "struct PoolConfig[]",
+            "internalType": "struct AdapterConfig[]",
             "components": [
               {
                 "name": "chainId",
@@ -317,18 +377,13 @@
                 "name": "adapter",
                 "type": "address",
                 "internalType": "address"
-              },
-              {
-                "name": "poolKey",
-                "type": "bytes32",
-                "internalType": "bytes32"
               }
             ]
           },
           {
-            "name": "unwindOrder",
+            "name": "pools",
             "type": "tuple[]",
-            "internalType": "struct UnwindStep[]",
+            "internalType": "struct PoolConfig[]",
             "components": [
               {
                 "name": "chainId",
@@ -434,11 +489,6 @@
             "internalType": "uint16"
           },
           {
-            "name": "standardPayoutTerm",
-            "type": "uint32",
-            "internalType": "uint32"
-          },
-          {
             "name": "minFirstDeposit",
             "type": "uint256",
             "internalType": "uint256"
@@ -450,11 +500,6 @@
           },
           {
             "name": "managementFeeBps",
-            "type": "uint16",
-            "internalType": "uint16"
-          },
-          {
-            "name": "maxBridgeFeeBps",
             "type": "uint16",
             "internalType": "uint16"
           }
@@ -580,6 +625,11 @@
                 "name": "acrossBridgeAdapter",
                 "type": "address",
                 "internalType": "address"
+              },
+              {
+                "name": "uniswapV3SwapAdapter",
+                "type": "address",
+                "internalType": "address"
               }
             ]
           }
@@ -613,9 +663,31 @@
             "internalType": "uint256"
           },
           {
+            "name": "hubWormholeChainId",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
             "name": "usdc",
             "type": "address",
             "internalType": "address"
+          },
+          {
+            "name": "tokens",
+            "type": "tuple[]",
+            "internalType": "struct TokenConfig[]",
+            "components": [
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "token",
+                "type": "address",
+                "internalType": "address"
+              }
+            ]
           },
           {
             "name": "adapters",
@@ -635,9 +707,9 @@
             ]
           },
           {
-            "name": "pools",
+            "name": "swapAdapters",
             "type": "tuple[]",
-            "internalType": "struct PoolConfig[]",
+            "internalType": "struct AdapterConfig[]",
             "components": [
               {
                 "name": "chainId",
@@ -648,18 +720,13 @@
                 "name": "adapter",
                 "type": "address",
                 "internalType": "address"
-              },
-              {
-                "name": "poolKey",
-                "type": "bytes32",
-                "internalType": "bytes32"
               }
             ]
           },
           {
-            "name": "unwindOrder",
+            "name": "pools",
             "type": "tuple[]",
-            "internalType": "struct UnwindStep[]",
+            "internalType": "struct PoolConfig[]",
             "components": [
               {
                 "name": "chainId",
@@ -765,11 +832,6 @@
             "internalType": "uint16"
           },
           {
-            "name": "standardPayoutTerm",
-            "type": "uint32",
-            "internalType": "uint32"
-          },
-          {
             "name": "minFirstDeposit",
             "type": "uint256",
             "internalType": "uint256"
@@ -781,11 +843,6 @@
           },
           {
             "name": "managementFeeBps",
-            "type": "uint16",
-            "internalType": "uint16"
-          },
-          {
-            "name": "maxBridgeFeeBps",
             "type": "uint16",
             "internalType": "uint16"
           }
@@ -864,6 +921,11 @@
           },
           {
             "name": "acrossBridgeAdapter",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "uniswapV3SwapAdapter",
             "type": "address",
             "internalType": "address"
           }
@@ -1056,6 +1118,11 @@
                 "name": "acrossBridgeAdapter",
                 "type": "address",
                 "internalType": "address"
+              },
+              {
+                "name": "uniswapV3SwapAdapter",
+                "type": "address",
+                "internalType": "address"
               }
             ]
           }
@@ -1158,6 +1225,26 @@
           },
           {
             "name": "aaveV3Pool",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "uniswapV3Factory",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "uniswapV3SwapRouter02",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "uniswapV3QuoterV2",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "apiSigner",
             "type": "address",
             "internalType": "address"
           },
@@ -1299,6 +1386,11 @@
                 "name": "acrossBridgeAdapter",
                 "type": "address",
                 "internalType": "address"
+              },
+              {
+                "name": "uniswapV3SwapAdapter",
+                "type": "address",
+                "internalType": "address"
               }
             ]
           }
@@ -1363,6 +1455,11 @@
           },
           {
             "name": "acrossBridgeAdapter",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "uniswapV3SwapAdapter",
             "type": "address",
             "internalType": "address"
           }
@@ -1492,22 +1589,6 @@
         "name": "library_",
         "type": "address",
         "internalType": "address"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "ManagerFeeBelowMinimum",
-    "inputs": [
-      {
-        "name": "bps",
-        "type": "uint16",
-        "internalType": "uint16"
-      },
-      {
-        "name": "minBps",
-        "type": "uint16",
-        "internalType": "uint16"
       }
     ]
   },
@@ -1734,6 +1815,22 @@
   {
     "type": "error",
     "name": "UnexpectedBridgeAdapter",
+    "inputs": [
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "adapter",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnexpectedSwapAdapter",
     "inputs": [
       {
         "name": "chainId",

@@ -18,9 +18,31 @@
             "internalType": "uint256"
           },
           {
+            "name": "hubWormholeChainId",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
             "name": "usdc",
             "type": "address",
             "internalType": "address"
+          },
+          {
+            "name": "tokens",
+            "type": "tuple[]",
+            "internalType": "struct TokenConfig[]",
+            "components": [
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "token",
+                "type": "address",
+                "internalType": "address"
+              }
+            ]
           },
           {
             "name": "adapters",
@@ -40,9 +62,9 @@
             ]
           },
           {
-            "name": "pools",
+            "name": "swapAdapters",
             "type": "tuple[]",
-            "internalType": "struct PoolConfig[]",
+            "internalType": "struct AdapterConfig[]",
             "components": [
               {
                 "name": "chainId",
@@ -53,18 +75,13 @@
                 "name": "adapter",
                 "type": "address",
                 "internalType": "address"
-              },
-              {
-                "name": "poolKey",
-                "type": "bytes32",
-                "internalType": "bytes32"
               }
             ]
           },
           {
-            "name": "unwindOrder",
+            "name": "pools",
             "type": "tuple[]",
-            "internalType": "struct UnwindStep[]",
+            "internalType": "struct PoolConfig[]",
             "components": [
               {
                 "name": "chainId",
@@ -170,11 +187,6 @@
             "internalType": "uint16"
           },
           {
-            "name": "standardPayoutTerm",
-            "type": "uint32",
-            "internalType": "uint32"
-          },
-          {
             "name": "minFirstDeposit",
             "type": "uint256",
             "internalType": "uint256"
@@ -186,11 +198,6 @@
           },
           {
             "name": "managementFeeBps",
-            "type": "uint16",
-            "internalType": "uint16"
-          },
-          {
-            "name": "maxBridgeFeeBps",
             "type": "uint16",
             "internalType": "uint16"
           }
@@ -1097,6 +1104,25 @@
   },
   {
     "type": "function",
+    "name": "isMandateToken",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "ledgerTokens",
     "inputs": [],
     "outputs": [
@@ -1130,19 +1156,6 @@
         "name": "",
         "type": "bytes32",
         "internalType": "bytes32"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "maxBridgeFeeBps",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint16",
-        "internalType": "uint16"
       }
     ],
     "stateMutability": "view"
@@ -1469,6 +1482,19 @@
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "swapAdapters",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -2378,6 +2404,22 @@
   },
   {
     "type": "error",
+    "name": "BpsBelowMin",
+    "inputs": [
+      {
+        "name": "bps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "BridgeAdapterSideInvalid",
     "inputs": [
       {
@@ -2474,7 +2516,7 @@
   },
   {
     "type": "error",
-    "name": "DuplicateUnwindStep",
+    "name": "DuplicateToken",
     "inputs": [
       {
         "name": "chainId",
@@ -2482,14 +2524,9 @@
         "internalType": "uint256"
       },
       {
-        "name": "adapter",
+        "name": "token",
         "type": "address",
         "internalType": "address"
-      },
-      {
-        "name": "poolKey",
-        "type": "bytes32",
-        "internalType": "bytes32"
       }
     ]
   },
@@ -2501,11 +2538,6 @@
   {
     "type": "error",
     "name": "EmptyPools",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "EmptyUnwindOrder",
     "inputs": []
   },
   {
@@ -2600,12 +2632,17 @@
   },
   {
     "type": "error",
-    "name": "ManagementFeeNotSupported",
+    "name": "MissingBaseToken",
     "inputs": [
       {
-        "name": "bps",
-        "type": "uint16",
-        "internalType": "uint16"
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
       }
     ]
   },
@@ -2618,6 +2655,17 @@
         "type": "uint256",
         "internalType": "uint256"
       },
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "MissingSwapAdapter",
+    "inputs": [
       {
         "name": "chainId",
         "type": "uint256",
@@ -2724,6 +2772,27 @@
   },
   {
     "type": "error",
+    "name": "PoolTokenNotInMandate",
+    "inputs": [
+      {
+        "name": "adapter",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "poolKey",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "PositionAlreadyRegistered",
     "inputs": [
       {
@@ -2776,6 +2845,22 @@
       },
       {
         "name": "minAmountOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TooManyTokens",
+    "inputs": [
+      {
+        "name": "count",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maxTokens",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -2876,27 +2961,6 @@
   },
   {
     "type": "error",
-    "name": "UnwindStepNotInPools",
-    "inputs": [
-      {
-        "name": "chainId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "adapter",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "poolKey",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ]
-  },
-  {
-    "type": "error",
     "name": "WrongChain",
     "inputs": [
       {
@@ -2960,7 +3024,17 @@
   },
   {
     "type": "error",
+    "name": "ZeroHubWormholeChainId",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "ZeroManager",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroToken",
     "inputs": []
   },
   {

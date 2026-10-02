@@ -25,19 +25,6 @@
   },
   {
     "type": "function",
-    "name": "MAX_MIN_MANAGER_FEE_BPS",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint16",
-        "internalType": "uint16"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "MAX_PROTOCOL_SLICE_BPS",
     "inputs": [],
     "outputs": [
@@ -103,19 +90,6 @@
   },
   {
     "type": "function",
-    "name": "minManagerFeeBps",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint16",
-        "internalType": "uint16"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "owner",
     "inputs": [],
     "outputs": [
@@ -168,19 +142,6 @@
   },
   {
     "type": "function",
-    "name": "setMinManagerFeeBps",
-    "inputs": [
-      {
-        "name": "bps",
-        "type": "uint16",
-        "internalType": "uint16"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "setProtocolSliceBps",
     "inputs": [
       {
@@ -209,25 +170,6 @@
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
-  },
-  {
-    "type": "event",
-    "name": "MinManagerFeeSet",
-    "inputs": [
-      {
-        "name": "previousBps",
-        "type": "uint16",
-        "indexed": false,
-        "internalType": "uint16"
-      },
-      {
-        "name": "newBps",
-        "type": "uint16",
-        "indexed": false,
-        "internalType": "uint16"
-      }
-    ],
-    "anonymous": false
   },
   {
     "type": "event",
@@ -297,22 +239,6 @@
       }
     ],
     "anonymous": false
-  },
-  {
-    "type": "error",
-    "name": "MinManagerFeeAboveMax",
-    "inputs": [
-      {
-        "name": "bps",
-        "type": "uint16",
-        "internalType": "uint16"
-      },
-      {
-        "name": "maxBps",
-        "type": "uint16",
-        "internalType": "uint16"
-      }
-    ]
   },
   {
     "type": "error",
