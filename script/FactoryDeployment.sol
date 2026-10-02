@@ -410,7 +410,8 @@ abstract contract FactoryDeployment is CommonBase {
         for (uint256 i; i < libraryIds.length; ++i) {
             bytes32 id = keccak256(bytes(libraryIds[i]));
             string memory placeholder = string.concat("__$", _hex(abi.encodePacked(id), 17), "$__");
-            if (libraries[i] == address(0) && vm.contains(code, placeholder)) revert UnlinkedLibrary(artifact);
+            if (!vm.contains(code, placeholder)) continue;
+            if (libraries[i] == address(0)) revert UnlinkedLibrary(artifact);
             code = vm.replace(code, placeholder, _hex(abi.encodePacked(libraries[i]), 20));
         }
         if (vm.contains(code, "__$")) revert UnlinkedLibrary(artifact);
