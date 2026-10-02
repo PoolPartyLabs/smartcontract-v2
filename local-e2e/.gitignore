@@ -1,0 +1,3 @@
+# Run reports (src/report.ts): kept locally; commit one on purpose with `git add -f`.
+reports/*
+!reports/README.md

@@ -257,6 +257,16 @@
             "internalType": "uint16"
           },
           {
+            "name": "factory",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "minPerformanceFeeBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
             "name": "incomeTokens",
             "type": "address[]",
             "internalType": "address[]"
@@ -469,6 +479,26 @@
   },
   {
     "type": "function",
+    "name": "closeFund",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "closingStartedAt",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "collectedIncome",
     "inputs": [
       {
@@ -561,6 +591,19 @@
   },
   {
     "type": "function",
+    "name": "factory",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "flowFeeBps",
     "inputs": [],
     "outputs": [
@@ -594,6 +637,19 @@
         "name": "",
         "type": "bytes32",
         "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "fundState",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "enum ICoreVaultLifecycle.FundState"
       }
     ],
     "stateMutability": "view"
@@ -777,6 +833,19 @@
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "managerPeakShares",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -1005,6 +1074,19 @@
         "name": "",
         "type": "bytes32",
         "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "minPerformanceFeeBps",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
       }
     ],
     "stateMutability": "view"
@@ -1332,6 +1414,25 @@
   },
   {
     "type": "function",
+    "name": "seed",
+    "inputs": [
+      {
+        "name": "usdcAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "shares",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "sendToSpoke",
     "inputs": [
       {
@@ -1350,31 +1451,9 @@
         "internalType": "uint256"
       },
       {
-        "name": "quote",
-        "type": "tuple",
-        "internalType": "struct BridgeQuote",
-        "components": [
-          {
-            "name": "outputAmount",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "quoteTimestamp",
-            "type": "uint32",
-            "internalType": "uint32"
-          },
-          {
-            "name": "exclusivityDeadline",
-            "type": "uint32",
-            "internalType": "uint32"
-          },
-          {
-            "name": "exclusiveRelayer",
-            "type": "address",
-            "internalType": "address"
-          }
-        ]
+        "name": "bridgeData",
+        "type": "bytes",
+        "internalType": "bytes"
       }
     ],
     "outputs": [
@@ -1700,6 +1779,25 @@
   },
   {
     "type": "event",
+    "name": "BridgeExpiryNoteFailed",
+    "inputs": [
+      {
+        "name": "transitId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "bridgeAdapter",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "CollectedIncomeReceived",
     "inputs": [
       {
@@ -1860,6 +1958,50 @@
       },
       {
         "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "FundClosing",
+    "inputs": [
+      {
+        "name": "closingStartedAt",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "FundSeeded",
+    "inputs": [
+      {
+        "name": "manager",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "usdcAmount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "flowFee",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "shares",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -2679,6 +2821,11 @@
   },
   {
     "type": "error",
+    "name": "AlreadySeeded",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "BalanceChangeMismatch",
     "inputs": [
       {
@@ -2782,22 +2929,6 @@
         "name": "bridgeAdapter",
         "type": "address",
         "internalType": "address"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "BridgeFeeAboveMax",
-    "inputs": [
-      {
-        "name": "fee",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "maxFee",
-        "type": "uint256",
-        "internalType": "uint256"
       }
     ]
   },
@@ -2930,17 +3061,6 @@
   },
   {
     "type": "error",
-    "name": "ExclusiveRelayerNotAllowed",
-    "inputs": [
-      {
-        "name": "exclusiveRelayer",
-        "type": "address",
-        "internalType": "address"
-      }
-    ]
-  },
-  {
-    "type": "error",
     "name": "ExpiryNotProvable",
     "inputs": [
       {
@@ -2987,6 +3107,22 @@
         "internalType": "uint256"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "FundNotOpen",
+    "inputs": [
+      {
+        "name": "state",
+        "type": "uint8",
+        "internalType": "enum ICoreVaultLifecycle.FundState"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "FundNotSeeded",
+    "inputs": []
   },
   {
     "type": "error",
@@ -3066,8 +3202,40 @@
   },
   {
     "type": "error",
+    "name": "ManagerFeeBelowMinimum",
+    "inputs": [
+      {
+        "name": "bps",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "minBps",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "ManagerFeeNotDecreasing",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ManagerMustCloseFund",
+    "inputs": [
+      {
+        "name": "peakShares",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "balanceAfter",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",
@@ -3121,6 +3289,17 @@
   {
     "type": "error",
     "name": "NotAcrossSpokePool",
+    "inputs": [
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "NotFactory",
     "inputs": [
       {
         "name": "caller",

@@ -5,6 +5,7 @@ import {console2} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {IQuoterV2} from "@uniswap/v3-periphery/contracts/interfaces/IQuoterV2.sol";
+import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {UniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
 import {AdapterGuard} from "../../../src/adapters/AdapterGuard.sol";
 import {ISwapAdapter} from "../../../src/interfaces/ISwapAdapter.sol";
@@ -111,7 +112,7 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
 
     function test_DEC153_bestDirectFeeIsOpenToAnyoneAndMatchesTheSwap() public {
         vm.prank(stranger);
-        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), AMOUNT, NO_MAX);
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), AMOUNT);
         assertEq(fee, 500);
         assertEq(quoted, _out(AMOUNT, 500, 0));
         (uint256 out,) = _swap(address(weth), address(base), AMOUNT, NO_MAX, "");
@@ -121,7 +122,7 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
     function test_DEC153_missingTiersAreSkipped() public {
         factory.createPool(address(stock), address(usdt), 3000, PRICE_ONE, LIQUIDITY);
         factory.createPool(address(stock), address(usdt), 10_000, PRICE_ONE, LIQUIDITY);
-        (uint24 fee,) = adapter.bestDirectFee(address(stock), address(usdt), AMOUNT, NO_MAX);
+        (uint24 fee,) = adapter.bestDirectFee(address(stock), address(usdt), AMOUNT);
         assertEq(fee, 3000);
     }
 
@@ -129,7 +130,7 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
     function test_DEC153_zeroLiquidityTierIsSkippedWithoutAQuote() public {
         wethBase[0].setImpactBps(0);
         wethBase[0].setLiquidity(0);
-        (uint24 fee,) = adapter.bestDirectFee(address(weth), address(base), AMOUNT, NO_MAX);
+        (uint24 fee,) = adapter.bestDirectFee(address(weth), address(base), AMOUNT);
         assertEq(fee, 500);
         assertEq(quoter.quotes(address(wethBase[0])), 0, "never quoted");
         assertEq(quoter.quotes(address(wethBase[1])), 1);
@@ -137,7 +138,7 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
 
     function test_DEC153_aRevertingQuoteIsSkipped() public {
         wethBase[1].setMode(MockV3Pool.Mode.QuoteReverts);
-        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), AMOUNT, NO_MAX);
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), AMOUNT);
         assertEq(fee, 3000, "0.3% beats 0.01% with 60 bps of impact");
         assertEq(quoted, _out(AMOUNT, 3000, 0));
     }
@@ -158,7 +159,7 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
         assertGt(drained, _out(AMOUNT, 500, 200), "the drained tier quotes the most");
         assertEq(sqrtPriceX96After, _limit(address(weth), address(base)), "and stops at the price limit");
 
-        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), AMOUNT, NO_MAX);
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), AMOUNT);
         assertEq(fee, 500, "the best tier that fills");
         assertEq(quoted, _out(AMOUNT, 500, 200));
         (uint256 out,) = _swap(address(weth), address(base), AMOUNT, NO_MAX, "");
@@ -178,17 +179,17 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
             wethBase[i].setFillableIn(AMOUNT - 1);
         }
         vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.NoRoute.selector, address(weth), address(base)));
-        adapter.bestDirectFee(address(weth), address(base), AMOUNT, NO_MAX);
+        adapter.bestDirectFee(address(weth), address(base), AMOUNT);
         vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.NoRoute.selector, address(base), address(weth)));
-        adapter.bestDirectFee(address(base), address(weth), AMOUNT, NO_MAX);
-        (uint24 fee,) = adapter.bestDirectFee(address(weth), address(base), AMOUNT - 1, NO_MAX);
+        adapter.bestDirectFee(address(base), address(weth), AMOUNT);
+        (uint24 fee,) = adapter.bestDirectFee(address(weth), address(base), AMOUNT - 1);
         assertEq(fee, 500, "an input the tiers can fill still routes");
     }
 
     /// @dev DEC-129 item 3 ("em qualquer quantia"): a dust input that every tier fills with a zero output still sells,
     ///      in the first tier that fills, as it does through `swapDirect`; an unwind's dust remainder must not revert.
     function test_DEC129_aDustInputEveryTierFillsAtZeroStillSells() public {
-        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), 1, NO_MAX);
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), 1);
         assertEq(fee, 100, "the first tier that fills");
         assertEq(quoted, 0);
         (uint256 out, uint256 spot) = _swap(address(weth), address(base), 1, 100, "");
@@ -199,50 +200,103 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
         assertEq(out, 0, "swapDirect sells it too");
     }
 
-    /// @dev Review round 2: a third party's tier (here it replaces the 1% one) at a mid price four times the market's
-    ///      fills the whole input and outbids every honest tier, yet loses 74% against its own mid. With a maximum it
-    ///      does not compete, and the sale fills in the 0.05% tier within the maximum. Chosen on output alone, it would
-    ///      have set the loss reference at its own mid and failed the sale.
-    function test_DEC153_aTierOutsideTheMaximumAgainstItsOwnMidDoesNotCompete() public {
+    /// @dev Open for the founder (review rounds 2 and 3): a third party's tier (here it replaces the 1% one) at a mid
+    ///      price four times the market's fills the whole input and outbids every honest tier, so it is chosen
+    ///      (DEC-153 item 2). Against its own mid it loses 74%, so a sale with a 1% maximum reverts, although the 0.05%
+    ///      tier fills it within that maximum.
+    function test_DEC153_aThirdPartyTierAboveTheMarketFailsABoundedSale() public {
         uint256 trapOut = _trapTier().out(address(weth), AMOUNT);
         assertGt(trapOut, _out(AMOUNT, 500, 0), "the trap quotes the most");
         assertEq(adapter.spotValue(address(weth), address(base), AMOUNT, 10_000), 4 * AMOUNT, "at its own mid");
 
-        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), AMOUNT, 100);
-        assertEq(fee, 500, "the best tier within the maximum");
-        assertEq(quoted, _out(AMOUNT, 500, 0));
-        (uint256 out, uint256 spot) = _swap(address(weth), address(base), AMOUNT, 100, "");
-        assertEq(out, quoted, "the sale fills within the maximum");
-        assertEq(spot, AMOUNT, "against the 0.05% tier's mid");
-        _assertNothingKept(address(weth));
-
-        // What choosing on output alone would have done.
-        _fund(address(weth), AMOUNT);
-        vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.InsufficientOutput.selector, trapOut, AMOUNT * 396 / 100));
-        adapter.swapDirect(address(weth), address(base), AMOUNT, 10_000, 100);
-    }
-
-    /// @dev When no tier meets the maximum (4 bps: under every fee but the 0.01% tier's, which loses 60 bps to
-    ///      impact), the best overall is returned, and the swap in it fails the maximum as it did before the filter.
-    function test_DEC153_noTierWithinTheMaximumFallsBackToTheBestOverall() public {
-        uint256 trapOut = _trapTier().out(address(weth), AMOUNT);
-        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), AMOUNT, 4);
-        assertEq(fee, 10_000);
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), AMOUNT);
+        assertEq(fee, 10_000, "chosen on output");
         assertEq(quoted, trapOut);
         _fund(address(weth), AMOUNT);
-        vm.expectRevert(
-            abi.encodeWithSelector(ISwapAdapter.InsufficientOutput.selector, trapOut, AMOUNT * 39_984 / 10_000)
-        );
-        adapter.swap(address(weth), address(base), AMOUNT, 4, "");
+        vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.InsufficientOutput.selector, trapOut, AMOUNT * 396 / 100));
+        adapter.swap(address(weth), address(base), AMOUNT, 100, "");
+
+        (uint256 out, uint256 spot) = adapter.swapDirect(address(weth), address(base), AMOUNT, 500, 100);
+        assertEq(out, _out(AMOUNT, 500, 0), "the 0.05% tier fills it within the maximum");
+        assertEq(spot, AMOUNT);
     }
 
-    /// @dev Open for the founder (review round 2): without a maximum nothing filters the trap. It wins on output and the
-    ///      fund receives more than any honest tier pays, but `spotOut` is the trap's own mid, so the sale reports a loss
-    ///      it did not have. Until the founder rules, a vault must not charge a cost measured against the `spotOut` of an
-    ///      empty-route sale without a maximum.
+    /// @dev Review round 3: a third party's tier at a quarter of the market's mid loses only its 0.01% fee against
+    ///      that mid. Its 75% discount is larger than the honest tier's loss (5 bps), so it does not outbid it (a
+    ///      discount smaller than the honest loss does: see the contract's open note). With a 4 bps maximum, which no
+    ///      honest tier meets (the 0.05% tier's fee alone is 5 bps), the sale is refused (DEC-148) instead of selling to
+    ///      that tier at a quarter of its value, which is what ranking the tiers by the maximum against each tier's own
+    ///      mid did (review round 2). A maximum an honest tier meets sells in the honest tier.
+    function test_DEC153_aTierBelowTheMarketByMoreThanTheHonestLossNeverBuysABoundedSale() public {
+        uint256 trapOut = _tierBelowTheMarket().out(address(weth), AMOUNT);
+        assertEq(adapter.spotValue(address(weth), address(base), AMOUNT, 100), AMOUNT / 4, "a quarter of the market");
+        assertGe(trapOut, AMOUNT / 4 * 9996 / 10_000, "within 4 bps of its own mid");
+
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), AMOUNT);
+        assertEq(fee, 500, "the honest tier pays the most");
+        assertEq(quoted, _out(AMOUNT, 500, 0));
+        _fund(address(weth), AMOUNT);
+        vm.expectRevert(
+            abi.encodeWithSelector(ISwapAdapter.InsufficientOutput.selector, quoted, AMOUNT * 9996 / 10_000)
+        );
+        adapter.swap(address(weth), address(base), AMOUNT, 4, "");
+
+        (uint256 out, uint256 spot) = adapter.swap(address(weth), address(base), AMOUNT, 10, "");
+        assertEq(out, quoted, "a maximum the honest tier meets sells there");
+        assertEq(spot, AMOUNT);
+        _assertNothingKept(address(weth));
+    }
+
+    /// @dev Open for the founder (review round 4): a third party's tier 5% below the market, next to honest tiers that
+    ///      lose 9% on the sale. Its discount is smaller than the honest loss, so it outbids every honest tier (DEC-153
+    ///      item 2), meets a 1% maximum against its own mid, and buys the input 5% below the market: a sale DEC-148
+    ///      would refuse, since no honest tier meets that maximum. The fund still receives more than any honest tier
+    ///      pays, so the loss the maximum misses is bounded by the honest tier's own loss.
+    function test_DEC153_aTierBelowTheMarketByLessThanTheHonestLossBuysABoundedSale() public {
+        for (uint256 i = 1; i < 4; ++i) {
+            wethBase[i].setImpactBps(900);
+        }
+        uint256 trapOut = _shallowTierBelowTheMarket().out(address(weth), AMOUNT);
+        uint256 honestOut = _out(AMOUNT, 500, 900);
+        assertGt(trapOut, honestOut, "it pays more than any honest tier");
+
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), AMOUNT);
+        assertEq(fee, 100, "chosen on output");
+        assertEq(quoted, trapOut);
+        (uint256 out, uint256 spot) = _swap(address(weth), address(base), AMOUNT, 100, "");
+        assertEq(out, trapOut);
+        assertLt((spot - out) * 10_000 / spot, 100, "within the 1% maximum against its own mid");
+        assertGe((AMOUNT - out) * 10_000 / AMOUNT, 499, "yet about 5% below the market");
+
+        // DEC-148 would refuse the sale: the honest tier does not meet the maximum.
+        _fund(address(weth), AMOUNT);
+        vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.InsufficientOutput.selector, honestOut, AMOUNT * 99 / 100));
+        adapter.swapDirect(address(weth), address(base), AMOUNT, 500, 100);
+    }
+
+    /// @dev Open for the founder (review round 3): when the sale is larger than every honest tier can fill (here each
+    ///      takes one unit less), the same tier below the market is the only one that fills. It is chosen, meets the
+    ///      maximum against its own mid, and buys the input at a quarter of its value.
+    function test_DEC153_whenNoHonestTierFillsATierBelowTheMarketIsTheOnlyRoute() public {
+        uint256 trapOut = _tierBelowTheMarket().out(address(weth), AMOUNT);
+        for (uint256 i = 1; i < 4; ++i) {
+            wethBase[i].setFillableIn(AMOUNT - 1);
+        }
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), AMOUNT);
+        assertEq(fee, 100, "the only tier that fills");
+        assertEq(quoted, trapOut);
+        (uint256 out, uint256 spot) = _swap(address(weth), address(base), AMOUNT, 4, "");
+        assertEq(out, trapOut, "a quarter of the market");
+        assertEq(spot, AMOUNT / 4, "measured against its own mid");
+    }
+
+    /// @dev Open for the founder (review round 2): without a maximum the same trap wins on output and the fund receives
+    ///      more than any honest tier pays, but `spotOut` is the trap's own mid, so the sale reports a loss it did not
+    ///      have. Until the founder rules, a vault must not charge any cost measured against the `spotOut` of an
+    ///      empty-route sale, with or without a maximum (review round 4).
     function test_DEC153_withoutAMaximumAThirdPartyTierStillSetsSpotOut() public {
         uint256 trapOut = _trapTier().out(address(weth), AMOUNT);
-        (uint24 fee,) = adapter.bestDirectFee(address(weth), address(base), AMOUNT, NO_MAX);
+        (uint24 fee,) = adapter.bestDirectFee(address(weth), address(base), AMOUNT);
         assertEq(fee, 10_000);
         (uint256 out, uint256 spot) = _swap(address(weth), address(base), AMOUNT, NO_MAX, "");
         assertEq(out, trapOut, "more than any honest tier pays");
@@ -270,7 +324,7 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
         vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.NoRoute.selector, address(stock), address(usdt)));
         adapter.swap(address(stock), address(usdt), AMOUNT, NO_MAX, "");
         vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.NoRoute.selector, address(stock), address(usdt)));
-        adapter.bestDirectFee(address(stock), address(usdt), AMOUNT, NO_MAX);
+        adapter.bestDirectFee(address(stock), address(usdt), AMOUNT);
     }
 
     function test_DEC153_noTierQuotingIsNoRoute() public {
@@ -467,21 +521,21 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
         vm.expectRevert(abi.encodeWithSelector(notInMandate, address(outsider)));
         adapter.swapDirect(address(outsider), address(base), AMOUNT, 500, NO_MAX);
         vm.expectRevert(abi.encodeWithSelector(notInMandate, address(outsider)));
-        adapter.bestDirectFee(address(outsider), address(base), AMOUNT, NO_MAX);
+        adapter.bestDirectFee(address(outsider), address(base), AMOUNT);
         vm.expectRevert(abi.encodeWithSelector(notInMandate, address(outsider)));
         adapter.spotValue(address(base), address(outsider), AMOUNT, 500);
 
         vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.IdenticalTokens.selector, address(weth)));
         adapter.swap(address(weth), address(weth), AMOUNT, NO_MAX, "");
         vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.IdenticalTokens.selector, address(weth)));
-        adapter.bestDirectFee(address(weth), address(weth), AMOUNT, NO_MAX);
+        adapter.bestDirectFee(address(weth), address(weth), AMOUNT);
 
         vm.expectRevert(ISwapAdapter.ZeroAmount.selector);
         adapter.swap(address(weth), address(base), 0, NO_MAX, "");
         vm.expectRevert(ISwapAdapter.ZeroAmount.selector);
         adapter.swapDirect(address(weth), address(base), 0, 500, NO_MAX);
         vm.expectRevert(ISwapAdapter.ZeroAmount.selector);
-        adapter.bestDirectFee(address(weth), address(base), 0, NO_MAX);
+        adapter.bestDirectFee(address(weth), address(base), 0);
     }
 
     /// @dev DEC-056: pause is a quarantine of entries. A swap out of the base token (or between two non-base tokens)
@@ -582,6 +636,21 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
         uint160 sqrtPriceX96 = address(weth) < address(base) ? uint160(1 << 97) : uint160(1 << 95);
         trap = factory.createPool(address(weth), address(base), 10_000, sqrtPriceX96, LIQUIDITY);
         trap.setImpactBps(7400);
+    }
+
+    /// @dev A third party's tier below the market (review round 3): replaces the 0.01% WETH/base pool with one at a
+    ///      quarter of the market's mid price (four times when WETH is token1) and no price impact, so it loses only its
+    ///      fee against its own mid.
+    function _tierBelowTheMarket() internal returns (MockV3Pool trap) {
+        uint160 sqrtPriceX96 = address(weth) < address(base) ? uint160(1 << 95) : uint160(1 << 97);
+        trap = factory.createPool(address(weth), address(base), 100, sqrtPriceX96, LIQUIDITY);
+    }
+
+    /// @dev A third party's tier 5% below the market (review round 4): replaces the 0.01% WETH/base pool with one at
+    ///      about 0.95 of the market's mid (tick -512 when WETH is token0, 512 when it is token1) and no price impact.
+    function _shallowTierBelowTheMarket() internal returns (MockV3Pool trap) {
+        int24 tick = address(weth) < address(base) ? int24(-512) : int24(512);
+        trap = factory.createPool(address(weth), address(base), 100, TickMath.getSqrtPriceAtTick(tick), LIQUIDITY);
     }
 
     /// @dev QuoterV2's price limit when it is given none: one inside the end of the range the price moves towards.

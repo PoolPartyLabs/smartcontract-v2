@@ -17,6 +17,7 @@ export const fundFactoryAbi = load("FundFactory");
 export const uniswapV4AdapterAbi = load("UniswapV4Adapter");
 export const aaveV3AdapterAbi = load("AaveV3Adapter");
 export const acrossBridgeAdapterAbi = load("AcrossBridgeAdapter");
+export const uniswapV3SwapAdapterAbi = load("UniswapV3SwapAdapter");
 export const managerFeeVaultAbi = load("ManagerFeeVault");
 export const managerRegistryAbi = load("ManagerRegistry");
 export const chainlinkPriceSourceAbi = load("ChainlinkPriceSource");
@@ -64,6 +65,26 @@ export const wormholeCoreAbi = parseAbi([
   "function nextSequence(address emitter) view returns (uint64)",
   "function chainId() view returns (uint16)",
   "function messageFee() view returns (uint256)",
+  "function publishMessage(uint32 nonce, bytes payload, uint8 consistencyLevel) payable returns (uint64 sequence)",
+]);
+
+/** The order channel's consumer (`SpokeVault.executeOrder`, WP-07 plan D4) and the errors of
+ *  src/libraries/OrderVerifier.sol and OrderCodec.sol, for the keeper's relay before the entry is in the exported
+ *  Spoke Vault ABI. */
+export const orderChannelAbi = parseAbi([
+  "function executeOrder(bytes vaa) payable returns (uint64 reportSequence)",
+  "event OrderExecuted(uint8 kind, bytes32 orderId, uint64 wormholeSequence)",
+  "error InvalidOrderVaa(string reason)",
+  "error OrderEmitterChainMismatch(uint16 emitterChainId)",
+  "error OrderEmitterMismatch(bytes32 emitterAddress)",
+  "error OrderSequenceTooLow(uint64 minSequence, uint64 sequence)",
+  "error OrderFundMismatch(bytes32 fundId)",
+  "error OrderExpired(uint64 deadline)",
+  "error UnsupportedOrderVersion(uint256 version)",
+  "error OrderPayloadTooShort(uint256 length)",
+  "error UnknownOrderKind(uint8 kind)",
+  "error InvalidOrderFraction(uint256 fracNum, uint256 fracDen)",
+  "error InvalidPayoutMode(uint8 payoutMode)",
 ]);
 
 export const stateViewAbi = parseAbi([
@@ -91,8 +112,13 @@ export const v4SwapRouterAbi = parseAbi([
 
 /** Creation code of the V4SwapRouter test helper, from the forge build output. */
 export function v4SwapRouterBytecode(): `0x${string}` {
-  const artifact = JSON.parse(readFileSync(join(REPO_DIR, "out/V4SwapRouter.sol/V4SwapRouter.json"), "utf8"));
-  return artifact.bytecode.object as `0x${string}`;
+  return forgeArtifact("V4SwapRouter.sol", "V4SwapRouter").bytecode;
+}
+
+/** A contract's ABI and creation code from the forge build output (`out/<file>/<contract>.json`). */
+export function forgeArtifact(file: string, contract: string): { abi: Abi; bytecode: `0x${string}` } {
+  const artifact = JSON.parse(readFileSync(join(REPO_DIR, "out", file, `${contract}.json`), "utf8"));
+  return { abi: artifact.abi as Abi, bytecode: artifact.bytecode.object as `0x${string}` };
 }
 
 /** Every error the protocol and the external contracts can revert with, for decoding reverts that bubble up through
@@ -109,10 +135,12 @@ export const allErrorsAbi: Abi = (() => {
     uniswapV4AdapterAbi,
     aaveV3AdapterAbi,
     acrossBridgeAdapterAbi,
+    uniswapV3SwapAdapterAbi,
     managerFeeVaultAbi,
     managerRegistryAbi,
     chainlinkPriceSourceAbi,
     acrossSpokePoolAbi,
+    orderChannelAbi,
   ];
   for (const abi of all) {
     for (const item of abi) {

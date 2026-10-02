@@ -4,12 +4,13 @@
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { decodeEventLog, getAddress, type Address, type Hex, type Log } from "viem";
-import { fundFactoryAbi, shareTokenAbi } from "./abis.ts";
-import { PRUNED_STATE_HINT, isPrunedStateError, nodes, read, type Side } from "./chain.ts";
+import { decodeEventLog, getAddress, type AbiFunction, type Address, type Hex, type Log } from "viem";
+import { coreVaultAbi, forgeArtifact, fundFactoryAbi, shareTokenAbi, valueReportReceiverAbi } from "./abis.ts";
+import { PRUNED_STATE_HINT, isPrunedStateError, nodes, read, recordTransaction, type Side } from "./chain.ts";
 import {
   ACTOR_KEYS,
   AAVE_USDC_POOL_KEY,
+  ARBITRUM,
   FUND_PLAN,
   HUB_POOL_ID,
   HUB_POOL_KEY,
@@ -20,8 +21,9 @@ import {
   WORMHOLE_ROBINHOOD,
   actors,
 } from "./config.ts";
-import type { Logger } from "./log.ts";
-import type { FundRecord } from "./state.ts";
+import { TARGETS, layoutOf, topUpToken } from "./fund-accounts.ts";
+import { redactUrls, type Logger } from "./log.ts";
+import type { DeployedContracts, DeploymentState, FundRecord } from "./state.ts";
 
 const BROADCAST_DIR = join(STATE_DIR, "broadcast");
 
@@ -29,12 +31,22 @@ interface ForgeRun {
   output: string;
   broadcast: {
     transactions: { hash: Hex; contractName?: string; function?: string }[];
-    receipts: { transactionHash: Hex; blockNumber: Hex; logs: Log[]; status: Hex }[];
+    receipts: {
+      transactionHash: Hex;
+      blockNumber: Hex;
+      logs: Log[];
+      status: Hex;
+      from: Address;
+      to: Address | null;
+      gasUsed: Hex;
+      effectiveGasPrice: Hex;
+    }[];
     returns: Record<string, { internal_type: string; value: string }>;
   };
 }
 
-/** Runs a command in the repository root and returns its combined output; rejects with the tail of it. */
+/** Runs a command in the repository root and returns its combined output; rejects with the tail of it, its URLs cut
+ *  to their host (forge repeats the upstream URL, key included, of an error anvil forwards). */
 function run(command: string, args: string[], env: Record<string, string>, log: Logger): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd: REPO_DIR, env: { ...process.env, ...env } });
@@ -44,7 +56,7 @@ function run(command: string, args: string[], env: Record<string, string>, log: 
     child.on("error", reject);
     child.on("close", (code) => {
       if (code === 0) return resolve(output);
-      const tail = output.trim().split("\n").slice(-40).join("\n");
+      const tail = redactUrls(output.trim().split("\n").slice(-40).join("\n"));
       log.error(`${command} ${args.slice(0, 2).join(" ")} failed (exit ${code})`);
       const hint = isPrunedStateError(tail) ? `\n${PRUNED_STATE_HINT}` : "";
       reject(new Error(`${command} ${args.slice(0, 2).join(" ")} failed:\n${tail}${hint}`));
@@ -67,39 +79,95 @@ async function forgeScript(
 ): Promise<ForgeRun> {
   const node = nodes[side];
   log.info(`forge script script/${script}.s.sol`, { chain: node.chain.id, rpc: node.rpc });
+  // Fees from the node's own gas price: left to estimate them, forge asks for `eth_feeHistory`, which anvil forwards to
+  // the upstream for the fork block, and archive endpoints stop serving fee history for old blocks (Alchemy on
+  // Arbitrum: "metadata is not found") long before they stop serving state.
+  const gasPrice = await node.client.getGasPrice();
   const output = await run(
     "forge",
-    ["script", `script/${script}.s.sol`, "--rpc-url", node.rpc, "--broadcast", "--slow", "--private-key", privateKey],
+    [
+      "script",
+      `script/${script}.s.sol`,
+      "--rpc-url",
+      node.rpc,
+      "--broadcast",
+      "--slow",
+      "--private-key",
+      privateKey,
+      "--with-gas-price",
+      (gasPrice * 2n).toString(),
+      "--priority-gas-price",
+      "0",
+    ],
     { ...env, FOUNDRY_BROADCAST: BROADCAST_DIR },
     log,
   );
   const file = join(BROADCAST_DIR, `${script}.s.sol`, String(node.chain.id), "run-latest.json");
-  return { output, broadcast: JSON.parse(readFileSync(file, "utf8")) };
+  const result: ForgeRun = { output, broadcast: JSON.parse(readFileSync(file, "utf8")) };
+  for (const receipt of result.broadcast.receipts) {
+    const tx = result.broadcast.transactions.find((t) => t.hash.toLowerCase() === receipt.transactionHash.toLowerCase());
+    const what = tx?.function?.split("(")[0] ?? (tx?.contractName ? `deploy ${tx.contractName}` : "transaction");
+    recordTransaction(side, `${what} (forge ${script})`, {
+      ...receipt,
+      blockNumber: BigInt(receipt.blockNumber),
+      gasUsed: BigInt(receipt.gasUsed),
+      effectiveGasPrice: BigInt(receipt.effectiveGasPrice),
+    });
+  }
+  return result;
 }
 
-export interface FactoryDeployment {
-  create3Deployer: Address;
-  coreVaultLogic: Address;
-  spokeCrossChainLib: Address;
-  spokeUnwindLib: Address;
-  managerRegistry: Address;
-  priceSource: Address;
-  fundFactory: Address;
-  transitEscrowImplementation: Address;
+/** The fields of the struct a script's `run()` returns, by name: forge prints the struct in the broadcast's `returns`
+ *  as a tuple of values, and the script's ABI (out/<script>.s.sol/<script>.json) names and types its components. */
+function namedReturn(script: string, returns: ForgeRun["broadcast"]["returns"]): { name: string; type: string; value: string }[] {
+  const { abi } = forgeArtifact(`${script}.s.sol`, script);
+  const output = abi.find((item): item is AbiFunction => item.type === "function" && item.name === "run")?.outputs[0];
+  const components = output && "components" in output ? output.components : undefined;
+  // forge keys an unnamed return value by its position.
+  const tuple = output ? returns[output.name || "0"]?.value : undefined;
+  if (!components || !tuple) throw new Error(`${script}.run() returned no struct: ${JSON.stringify(returns)}`);
+  const values = tupleValues(tuple);
+  if (values.length !== components.length) {
+    throw new Error(`${script}.run() returned ${values.length} values for the ${components.length} fields of ${output?.internalType}: ${tuple}`);
+  }
+  return components.map((component, i) => ({ name: component.name ?? String(i), type: component.type, value: values[i] }));
+}
+
+/** The top-level values of a tuple as forge prints it: `(a, (b, c), [d, e])` gives `a`, `(b, c)` and `[d, e]`. */
+function tupleValues(tuple: string): string[] {
+  const values: string[] = [];
+  let depth = 0;
+  let current = "";
+  for (const char of tuple.trim().slice(1, -1)) {
+    if (char === "," && depth === 0) {
+      values.push(current.trim());
+      current = "";
+      continue;
+    }
+    if (char === "(" || char === "[") depth++;
+    if (char === ")" || char === "]") depth--;
+    current += char;
+  }
+  values.push(current.trim());
+  return values;
 }
 
 /** Protocol wiring handed to script/DeployFactory.s.sol: the fee wallet is its own actor; the operator guards the
- *  adapters and owns the ManagerRegistry. */
+ *  adapters; the API signer owns the ManagerRegistry and signs swap routes and bridge quotes (reading D-01 of DEC-112;
+ *  the scripts read `API_SIGNER` once Mandate v2 wires the swap adapters). */
 export function protocolRoles() {
   return {
     protocolRecipient: actors.protocolRecipient.address,
     adapterGuardian: actors.operator.address,
-    registryOwner: actors.operator.address,
+    registryOwner: actors.apiSigner.address,
+    apiSigner: actors.apiSigner.address,
   };
 }
 
-/** script/DeployFactory.s.sol on one node with the operator's key. */
-export async function deployFactory(side: Side, log: Logger): Promise<FactoryDeployment> {
+/** script/DeployFactory.s.sol on one node with the operator's key. Returns each address field of `run()`'s return
+ *  struct (FactoryDeployment.Deployment) that is set on this chain, under its field name: an address field the script
+ *  adds reaches deployment.json with no change here. A non-address field is skipped with a warning. */
+export async function deployFactory(side: Side, log: Logger): Promise<DeployedContracts> {
   const roles = protocolRoles();
   const { broadcast } = await forgeScript(
     "DeployFactory",
@@ -109,34 +177,37 @@ export async function deployFactory(side: Side, log: Logger): Promise<FactoryDep
       PROTOCOL_RECIPIENT: roles.protocolRecipient,
       ADAPTER_GUARDIAN: roles.adapterGuardian,
       REGISTRY_OWNER: roles.registryOwner,
+      API_SIGNER: roles.apiSigner,
     },
     log,
   );
-  // `run()` returns FactoryDeployment.Deployment: (create3Deployer, coreVaultLogic, spokeCrossChainLib,
-  // spokeUnwindLib, managerRegistry, priceSource, factory), printed by forge as a tuple.
-  const tuple = broadcast.returns.d?.value ?? "";
-  const addresses = tuple.match(/0x[0-9a-fA-F]{40}/g)?.map((a) => getAddress(a)) ?? [];
-  if (addresses.length !== 7) throw new Error(`unexpected DeployFactory return value: ${tuple}`);
-  const [create3Deployer, coreVaultLogic, spokeCrossChainLib, spokeUnwindLib, managerRegistry, priceSource, fundFactory] =
-    addresses;
-  const code = await nodes[side].client.getCode({ address: fundFactory });
-  if (!code || code === "0x") throw new Error(`no FundFactory code at ${fundFactory} on ${nodes[side].label}`);
+  // A role the script echoes back (the API signer, the fee wallet) is a wallet the harness passed in, not a deployment.
+  const roleAddresses = new Set(Object.values(roles).map((address) => getAddress(address)));
+  const deployed: Record<string, Address> = {};
+  for (const { name, type, value } of namedReturn("DeployFactory", broadcast.returns)) {
+    if (type !== "address") {
+      log.warn("DeployFactory field skipped: deployment.json keeps address fields only", { chain: nodes[side].chain.id, field: name, type });
+      continue;
+    }
+    // The zero address is a contract this chain does not get (the Core Vault libraries, ManagerRegistry and price
+    // source on Robinhood).
+    if (BigInt(value) === 0n) continue;
+    const address = getAddress(value);
+    if (!roleAddresses.has(address)) {
+      const code = await nodes[side].client.getCode({ address });
+      if (!code || code === "0x") throw new Error(`DeployFactory returned ${name} ${address}, which has no code on ${nodes[side].label}`);
+    }
+    deployed[name === "factory" ? "fundFactory" : name] = address;
+  }
+  const fundFactory = deployed.fundFactory;
+  if (!fundFactory) throw new Error(`DeployFactory returned no factory on ${nodes[side].label}`);
   const transitEscrowImplementation = await read<Address>(side, {
     address: fundFactory,
     abi: fundFactoryAbi,
     functionName: "transitEscrowImplementation",
   });
-  log.info("FundFactory deployed", { chain: nodes[side].chain.id, fundFactory });
-  return {
-    create3Deployer,
-    coreVaultLogic,
-    spokeCrossChainLib,
-    spokeUnwindLib,
-    managerRegistry,
-    priceSource,
-    fundFactory,
-    transitEscrowImplementation,
-  };
+  log.info("FundFactory deployed", { chain: nodes[side].chain.id, ...deployed });
+  return { ...deployed, fundFactory, transitEscrowImplementation };
 }
 
 function eventFrom(run: ForgeRun, eventName: "FundCreated" | "SpokeCreated") {
@@ -215,4 +286,27 @@ export async function createFund(fundFactory: Address, log: Logger): Promise<Fun
     poolKeys: { hub: [HUB_POOL_KEY], spoke: [SPOKE_POOL_KEY] },
     poolIds: { hub: [HUB_POOL_ID], spoke: [SPOKE_POOL_ID], aave: AAVE_USDC_POOL_KEY },
   };
+}
+
+/** Whether a fund is past its creation: no longer Open, holders other than the manager's seed (DEC-127: every fund is
+ *  born with shares), or a spoke report already accepted. */
+export async function fundUsed(fund: FundRecord): Promise<boolean> {
+  const at = <T>(address: Address, abi: typeof coreVaultAbi, functionName: string, args: readonly unknown[] = []) =>
+    read<T>("arbitrum", { address, abi, functionName, args });
+  const [state, supply, managerShares, reported] = await Promise.all([
+    at<number>(fund.hub.coreVault, coreVaultAbi, "fundState"),
+    at<bigint>(fund.hub.shareToken, shareTokenAbi, "totalSupply"),
+    at<bigint>(fund.hub.shareToken, shareTokenAbi, "balanceOf", [fund.manager]),
+    at<boolean>(fund.hub.valueReportReceiver, valueReportReceiverAbi, "hasReport", [BigInt(fund.spoke.spokeIndex)]),
+  ]);
+  return state !== 0 || supply !== managerShares || reported;
+}
+
+/** The deployment's default fund while it is unused, else (or when `force`) a new fund through
+ *  script/CreateFund.s.sol, after the manager's USDC is topped up for its seed (DEC-127). */
+export async function freshFund(state: DeploymentState, log: Logger, force = false): Promise<{ fund: FundRecord; created: boolean }> {
+  if (!force && !(await fundUsed(state.fund))) return { fund: state.fund, created: false };
+  const usdc = layoutOf(state, "arbitrum", ARBITRUM.usdc);
+  await topUpToken("arbitrum", usdc, actors.manager.address, TARGETS.arbitrum.usdc.manager);
+  return { fund: await createFund(state.protocol.arbitrum.fundFactory, log), created: true };
 }

@@ -1,8 +1,11 @@
-// The local Wormhole guardian: replaces the guardian set of the Arbitrum Core Bridge on the hub node with one key the
-// harness holds (the storage writes of lib/wormhole-solidity-sdk/src/testing/WormholeOverride.sol), and turns a
-// message published on Robinhood into a VAA that guardian signs, which the real Arbitrum Core verifies.
+// The local Wormhole guardian: replaces the guardian set of the Core Bridge on BOTH nodes with one key the harness
+// holds (the storage writes of lib/wormhole-solidity-sdk/src/testing/WormholeOverride.sol), and turns a published
+// message into a VAA that guardian signs: a spoke report published on Robinhood is verified by the real Arbitrum Core
+// (DEC-086), and a Hub order published by the Core Vault on Arbitrum is verified by the real Robinhood Core (DEC-120,
+// DEC-139).
 //
-// Standalone: `pnpm exec tsx src/guardian.ts` applies the override (idempotent) and verifies a signed test VAA.
+// Standalone: `pnpm exec tsx src/guardian.ts` applies both overrides (idempotent) and verifies a signed test VAA in
+// each direction.
 import {
   concat,
   encodeAbiParameters,
@@ -17,9 +20,15 @@ import {
 } from "viem";
 import { sign } from "viem/accounts";
 import { wormholeCoreAbi } from "./abis.ts";
-import { anvil, latestTimestamp, read, runMain, type Side } from "./chain.ts";
-import { ARBITRUM, GUARDIAN_PRIVATE_KEY, WORMHOLE_ROBINHOOD, guardian, isMain } from "./config.ts";
+import { SIDES, anvil, latestTimestamp, read, runMain, type Side } from "./chain.ts";
+import { ARBITRUM, GUARDIAN_PRIVATE_KEY, ROBINHOOD, WORMHOLE_ARBITRUM, WORMHOLE_ROBINHOOD, guardian, isMain } from "./config.ts";
 import { logger, type Logger } from "./log.ts";
+
+/** The live Wormhole Core Bridge of each node. */
+export const CORES: Record<Side, Address> = { arbitrum: ARBITRUM.wormholeCore, robinhood: ROBINHOOD.wormholeCore };
+
+/** Each node's Wormhole chain id: Arbitrum 23 (the Hub, emitter of orders), Robinhood 72 (emitter of reports). */
+export const WORMHOLE_CHAIN: Record<Side, number> = { arbitrum: WORMHOLE_ARBITRUM, robinhood: WORMHOLE_ROBINHOOD };
 
 // Core Bridge storage (WormholeOverride's table, from wormhole/ethereum/contracts/State.sol):
 //   slot 2: mapping(uint32 => GuardianSet) guardianSets   (GuardianSet { address[] keys; uint32 expirationTime; })
@@ -39,14 +48,15 @@ function arraySlot(slot: bigint): bigint {
 
 const word = (value: bigint) => pad(toHex(value));
 
+/** The current guardian set index of the Core on `side`. */
+export function guardianSetIndexOf(side: Side): Promise<number> {
+  return read<number>(side, { address: CORES[side], abi: wormholeCoreAbi, functionName: "getCurrentGuardianSetIndex" });
+}
+
 /** Makes the local guardian the whole current guardian set of `core` on `side` (quorum 1 of 1), as a guardian set
  *  transition would: the current set expires in a day, the index moves to a new set holding only the local key.
  *  Idempotent: a Core already governed by the local guardian is left as is. Returns the guardian set index. */
-export async function overrideGuardianSet(
-  log: Logger,
-  side: Side = "arbitrum",
-  core: Address = ARBITRUM.wormholeCore,
-): Promise<number> {
+export async function overrideGuardianSet(log: Logger, side: Side, core: Address = CORES[side]): Promise<number> {
   const current = await read<number>(side, { address: core, abi: wormholeCoreAbi, functionName: "getCurrentGuardianSetIndex" });
   const set = await read<{ keys: readonly Address[] }>(side, {
     address: core,
@@ -68,8 +78,13 @@ export async function overrideGuardianSet(
   await anvil.setStorageAt(side, core, word(arraySlot(nextSlot)), word(hexToBigInt(guardian.address)));
   const index = await read<number>(side, { address: core, abi: wormholeCoreAbi, functionName: "getCurrentGuardianSetIndex" });
   if (index !== next) throw new Error(`guardian set index is ${index}, expected ${next}`);
-  log.info("guardian set replaced", { core, previous: `${current} (${set.keys.length} guardians)`, index: next, guardian: guardian.address });
+  log.info("guardian set replaced", { side, core, previous: `${current} (${set.keys.length} guardians)`, index: next, guardian: guardian.address });
   return next;
+}
+
+/** The local guardian on both Cores: Arbitrum verifies spoke reports, Robinhood verifies Hub orders. */
+export async function overrideBothCores(log: Logger): Promise<Record<Side, number>> {
+  return { arbitrum: await overrideGuardianSet(log, "arbitrum"), robinhood: await overrideGuardianSet(log, "robinhood") };
 }
 
 /** A message as `LogMessagePublished` carries it, plus the emitter chain and the block timestamp guardians attest. */
@@ -106,7 +121,7 @@ export async function signVaa(m: PublishedMessage, guardianSetIndex: number): Pr
 }
 
 /** `parseAndVerifyVM` on the node's real Core Bridge. */
-export async function verifyVaa(vaa: Hex, side: Side = "arbitrum", core: Address = ARBITRUM.wormholeCore) {
+export async function verifyVaa(vaa: Hex, side: Side, core: Address = CORES[side]) {
   const [vm, valid, reason] = await read<readonly [{ sequence: bigint; emitterChainId: number }, boolean, string]>(side, {
     address: core,
     abi: wormholeCoreAbi,
@@ -119,28 +134,33 @@ export async function verifyVaa(vaa: Hex, side: Side = "arbitrum", core: Address
 /** The universal (bytes32) form of an EVM address. */
 export const universal = (address: Address): Hex => pad(address.toLowerCase() as Hex);
 
-/** Signs a throwaway message with the local guardian and requires the hub Core to accept it. */
-export async function selfTest(guardianSetIndex: number, log: Logger): Promise<void> {
-  const vaa = await signVaa(
-    {
-      timestamp: Number(await latestTimestamp("arbitrum")),
-      nonce: 0,
-      emitterChainId: WORMHOLE_ROBINHOOD,
-      emitterAddress: universal(guardian.address),
-      sequence: 0n,
-      consistencyLevel: 1,
-      payload: numberToHex(42, { size: 32 }),
-    },
-    guardianSetIndex,
-  );
-  const { valid, reason } = await verifyVaa(vaa);
-  if (!valid) throw new Error(`the hub Core rejects a VAA signed by the local guardian: ${reason}`);
-  log.info("parseAndVerifyVM accepts VAAs signed by the local guardian", { guardianSetIndex });
+/** Signs a throwaway message in each direction with the local guardian and requires the receiving Core to accept it:
+ *  a Robinhood-emitted message on Arbitrum (the report path) and an Arbitrum-emitted one on Robinhood (the order
+ *  path, with the orders' instant consistency). */
+export async function selfTest(indexes: Record<Side, number>, log: Logger): Promise<void> {
+  for (const side of SIDES) {
+    const from: Side = side === "arbitrum" ? "robinhood" : "arbitrum";
+    const vaa = await signVaa(
+      {
+        timestamp: Number(await latestTimestamp(from)),
+        nonce: 0,
+        emitterChainId: WORMHOLE_CHAIN[from],
+        emitterAddress: universal(guardian.address),
+        sequence: 0n,
+        consistencyLevel: from === "arbitrum" ? 200 : 1,
+        payload: numberToHex(42, { size: 32 }),
+      },
+      indexes[side],
+    );
+    const { valid, reason } = await verifyVaa(vaa, side);
+    if (!valid) throw new Error(`the ${side} Core rejects a VAA signed by the local guardian: ${reason}`);
+    log.info("parseAndVerifyVM accepts VAAs signed by the local guardian", { side, emitterChain: WORMHOLE_CHAIN[from], guardianSetIndex: indexes[side] });
+  }
 }
 
 if (isMain(import.meta.url)) {
   await runMain(async () => {
     const log = logger("guardian");
-    await selfTest(await overrideGuardianSet(log), log);
+    await selfTest(await overrideBothCores(log), log);
   });
 }
