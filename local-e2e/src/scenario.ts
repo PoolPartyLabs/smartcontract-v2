@@ -304,13 +304,13 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
   await run.phase("Phase 0: fund and keeper");
   const fresh = await freshFund(state, log.child("deploy"), options.newFund);
   const fund = fresh.fund;
+  if (run.report) run.report.fund = fund;
   if (fresh.created) {
     run.note(options.newFund ? "creating a fresh fund (--new-fund)" : "the deployed fund was used: a fresh fund for this run");
     await run.ok(`fresh fund ${fund.shareSymbol} created through script/CreateFund.s.sol (Core Vault ${fund.hub.coreVault})`);
   } else {
     await run.ok(`the deployed fund ${fund.shareSymbol} is unused (Core Vault ${fund.hub.coreVault})`);
   }
-  if (run.report) run.report.fund = fund;
   const external = options.keeper === "external" || (options.keeper === "auto" && runningKeeperPid() !== undefined);
   let keeper: Keeper | undefined;
   if (external) {
@@ -371,13 +371,15 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
       const [r] = await view<readonly [any, bigint, bigint]>("arbitrum", receiver, valueReportReceiverAbi, "latestReport", [0n], at);
       total += await principalValue(r, at);
     }
-    return total;
+    const managementFee = await view<bigint>("arbitrum", core, coreVaultAbi, "managementFeeAccrued", [], at);
+    return total > managementFee ? total - managementFee : 0n;
   };
   const bucketsMatch = async (label: string) => {
     const at = await nodes.arbitrum.client.getBlockNumber();
     run.eq(await view<bigint>("arbitrum", core, coreVaultAbi, "shareAssets", [], at), await sumOfBuckets(at), label);
   };
   const shareAssets = () => view<bigint>("arbitrum", core, coreVaultAbi, "shareAssets");
+  const principalAssets = async () => (await shareAssets()) + (await view<bigint>("arbitrum", core, coreVaultAbi, "managementFeeAccrued"));
   const sharePrice = () => view<bigint>("arbitrum", core, coreVaultAbi, "sharePrice");
   const idle = () => view<bigint>("arbitrum", core, coreVaultAbi, "idle");
   const minWethFor = async (usdcIn: bigint) => {
@@ -484,8 +486,8 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     run.eq(anaCharged, ANA_DEPOSIT, "DEC-035: nothing left over at 1.00");
     run.eq(await balance("arbitrum", share, A.ana.address), anaShares, "Ana holds her shares");
     run.eq(await idle(), seedIdle + ANA_DEPOSIT - fee, "Idle: the seed and Ana's deposit");
-    run.eq(await shareAssets(), seedIdle + ANA_DEPOSIT - fee, "Share Assets");
-    run.eq(await sharePrice(), INITIAL_SHARE_PRICE, "DEC-061: 1 share = 1.00 USDC");
+    await bucketsMatch("Share Assets deduct management fee accrual");
+    run.true((await sharePrice()) <= INITIAL_SHARE_PRICE, "DEC-114: management fee reduces the initial Share Price");
     await run.ok(`Ana deposits 10,000 USDC: 9,975 shares at 1.000000, 25.00 USDC flow fee to the Protocol Recipient (tx ${anaDeposit.hash.slice(0, 10)})`);
 
     // ------------------------------------------------------------------------------------------------------------
@@ -496,7 +498,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     await tx("arbitrum", "manager", core, coreVaultAbi, "allocateToHubSpokeVault", [HUB_ALLOCATION]);
     run.eq(await idle(), idleBeforeAllocation - HUB_ALLOCATION, "DEC-072: Free Idle allocated");
     run.eq(await view("arbitrum", hubSpoke, spokeVaultAbi, "unallocatedBalance", [ARBITRUM.usdc]), HUB_ALLOCATION, "DEC-055: Unallocated Balance");
-    run.eq(await shareAssets(), idleBeforeAllocation, "DEC-104: a move between buckets keeps Share Assets");
+    await bucketsMatch("DEC-104: allocation preserves principal net of management fee");
     await run.ok("manager allocates 5,000 USDC of Free Idle to the hub Spoke Vault");
 
     const aaveOpen = await tx<readonly [Hex, bigint, bigint]>("arbitrum", "manager", hubSpoke, spokeVaultAbi, "openPosition", [
@@ -635,7 +637,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     );
     await run.ok("a manager who passes his own quote in bridgeData is refused by the adapter (QuotesNotSupported, DEC-158)");
 
-    const assetsBeforeSend = await shareAssets();
+    const assetsBeforeSend = await principalAssets();
     const idleBeforeSend = await idle();
     // DEC-096: the arrival tops Operating Cash up only while it is below its floor (SpokeCrossChainLib
     // `topUpOperatingCash`), so the spoke's cash and Unallocated Balance are read before the fill can land.
@@ -678,7 +680,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     run.eq(Number(messageKind), PRINCIPAL, "message kind Principal");
     run.eq(await idle(), idleBeforeSend - BRIDGE_AMOUNT, "Idle debited");
     run.eq(await view("arbitrum", core, coreVaultAbi, "inFlightValue"), amountToArrive, "DEC-085: In-flight Value at the amount that will arrive");
-    run.eq(assetsBeforeSend - (await shareAssets()), bridgeFee, "DEC-085: Share Assets drop by the bridge fee only");
+    run.approx(assetsBeforeSend - (await principalAssets()), bridgeFee, AAVE_ROUNDING, "DEC-085: principal drops by the bridge fee only");
     const [, inFlightSentAfter, , capAfter] = await view<readonly [bigint, bigint, bigint, bigint]>("arbitrum", core, coreVaultAbi, "spokeCapUsage", [0n]);
     run.eq(inFlightSentAfter, BRIDGE_AMOUNT, "DEC-066 C1: the Spoke Cap counts the amount sent");
     run.eq(capAfter, BigInt(spokeCfg.spokeCap), "Spoke Cap");
@@ -797,7 +799,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     // Phase 6: the report on the real Robinhood Core, the VAA delivered on Arbitrum (DEC-066, DEC-086, DEC-090, DEC-093)
     // ------------------------------------------------------------------------------------------------------------
     await run.phase("Phase 6: report on Robinhood, VAA delivered on Arbitrum (DEC-066, DEC-083, DEC-086, DEC-090, DEC-093)");
-    const assetsBeforeReport = await shareAssets();
+    const assetsBeforeReport = await principalAssets();
     const inFlightBeforeReport = await view<bigint>("arbitrum", core, coreVaultAbi, "inFlightValue");
     run.eq(inFlightBeforeReport, amountToArrive, "the transit is still in flight on the hub");
     const reported = await tx<readonly [bigint, bigint]>("robinhood", "stranger", spokeVault, spokeVaultAbi, "report");
@@ -837,7 +839,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     run.eq(usdgPrice, WHOLE, "ruling 2026-09-29: USDG at 1:1");
     const spokePrincipal = await principalValue(latest);
     run.eq(spokeValue, spokePrincipal, "the hub's spoke value is the report's principal");
-    run.approx(await shareAssets(), assetsBeforeReport - inFlightBeforeReport + spokePrincipal, AAVE_ROUNDING, "DEC-083: the spoke value entered Share Assets");
+    run.approx(await principalAssets(), assetsBeforeReport - inFlightBeforeReport + spokePrincipal, AAVE_ROUNDING, "DEC-083: the spoke value entered principal");
     // With no Operating Cash top-up (floor 0) nothing leaves the principal for sure: the swap's Market Costs lower it,
     // and the WETH it bought is valued at Chainlink, not at the pool's price, so the principal may land on either side
     // of what arrived (security review S-1).
@@ -854,7 +856,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     // ------------------------------------------------------------------------------------------------------------
     await run.phase("Phase 7: 500 USDG of Principal comes home through Across (DEC-085, DEC-104, DEC-162, OQ-01, CV-OQ-1)");
     const idleBeforeReturn = await idle();
-    const assetsBeforeReturn = await shareAssets();
+    const assetsBeforeReturn = await principalAssets();
     const spokeAcross = fund.spoke.acrossBridgeAdapter;
     const [returnToArrive] = await view<readonly [bigint, bigint]>("robinhood", spokeAcross, acrossBridgeAdapterAbi, "quoteSend", [
       ROBINHOOD.usdg,
@@ -918,7 +920,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     run.eq(await idle(), idleBeforeReturn + returnToArrive, "Principal reached Idle");
     run.eq(await view("arbitrum", core, coreVaultAbi, "unmatchedArrivals"), 0n, "nothing held apart");
     run.eq(await view("arbitrum", core, coreVaultAbi, "inFlightValue"), 0n, "no return leg in flight once credited");
-    run.approx(assetsBeforeReturn - (await shareAssets()), returnFee, AAVE_ROUNDING, "DEC-085: Share Assets drop by the bridge fee only");
+    run.approx(assetsBeforeReturn - (await principalAssets()), returnFee, AAVE_ROUNDING, "DEC-085: principal drops by the bridge fee only");
     await bucketsMatch("DEC-104: Share Assets is the sum of its buckets");
     await run.ok(`the next report listed the transfer as Principal and the hub credited ${units(matchedTotal)} USDC to Idle`);
 
@@ -926,7 +928,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     // Phase 8: hub income collected and split at collection (ruling 2026-09-29, DEC-106, DEC-107, DEC-109)
     // ------------------------------------------------------------------------------------------------------------
     await run.phase("Phase 8: hub income collected and split (ruling 2026-09-29, DEC-092, DEC-106, DEC-107, DEC-109)");
-    const assetsBeforeCollect = await shareAssets();
+    const assetsBeforeCollect = await principalAssets();
     // Mined amounts (IncomeCollected): Aave interest grows every second, so a simulation's result is a block early.
     const collected = async (adapter: Address, position: Hex) => {
       const sent = await tx("arbitrum", "manager", hubSpoke, spokeVaultAbi, "collectIncome", [adapter, position]);
@@ -941,7 +943,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     const wethIncome = await view<bigint>("arbitrum", hubSpoke, spokeVaultAbi, "collectedIncome", [ARBITRUM.weth]);
     run.eq(usdcIncome, v4Collect.income1 + aaveCollect.income0, "USDC income bucket");
     run.eq(wethIncome, v4Collect.income0, "WETH income bucket");
-    run.approx(await shareAssets(), assetsBeforeCollect, AAVE_ROUNDING, "DEC-092: collection leaves Share Assets");
+    run.approx(await principalAssets(), assetsBeforeCollect, AAVE_ROUNDING, "DEC-092: collection leaves principal");
     await run.ok(`manager collects ${units(usdcIncome)} USDC + ${units(wethIncome, 18, 6)} WETH of hub income; Share Assets unchanged`);
 
     const sliceBps = BigInt(await view<number>("arbitrum", state.protocol.arbitrum.managerRegistry, managerRegistryAbi, "protocolSliceBps", [A.manager.address]));
@@ -975,7 +977,6 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     await run.phase("Phase 9: Bruno deposits 11,000 USDC at the new Share Price (DEC-014, DEC-035, DEC-061)");
     await ensureFeedFresh(log.child("chainlink"), 600n);
     const priceBeforeBruno = await sharePrice();
-    const assetsBeforeBruno = await shareAssets();
     const anaUsdcIncome = await view<bigint>("arbitrum", core, coreVaultAbi, "incomeOwed", [A.ana.address]);
     const brunoUsdcBefore = await balance("arbitrum", ARBITRUM.usdc, A.bruno.address);
     await tx("arbitrum", "bruno", ARBITRUM.usdc, erc20Abi, "approve", [core, BRUNO_DEPOSIT]);
@@ -997,7 +998,11 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     run.eq(brunoCharged, forShares + brunoFee, "charged the shares' price plus the flow fee");
     run.eq(brunoUsdcBefore - (await balance("arbitrum", ARBITRUM.usdc, A.bruno.address)), brunoCharged, "DEC-061: the remainder stays in his wallet");
     run.approx(await shareAssets(), (minted.shareAssets as bigint) + forShares, AAVE_ROUNDING, "Share Assets grow by what the shares cost");
-    run.approx(assetsBeforeBruno, minted.shareAssets, AAVE_ROUNDING, "the mint valued the fund as the view did");
+    const beforeMintBlock = brunoDeposit.receipt.blockNumber - 1n;
+    const feeBeforeMint = await view<bigint>("arbitrum", core, coreVaultAbi, "managementFeeAccrued", [], beforeMintBlock);
+    const feeAfterMint = await view<bigint>("arbitrum", core, coreVaultAbi, "managementFeeAccrued", [], brunoDeposit.receipt.blockNumber);
+    const feeDrift = feeAfterMint > feeBeforeMint ? feeAfterMint - feeBeforeMint : feeBeforeMint - feeAfterMint;
+    run.approx(await view<bigint>("arbitrum", core, coreVaultAbi, "shareAssets", [], beforeMintBlock), minted.shareAssets, AAVE_ROUNDING + feeDrift, "the mint valuation differs only by fee accrual and Aave rounding");
     run.approx(await sharePrice(), priceBeforeBruno, priceBeforeBruno / 10n ** 9n, "DEC-061: rounding only");
     run.eq(await view("arbitrum", core, coreVaultAbi, "incomeOwed", [A.bruno.address]), 0n, "DEC-014: none of the income already generated");
     run.eq(await view("arbitrum", core, coreVaultAbi, "unconvertedIncome", [A.bruno.address, 0n, ARBITRUM.weth]), 0n, "DEC-014: none of the WETH income");
@@ -1080,6 +1085,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     const v4LiquidityBefore = (await view<any>("arbitrum", hubUni, uniswapV4AdapterAbi, "positionValue", [hubUniPosition])).liquidity as bigint;
     const brunoUsdcBeforeClaim = await balance("arbitrum", ARBITRUM.usdc, A.bruno.address);
     const idleBeforeClaim = await idle();
+    const spokeBeforeClaim = await nodes.robinhood.client.getBlockNumber();
     let brunoClaim = await tx<any>("arbitrum", "bruno", core, coreVaultAbi, "requestPayout", [brunoRequest, INSTANT, 0]);
     const hubUnwindReceipt = brunoClaim.receipt;
     if (events(brunoClaim.receipt, core, coreVaultAbi, "OrderPublished").length) {
@@ -1099,7 +1105,12 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     run.true(v4LiquidityAfter < v4LiquidityBefore, "DEC-137: V4 also delivers, regardless of registry order");
     run.approx(v4LiquidityBefore - v4LiquidityAfter, mulDiv(v4LiquidityBefore, unwound[0].fracNum, unwound[0].fracDen), 1n, "V4 liquidity exits at the stored fraction");
     run.true(r2.marketCost >= unwound[0].result.marketCost, "Hub and spoke Market Costs recorded");
-    run.eq(r2.leaverCost, r2.marketCost, "DEC-118: Instant requester pays Market Costs");
+    const returnSends = await nodes.robinhood.client.getContractEvents({ address: spokeVault, abi: spokeVaultAbi, eventName: "SentToHub", fromBlock: spokeBeforeClaim + 1n });
+    const networkCosts = returnSends.reduce((sum, entry) => {
+      const transit = (entry.args as any).transit;
+      return sum + BigInt(transit.amountSent) - BigInt(transit.amountToArrive);
+    }, 0n);
+    run.eq(r2.leaverCost, r2.marketCost + networkCosts, "DEC-118: Instant requester pays Market Costs and return Network Costs");
     run.eq(r2.totalShares, supply, "total shares at the claim");
     run.eq(r2.sharePrice, r2.totalShares === 0n ? INITIAL_SHARE_PRICE : mulDiv(r2.shareAssets + r2.leaverCost, 10n ** 36n, r2.totalShares), "DEC-105: the burn at the Share Price read after the unwind");
     run.eq(r2.usdcGross, usdcFor(r2.sharesBurned, r2.sharePrice), "gross");
@@ -1134,8 +1145,10 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
       const hubValue = await principalValue(await view<any>("arbitrum", hubSpoke, spokeVaultAbi, "buildReport"));
       const requested = available + hubValue + 100n * USD;
       run.true(usdcFor(await balance("arbitrum", share, A.ana.address), await sharePrice()) > requested, "Ana can request beyond Idle and all Hub positions");
-      const request = await tx("arbitrum", "ana", core, coreVaultAbi, "requestPayout", [requested, INSTANT, 0], await orderFee());
-      const published = events(request.receipt, core, coreVaultAbi, "OrderPublished").filter((entry) => Number(entry.kind) === ORDER_KIND.UNWIND);
+      const request = await tx("arbitrum", "ana", core, coreVaultAbi, "requestPayout", [requested, STANDARD, 1]);
+      await warpBoth(72n * 3600n + 1n);
+      const firstClaim = await tx("arbitrum", "ana", core, coreVaultAbi, "claimPayout", [1], await orderFee());
+      const published = events(firstClaim.receipt, core, coreVaultAbi, "OrderPublished").filter((entry) => Number(entry.kind) === ORDER_KIND.UNWIND);
       run.eq(published.length, 1, "the Hub publishes UNWIND without impersonation");
       await run.ok(`Ana requests ${units(requested)} USDC: Hub UNWIND ${published[0].orderId}, awaiting the spoke`);
       await waitFor("UNWIND execution", async () => {
@@ -1151,7 +1164,27 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
       run.true(receipt.sharesBurned > 0n && receipt.usdcPaid > 0n, "permissionless settlement burns and pays");
       run.eq(receipt.usdcGross, usdcFor(receipt.sharesBurned, receipt.sharePrice), "DEC-105: one post-unwind Share Price for the whole burn");
       run.eq((await balance("arbitrum", ARBITRUM.usdc, A.ana.address)) - paidBefore, receipt.usdcPaid, "Ana receives USDC");
-      await run.ok(`keeper executes spoke UNWIND and delivers its report; stranger settles ${units(receipt.usdcPaid)} USDC at ${price(receipt.sharePrice)}`);
+      run.true(receipt.excludedPositions > 0n, "DEC-148: 1 bp excludes lossy V4 sales");
+      run.true(receipt.usdcOutstanding > 0n, "tight maximum leaves a Partial Payout open");
+      run.eq(receipt.payoutFee, 0n, "Standard Payout has no Payout Fee");
+      await run.ok(`Standard Payout at maxLossBps=1 excludes ${receipt.excludedPositions} positions; stranger settles ${units(receipt.usdcPaid)} USDC, ${units(receipt.usdcOutstanding)} outstanding`);
+      const aaveBeforeRetry = await view<any>("arbitrum", hubAave, aaveV3AdapterAbi, "positionValue", [hubAavePosition]);
+      const requestBeforeRetry = await view<any>("arbitrum", core, coreVaultAbi, "payoutRequest", [A.ana.address]);
+      const retry = await tx("arbitrum", "ana", core, coreVaultAbi, "claimPayout", [0], await orderFee());
+      const requestAfterRetry = await view<any>("arbitrum", core, coreVaultAbi, "payoutRequest", [A.ana.address]);
+      run.eq(requestAfterRetry.requestId, requestBeforeRetry.requestId, "DEC-151: retry retains request id");
+      run.eq(requestAfterRetry.fracNum, requestBeforeRetry.fracNum, "DEC-151: retry retains fraction numerator");
+      run.eq(requestAfterRetry.fracDen, requestBeforeRetry.fracDen, "DEC-151: retry retains fraction denominator");
+      run.eq((await view<any>("arbitrum", hubAave, aaveV3AdapterAbi, "positionValue", [hubAavePosition])).principal0, aaveBeforeRetry.principal0, "DEC-151: delivered Aave position is not sold again");
+      let retried = retry;
+      if (events(retry.receipt, core, coreVaultAbi, "OrderPublished").length) {
+        await waitFor("retry report and arrival", async () => (await simulateRevert("arbitrum", "stranger", { address: core, abi: coreVaultAbi, functionName: "settlePayout", args: [A.ana.address] })) === undefined);
+        retried = await tx("arbitrum", "stranger", core, coreVaultAbi, "settlePayout", [A.ana.address]);
+      }
+      const retryReceipt = payoutReceipt(retried.receipt, core);
+      run.eq(retryReceipt.excludedPositions, 0n, "DEC-140: unbounded retry sells excluded positions");
+      run.true(retryReceipt.marketCostAbsorbed <= retryReceipt.marketCost, "DEC-141: absorbed Market Costs are bounded");
+      await run.ok(`maxLossBps=0 retry sells only undelivered positions; pays ${units(retryReceipt.usdcPaid)} USDC, fund absorbs ${units(retryReceipt.marketCostAbsorbed)} USDC Market Costs`);
     });
 
     await run.phase("Phase 13: value-base invariants and a swept donation (DEC-072, DEC-080, DEC-091, DEC-101, DEC-104)");
@@ -1178,6 +1211,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     // Phase 14: the Hub-to-spoke order channel and executeOrder (DEC-093, DEC-111, DEC-120, DEC-139; WP-07 D4)
     // ------------------------------------------------------------------------------------------------------------
     await run.phase("Phase 14: the Hub-to-spoke order channel and executeOrder (DEC-093, DEC-111, DEC-120, DEC-139)");
+    await warpBoth(0n);
     // Until the Core Vault publishes orders itself (WP-09 on), an order is published from its address (impersonated)
     // on the live Arbitrum Core, so the keeper's relay, the guardian on the Robinhood Core and the Spoke Vault's
     // `executeOrder` run now. Only a kind the Spoke Vault does not execute yet is published that way: an executed UNWIND
@@ -1191,6 +1225,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     const spokeFee = await view<bigint>("robinhood", ROBINHOOD.wormholeCore, wormholeCoreAbi, "messageFee");
     const spokeGuardianSet = await guardianSetIndexOf("robinhood");
     const hubNow = await latestTimestamp("arbitrum");
+    const spokeNow = await latestTimestamp("robinhood");
     const orderOf = (kind: number): Order => ({
       kind,
       fundId: fund.fundId,
@@ -1201,7 +1236,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
       fracDen: kind === ORDER_KIND.UNWIND ? 10n : kind === ORDER_KIND.CLOSE ? 1n : 0n,
       maxLossBps: 0,
       payoutMode: INSTANT,
-      closingStartedAt: kind === ORDER_KIND.CLOSE ? hubNow : 0n,
+      closingStartedAt: kind === ORDER_KIND.CLOSE ? (hubNow < spokeNow ? hubNow : spokeNow) : 0n,
     });
     const orderVaa = (sequence: bigint, timestamp: bigint, payload: Hex, emitter: Address = core) =>
       signVaa(
@@ -1383,20 +1418,36 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     await run.independent("Phase 16: full closure and frozen exits (DEC-114, DEC-135, DEC-149, DEC-150, DEC-163, DEC-167)", async () => {
       const feeBefore = await balance("arbitrum", ARBITRUM.usdc, fund.hub.managerFeeVault);
       const recipientBefore = await balance("arbitrum", ARBITRUM.usdc, recipient);
-      const unwind = await tx("arbitrum", "manager", core, coreVaultAbi, "unwindAllAfterDeadline", [], await orderFee());
+      run.eq(await simulateRevert("arbitrum", "stranger", { address: core, abi: coreVaultAbi, functionName: "unwindAllAfterDeadline", value: await orderFee() }), "ClosingDeadlineNotReached", "DEC-149: stranger cannot unwind before the deadline");
+      await tx("arbitrum", "manager", hubSpoke, spokeVaultAbi, "closePosition", [hubAave, hubAavePosition, "0x"]);
+      run.true(!(await view<any[]>("arbitrum", hubSpoke, spokeVaultAbi, "positions")).some((position) => position.adapter.toLowerCase() === hubAave.toLowerCase()), "manager partially unwinds Aave while Closing");
+      await run.ok("manager closes the remaining Hub Aave position during the 72-hour closure window; premature stranger unwind is refused");
+      await warpBoth(72n * 3600n + 1n);
+      const unwind = await send("arbitrum", "stranger", { address: core, abi: coreVaultAbi, functionName: "unwindAllAfterDeadline", value: await orderFee(), gas: 15_000_000n });
+      run.eq(events(unwind.receipt, core, coreVaultAbi, "ClosureUnwindFailed").length, 0, "Hub closure unwind succeeds rather than swallowing an under-gassed call");
       const closeOrders = events(unwind.receipt, core, coreVaultAbi, "OrderPublished").filter((entry) => Number(entry.kind) === ORDER_KIND.CLOSE);
       run.eq(closeOrders.length, 1, "Hub publishes CLOSE");
-      await run.ok(`manager unwinds the Hub and publishes CLOSE ${closeOrders[0].orderId}`);
+      await run.ok(`stranger unwinds the Hub after the deadline and publishes CLOSE ${closeOrders[0].orderId}`);
       await waitFor("CLOSE execution", async () => {
         const logs = await nodes.robinhood.client.getContractEvents({ address: spokeVault, abi: spokeVaultAbi, eventName: "OrderExecuted", fromBlock: BigInt(fund.spoke.createdInBlock) });
         return logs.some((entry) => (entry.args as any).orderId === closeOrders[0].orderId);
       });
-      await waitFor("post-close transits credited", async () => (await view<bigint>("arbitrum", core, coreVaultAbi, "inFlightValue")) === 0n && (await view<bigint>("arbitrum", core, coreVaultAbi, "unmatchedArrivals")) === 0n);
-      await warpBoth(72n * 3600n + 1n);
-      await tx("arbitrum", "stranger", core, coreVaultAbi, "unwindAllAfterDeadline", [], await orderFee());
+      await waitFor("post-close transits credited", async () => {
+        const [report] = await view<readonly [any, bigint, bigint]>("arbitrum", receiver, valueReportReceiverAbi, "latestReport", [0n]);
+        const [principal, , returning] = await view<readonly [bigint, bigint, bigint, bigint]>("arbitrum", core, coreVaultAbi, "spokeCapUsage", [0n]);
+        return report.positions.length === 0 && report.unallocated.every((entry: any) => entry.amount === 0n) && principal === 0n && returning === 0n && (await view<bigint>("arbitrum", core, coreVaultAbi, "unmatchedArrivals")) === 0n;
+      });
+      await run.ok("CLOSE executes on Robinhood; its Principal fill and empty post-close report arrive before any further warp");
       await waitFor("empty post-close report", async () => {
         const [report] = await view<readonly [any, bigint, bigint]>("arbitrum", receiver, valueReportReceiverAbi, "latestReport", [0n]);
-        return report.positions.length === 0 && report.unallocated.every((entry: any) => entry.amount === 0n);
+        return report.positions.length === 0 && report.unallocated.every((entry: any) => entry.amount === 0n) && report.inFlightToHub.length === 0;
+      });
+      await run.ok("Hub ACKNOWLEDGE orders retire resolved Principal sends; final report has no In-flight Value");
+      const terminal = await send("arbitrum", "stranger", { address: core, abi: coreVaultAbi, functionName: "unwindAllAfterDeadline", value: await orderFee(), gas: 15_000_000n });
+      const [terminalOrder] = events(terminal.receipt, core, coreVaultAbi, "OrderPublished");
+      await waitFor("terminal CLOSE result after acknowledgements", async () => {
+        const [report] = await view<readonly [any, bigint, bigint]>("arbitrum", receiver, valueReportReceiverAbi, "latestReport", [0n]);
+        return report.unwindResults.toLowerCase().includes(terminalOrder.orderId.slice(2).toLowerCase()) && report.inFlightToHub.length === 0;
       });
       await tx("arbitrum", "manager", core, coreVaultAbi, "requestIncomeWithdrawal", [0], await orderFee());
       await waitFor("final income collection", async () => {
@@ -1410,8 +1461,13 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
       run.true((await balance("arbitrum", ARBITRUM.usdc, fund.hub.managerFeeVault)) >= feeBefore, "manager fees held in USDC");
       run.true((await balance("arbitrum", ARBITRUM.usdc, recipient)) > recipientBefore, "protocol slice paid in USDC");
       await run.ok(`finalizeClosure freezes ${units(closed.closedIdle)} USDC / ${units(closed.closedSupply, 18, 0)} shares; management fee ${units(closed.managementFeePaid)} USDC`);
-      for (const name of ["ana", "bruno"] as const) {
+      run.eq(await balance("arbitrum", share, fund.manager), 0n, "DEC-167: finalizeClosure burns and pays the manager's shares");
+      await warp(1589n, { log: log.child("warp"), report: false, deliverer: "keeper" });
+      run.eq(await view("arbitrum", receiver, valueReportReceiverAbi, "isReportFresh", [0n]), false, "closed exits run with a deliberately stale spoke report");
+      await run.ok("manager exits at finalization; Ana and Bruno's frozen exits need no fresh report after a 1,589-second warp");
+      for (const name of ["ana", "bruno", "manager"] as const) {
         const shares = await balance("arbitrum", share, A[name].address);
+        if (shares === 0n) continue;
         const exited = await tx("arbitrum", "stranger", core, coreVaultAbi, "exitClosedFund", [A[name].address]);
         const [event] = events(exited.receipt, core, coreVaultAbi, "ClosedFundExited");
         run.eq(event.gross, mulDiv(shares, closed.closedIdle, closed.closedSupply), "DEC-167: frozen split");
@@ -1420,8 +1476,17 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
         await run.ok(`${name} exits Closed at the frozen split: ${units(event.paid)} USDC, no report or Payout Fee`);
       }
       run.eq(await view("arbitrum", share, shareTokenAbi, "totalSupply"), 0n, "every remaining investor exited");
+      await tx("arbitrum", "stranger", core, coreVaultAbi, "sweepExcess", [ARBITRUM.usdc]);
+      await run.ok("zero-supply garbage collection sweeps remaining USDC to the Protocol Recipient");
       const conservation = await run.report?.conservation();
-      if (conservation) run.true(conservation.passed, "Core Vault USDC cash conservation: value in = value out + fees + remaining");
+      if (conservation) {
+        run.true(conservation.passed, "fund-wide conservation: value in = value out + fees + remaining");
+        run.true(conservation.coreCash.passed, "Core Vault USDC cash conservation");
+        run.true(conservation.bridgeFees > 0n, "conservation includes actual bridge costs, not internal sends as market income");
+        run.eq(conservation.remainingPositions, 0n, "conservation has no remaining investment positions");
+        run.eq(conservation.inFlight, 0n, "conservation has no unresolved transits");
+        await run.ok(`fund-wide conservation residual ${conservation.residual} USDC base units; bridge costs ${units(conservation.bridgeFees)} USDC`);
+      }
     });
 
     if (run.blockers.length) throw new AssertionFailed(run.blockers.join("\n"));

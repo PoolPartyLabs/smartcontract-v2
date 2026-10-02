@@ -6,7 +6,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import type { Address } from "viem";
-import { coreVaultAbi, erc20Abi, shareTokenAbi } from "./abis.ts";
+import { acrossSpokePoolAbi, chainlinkPriceSourceAbi, coreVaultAbi, erc20Abi, shareTokenAbi, spokeVaultAbi } from "./abis.ts";
 import { nodes, read, transactionLog, type TxRecord } from "./chain.ts";
 import { ACTOR_NAMES, ARBITRUM, HARNESS_DIR, REPO_DIR, REPORTS_DIR, ROBINHOOD, actors } from "./config.ts";
 import { feeLedger, sharePriceHistory, type FeeLedger, type SharePricePoint } from "./history.ts";
@@ -121,7 +121,71 @@ export class RunReport {
     }
     const remaining = await read<bigint>("arbitrum", { address: ARBITRUM.usdc, abi: erc20Abi, functionName: "balanceOf", args: [this.fund.hub.coreVault] });
     const residual = valueIn - valueOut - fees - remaining;
-    return { scope: "Core Vault USDC cash, including bridge/Hub allocation transfers and excess sweeps; not a substitute for fund-wide market P&L", valueIn, valueOut, fees, remaining, residual, passed: residual === 0n };
+    const coreCash = { valueIn, valueOut, fees, remaining, residual, passed: residual === 0n };
+    const vaults = new Set([core, this.fund.hub.spokeVault.toLowerCase(), this.fund.spoke.spokeVault.toLowerCase()]);
+    const investors = new Set([actors.ana.address, actors.bruno.address, actors.manager.address].map((address) => address.toLowerCase()));
+    const feeRecipients = new Set([recipient, feeVault]);
+    let externalCapital = 0n;
+    let investorPayments = 0n;
+    let externalFeesAndSweeps = 0n;
+    let marketNet = 0n;
+    let bridgeNet = 0n;
+    let remainingVaultCash = 0n;
+    let remainingPositions = 0n;
+    const marketFlows: { side: string; token: Address; transaction: string; direction: string; amount: bigint; dollars: bigint }[] = [];
+    for (const side of ["arbitrum", "robinhood"] as const) {
+      const base = side === "arbitrum" ? ARBITRUM.usdc : ROBINHOOD.usdg;
+      const weth = side === "arbitrum" ? ARBITRUM.weth : ROBINHOOD.weth;
+      const fromBlock = BigInt(side === "arbitrum" ? this.fund.hub.createdInBlock : this.fund.spoke.createdInBlock);
+      const originVault = side === "arbitrum" ? this.fund.hub.coreVault : this.fund.spoke.spokeVault;
+      const sends = await nodes[side].client.getContractEvents({ address: originVault, abi: side === "arbitrum" ? coreVaultAbi : spokeVaultAbi, eventName: side === "arbitrum" ? "SentToSpoke" : "SentToHub", fromBlock });
+      const bridgeSends = new Set(sends.map((entry) => `${entry.transactionHash}:${(entry.args as any).transit.amountSent}`));
+      const fills = await nodes[side].client.getContractEvents({ address: side === "arbitrum" ? ARBITRUM.acrossSpokePool : ROBINHOOD.acrossSpokePool, abi: acrossSpokePoolAbi, eventName: "FilledRelay", fromBlock });
+      const fillTransactions = new Set(fills.map((entry) => entry.transactionHash));
+      const dollarValue = async (token: Address, amount: bigint, block?: bigint) => {
+        if (token.toLowerCase() === base.toLowerCase()) return amount;
+        const [tokenPrice] = await read<readonly [bigint, bigint]>("arbitrum", { address: this.state.protocol.arbitrum.priceSource, abi: chainlinkPriceSourceAbi, functionName: "priceInUsdc", args: [token] }, undefined, side === "arbitrum" ? block : undefined);
+        return amount * tokenPrice / 10n ** 18n;
+      };
+      for (const token of [base, weth]) {
+        const transfers = await nodes[side].client.getContractEvents({ address: token, abi: erc20Abi, eventName: "Transfer", fromBlock });
+        for (const transfer of transfers) {
+          const entry = transfer.args as { from: Address; to: Address; value: bigint };
+          const sender = entry.from.toLowerCase();
+          const receiver = entry.to.toLowerCase();
+          if (vaults.has(sender) === vaults.has(receiver)) continue;
+          const incoming = vaults.has(receiver);
+          const counterparty = incoming ? sender : receiver;
+          const dollars = await dollarValue(token, entry.value, transfer.blockNumber);
+          if (incoming && (investors.has(counterparty) || counterparty === actors.stranger.address.toLowerCase())) externalCapital += dollars;
+          else if (!incoming && investors.has(counterparty)) investorPayments += dollars;
+          else if (!incoming && feeRecipients.has(counterparty)) externalFeesAndSweeps += dollars;
+          else if (token === base && ((!incoming && bridgeSends.has(`${transfer.transactionHash}:${entry.value}`)) || (incoming && fillTransactions.has(transfer.transactionHash)))) bridgeNet += incoming ? dollars : -dollars;
+          else {
+            marketNet += incoming ? dollars : -dollars;
+            marketFlows.push({ side, token, transaction: transfer.transactionHash, direction: incoming ? "in" : "out", amount: entry.value, dollars });
+          }
+        }
+        const holders = side === "arbitrum" ? [this.fund.hub.coreVault, this.fund.hub.spokeVault] : [this.fund.spoke.spokeVault];
+        for (const holder of holders) remainingVaultCash += await dollarValue(token, await read<bigint>(side, { address: token, abi: erc20Abi, functionName: "balanceOf", args: [holder] }));
+      }
+      const spoke = side === "arbitrum" ? this.fund.hub.spokeVault : this.fund.spoke.spokeVault;
+      const report = await read<any>(side, { address: spoke, abi: spokeVaultAbi, functionName: "buildReport" });
+      for (const position of report.positions) {
+        remainingPositions += await dollarValue(position.token0, position.principal0 + position.income0);
+        if (position.token1 !== "0x0000000000000000000000000000000000000000") remainingPositions += await dollarValue(position.token1, position.principal1 + position.income1);
+      }
+    }
+    const inFlight = await read<bigint>("arbitrum", { address: this.fund.hub.coreVault, abi: coreVaultAbi, functionName: "inFlightValue" });
+    const [, , returnInFlight] = await read<readonly [bigint, bigint, bigint, bigint]>("arbitrum", { address: this.fund.hub.coreVault, abi: coreVaultAbi, functionName: "spokeCapUsage", args: [0n] });
+    const bridgeFees = -bridgeNet - inFlight - returnInFlight;
+    const ledger = await feeLedger(this.fund);
+    const recordedBridgeFees = ledger.bridgeFees.toSpokes + ledger.bridgeFees.toHub;
+    const fundRemaining = remainingVaultCash + remainingPositions + inFlight + returnInFlight;
+    const fundValueIn = externalCapital + marketNet;
+    const fundFees = externalFeesAndSweeps + bridgeFees;
+    const fundResidual = fundValueIn - investorPayments - fundFees - fundRemaining;
+    return { scope: "Fund-wide USDC value across both vault chains; USDG at 1:1, WETH at the price source (hub transaction block, current Hub rate for spoke WETH; unchanged feed asserted by the scenario)", methodology: "External capital plus independently summed net investment/swap cash flows equals investor payments plus external fees/sweeps plus bridge costs plus physical vault cash and remaining positions/transits. Sends match vault transit events; arrivals match FilledRelay transactions. Internal vault transfers cancel. Payout Fee remains fund value, never an external expense. Native gas is manager/keeper-paid (DEC-187).", externalCapital, realizedMarketPnlAndIncome: marketNet, valueIn: fundValueIn, valueOut: investorPayments, fees: fundFees, externalFeesAndSweeps, bridgeFees, recordedBridgeFees, remaining: fundRemaining, remainingVaultCash, remainingPositions, inFlight: inFlight + returnInFlight, residual: fundResidual, tolerance: 20n, passed: fundResidual >= -20n && fundResidual <= 20n && bridgeFees === recordedBridgeFees, coreCash, marketFlows };
   }
 
   /** A point of the Share Price timeline: the fund's books at the hub's latest block. */
@@ -309,6 +373,13 @@ export class RunReport {
 
     out.push("## Steps", "");
     table(["#", "Phase", "Step"], this.steps.map((s) => [s.n, s.phase, s.message.replace(/\|/g, "\\|")]));
+    out.push("## Final summary", "");
+    table(["Phase", "Steps", "Transactions", "Total gas", "Final Share Price", "Final Share Assets", "Final Gross Assets"], [...new Set(this.steps.map((step) => step.phase))].map((phase) => {
+      const steps = this.steps.filter((step) => step.phase === phase);
+      const transactions = steps.flatMap((step) => step.transactions ?? []);
+      const books = steps.at(-1)?.balances?.coreVault;
+      return [phase, steps.length, transactions.length, transactions.reduce((sum, transaction) => sum + transaction.gasUsed, 0n).toString(), books ? priceOf(BigInt(books.sharePrice)) : "n/a", books ? usdcExact(BigInt(books.shareAssets)) : "n/a", books ? usdcExact(BigInt(books.grossAssets)) : "n/a"];
+    }));
 
     out.push("## Step accounting", "", "Full transaction hashes, gas, fees and every actor's balances are also stored with each step in JSON.", "");
     for (const step of this.steps) {
