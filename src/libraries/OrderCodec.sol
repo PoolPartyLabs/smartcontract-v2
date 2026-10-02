@@ -60,7 +60,7 @@ library OrderCodec {
     uint8 internal constant MAX_PAYOUT_MODE = uint8(type(ICoreVaultPayouts.PayoutMode).max);
 
     /// @notice An order from the Core Vault to every Spoke Vault of the fund.
-    /// @param kind `UNWIND`, `CLOSE` or `COLLECT`.
+    /// @param kind `UNWIND`, `CLOSE`, `COLLECT` or `ACKNOWLEDGE`.
     /// @param fundId Fund identifier; a Spoke Vault refuses another fund's order (DEC-111).
     /// @param requestId What the order serves: the Payout Request (requester and request nonce) for `UNWIND`, the
     ///        closure for `CLOSE`, the collection for `COLLECT`. Chosen by the Hub.
@@ -91,7 +91,7 @@ library OrderCodec {
     /// @notice The payload is shorter than one ABI word.
     error OrderPayloadTooShort(uint256 length);
 
-    /// @notice The order kind is not `UNWIND`, `CLOSE` or `COLLECT`.
+    /// @notice The order kind is not `UNWIND`, `CLOSE`, `COLLECT` or `ACKNOWLEDGE`.
     error UnknownOrderKind(uint8 kind);
 
     /// @notice An unwind order's denominator is zero or its numerator exceeds it.
