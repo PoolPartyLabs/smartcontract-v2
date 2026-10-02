@@ -91,6 +91,11 @@ export CREATION_NUMBER=<from the log> MANDATE_HASH=<from the log or FundCreated>
 forge script script/CreateFund.s.sol --rpc-url $ROBINHOOD_RPC_URL --account <manager> --broadcast
 ```
 
+The script's optional rule values are listed in `.env.example`. The spoke Operating Cash floor and top-up
+(`SPOKE_OPERATING_CASH_FLOOR`, `SPOKE_OPERATING_CASH_TOP_UP`) default to 0, and the hub has no Operating Cash entry:
+Operating Cash is out of the MVP (ruling 2026-10-02; native Operating Cash, DEC-130 and DEC-144, and the gas refund come
+after the buildathon), so a fund locks no value there.
+
 What the factory refuses: a caller other than `Mandate.manager`; a chain other than the Mandate's hub for `createFund`;
 a Mandate USDC or spoke token that is not the chain's base token; any Mandate adapter, bridge adapter or Spoke Vault
 address, on any chain, other than the fund's prediction; Uniswap V4 `PoolKey`s that do not hash to the Mandate's pool

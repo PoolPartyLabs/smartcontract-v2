@@ -58,7 +58,8 @@ abstract contract EndToEndBase is Test, FactoryDeployment, FundMandate, FundSeed
     uint256 internal constant BRIDGE_AMOUNT = 4000e6;
     uint256 internal constant BRIDGE_FEE = 3.23e6;
 
-    /// @dev Spoke Operating Cash (DEC-096), the defaults of script/CreateFund.s.sol.
+    /// @dev Spoke Operating Cash (DEC-096), set by the scenario to exercise the top-up; script/CreateFund.s.sol defaults
+    ///      both to 0 (ruling 2026-10-02: Operating Cash is out of the MVP).
     uint256 internal constant SPOKE_OPERATING_CASH_FLOOR = 5e6;
     uint256 internal constant SPOKE_OPERATING_CASH_TOP_UP = 10e6;
 

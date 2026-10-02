@@ -26,8 +26,11 @@ import {FundMandate} from "./FundMandate.sol";
 ///      `CREATION_NUMBER` and `MANDATE_HASH` from the hub's `FundCreated` event. Optional: `SPOKE_CAP`,
 ///      `MIN_FIRST_DEPOSIT`, `PERFORMANCE_FEE_BPS` (default 2,000, within [1,000, 9,000]: DEC-182, DEC-184),
 ///      `MANAGEMENT_FEE_BPS` (default 0, at most 500: DEC-184, DEC-186), `SPOKE_OPERATING_CASH_FLOOR` and
-///      `SPOKE_OPERATING_CASH_TOP_UP` (Robinhood USDG base units, defaults 5e6 and 10e6; DEC-096), `SEED_AMOUNT`
-///      (default `MIN_FIRST_DEPOSIT`).
+///      `SPOKE_OPERATING_CASH_TOP_UP` (Robinhood USDG base units, default 0; DEC-096), `SEED_AMOUNT` (default
+///      `MIN_FIRST_DEPOSIT`).
+/// @dev Operating Cash is out of the MVP (ruling 2026-10-02): nothing spends it, and native Operating Cash (DEC-130,
+///      DEC-144) and the gas refund come after the buildathon, so a fund locks no value there by default. The hub has
+///      no Operating Cash entry in the Mandate, so its floor and top-up are 0 as well.
 /// @dev DEC-127: the manager seeds the fund in the creation transaction; on Arbitrum the script approves the factory
 ///      for `SEED_AMOUNT` USDC first, so `MANAGER` must hold it.
 contract CreateFund is Script, FactoryDeployment, FundMandate {
@@ -92,8 +95,8 @@ contract CreateFund is Script, FactoryDeployment, FundMandate {
         plan.spokePool = PoolKey(Currency.wrap(RH_WETH), Currency.wrap(RH_USDG), 500, 10, IHooks(address(0)));
         plan.spokeCap = vm.envOr("SPOKE_CAP", uint256(10_000e6));
         plan.maxReportAge = ROBINHOOD_MAX_REPORT_AGE;
-        plan.spokeOperatingCashFloor = vm.envOr("SPOKE_OPERATING_CASH_FLOOR", uint256(5e6));
-        plan.spokeOperatingCashTopUp = vm.envOr("SPOKE_OPERATING_CASH_TOP_UP", uint256(10e6));
+        plan.spokeOperatingCashFloor = vm.envOr("SPOKE_OPERATING_CASH_FLOOR", uint256(0));
+        plan.spokeOperatingCashTopUp = vm.envOr("SPOKE_OPERATING_CASH_TOP_UP", uint256(0));
         plan.minFirstDeposit = vm.envOr("MIN_FIRST_DEPOSIT", uint256(100e6));
         plan.performanceFeeBps = SafeCast.toUint16(vm.envOr("PERFORMANCE_FEE_BPS", uint256(2000)));
         plan.managementFeeBps = SafeCast.toUint16(vm.envOr("MANAGEMENT_FEE_BPS", uint256(0)));
