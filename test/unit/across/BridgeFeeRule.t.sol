@@ -80,6 +80,29 @@ contract BridgeFeeRuleTest is Test {
         assertEq(rates[1], 12e14, "the retry took the expired send's slot");
     }
 
+    /// DEC-162 (review round 1, M-1): an older send's expiry noted late, after the reference rose past its rate, never
+    /// prices the next send below the reference. Send A goes out at 0.08% and the market moves to 0.20%; the route
+    /// expires and steps until it has delivered four times (reference 0.2511%), and only then is A's expiry noted (on
+    /// the hub a time-path expiry waits for the permissionless `recognizeRefund`). A step from A's rate alone (0.12%)
+    /// would cost two more expiries of about 7.4 h each (0.12%, 0.18%); the reference delivers at once.
+    function test_DEC162_lateExpiryOfAnOlderSendNeverPricesBelowTheReference() public {
+        BridgeFeeRuleHarness h = new BridgeFeeRuleHarness(8e14, 3e14, CAP, 0.5e18);
+        uint256 market = 20e14;
+        (uint64 a, uint256 rateA) = h.send();
+        for (uint256 delivered; delivered < 4;) {
+            (uint64 serial, uint256 rate) = h.send();
+            if (rate >= market) ++delivered;
+            else h.noteExpiry(serial, rate);
+        }
+        uint256 ref = h.referenceRate();
+        assertEq(ref, 2_511_111_111_111_110, "the route delivers above the market");
+
+        h.noteExpiry(a, rateA);
+        assertEq(h.nextRate(), ref, "the stale step (0.12%) does not undercut the reference");
+        (, uint256 next) = h.send();
+        assertGe(next, market, "delivered without another expiry");
+    }
+
     // ------------------------------------------------------------------ the fee
 
     /// DEC-162: the fee is `ceil(amount * rate) + fixed`; a fee that reaches the amount is refused.
@@ -108,7 +131,8 @@ contract BridgeFeeRuleTest is Test {
         }
     }
 
-    /// DEC-162 rule property: whatever sequence of sends and expiries, the next rate stays within [floor, cap].
+    /// DEC-162 rule property: whatever sequence of sends and expiries (older sends' included, in any order), the next
+    /// rate stays within [floor, cap] and never below the reference.
     function testFuzz_DEC162_nextRateStaysWithinFloorAndCap(uint256 seed) public {
         BridgeFeeRuleHarness h = new BridgeFeeRuleHarness(8e14, 3e14, CAP, 0.5e18);
         uint64[] memory serials = new uint64[](24);
@@ -118,6 +142,7 @@ contract BridgeFeeRuleTest is Test {
             uint256 next = h.nextRate();
             assertGe(next, 3e14, "floor");
             assertLe(next, CAP, "cap");
+            assertGe(next, h.referenceRate(), "never below the reference");
             (serials[i], rates[i]) = h.send();
             assertEq(rates[i], next, "the send uses the published rate");
             if (r % 3 == 0) {

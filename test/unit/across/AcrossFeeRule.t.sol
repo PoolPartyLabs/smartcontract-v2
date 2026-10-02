@@ -160,6 +160,30 @@ contract AcrossFeeRuleTest is Test {
         assertEq(next, 12e14);
     }
 
+    /// DEC-162 (review round 1, M-1): an older send's expiry reported after the route's reference rose past its rate
+    /// (a late refund recognition) leaves the next send at the reference, not one band above the stale rate.
+    function test_DEC162_lateExpiryOfAnOlderSendKeepsTheReference() public {
+        (IBridgeAdapter.BridgeCall memory older,) = _send(); // 0.08%, its outcome still unknown
+        for (uint256 i; i < 3; ++i) {
+            (IBridgeAdapter.BridgeCall memory failed,) = _send(); // 0.08%, 0.12%, 0.18%: the market moved up
+            _expire(failed);
+        }
+        for (uint256 i; i < 3; ++i) {
+            vm.warp(block.timestamp + 60);
+            _send(); // 0.27%, then the reference: delivered
+        }
+        (, uint256 ref,) = adapter.feeState(HUB_CHAIN);
+        assertGt(ref, 12e14, "the reference rose past one step above the older send's rate");
+
+        vault.noteExpiry(older.transitRef);
+        (uint256 next, uint256 refAfter, uint256 expired) = adapter.feeState(HUB_CHAIN);
+        assertEq(expired, 8e14, "the late expiry is pending");
+        assertEq(refAfter, ref, "an older send's expiry keeps the window");
+        assertEq(next, ref, "a step from 0.08% (0.12%) would undercut the reference: the reference applies");
+        (, uint256 rate) = _send();
+        assertEq(rate, ref);
+    }
+
     /// DEC-162: two expiries before the next send step from the highest expired rate, once.
     function test_DEC162_severalExpiriesStepFromTheHighestOnce() public {
         (IBridgeAdapter.BridgeCall memory a,) = _send();
@@ -229,10 +253,11 @@ contract AcrossFeeRuleTest is Test {
         for (uint256 i; i < 12; ++i) {
             uint256 r = uint256(keccak256(abi.encode(seed, i)));
             uint256 amount = bound(r >> 64, 40_000, 1e13);
-            (uint256 published,,) = adapter.feeState(HUB_CHAIN);
+            (uint256 published, uint256 ref,) = adapter.feeState(HUB_CHAIN);
             (IBridgeAdapter.BridgeCall memory call,) = vault.send(_request(amount));
             assertGe(published, 3e14, "floor");
             assertLe(published, CAP, "cap");
+            assertGe(published, ref, "never below the reference");
             uint256 fee = (amount * published + WAD - 1) / WAD + 30_000;
             assertEq(call.amountToArrive, amount - fee, "amount to arrive");
             assertGt(call.amountToArrive, 0, "something arrives");
