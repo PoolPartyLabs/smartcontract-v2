@@ -1,6 +1,7 @@
-// A minimal read-and-build API over the two forks: what the product API needs from the contracts, in one file, so
-// its concepts can be exercised against the real protocols before the product API is written. It only reads chain
-// state and builds unsigned transactions; it never holds a key. Run: `pnpm api` (after `pnpm run up`).
+// A minimal API over the two forks: what the product API needs from the contracts, in one file, so its concepts can
+// be exercised against the real protocols before the product API is written. It reads chain state and builds
+// unsigned transactions for the user to sign. It holds one key, the API signer's (reading D-01 of DEC-112), with which
+// it signs swap routes (EIP-712, founder chat 1 of 2026-10-02). Run: `pnpm api` (after `pnpm run up`).
 //
 //   GET  /health                         nodes, clocks, report and price freshness, whether mints are open
 //   GET  /fund                           identity, value bases, Share Price, Spoke Cap usage, latest spoke report
@@ -8,6 +9,8 @@
 //   GET  /quote/deposit?from=&amount=    exact deposit outcome by eth_call (shares, USDC charged) or the decoded revert
 //   GET  /quote/claim?from=              exact claim outcome by eth_call (the receipt) or the decoded revert
 //   GET  /quote/swap?amountIn=&tokenIn=  hub swap minimum from the oracle less the API's slippage (security review S-8)
+//   GET  /quote/swap-route?chain=&tokenIn=&tokenOut=&amountIn=&slippageBps=&adapter=
+//                                        the best V3 path by QuoterV2, signed for a swap adapter (DEC-136, DEC-153)
 //   POST /tx/deposit      {from, amount, minShares?}      approve + deposit, unsigned
 //   POST /tx/request      {from, amount, mode}            requestPayout, unsigned
 //   POST /tx/claim        {from}                          claimPayout with the unwind route hints the API computes
@@ -21,11 +24,13 @@ import {
   coreVaultAbi,
   erc20Abi,
   spokeVaultAbi,
+  uniswapV3SwapAdapterAbi,
   valueReportReceiverAbi,
 } from "./abis.ts";
-import { nodes, nodesUp, read, type Side } from "./chain.ts";
-import { ARBITRUM, HUB_POOL_ID, isMain } from "./config.ts";
+import { latestTimestamp, nodes, nodesUp, read, type Side } from "./chain.ts";
+import { ARBITRUM, HUB_POOL_ID, SWAP_ADAPTER_TOKENS, actors, isMain } from "./config.ts";
 import { readState, type DeploymentState } from "./state.ts";
+import { encodeRoute, legsHash, quotePaths, signRoute } from "./swap-route.ts";
 
 export const API_PORT = Number(process.env.LOCAL_E2E_API_PORT ?? 8787);
 
@@ -64,6 +69,11 @@ function addressParam(value: string | undefined, name: string): Address {
 function amountParam(value: string | undefined, name: string): bigint {
   if (!value || !/^[0-9]+$/.test(value)) throw new HttpError(400, `${name} must be an integer in base units`);
   return BigInt(value);
+}
+
+function sideParam(value: string | undefined): Side {
+  if (value === "arbitrum" || value === "robinhood") return value;
+  throw new HttpError(400, "chain must be arbitrum or robinhood");
 }
 
 /** USDC base units as a decimal string, for humans; every value is also returned in base units. */
@@ -337,6 +347,71 @@ export async function coreEvents(state: DeploymentState, fromBlock: bigint) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+// Signed swap routes (founder chat 1 of 2026-10-02; DEC-136, DEC-142, DEC-143, DEC-153; readings D-01, D-02, D-52)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** How long a signed route stays valid: long enough for the manager or an executor to send it. */
+const ROUTE_LIFETIME_SECONDS = 600n;
+
+/** The swap adapter routes are signed for: the one `adapter` names, else the harness's instance on that chain (the
+ *  fund's own adapter once the factory deploys swap adapters, WP-07). */
+function swapAdapterOf(state: DeploymentState, side: Side, adapter?: string): Address {
+  return adapter ? addressParam(adapter, "adapter") : state.helpers.swapAdapters[side];
+}
+
+/** The best single V3 path for the swap, direct or through another Mandate token of the adapter (D-52: the API never
+ *  signs a hop the adapter would refuse), quoted by QuoterV2 on the fork and signed by the API signer. The minimum is
+ *  the quote less `slippageBps`; the adapter scales it to the amount it actually sells. */
+export async function quoteSwapRoute(
+  state: DeploymentState,
+  side: Side,
+  tokenIn: Address,
+  tokenOut: Address,
+  amountIn: bigint,
+  slippageBps: bigint,
+  adapterParam?: string,
+) {
+  if (amountIn === 0n) throw new HttpError(400, "amountIn must be above zero");
+  if (slippageBps > 10_000n) throw new HttpError(400, "slippageBps must be at most 10000");
+  const adapter = swapAdapterOf(state, side, adapterParam);
+  const isMandateToken = (token: Address) =>
+    read<boolean>(side, { address: adapter, abi: uniswapV3SwapAdapterAbi, functionName: "isMandateToken", args: [token] });
+  if (!(await isMandateToken(tokenIn)) || !(await isMandateToken(tokenOut))) {
+    throw new HttpError(422, "tokenIn and tokenOut must be Mandate tokens of the swap adapter (DEC-136 item 2)");
+  }
+  const mandateTokens: Address[] = [];
+  for (const token of SWAP_ADAPTER_TOKENS[side]) if (await isMandateToken(token)) mandateTokens.push(token);
+  const quotes = await quotePaths(side, tokenIn, tokenOut, amountIn, mandateTokens);
+  if (quotes.length === 0) throw new HttpError(422, "no Uniswap V3 path quotes this swap");
+  const best = quotes[0];
+  const unsigned = {
+    paths: [best.path],
+    weightsBps: [10_000],
+    quotedAmountIn: amountIn,
+    minAmountOut: (best.amountOut * (10_000n - slippageBps)) / 10_000n,
+    deadline: (await latestTimestamp(side)) + ROUTE_LIFETIME_SECONDS,
+  };
+  const chainId = nodes[side].chain.id;
+  const route = { ...unsigned, signature: await signRoute(adapter, chainId, tokenIn, tokenOut, unsigned) };
+  return {
+    chainId,
+    adapter,
+    signer: actors.apiSigner.address,
+    tokenIn,
+    tokenOut,
+    amountIn,
+    quotedAmountOut: best.amountOut,
+    path: { tokens: best.tokens, fees: best.fees, packed: best.path },
+    legsHash: legsHash(route.paths, route.weightsBps),
+    slippageBps,
+    candidates: quotes.map((q) => ({ tokens: q.tokens, fees: q.fees, amountOut: q.amountOut, gasEstimate: q.gasEstimate })),
+    route,
+    /** `abi.encode(ApiRoute)`: the `route` argument of the adapter's `swap`. */
+    encodedRoute: encodeRoute(route),
+  };
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 // HTTP
 // ---------------------------------------------------------------------------------------------------------------------
 
@@ -351,6 +426,20 @@ const routes: { method: string; pattern: RegExp; handler: (state: DeploymentStat
   { method: "POST", pattern: /^\/tx\/request$/, handler: async (s, _m, _u, b) => buildRequest(s, amountParam(b.amount, "amount"), b.mode === "standard" ? "standard" : "instant") },
   { method: "POST", pattern: /^\/tx\/claim$/, handler: (s) => buildClaim(s) },
   { method: "POST", pattern: /^\/tx\/swap$/, handler: (s, _m, _u, b) => buildSwap(s, addressParam(b.tokenIn, "tokenIn"), amountParam(b.amountIn, "amountIn"), b.slippageBps ? amountParam(b.slippageBps, "slippageBps") : API_SLIPPAGE_BPS) },
+  {
+    method: "GET",
+    pattern: /^\/quote\/swap-route$/,
+    handler: (s, _m, u) =>
+      quoteSwapRoute(
+        s,
+        sideParam(u.searchParams.get("chain") ?? undefined),
+        addressParam(u.searchParams.get("tokenIn") ?? undefined, "tokenIn"),
+        addressParam(u.searchParams.get("tokenOut") ?? undefined, "tokenOut"),
+        amountParam(u.searchParams.get("amountIn") ?? undefined, "amountIn"),
+        u.searchParams.has("slippageBps") ? amountParam(u.searchParams.get("slippageBps") ?? undefined, "slippageBps") : API_SLIPPAGE_BPS,
+        u.searchParams.get("adapter") ?? undefined,
+      ),
+  },
   { method: "GET", pattern: /^\/events$/, handler: (s, _m, u) => coreEvents(s, BigInt(u.searchParams.get("fromBlock") ?? hub(s).hub.createdInBlock)) },
 ];
 
