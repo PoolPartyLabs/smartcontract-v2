@@ -73,8 +73,8 @@ contract DeprecatedAdapterFork is EndToEndScenario {
         console2.log("unwind proceeds", r.unwindProceeds);
         assertFalse(failed, "the unwind ran");
         assertGt(r.unwindProceeds, 0);
-        assertEq(r.usdcOutstanding, 0, "paid in full");
-        assertFalse(core.payoutRequest(bruno).open, "the request closed");
+        assertEq(r.excludedPositions, 0, "deprecation excludes no position");
+        _assertPayoutOutcome(plan, r);
 
         // 2. Exits still work: the manager closes the V4 position; its WETH lands in Unallocated Balance.
         vm.prank(manager);

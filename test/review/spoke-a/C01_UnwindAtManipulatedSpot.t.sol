@@ -1,20 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {ISpokeVaultUnwind} from "../../../src/interfaces/ISpokeVaultUnwind.sol";
 import {console2} from "forge-std/Test.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {SpokeAHubFixture} from "./SpokeAHubFixture.sol";
 
-/// @notice [C-01] (spoke-a), ported to main. At `e5c778a` the automatic unwind floored its swap at 95% of the pool's
-///         spot, so a claimant who crushed the WETH spot made the hub Spoke Vault close a 1,000,000 USDC position and
-///         sell 410 WETH for 820 USDC (Share Assets 1,017,446 -> 18,239). Security review S-2 floors the swap at
-///         max(spot, price source) less 5%: the same crushed-spot claim now reverts inside the unwind, the position is
-///         kept and the claim is paid from Free Idle only (DEC-068). Real CoreVault + hub SpokeVault +
-///         UniswapV4Adapter over MockV4.
-/// @dev Residuals, not asserted here: the unwind is still SIZED at spot (`SpokeVault._unwindValue` reads
-///      `spotQuote`), and a push inside the 5% floor still sells under the external price; the latter is pinned on
-///      main by `test/security/integrations/UnwindFloorResidual.t.sol` (S-2 residual).
+/// @notice DEC-148 regression: an unavailable independent swap route excludes the position and pays only from Idle.
+/// @dev The atomic step rolls back its exit, preserves the position and leaves the request open for retry (DEC-151).
 contract C01_UnwindAtManipulatedSpot is SpokeAHubFixture {
     function test_REVIEW_C01_crushedSpotUnwindRevertsAndTheClaimIsPaidFromIdleOnly() public {
         _deposit(alice, 1_000_000e6);
@@ -30,10 +24,10 @@ contract C01_UnwindAtManipulatedSpot is SpokeAHubFixture {
 
         // Same push as the e5c778a PoC: WETH spot at 1/1,250 of the oracle, the mock fills at that spot.
         _crushWethSpot(1250);
-        v4.setSwap(adapter.spotQuote(poolId, address(weth), 1e18), 10_000);
+        hubSwap.setNoRoute(true);
 
-        vm.expectEmit(false, false, false, false, address(vault));
-        emit ICoreVaultPayouts.UnwindForPayoutFailed(bytes32(0), "");
+        vm.expectEmit(false, false, false, false, address(hubVault));
+        emit ISpokeVaultUnwind.UnwindStepExcluded(bytes32(0), address(adapter), bytes32(0), "");
         ICoreVault.PayoutReceipt memory r = _request(mallory, 19_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         _restoreSpot();
 

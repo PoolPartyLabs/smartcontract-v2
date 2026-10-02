@@ -18,8 +18,8 @@ import {V4SwapRouter} from "../../mocks/v4/V4SwapRouter.sol";
 ///         of the start price) it measures the token sold to reach it and the cost of the round trip back to the exact
 ///         start price (LP fees plus rounding), valued at the Chainlink ETH / USD answer the fund's price source reads.
 /// @notice Ported to fix/pp-sc-fix-independent-review (review I-08): MEASUREMENT, kept unchanged; no contract change
-///         touches pool depth. The numbers feed the S-2 residual (`UnwindAttackFork` section 8) and the
-///         `MAX_UNWIND_SLIPPAGE_BPS` decision.
+///         touches pool depth. The numbers fed the S-2 residual (`UnwindAttackFork` section 8, before the proportional
+///         unwind of WP-09 removed the 5% floor).
 /// @dev Run: ARBITRUM_RPC_URL=https://arb1.arbitrum.io/rpc ROBINHOOD_RPC_URL=https://rpc.mainnet.chain.robinhood.com
 ///      ARBITRUM_FORK_BLOCK=<head - 300> ROBINHOOD_FORK_BLOCK=<head - 300>
 ///      forge test -j 1 --match-path 'test/review/integration-price/DepthProbeFork.t.sol' -vv

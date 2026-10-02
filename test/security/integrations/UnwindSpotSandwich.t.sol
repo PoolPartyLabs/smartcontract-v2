@@ -55,16 +55,8 @@ contract Sandwicher {
     }
 }
 
-/// @title Regression (security review S-2): the automatic unwind's price floor no longer follows a spot price the
-///        claimant moves first
-/// @notice Was PoC `test_POC_unwindSwapFloorIsRelativeToManipulatedSpot` (high, integrations lens): the unwind swap
-///         was floored at `IAdapter.spotQuote` (Uniswap V4 `slot0`) less 5%, read inside the claim after any swap the
-///         claimant put in front of it; a claimant who crashed the pool with flash-loaned WETH made the unwind sell
-///         51.6 WETH 29.2% under the external price (victim -31,716 USDC, attacker +28,242 USDC).
-/// @dev Fix (S-2, `SpokeVault._unwindSwap`): the floor is the higher of the spot quote and the Core Vault's
-///      price-source value, less 5%. The test repeats the sandwich and asserts it now FAILS: the unwind swap cannot
-///      execute at the crashed price, so the unwind reverts, the claim is paid from Idle only (DEC-068), the victim
-///      loses nothing to the sandwich and the attacker gains nothing over an honest claim.
+/// @notice DEC-136 regression: a pushed V4 position exits proportionally and its WETH is sold outside the fund pool.
+/// @dev No oracle sale floor remains (DEC-132/140); the requester may instead bound each sale with maxLossBps.
 contract UnwindSpotSandwichTest is HubFundFixture {
     address internal victim = makeAddr("victim");
     Sandwicher internal attacker;
@@ -114,13 +106,10 @@ contract UnwindSpotSandwichTest is HubFundFixture {
         (uint256 wethSold,) = _unwindSwap(logs);
         assertApproxEqRel(_usdcPerWeth(_spotSqrtPrice()), WETH_PRICE * 1e6, 0.001e18, "price restored");
 
-        // S-2: the fund's WETH was not sold at the crashed price; the unwind reverted and the claim was paid from Idle.
-        assertEq(wethSold, 0, "S-2: no unwind swap at the crashed spot");
-        assertEq(r.unwindProceeds, 0, "S-2: nothing unwound");
-        assertTrue(_emitted(logs, ICoreVaultPayouts.UnwindForPayoutFailed.selector), "S-2: the unwind reverted");
-
-        assertGe(_wealth(victim) + 500e6, victimHonest, "S-2: the victim loses nothing to the sandwich");
-        assertLe(_wealth(address(attacker)), attackerHonest + _fair(dump), "S-2: the attacker gains nothing");
+        assertEq(wethSold, 0, "DEC-136: no sale in the fund pool");
+        assertGt(r.unwindProceeds, 0, "DEC-137: proportional exit delivers through the swap adapter");
+        assertGt(hubSwap.calls(), 0, "the Mandate swap adapter executes the sale");
+        assertEq(r.leaverCost, 0, "the mock independent route has no Market Cost");
     }
 
     function _emitted(Vm.Log[] memory logs, bytes32 selector) internal view returns (bool) {

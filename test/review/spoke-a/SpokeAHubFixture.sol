@@ -245,9 +245,10 @@ abstract contract SpokeAHubFixture is Test, FundSeed {
         (positionKey,,) = hubVault.openPosition(address(adapter), poolId, a0, a1, params);
     }
 
-    /// @dev MockV4 swaps at one fixed rate in both directions: set it to WETH -> USDC at the oracle price (2,500), the
-    ///      direction every unwind swap takes.
+    /// @dev The automatic unwind sells through the Mandate swap adapter (DEC-136 item 4): its stand-in sells WETH into
+    ///      USDC at the oracle price (2,500). MockV4 keeps that rate too, for the tests that trade in the pool.
     function _unwindSwapsAtOracle() internal {
+        hubSwap.setPrice(address(weth), address(usdc), 2500e6, 1e18);
         v4.setSwap(2500e6, 10_000);
     }
 

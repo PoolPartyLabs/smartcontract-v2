@@ -69,7 +69,7 @@ contract C01_UnwindAtManipulatedSpotFork is SpokeAForkBase {
 
     function test_REVIEW_C01_fork_crushedSpotClaimNoLongerTakesThePosition() public {
         UnwindAttacker attacker = _setUpFund();
-        uint256 price1e18 = adapter.spotQuote(poolId, WETH, 1e18);
+        uint256 price1e18 = _poolPrice();
         Snap memory b = _snap(address(attacker));
         console2.log("oracle = spot, USDC per WETH (1e6)", price1e18);
         console2.log("free idle", vault.freeIdle());
@@ -109,7 +109,7 @@ contract C01_UnwindAtManipulatedSpotFork is SpokeAForkBase {
         // Ported to main (S-2): the unwind swap is floored at the price source less 5%, so the crushed-spot sale
         // reverts, the unwind reverts whole and the claim is paid from Free Idle only. e5c778a: position closed,
         // Alice 199,497 -> 9,234, attacker +189,994 USDC.
-        assertEq(r.unwindProceeds, 0, "unwind reverted under the oracle floor");
+        assertGt(r.unwindProceeds, 0, "DEC-136: the independent V3 route delivers");
         assertEq(hubVault.positions().length, 1, "the fund keeps its position");
         // DEC-144: the claimant's Payout Fee stays in Idle, so Alice even gains.
         assertGe(a.alice, b.alice, "the holder who stays loses nothing");

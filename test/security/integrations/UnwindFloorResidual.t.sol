@@ -54,15 +54,8 @@ contract BoundedSandwicher {
     }
 }
 
-/// @title Final verification of security review S-2: the residual leak inside the 5% floor
-/// @notice S-2 (`SpokeVault._unwindSwap`) floors the automatic unwind's swap at the higher of the spot quote and the
-///         price-source value, less `MAX_UNWIND_SLIPPAGE_BPS` (500). The fix stops the crash sandwich the PoC showed
-///         (29% under the external price). It does not stop a sandwich that stays inside the floor: a claimant who
-///         pushes the pool about 4% under the external price still makes the fund sell its WETH there, buys it back and
-///         keeps the difference, which the holders who stay pay. The leak is bounded by the floor (5% of the amount
-///         unwound) but it is real, repeatable (a Standard Payout carries no Payout Fee) and the parameter is OPEN
-///         (QA3). This test pins the bound so the founder's ruling on `MAX_UNWIND_SLIPPAGE_BPS` has a number.
-/// @dev Same fixture and sizes as `UnwindSpotSandwichTest`; the only difference is how far the attacker pushes.
+/// @notice DEC-136 regression: pushing the fund's V4 pool does not discount the independent swap-adapter sale.
+/// @dev The V4 exit composition can still move; DEC-137 bounds the exited principal by the stored fraction (D-18).
 contract UnwindFloorResidualTest is HubFundFixture {
     address internal victim = makeAddr("victim");
     BoundedSandwicher internal attacker;
@@ -106,23 +99,10 @@ contract UnwindFloorResidualTest is HubFundFixture {
         (uint256 wethSold, uint256 usdcGot) = _unwindSwap(logs);
         _arbToExternalPrice();
 
-        // The unwind ran: the fund sold WETH inside the claim, at the pushed price.
-        assertGt(wethSold, 0, "the unwind swap executed");
-        assertGt(r.unwindProceeds, 0, "the unwind produced proceeds");
-        uint256 fair = _fair(wethSold);
-        assertLt(usdcGot, fair * 97 / 100, "the fund sold at least 3% under the external price");
-        assertGe(usdcGot, fair * 95 / 100, "and no lower than the floor allows");
-
-        // The holders who stay pay for it, the claimant keeps it: a bounded but real transfer.
-        uint256 victimLoss = victimHonest - _wealth(victim);
-        uint256 attackerGain = _wealth(address(attacker)) - _fair(flash) - attackerHonest;
-        emit log_named_uint("WETH sold by the unwind (wei)", wethSold);
-        emit log_named_uint("USDC received", usdcGot);
-        emit log_named_uint("fair value of that WETH", fair);
-        emit log_named_uint("victim loss vs honest claim (USDC)", victimLoss);
-        emit log_named_uint("attacker gain vs honest claim (USDC)", attackerGain);
-        assertGt(victimLoss, 1000e6, "the victim loses more than 1,000 USDC to a sandwich the floor allows");
-        assertGt(attackerGain, 1000e6, "the attacker keeps more than 1,000 USDC of it");
+        assertEq(wethSold, 0, "DEC-136: no sale in the fund pool");
+        assertGt(r.unwindProceeds, 0, "DEC-137: proportional exit delivers through the swap adapter");
+        assertGt(hubSwap.calls(), 0, "the Mandate swap adapter executes the sale");
+        assertEq(r.leaverCost, 0, "the mock independent route has no Market Cost");
     }
 
     /// @dev The adapter's `Swapped(poolKey, tokenIn, tokenOut, amountIn, amountOut)` of the unwind swap.

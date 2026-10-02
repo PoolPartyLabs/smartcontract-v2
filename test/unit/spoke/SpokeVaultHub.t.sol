@@ -342,7 +342,7 @@ contract SpokeVaultHubTest is SpokeVaultTestBase {
         vault.decreasePosition(address(hubUni), uniKey, abi.encode(uint256(5000)));
         (, uint256 principalBefore,,,,) = hubUni.position(uniKey);
         ISpokeVaultUnwind.UnwindResult memory retry = core.unwind(vault, _unwindRequest(REQUEST, 1, 2, 700, true));
-        assertEq(retry.delivered, 1);
+        assertEq(retry.delivered, 2, "the resized position and newly Unallocated WETH deliver");
         (, uint256 principalAfter,,,,) = hubUni.position(uniKey);
         assertEq(principalAfter, principalBefore / 2);
         (, uint256 aavePrincipal,,,) = _aave(aaveKey);

@@ -5,6 +5,7 @@ import {Vm} from "forge-std/Vm.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ISpokeVaultUnwind} from "../../../src/interfaces/ISpokeVaultUnwind.sol";
 import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {IAdapter} from "../../../src/interfaces/IAdapter.sol";
 import {ShareMath} from "../../../src/libraries/ShareMath.sol";
@@ -41,29 +42,30 @@ contract EndToEndAdversarialForkTest is EndToEndScenario {
         uint256 idleBefore = core.idle();
         assertEq(core.freeIdle(), idleBefore - reserve, "DEC-072: Free Idle excludes the reserve");
 
+        // DEC-160: a fresh spoke report before the burn.
+        _deliverFreshSpokeReport();
         // Bruno asks 1,000 above Free Idle: without the reserve rule Idle alone would cover 2,000 of it.
         InstantPlan memory plan = _planInstant();
         assertLt(plan.request, idleBefore, "the request is covered by Idle, not by Free Idle");
-        // DEC-120 item 1: the Instant request is its own claim. DEC-160: after a fresh spoke report.
-        _deliverFreshSpokeReport();
+        // DEC-120 item 1: the Instant request is its own claim.
         vm.recordLogs();
         vm.prank(bruno);
         ICoreVault.PayoutReceipt memory receipt =
             core.requestPayout(plan.request, ICoreVaultPayouts.PayoutMode.Instant, 0);
-        (uint256 target, uint256 proceeds) = _unwound(vm.getRecordedLogs());
+        (, uint256 fracNum, uint256 fracDen, ISpokeVaultUnwind.UnwindResult memory u) = _unwound(vm.getRecordedLogs());
 
-        assertEq(target, plan.target, "DEC-095, DEC-081: the shortfall is measured against Free Idle, plus 2%");
-        assertGt(proceeds, 0, "DEC-095: the reserve did not pay, the unwind did");
+        assertEq(fracNum, plan.fracNum, "DEC-095, DEC-137: the fraction is measured against Free Idle, plus 2%");
+        assertEq(fracDen, plan.fracDen);
+        assertGt(u.proceeds, 0, "DEC-095: the reserve did not pay, the unwind did");
         assertEq(core.payoutReserve(), reserve, "DEC-095: the Payout Reserve survives the Instant claim");
         assertLe(core.payoutReserve(), core.idle(), "DEC-072: Payout Reserve <= Idle");
-        // DEC-144: the Payout Fee stays in Idle.
+        // DEC-144, DEC-118: the Payout Fee and the requester's Market Cost stay in Idle.
         assertEq(
             core.idle(),
-            idleBefore + proceeds - receipt.usdcGross + receipt.payoutFee,
+            idleBefore + u.proceeds - receipt.usdcGross + receipt.payoutFee + receipt.leaverCost,
             "DEC-080: Idle moved by the proceeds and the payout only"
         );
-        assertEq(receipt.usdcOutstanding, 0, "paid in full");
-        assertFalse(core.payoutRequest(bruno).open, "DEC-074: closed");
+        assertLe(receipt.usdcGross, idleBefore - reserve + u.proceeds, "DEC-095: never from the reserve");
         assertEq(receipt.payoutFee, ShareMath.bpsOf(receipt.usdcGross, 200), "DEC-075: Payout Fee");
 
         _advance(72 hours);

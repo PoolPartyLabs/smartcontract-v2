@@ -243,10 +243,6 @@ abstract contract EndToEndBase is Test, FactoryDeployment, FundMandate, FundSeed
         return abi.encode(UniswapV4Adapter.CloseParams({amount0Min: 0, amount1Min: 0, deadline: block.timestamp}));
     }
 
-    function _swapParams() internal view returns (bytes memory) {
-        return abi.encode(UniswapV4Adapter.SwapExactInputParams({sqrtPriceLimitX96: 0, deadline: block.timestamp}));
-    }
-
     /// @dev A test router on `PoolManager.unlock` for a third-party trader, funded and approved on the selected fork.
     function _deployRouter(address poolManager, address token0, address token1, uint256 amount0, uint256 amount1)
         internal
