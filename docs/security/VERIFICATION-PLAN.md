@@ -1,5 +1,10 @@
 # Test and formal verification plan: status against main
 
+Current docs-sync baseline: **`1db9a9d`, 2026-10-02**, through PR #15, DEC-001..DEC-187. Historic plan/proof
+subjects below retain their original commit scope. S-8/F-13 is now **ACCEPTED by DEC-129**, not an open price-floor
+decision. Unit/invariant tests exist; full formal verification and an external audit are not complete.
+Linked unwind lives in `src/spoke/SpokeUnwindLib.sol`; Core Vault now links four libraries (ARCHITECTURE section 1).
+
 The founder commissioned, on 2026-09-30, a plan to choose for every contract which of 13 tools to run (Slither,
 Aderyn, Solhint, Wake; Echidna, Foundry, Medusa; Halmos, Mythril, Manticore, hevm, Kontrol; Scribble), to reach the
 highest coverage possible, and to prepare formal verification. The plan is in
@@ -77,7 +82,7 @@ Before any further wave (plan section 10.1); the research recommendation is the 
 | F-10 | Refactor batch before the audit freeze | One batch, each refactor proven equivalent with `hevm equivalence` |
 | F-11 | Mythril and Manticore verdicts, Scribble on the Across adapter | As scheduled (Mythril bounded on the four MCOPY-free runtimes) |
 | F-12 | Script additions outside `src/` (`CheckFundPlan.s.sol`, wiring checks in `FactoryDeployment.sol`) | Allow |
-| F-13 | SYS-7b: the manager chooses every swap minimum | Record an acceptance under DEC-030 or add a Mandate slippage bound (our register: S-8, open) |
+| F-13 | SYS-7b: the manager chooses every swap minimum | Accepted DEC-129; no mandatory oracle floor, optional adapter/API bounds PR #4/#13 do not prove manager price safety |
 | F-14 | Proof subject for phases 3 to 5, and who lands the fix batch | Rulings, one fix batch on a freeze tag, re-baseline, then proofs |
 
 The defect rulings R-1 to R-14 of plan section 10.3 are mapped to their status in
@@ -85,8 +90,9 @@ The defect rulings R-1 to R-14 of plan section 10.3 are mapped to their status i
 
 ## 4. Recommended order from here
 
-The plan's leaner alternative (section 9), which this repository's state now favours: rule on the open items, land
-one fix batch on a freeze tag, send that tag to an external audit, and run formal phases 3 to 5 on the audited and
-fixed code. Cheap items worth doing before the audit: the static-analysis ratchets and a coverage job in CI, the
+DEC-133 sets the governing order: **unit tests -> invariants -> formal verification -> external audit**. Freeze and
+rebaseline the final implementation before making formal claims; internal alpha DEC-134 is a separate acceptance,
+not an audit substitute. WP-09/10/12/13 remain in progress, WP-14/16 deferred, WP-17 optional.
+Cheap items worth doing before the audit: the static-analysis ratchets and a coverage job in CI, the
 plan's 81 zero-hit branch gaps re-measured on main, the bounded Mythril run on `ChainlinkPriceSource`, and the
 missing harness actions of [`INVARIANTS.md`](INVARIANTS.md) (moved spot, deprecation, delivery gas).
