@@ -139,7 +139,7 @@ contract UniswapV3SwapAdapter is AdapterGuard, EIP712, ISwapAdapter {
     {
         _requireSwap(tokenIn, tokenOut, amountIn);
         if (route.length == 0) {
-            (uint24 fee,) = _bestDirectFee(tokenIn, tokenOut, amountIn);
+            (uint24 fee,) = _bestDirectFee(tokenIn, tokenOut, amountIn, maxLossBps);
             return _swapDirect(tokenIn, tokenOut, amountIn, fee, maxLossBps);
         }
 
@@ -169,13 +169,13 @@ contract UniswapV3SwapAdapter is AdapterGuard, EIP712, ISwapAdapter {
     // ------------------------------------------------------------------------------------------------------------
 
     /// @inheritdoc ISwapAdapter
-    function bestDirectFee(address tokenIn, address tokenOut, uint256 amountIn)
+    function bestDirectFee(address tokenIn, address tokenOut, uint256 amountIn, uint16 maxLossBps)
         external
         returns (uint24 fee, uint256 quotedOut)
     {
         _requirePair(tokenIn, tokenOut);
         if (amountIn == 0) revert ZeroAmount();
-        return _bestDirectFee(tokenIn, tokenOut, amountIn);
+        return _bestDirectFee(tokenIn, tokenOut, amountIn, maxLossBps);
     }
 
     /// @inheritdoc ISwapAdapter
@@ -222,31 +222,59 @@ contract UniswapV3SwapAdapter is AdapterGuard, EIP712, ISwapAdapter {
     }
 
     /// @dev DEC-153: highest QuoterV2 output among the factory pools of the direct pair in the four tiers, skipping
-    ///      missing pools and pools without in-range liquidity; each quote capped at `QUOTE_GAS_CAP` (D-21).
-    ///      A quote counts only if it fills the whole input. For an exact input QuoterV2 returns the output and drops
-    ///      the amount the pool took, so a tier whose liquidity runs out quotes what it drained and could outbid a tier
-    ///      that fills, while the swap in it would revert `PartialFill`. A V3 pool stops an exact-input swap only when
-    ///      the input is spent or the price reaches the limit, and the quote uses the widest limit, so a quote whose
-    ///      price ends at that limit is a partial fill and the tier is skipped.
-    function _bestDirectFee(address tokenIn, address tokenOut, uint256 amountIn)
+    ///      missing pools and pools without in-range liquidity; each quote capped at `QUOTE_GAS_CAP` (D-21). Only
+    ///      tiers the sale can execute in compete:
+    ///      - A quote counts only if it fills the whole input. For an exact input QuoterV2 returns the output and
+    ///        drops the amount the pool took, so a tier whose liquidity runs out quotes what it drained and could
+    ///        outbid a tier that fills, while the swap in it would revert `PartialFill`. A V3 pool stops an exact-input
+    ///        swap only when the input is spent or the price reaches the limit, and the quote uses the widest limit,
+    ///        so a quote whose price ends at that limit is a partial fill and the tier is skipped.
+    ///      - With a maximum loss, a quote counts only if it meets that maximum against its own tier's mid price, the
+    ///        reference the swap applies (DEC-153 consequence: the maximum is measured against the chosen pool). A
+    ///        third party can create a missing or dust tier at a mid price it chose and fill the whole input there;
+    ///        if that tier won on output alone, it would set the loss reference and fail a sale an honest tier fills
+    ///        within the maximum. When no tier meets the maximum, the best overall is returned, and the swap in it
+    ///        reverts `InsufficientOutput`, as before.
+    function _bestDirectFee(address tokenIn, address tokenOut, uint256 amountIn, uint16 maxLossBps)
         private
         returns (uint24 fee, uint256 best)
     {
         uint24[4] memory tiers = [uint24(100), 500, 3000, 10_000];
-        // QuoterV2's limit for `sqrtPriceLimitX96 == 0` (V4's MIN/MAX_SQRT_PRICE equal V3's MIN/MAX_SQRT_RATIO).
-        uint160 limit = tokenIn < tokenOut ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1;
+        uint24 anyFee;
+        uint256 anyBest;
         for (uint256 i; i < 4; ++i) {
-            address pool = v3Factory.getPool(tokenIn, tokenOut, tiers[i]);
-            if (pool == address(0) || IUniswapV3Pool(pool).liquidity() == 0) continue;
-            try quoterV2.quoteExactInputSingle{gas: QUOTE_GAS_CAP}(
-                IQuoterV2.QuoteExactInputSingleParams(tokenIn, tokenOut, amountIn, tiers[i], 0)
-            ) returns (
-                uint256 out, uint160 sqrtPriceX96After, uint32, uint256
-            ) {
-                if (out > best && sqrtPriceX96After != limit) (best, fee) = (out, tiers[i]);
-            } catch {}
+            (bool fills, uint256 out, bool withinLoss) = _quoteTier(tokenIn, tokenOut, amountIn, tiers[i], maxLossBps);
+            if (!fills) continue;
+            if (out > anyBest) (anyBest, anyFee) = (out, tiers[i]);
+            if (withinLoss && out > best) (best, fee) = (out, tiers[i]);
         }
-        if (best == 0) revert NoRoute(tokenIn, tokenOut);
+        if (anyBest == 0) revert NoRoute(tokenIn, tokenOut);
+        if (best == 0) (fee, best) = (anyFee, anyBest);
+    }
+
+    /// @dev One tier of `_bestDirectFee`: whether its pool quotes a fill of the whole input within the gas cap, the
+    ///      quoted output, and whether that output meets `maxLossBps` against the pool's own mid price (always true
+    ///      without a maximum, D-23).
+    function _quoteTier(address tokenIn, address tokenOut, uint256 amountIn, uint24 fee, uint16 maxLossBps)
+        private
+        returns (bool fills, uint256 out, bool withinLoss)
+    {
+        address pool = v3Factory.getPool(tokenIn, tokenOut, fee);
+        if (pool == address(0) || IUniswapV3Pool(pool).liquidity() == 0) return (false, 0, false);
+        bool zeroForOne = tokenIn < tokenOut;
+        try quoterV2.quoteExactInputSingle{gas: QUOTE_GAS_CAP}(
+            IQuoterV2.QuoteExactInputSingleParams(tokenIn, tokenOut, amountIn, fee, 0)
+        ) returns (
+            uint256 quoted, uint160 sqrtPriceX96After, uint32, uint256
+        ) {
+            // QuoterV2's limit for `sqrtPriceLimitX96 == 0` (V4's MIN/MAX_SQRT_PRICE equal V3's MIN/MAX_SQRT_RATIO).
+            fills = sqrtPriceX96After != (zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1);
+            out = quoted;
+        } catch {
+            return (false, 0, false);
+        }
+        (uint160 sqrtPriceX96,,,,,,) = IUniswapV3Pool(pool).slot0();
+        withinLoss = out >= _minOut(_atSpot(amountIn, sqrtPriceX96, zeroForOne), maxLossBps, 0);
     }
 
     /// @dev Deadline, leg structure and signature of an API route (D-01). Paths are checked hop by hop in `_spotAlong`.

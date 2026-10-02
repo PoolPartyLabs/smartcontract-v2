@@ -119,7 +119,7 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
         uint256 fullOut = _assertTheDrainedTierQuotesMore(c, t1, t0, amountIn);
 
         _setUpWithBase(c, t0, _tokens2(t0, t1));
-        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(t1, t0, amountIn);
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(t1, t0, amountIn, NO_MAX);
         assertEq(uint256(fee), 500, "the best tier that fills");
         assertEq(quoted, fullOut);
         (uint256 out,,) = _swap(t1, t0, amountIn, NO_MAX, "", "no API, a drained 1% tier next to a 0.05% tier");
@@ -146,7 +146,7 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
     /// @dev D-21: the vault's own libraries choose the tier once and reuse it; `swapDirect` skips the quotes.
     function test_robinhood_bestDirectFeeThenSwapDirect() public {
         _setUp(_robinhood(), _tokens2(RH_WETH, RH_USDG));
-        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(RH_WETH, RH_USDG, 10e18);
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(RH_WETH, RH_USDG, 10e18, 100);
         uint256 spot = adapter.spotValue(RH_WETH, RH_USDG, 10e18, fee);
         assertGt(spot, quoted, "the mid value has no fee and no impact");
         assertLt(_lossBps(spot, quoted), 100, "within 1% of the quote");
@@ -398,7 +398,7 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
             }
         }
         uint256 quoted;
-        (fee, quoted) = adapter.bestDirectFee(tokenIn, tokenOut, amountIn);
+        (fee, quoted) = adapter.bestDirectFee(tokenIn, tokenOut, amountIn, NO_MAX);
         console2.log("adapter's tier", uint256(fee));
         assertEq(fee, bestFee, "the tier with the highest quote");
         assertEq(quoted, best);
