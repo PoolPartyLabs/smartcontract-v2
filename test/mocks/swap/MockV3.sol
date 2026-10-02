@@ -95,6 +95,7 @@ contract MockV3Factory {
 contract MockQuoterV2 {
     MockV3Factory public immutable factory;
     mapping(address pool => uint256) public quotes;
+    mapping(uint256 => uint256) private _burn;
 
     constructor(MockV3Factory factory_) {
         factory = factory_;
@@ -110,7 +111,7 @@ contract MockQuoterV2 {
         if (pool.mode() == MockV3Pool.Mode.QuoteBurnsGas) {
             // An empty or dust tier walking the tick bitmap: consumes all the gas it was given.
             for (uint256 i;; ++i) {
-                quotes[address(uint160(i))] = i;
+                _burn[i] = i + 1;
             }
         }
         amountOut = pool.out(params.tokenIn, params.amountIn);
@@ -147,7 +148,7 @@ contract MockSwapRouter02 {
         bytes memory path = params.path;
         address tokenIn = _addr(path, 0);
         uint256 spent = params.amountIn - params.amountIn * partialBps / 10_000;
-        IERC20(tokenIn).transferFrom(msg.sender, address(this), spent);
+        require(IERC20(tokenIn).transferFrom(msg.sender, address(this), spent), "pull failed");
         amountOut = spent;
         address a = tokenIn;
         for (uint256 off = 20; off < path.length; off += 23) {
