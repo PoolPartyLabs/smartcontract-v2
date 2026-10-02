@@ -974,9 +974,11 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     run.eq((await view<any>("arbitrum", core, coreVaultAbi, "payoutRequest", [A.bruno.address])).reserved, 0n, "DEC-095: no reserve for an Instant Payout");
     run.ok(`Bruno requests an Instant Payout of ${units(brunoRequest)} USDC, 1,000 above Free Idle (${units(free)})`);
 
-    // One hint per position the unwind may visit, in Mandate order: the V4 step's WETH swap gets a Chainlink-based
-    // minimum stricter than the vault's own floor; Aave needs none (EndToEnd.t.sol `_unwindHints`).
-    const hintShortfall = target > hubUnallocated ? target - hubUnallocated : 0n;
+    // One hint per position the unwind may visit, in registry order (DEC-137 interim: Mandate v2 has no unwind order,
+    // and Aave was opened first): Aave needs none; the V4 step's WETH swap gets a Chainlink-based minimum stricter than
+    // the vault's own floor, sized on what Unallocated USDC and Aave leave it to cover (EndToEnd.t.sol `_unwindHints`).
+    const coveredBeforeV4 = hubUnallocated + aavePrincipalBefore;
+    const hintShortfall = target > coveredBeforeV4 ? target - coveredBeforeV4 : 0n;
     const wethOut = v4Value <= hintShortfall ? (v4.principal0 as bigint) : mulDiv(v4.principal0, hintShortfall, v4Value);
     const hints = encodeAbiParameters(
       [
@@ -999,6 +1001,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
       ],
       [
         [
+          { swaps: [] },
           {
             swaps: [
               {
@@ -1010,7 +1013,6 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
               },
             ],
           },
-          { swaps: [] },
         ],
       ],
     );
@@ -1023,20 +1025,21 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     run.eq(unwound[0].usdcProceeds, r2.unwindProceeds, "DEC-080: proceeds reached Idle through returnToIdle");
     run.true(unwound[0].usdcProceeds > 0n, "the unwind produced USDC");
     const positionsAfter = await view<readonly { adapter: Address }[]>("arbitrum", hubSpoke, spokeVaultAbi, "positions");
+    // DEC-137 interim (DEC-139): the unwind walks the hub positions in registry order, Aave (opened first) then V4,
+    // until WP-09's proportional unwind; the vault exits only what the shortfall needs (EndToEnd.t.sol
+    // `_assertRegistryOrderUnwind`).
     const unwindShortfall = target - hubUnallocated;
-    if (v4Value <= unwindShortfall) {
-      run.eq(positionsAfter.length, 1, "DEC-069: the whole V4 value was needed, so it closed first");
-      run.eq(positionsAfter[0].adapter, hubAave, "Aave remains");
-    } else {
-      run.eq(positionsAfter.length, 2, "final verification: the V4 position was only decreased");
-      run.true(
-        ((await view<any>("arbitrum", hubUni, uniswapV4AdapterAbi, "positionValue", [hubUniPosition])).liquidity as bigint) < v4Liquidity,
-        "DEC-069: the hub V4 position was unwound first, by the shortfall only",
-      );
-    }
     const aavePrincipalAfter = (await view<any>("arbitrum", hubAave, aaveV3AdapterAbi, "positionValue", [hubAavePosition])).principal0 as bigint;
+    const v4LiquidityAfter = (await view<any>("arbitrum", hubUni, uniswapV4AdapterAbi, "positionValue", [hubUniPosition])).liquidity as bigint;
+    run.eq(positionsAfter[0].adapter, hubAave, "DEC-137 interim: Aave is first in the registry");
     run.true(aavePrincipalAfter <= aavePrincipalBefore, "Aave principal never grows in an unwind");
-    run.true(aavePrincipalBefore - aavePrincipalAfter <= (unwindShortfall * SWAP_TOLERANCE_BPS) / 10_000n, "DEC-059: Aave covers at most what the V4 swap fell short");
+    if (aavePrincipalBefore > unwindShortfall) {
+      run.eq(positionsAfter.length, 2, "final verification: the Aave position was only decreased");
+      run.approx(aavePrincipalBefore - aavePrincipalAfter, unwindShortfall, AAVE_ROUNDING, "DEC-059: Aave paid the shortfall at par");
+      run.eq(v4LiquidityAfter, v4Liquidity, "the V4 position, second in the registry, was not exited");
+    } else {
+      run.true(v4LiquidityAfter < v4Liquidity, "Aave fell short, so the V4 position paid the rest");
+    }
     run.eq(r2.totalShares, supply, "total shares at the claim");
     run.eq(r2.sharePrice, r2.totalShares === 0n ? INITIAL_SHARE_PRICE : mulDiv(r2.shareAssets, 10n ** 36n, r2.totalShares), "DEC-105: the burn at the Share Price read after the unwind");
     run.eq(r2.usdcGross, usdcFor(r2.sharesBurned, r2.sharePrice), "gross");
@@ -1058,7 +1061,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
       run.eq(brunoRequestAfter.usdcOutstanding, brunoRequest - r2.usdcGross, "DEC-068: the rest stays open");
     }
     run.ok(
-      `Bruno claims: unwind target ${units(target)} USDC (shortfall + 2%), hub V4 first, proceeds ${units(r2.unwindProceeds)}; ` +
+      `Bruno claims: unwind target ${units(target)} USDC (shortfall + 2%), registry order (Aave, then V4), proceeds ${units(r2.unwindProceeds)}; ` +
         `${units(r2.sharesBurned, 18, 0)} shares burned at ${price(r2.sharePrice)}, ${units(r2.usdcPaid)} USDC paid, Payout Fee ${units(r2.payoutFee)} kept in Idle` +
         (r2.usdcOutstanding > 0n ? `, ${units(r2.usdcOutstanding)} outstanding (Partial Payout)` : ""),
     );
