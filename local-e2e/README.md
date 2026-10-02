@@ -129,9 +129,9 @@ factories create.
                 "arbitrum":  { "coreBridge": "0xa5f2…CA46", "guardianSetIndex": 8 },
                 "robinhood": { "coreBridge": "0x141f…87FB", "guardianSetIndex": 8 } },
   "protocol": {
-    "arbitrum":  { "fundFactory", "create3Deployer", "coreVaultLogic", "spokeCrossChainLib", "spokeUnwindLib",
-                   "managerRegistry", "priceSource", "transitEscrowImplementation", "protocolRecipient", "adapterGuardian",
-                   "registryOwner", "apiSigner" },
+    "arbitrum":  { "fundFactory", "create3Deployer", "coreVaultLogic", "coreVaultTransitLogic", "coreVaultIncomeLogic",
+                   "coreVaultPayoutLogic", "spokeCrossChainLib", "spokeUnwindLib", "managerRegistry", "priceSource",
+                   "transitEscrowImplementation", "protocolRecipient", "adapterGuardian", "registryOwner", "apiSigner" },
     "robinhood": { "fundFactory", "create3Deployer", "spokeCrossChainLib", "spokeUnwindLib", "transitEscrowImplementation",
                    "apiSigner" }
   },
@@ -157,6 +157,12 @@ factories create.
   }
 }
 ```
+
+`protocol.<chain>` holds each field of the struct `script/DeployFactory.s.sol`'s `run()` returns
+(`FactoryDeployment.Deployment`) under the field's own name, read from the script's ABI, with `factory` written as
+`fundFactory`. A field that is the zero address on a chain is left out (the Core Vault libraries, `managerRegistry` and
+`priceSource` on Robinhood), and every address left in is checked for code. A field the script adds appears here with
+no change to the harness.
 
 The fund's addresses are the CREATE3 predictions, so they are the same after every `up` with the same operator and
 manager keys: an app can hard-code them for local development, and the factory address matches on both chains.
