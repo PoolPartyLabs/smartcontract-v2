@@ -1341,6 +1341,11 @@
             "name": "fracDen",
             "type": "uint256",
             "internalType": "uint256"
+          },
+          {
+            "name": "pendingLeaverCost",
+            "type": "uint256",
+            "internalType": "uint256"
           }
         ]
       }
