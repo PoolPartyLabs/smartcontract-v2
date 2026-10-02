@@ -824,8 +824,10 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     const spokePrincipal = await principalValue(latest);
     run.eq(spokeValue, spokePrincipal, "the hub's spoke value is the report's principal");
     run.approx(await shareAssets(), assetsBeforeReport - inFlightBeforeReport + spokePrincipal, AAVE_ROUNDING, "DEC-083: the spoke value entered Share Assets");
-    run.true(spokePrincipal < amountToArrive, "the swap's Market Costs (and any Operating Cash, DEC-096) left the principal");
-    run.true(spokePrincipal > (amountToArrive * 99n) / 100n, "within 1% of the amount that arrived");
+    // With no Operating Cash top-up (floor 0) nothing leaves the principal for sure: the swap's Market Costs lower it,
+    // and the WETH it bought is valued at Chainlink, not at the pool's price, so the principal may land on either side
+    // of what arrived (security review S-1).
+    run.approx(spokePrincipal, amountToArrive, amountToArrive / 100n, "within 1% of the amount that arrived (Market Costs, Chainlink against the pool)");
     await bucketsMatch("DEC-104: Share Assets is the sum of its buckets");
     run.true((await view<bigint>("arbitrum", core, coreVaultAbi, "grossAssets")) > (await shareAssets()), "DEC-098: Gross Assets add income and Operating Cash");
     run.ok(
