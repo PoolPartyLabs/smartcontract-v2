@@ -10,6 +10,38 @@ import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {EndToEndScenario} from "../e2e/EndToEnd.t.sol";
 
 contract ProportionalUnwindForkTest is EndToEndScenario {
+    function test_DEC148_forkStrictMaximumExcludesV4ButAaveDeliversAndRetrySkipsAave() public {
+        _createForks();
+        _phase1CreateFund();
+        _phase2AnaDeposits();
+        _phase3HubAllocationAndIncome();
+        ISpokeVaultUnwind.UnwindRequest memory request = ISpokeVaultUnwind.UnwindRequest({
+            requestId: keccak256("strict-maximum retry"),
+            fracNum: 1,
+            fracDen: 10,
+            maxLossBps: 1,
+            mode: ICoreVaultPayouts.PayoutMode.Instant
+        });
+        uint256 v4Before = IAdapter(hubUniswap).positionValue(hubUniswapPosition).liquidity;
+        vm.prank(address(core));
+        ISpokeVaultUnwind.UnwindResult memory first = hubSpoke.unwindForPayout(request);
+        assertGt(first.excluded, 0, "real V3 fee and impact exceed the one-basis-point maximum");
+        assertTrue(hubSpoke.unwindDelivered(request.requestId, hubAave, hubAavePosition));
+        assertFalse(hubSpoke.unwindDelivered(request.requestId, hubUniswap, hubUniswapPosition));
+        assertEq(IAdapter(hubUniswap).positionValue(hubUniswapPosition).liquidity, v4Before);
+        uint256 aaveAfterFirst = IAdapter(hubAave).positionValue(hubAavePosition).principal0;
+        request.maxLossBps = 100;
+        vm.prank(address(core));
+        ISpokeVaultUnwind.UnwindResult memory retry = hubSpoke.unwindForPayout(request);
+        assertEq(retry.excluded, 0);
+        assertGt(retry.proceeds, 0);
+        assertTrue(hubSpoke.unwindDelivered(request.requestId, hubUniswap, hubUniswapPosition));
+        assertEq(IAdapter(hubAave).positionValue(hubAavePosition).principal0, aaveAfterFirst);
+        assertEq(
+            IAdapter(hubUniswap).positionValue(hubUniswapPosition).liquidity, v4Before - Math.ceilDiv(v4Before, 10)
+        );
+    }
+
     function test_DEC137_forkSixteenPositionsUseTheSameFractionBelowTheGasCap() public {
         _createForks();
         _phase1CreateFund();
