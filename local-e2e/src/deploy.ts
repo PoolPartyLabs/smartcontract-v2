@@ -180,14 +180,18 @@ export async function deployFactory(side: Side, log: Logger): Promise<DeployedCo
     },
     log,
   );
+  // A role the script echoes back (the API signer, the fee wallet) is a wallet the harness passed in, not a deployment.
+  const roleAddresses = new Set(Object.values(roles).map((address) => getAddress(address)));
   const deployed: Record<string, Address> = {};
   for (const { name, type, value } of namedReturn("DeployFactory", broadcast.returns)) {
     // The zero address is a contract this chain does not get (the Core Vault libraries, ManagerRegistry and price
     // source on Robinhood).
     if (type !== "address" || BigInt(value) === 0n) continue;
     const address = getAddress(value);
-    const code = await nodes[side].client.getCode({ address });
-    if (!code || code === "0x") throw new Error(`DeployFactory returned ${name} ${address}, which has no code on ${nodes[side].label}`);
+    if (!roleAddresses.has(address)) {
+      const code = await nodes[side].client.getCode({ address });
+      if (!code || code === "0x") throw new Error(`DeployFactory returned ${name} ${address}, which has no code on ${nodes[side].label}`);
+    }
     deployed[name === "factory" ? "fundFactory" : name] = address;
   }
   const fundFactory = deployed.fundFactory;
