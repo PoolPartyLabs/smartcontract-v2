@@ -22,6 +22,8 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
     uint16 internal constant NO_MAX = 0;
     /// @dev V3 TickMath.MAX_SQRT_RATIO; QuoterV2 swaps token1 for token0 up to one below it when given no limit.
     uint160 internal constant MAX_SQRT_RATIO = 1_461_446_703_485_210_103_287_273_052_203_988_822_378_723_970_342;
+    /// @dev floor(2^96 / sqrt(10)): price 0.1 (token1 per token0).
+    uint160 internal constant SQRT_PRICE_X96_OF_ONE_TENTH = 25_054_144_837_504_793_118_641_380_156;
     bytes32 internal constant DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
 
@@ -129,6 +131,34 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
         _fund(t1, amountIn);
         vm.expectPartialRevert(ISwapAdapter.PartialFill.selector);
         adapter.swapDirect(t1, t0, amountIn, 10_000, NO_MAX);
+    }
+
+    /// @dev A third party's tier (review round 2): two new tokens, an honest 0.05% tier at price 1 with L = 1e24 over
+    ///      the full range, and a 1% tier someone created at price 0.1 (one token1 worth ten token0) with dust over the
+    ///      full range and L = 3.2e21 in ticks [-23000, -22800], about 101 token0 just above its price. Selling 100
+    ///      token1, the trap fills the whole input and quotes more than the honest tier, at a mid value of 1,000 token0.
+    ///      It is arbitrageable, so it only works inside the sale's own transaction (a permissionless unwind), and its
+    ///      only LP is the attacker. With a 1% maximum it loses about 90% against its own mid, does not compete, and
+    ///      the sale fills in the honest tier; chosen on output alone it would have failed the sale.
+    function test_arbitrum_noApi_aThirdPartyTierOutsideTheMaximumDoesNotCompete() public {
+        V3Chain memory c = _arbitrum();
+        (address t0, address t1) = _trappedPair(c);
+        uint256 amountIn = 100e18;
+        (, uint256 honestOut) = _assertTheTrapQuotesMore(c, t1, t0, amountIn);
+
+        _setUpWithBase(c, t0, _tokens2(t0, t1));
+        assertApproxEqRel(adapter.spotValue(t1, t0, amountIn, 10_000), 10 * amountIn, 1e9, "the trap's own mid");
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(t1, t0, amountIn, 100);
+        assertEq(uint256(fee), 500, "the best tier within the maximum");
+        assertEq(quoted, honestOut);
+        (uint256 out, uint256 spot,) = _swap(t1, t0, amountIn, 100, "", "no API, maxLoss 1%, a trap 1% tier");
+        assertEq(out, honestOut, "the sale fills in the honest tier");
+        assertEq(spot, amountIn, "valued at the honest tier's mid");
+
+        // What choosing on output alone would have done.
+        _fund(t1, amountIn);
+        vm.expectPartialRevert(ISwapAdapter.InsufficientOutput.selector);
+        adapter.swapDirect(t1, t0, amountIn, 10_000, 100);
     }
 
     /// @dev DEC-153 accepted consequence: a Mandate token without a direct V3 pool against the base token has no route
@@ -335,6 +365,36 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
         assertGt(thinOut, fullOut, "the drained tier quotes more");
         assertEq(thinAfter, MAX_SQRT_RATIO - 1, "because it stopped at the price limit");
         assertLt(fullAfter, MAX_SQRT_RATIO - 1, "the 0.05% tier fills");
+    }
+
+    /// @dev Two new tokens: an honest 0.05% pool at price 1 with L = 1e24 over the full range, and a trap 1% pool at
+    ///      price 0.1 with L = 1e9 over the full range and L = 3.2e21 in ticks [-23000, -22800].
+    function _trappedPair(V3Chain memory c) internal returns (address t0, address t1) {
+        (t0, t1) = _sorted(address(new ForkToken("AAA")), address(new ForkToken("BBB")));
+        DustMinter minter = new DustMinter();
+        IUniswapV3Pool honest = IUniswapV3Pool(c.factory.createPool(t0, t1, 500));
+        honest.initialize(2 ** 96);
+        minter.mint(honest, -887_270, 887_270, 1e24);
+        IUniswapV3Pool trap = IUniswapV3Pool(c.factory.createPool(t0, t1, 10_000));
+        trap.initialize(SQRT_PRICE_X96_OF_ONE_TENTH);
+        minter.mint(trap, -887_200, 887_200, 1e9);
+        minter.mint(trap, -23_000, -22_800, 3.2e21);
+    }
+
+    /// @dev QuoterV2 on its own: the trap 1% tier fills the whole input and quotes more than the honest 0.05% tier.
+    function _assertTheTrapQuotesMore(V3Chain memory c, address tokenIn, address tokenOut, uint256 amountIn)
+        internal
+        returns (uint256 trapOut, uint256 honestOut)
+    {
+        assertGt(uint160(tokenIn), uint160(tokenOut), "selling token1");
+        uint160 trapAfter;
+        (trapOut, trapAfter,,) = c.quoter
+            .quoteExactInputSingle(IQuoterV2.QuoteExactInputSingleParams(tokenIn, tokenOut, amountIn, 10_000, 0));
+        (honestOut,,,) =
+            c.quoter.quoteExactInputSingle(IQuoterV2.QuoteExactInputSingleParams(tokenIn, tokenOut, amountIn, 500, 0));
+        console2.log("trap 1% quote", trapOut, "honest 0.05% quote", honestOut);
+        assertGt(trapOut, honestOut, "the trap quotes more");
+        assertLt(trapAfter, MAX_SQRT_RATIO - 1, "and fills the whole input");
     }
 
     /// @dev The vault side: holds exactly `amount` and approves the adapter for it.
