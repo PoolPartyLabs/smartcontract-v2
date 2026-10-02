@@ -41,7 +41,7 @@ contract OperatingCashSinkPoC is AccessFundFixture {
         _deposit(core, alice, 600_000e6);
         _deposit(core, bob, 400_000e6);
         uint256 idleBefore = core.idle();
-        assertEq(idleBefore, 997_500e6, "both deposits, net of the flow fee, sit in Idle");
+        assertEq(idleBefore, SEED_IDLE + 997_500e6, "both deposits, net of the flow fee, sit in Idle");
         assertEq(core.sharePrice(), 1e24, "1.00 USDC per share");
 
         // The manager: one setter call, then any guarded verb. Everything but 1 USDC of Free Idle becomes Operating

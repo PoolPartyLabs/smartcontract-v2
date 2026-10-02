@@ -71,6 +71,7 @@ contract CoreVaultValueInvariantTest is FundSystemFixture {
             else assertEq(req.reserved, 0, "DEC-072: a closed request keeps a reserve");
             assertLe(req.usdcOutstanding, req.usdcRequested, "DEC-068: outstanding above requested");
         }
+        held += sys.shares.balanceOf(sys.core.manager()); // the seed (DEC-127)
         assertEq(held, sys.shares.totalSupply(), "DEC-004: shares only ever sit with who deposited");
         assertEq(reserved, sys.core.payoutReserve(), "DEC-072: the Payout Reserve is the sum of the open reserves");
     }

@@ -93,7 +93,7 @@ contract H02_DivergentSpokeMandateAcceptedByTheHub is FactoryReviewFixture {
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(ICoreVault.SpokeNotReporting.selector, 0));
         vault.sendToSpoke(0, SEND, 0, _quote(ARRIVES));
-        assertEq(vault.shareAssets(), 997_500e6, "nothing left the hub");
+        assertEq(vault.shareAssets(), SEED_IDLE + 997_500e6, "nothing left the hub");
         console2.log("Share Assets after the attempt", vault.shareAssets());
     }
 

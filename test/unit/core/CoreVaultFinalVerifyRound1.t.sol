@@ -23,19 +23,20 @@ contract CoreVaultFinalVerifyRound1Test is CoreVaultFixture {
         _deployFeeless();
         _deposit(alice, 1000e6); // 1,000 shares at 1.00
         _deposit(bob, 100e6); // 100 shares
-        hubVault.setPosition(address(usdc), 110e6); // Share Assets 1,210 over 1,100 shares: 1.10
+        // Share Assets 1,211.10 over 1,101 shares (the manager's seed share included): 1.10
+        hubVault.setPosition(address(usdc), 110.1e6);
         assertEq(vault.sharePrice(), 1.1e24);
 
         _request(bob, 1_000_000e6, STANDARD);
         assertEq(vault.payoutRequest(bob).reserved, 110e6, "100 shares at 1.10, not the amount asked");
         assertEq(vault.payoutReserve(), 110e6);
-        assertEq(vault.freeIdle(), 990e6);
+        assertEq(vault.freeIdle(), 991e6);
         // DEC-017: the manager keeps every unit of Free Idle above the bound.
         vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.InsufficientFreeIdle.selector, 990e6 + 1, 990e6));
-        vault.allocateToHubSpokeVault(990e6 + 1);
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.InsufficientFreeIdle.selector, 991e6 + 1, 991e6));
+        vault.allocateToHubSpokeVault(991e6 + 1);
         vm.prank(manager);
-        vault.allocateToHubSpokeVault(990e6);
+        vault.allocateToHubSpokeVault(991e6);
         assertEq(vault.freeIdle(), 0);
         assertLe(vault.payoutReserve(), vault.idle());
 
@@ -66,15 +67,16 @@ contract CoreVaultFinalVerifyRound1Test is CoreVaultFixture {
     function test_OQ10_requestUnderAHubValuationFailureIsBoundedByTheLastKnownValue() public {
         _deployFeeless();
         _deposit(alice, 1000e6);
-        hubVault.setPosition(address(usdc), 100e6); // price 1.10, seen by the next successful valuation
-        _deposit(bob, 110e6); // 100 shares at 1.10; the last known hub value is now 100
+        // Price 1.10 over 1,001 shares (the seed's included), seen by the next successful valuation.
+        hubVault.setPosition(address(usdc), 100.1e6);
+        _deposit(bob, 110e6); // 100 shares at 1.10; the last known hub value is now 100.10
         hubVault.setPosition(address(usdc), 300e6); // a gain the failing read will not see
         hubVault.setBuildReverts(true);
 
         vm.expectEmit(address(vault));
-        emit ICoreVault.HubValuationFallback(100e6);
+        emit ICoreVault.HubValuationFallback(100.1e6);
         _request(bob, 1_000_000e6, STANDARD);
-        uint256 price = ShareMath.sharePrice(1110e6 + 100e6, 1100e18);
+        uint256 price = ShareMath.sharePrice(SEED_IDLE + 1110e6 + 100.1e6, SEED_SHARES + 1100e18);
         assertEq(price, 1.1e24);
         assertEq(vault.payoutRequest(bob).reserved, ShareMath.usdcFor(100e18, price), "priced with the last value");
         assertEq(vault.payoutRequest(bob).reserved, 110e6);

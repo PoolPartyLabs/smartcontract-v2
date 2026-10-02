@@ -6,31 +6,26 @@ import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {ShareMath} from "../../../src/libraries/ShareMath.sol";
 import {CoreVaultFixture} from "./CoreVaultFixture.sol";
 
+/// @dev Every fund is seeded at creation (DEC-127, CoreVaultFixture): the manager's one share and its 1 USDC of Idle
+///      are in every number below. The first-deposit minimum now binds the seed (CoreVaultSeed.t.sol).
 contract CoreVaultDepositTest is CoreVaultFixture {
-    function test_DEC061_firstDepositMintsAtOneUsdcPerShare() public {
+    function test_DEC061_depositAfterTheSeedMintsAtOneUsdcPerShare() public {
+        uint256 protocolBefore = usdc.balanceOf(protocol);
         (uint256 minted, uint256 charged) = _deposit(alice, 1000e6);
         // DEC-106: 25 bps flow fee from the amount; 997.50 buys 997 whole shares at 1.00.
         assertEq(minted, 997e18);
         assertEq(charged, 997e6 + 2.5e6);
-        assertEq(vault.idle(), 997e6);
-        assertEq(usdc.balanceOf(protocol), 2.5e6);
+        assertEq(vault.idle(), SEED_IDLE + 997e6);
+        assertEq(usdc.balanceOf(protocol) - protocolBefore, 2.5e6);
         assertEq(usdc.balanceOf(alice), 0.5e6, "the remainder never leaves the wallet");
         assertEq(vault.sharePrice(), ONE);
-    }
-
-    function test_DEC061_firstDepositBelowMandateMinimumReverts() public {
-        usdc.mint(alice, 99e6);
-        vm.startPrank(alice);
-        usdc.approve(address(vault), 99e6);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.BelowMinFirstDeposit.selector, 99e6, 100e6));
-        vault.deposit(99e6, 0);
-        vm.stopPrank();
     }
 
     function test_DEC035_workedExample200At109Mints183For19947() public {
         _deployFeeless();
         _deposit(alice, 1000e6);
-        hubVault.setPosition(address(usdc), 90e6); // Share Assets 1,090 over 1,000 shares
+        // Share Assets 1,091.09 over 1,001 shares (the manager's seed share included).
+        hubVault.setPosition(address(usdc), 90.09e6);
         assertEq(vault.sharePrice(), 1.09e24);
         (uint256 minted, uint256 charged) = _deposit(bob, 200e6);
         assertEq(minted, 183e18);
@@ -55,9 +50,10 @@ contract CoreVaultDepositTest is CoreVaultFixture {
     function test_REVIEW_MM3_noDepositBelowOneBaseUnitPerShare() public {
         _deployFeeless();
         _deposit(alice, 1_000_000e6);
+        uint256 idle = vault.idle(); // the seed's 1 USDC included
         vm.prank(manager);
-        vault.allocateToHubSpokeVault(1_000_000e6);
-        hubVault.moveToPosition(1_000_000e6);
+        vault.allocateToHubSpokeVault(idle);
+        hubVault.moveToPosition(idle);
         hubVault.setPosition(address(usdc), 3); // the position collapsed to 3 base units
         assertEq(vault.shareAssets(), 3);
         uint256 price = vault.sharePrice();
@@ -71,7 +67,7 @@ contract CoreVaultDepositTest is CoreVaultFixture {
         vm.stopPrank();
 
         // At exactly one base unit per whole share a deposit is charged in full again.
-        hubVault.setPosition(address(usdc), 1_000_000);
+        hubVault.setPosition(address(usdc), 1_000_001);
         assertEq(vault.sharePrice(), ShareMath.PRICE_SCALE);
         (uint256 minted, uint256 charged) = _deposit(bob, 5);
         assertEq(minted, 5e18);
@@ -87,11 +83,13 @@ contract CoreVaultDepositTest is CoreVaultFixture {
         vm.stopPrank();
     }
 
+    /// @dev DEC-106, DEC-113: a deposit of 100,000 pays 250 and buys 99,750 shares at 1.00.
     function test_DEC106_flowFeeWorkedExample100000() public {
+        uint256 protocolBefore = usdc.balanceOf(protocol);
         (uint256 minted,) = _deposit(alice, 100_000e6);
-        assertEq(usdc.balanceOf(protocol), 250e6);
+        assertEq(usdc.balanceOf(protocol) - protocolBefore, 250e6);
         assertEq(minted, 99_750e18);
-        assertEq(vault.idle(), 99_750e6);
+        assertEq(vault.idle(), SEED_IDLE + 99_750e6);
     }
 
     function test_Q57_depositRevertsOnStaleSpokeReport() public {
@@ -144,7 +142,7 @@ contract CoreVaultDepositTest is CoreVaultFixture {
         expected.reportSequences[0] = r.sequence;
         expected.oldestReportAge = 100;
         vm.expectEmit(address(vault));
-        emit ICoreVault.Deposited(bob, 498e6, 1.25e6, 498e18, ONE, 997e6, 997e18, expected);
+        emit ICoreVault.Deposited(bob, 498e6, 1.25e6, 498e18, ONE, SEED_IDLE + 997e6, SEED_SHARES + 997e18, expected);
         vault.deposit(500e6, 0);
         vm.stopPrank();
     }
@@ -169,12 +167,15 @@ contract CoreVaultDepositTest is CoreVaultFixture {
         (uint256 minted, uint256 charged) = _deposit(bruno, 11_000e6);
         assertEq(minted, 11_000e18, "income is outside Share Assets (DEC-092)");
         assertEq(charged, 11_000e6);
-        // Q60: the Q128 index rounds down; at most one base unit of dust stays in the bucket.
-        assertApproxEqAbs(vault.attributedIncome(ana, address(usdc)), 1000e6, 1);
+        // Q60: the Q128 index rounds down; at most one base unit of dust stays in the bucket. The holders of the moment
+        // are Ana's 10,000 shares and the manager's seed share.
+        uint256 anaPart = uint256(1000e6) * 10_000 / 10_001;
+        assertApproxEqAbs(vault.attributedIncome(ana, address(usdc)), anaPart, 1);
+        assertApproxEqAbs(vault.attributedIncome(manager, address(usdc)), 1000e6 - anaPart, 1);
         assertEq(vault.attributedIncome(bruno, address(usdc)), 0);
-        // Ana takes it all, Bruno nothing.
+        // Ana takes her part, Bruno nothing.
         vm.prank(ana);
-        assertApproxEqAbs(vault.withdrawIncome(address(usdc)), 1000e6, 1);
+        assertApproxEqAbs(vault.withdrawIncome(address(usdc)), anaPart, 1);
         vm.prank(bruno);
         assertEq(vault.withdrawIncome(address(usdc)), 0);
     }
@@ -183,9 +184,11 @@ contract CoreVaultDepositTest is CoreVaultFixture {
         _deployFeeless();
         _deposit(ana, 10_000e6);
         _deposit(bruno, 11_000e6);
-        hubVault.forwardIncome(address(usdc), 2100e6);
+        // 0.10 per share over 21,001 shares (the manager's seed share included).
+        hubVault.forwardIncome(address(usdc), 2100.1e6);
         assertApproxEqAbs(vault.attributedIncome(ana, address(usdc)), 1000e6, 1);
         assertApproxEqAbs(vault.attributedIncome(bruno, address(usdc)), 1100e6, 1);
+        assertApproxEqAbs(vault.attributedIncome(manager, address(usdc)), 0.1e6, 1);
     }
 
     function test_DEC091_supplyAlwaysWholeShares() public {

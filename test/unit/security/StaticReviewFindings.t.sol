@@ -137,7 +137,7 @@ contract StaticReviewFindingsTest is CoreVaultFixture {
     ///      Free Idle there.
     function test_POC_SA03_managerParametersMoveAllFreeIdleIntoOperatingCashForGood() public {
         uint256 free = vault.freeIdle();
-        assertEq(free, 9975e6);
+        assertEq(free, SEED_IDLE + 9975e6);
         uint256 assetsBefore = vault.shareAssets();
 
         vm.startPrank(manager);

@@ -101,10 +101,13 @@ interface IFundFactory {
     ///        (the Mandate keeps only their ids, DEC-030).
     /// @param coreVaultCreationCode Core Vault creation code (about 34 KB, too large for the factory to hold), without
     ///        constructor arguments; must hash to `coreVaultCreationCodeHash`.
+    /// @param seedAmount The manager's seed in USDC base units, at least the Mandate's `minFirstDeposit` (DEC-127,
+    ///        DEC-061); the manager approves this factory for it before `createFund`.
     struct HubParams {
         uint256 creationNumber;
         PoolKey[] uniswapV4Pools;
         bytes coreVaultCreationCode;
+        uint256 seedAmount;
     }
 
     /// @notice Spoke inputs of `createSpoke`.
@@ -197,7 +200,11 @@ interface IFundFactory {
     /// @notice Creates a fund on its Hub Chain: the hub adapters the Mandate lists (Uniswap V4 and Aave V3 with the hub
     ///         Spoke Vault as vault, Across with the Core Vault as vault), the hub Spoke Vault, the
     ///         ValueReportReceiver and the Core Vault (which creates its ShareToken and ManagerFeeVault), in that
-    ///         order, each at its predicted address.
+    ///         order, each at its predicted address; then seeds the fund with the manager's own capital.
+    /// @dev DEC-127, DEC-061, DEC-113: in the same transaction the factory pulls the seed's cost (`p.seedAmount` less
+    ///      the sub-share remainder) from the manager, approves the Core Vault for exactly that amount and calls
+    ///      `ICoreVaultLifecycle.seed`, which pays the flow fee and mints the first shares to the manager at 1.00. A seed
+    ///      below `m.minFirstDeposit` reverts (`BelowMinFirstDeposit`), so no fund exists without its seed.
     /// @dev Reverts unless `msg.sender == m.manager` (DEC-001), `m.hubChainId == block.chainid`, `m.usdc` is this
     ///      chain's base token, `p.creationNumber` is the next fund number, the Core Vault code hashes to the pinned
     ///      hash, and every address in the Mandate (adapters, bridge adapters and Spoke Vaults on every chain) is the

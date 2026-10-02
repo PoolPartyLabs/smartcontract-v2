@@ -65,6 +65,7 @@ contract FeeTierFork is IntegrationPriceBase {
                 UniswapV4Adapter.PoolFeeTooHigh.selector, PoolId.unwrap(fullFee.toId()), uint24(1_000_000)
             )
         );
+        _fundManagerSeed(ARB_USDC, manager, address(factory), p.seedAmount);
         vm.prank(manager);
         factory.createFund(m, p);
     }

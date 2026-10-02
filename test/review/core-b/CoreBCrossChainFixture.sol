@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {FundSeed} from "../../utils/FundSeed.sol";
 import {CoreBridgeVM, GuardianSignature} from "wormhole-sdk/interfaces/ICoreBridge.sol";
 
 import {CoreVault} from "../../../src/core/CoreVault.sol";
@@ -43,7 +44,7 @@ import {MockWormholeCore} from "../../mocks/spoke/MockWormholeCore.sol";
 ///         source, both Across SpokePools (a fill is simulated by the pool calling the recipient's handler), the bridge
 ///         adapters' call building, the spoke position adapter, the Wormhole Core on the spoke (records the payload) and
 ///         the hub Spoke Vault (never used by these PoCs beyond construction).
-abstract contract CoreBCrossChainFixture is Test {
+abstract contract CoreBCrossChainFixture is Test, FundSeed {
     uint256 internal constant HUB = 42_161;
     uint256 internal constant SPOKE = 4663;
     uint16 internal constant WH_SPOKE = 72;
@@ -133,6 +134,8 @@ abstract contract CoreBCrossChainFixture is Test {
         vm.chainId(HUB);
         receiver = new ValueReportReceiver(address(coreBridge), coreAt, FUND_ID, m.spokes, 0);
         vault = new CoreVault(m, _config(receiverAt));
+        // DEC-127: this contract plays the factory and seeds the fund (FundSeed).
+        _seedFund(address(vault), vault.usdc(), vault.flowFeeBps());
         require(address(spoke) == spokeAt && address(receiver) == receiverAt && address(vault) == coreAt, "wiring");
         shares = ShareToken(vault.shareToken());
 
@@ -164,7 +167,7 @@ abstract contract CoreBCrossChainFixture is Test {
         m.operatingCash = new OperatingCashConfig[](0);
         m.payoutFeeBps = 200;
         m.standardPayoutTerm = 72 hours;
-        m.minFirstDeposit = 100e6;
+        m.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
         m.performanceFeeBps = 2000;
         m.managementFeeBps = 0;
         m.maxBridgeFeeBps = 50;
@@ -182,6 +185,7 @@ abstract contract CoreBCrossChainFixture is Test {
         c.excessRecipient = excess;
         c.escrowImplementation = address(escrowImpl);
         c.flowFeeBps = 25;
+        c.factory = address(this);
         c.incomeTokens = new address[](1);
         c.incomeTokens[0] = address(weth);
         c.shareName = "Pool Party Fund 1";

@@ -12,7 +12,7 @@ contract CoreVaultPayoutFeeIdleTest is CoreVaultFixture {
     ///      30,000 - 600 - 75 = 29,325; the fund keeps 970,600 for 970,000 shares and the Share Price goes from
     ///      1.000000 to 1.000619.
     function test_DEC144_registerExampleSharePriceRises() public {
-        _deposit(alice, _grossFor(970_000));
+        _deposit(alice, _grossFor(969_999)); // with the manager's seed share: 970,000
         _deposit(ana, _grossFor(30_000));
         assertEq(shares.totalSupply(), 1_000_000e18);
         assertEq(vault.idle(), 1_000_000e6);
@@ -36,7 +36,7 @@ contract CoreVaultPayoutFeeIdleTest is CoreVaultFixture {
 
     /// @dev A Standard Payout has no Payout Fee: Idle drops by the whole gross and the Share Price stays.
     function test_DEC144_standardPayoutLeavesTheSharePriceUnchanged() public {
-        _deposit(alice, _grossFor(970_000));
+        _deposit(alice, _grossFor(969_999)); // with the manager's seed share: 970,000
         _deposit(ana, _grossFor(30_000));
         _request(ana, 30_000e6, ICoreVault.PayoutMode.Standard);
         vm.warp(block.timestamp + 72 hours);

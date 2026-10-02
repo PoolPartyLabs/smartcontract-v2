@@ -41,7 +41,10 @@ contract SendHomeStrandedPoC is CrossChainFixture {
         _reportAndDeliver(900);
         assertEq(core.unmatchedArrivals(), 0, "S-4: credited on the first report after the outage");
         assertEq(core.idle(), idleBefore + 39_980e6, "S-4: in Idle");
-        assertApproxEqAbs(aliceShares * core.sharePrice() / 1e36, 99_705e6, 1, "S-4: only the two bridge fees lost");
+        // The manager's seed share (DEC-127) bears 1/99,751 of the 45 USDC of fees.
+        assertApproxEqAbs(
+            aliceShares * core.sharePrice() / 1e36, 99_705_000_451, 1, "S-4: only the two bridge fees lost"
+        );
     }
 
     function test_SEC_S4_outageBeyondTheRetentionIsRecoveredAfterTheDelay() public {
@@ -76,7 +79,10 @@ contract SendHomeStrandedPoC is CrossChainFixture {
         assertEq(core.unmatchedArrivals(), 0);
         assertEq(core.idle(), idleBefore + 39_980e6, "S-4: in Idle");
         _reportAndDeliver(900);
-        assertApproxEqAbs(aliceShares * core.sharePrice() / 1e36, 99_705e6, 1, "S-4: only the two bridge fees lost");
+        // The manager's seed share (DEC-127) bears 1/99,751 of the 45 USDC of fees.
+        assertApproxEqAbs(
+            aliceShares * core.sharePrice() / 1e36, 99_705_000_451, 1, "S-4: only the two bridge fees lost"
+        );
 
         vm.expectRevert(abi.encodeWithSignature("NothingToRecover(bytes32)", homeTransit));
         core.recoverUnlistedArrival(0, homeTransit);

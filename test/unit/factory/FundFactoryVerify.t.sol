@@ -26,6 +26,7 @@ import {MockWormholeCore} from "../../mocks/spoke/MockWormholeCore.sol";
 import {FactoryDeployment} from "../../../script/FactoryDeployment.sol";
 import {FundMandate} from "../../../script/FundMandate.sol";
 import {AnyPriceSource} from "../../mocks/core/AnyPriceSource.sol";
+import {FundSeed} from "../../utils/FundSeed.sol";
 
 /// @notice Adversarial verification of the factory stage (round 1). The hub and the spoke factory are two deployments at
 ///         the same address, one per simulated chain, as in FundFactory.t.sol.
@@ -33,7 +34,7 @@ import {AnyPriceSource} from "../../mocks/core/AnyPriceSource.sol";
 ///      finding (fixed): `createSpoke` derives the fund id from the Mandate's Hub Chain, never this chain.
 ///      `test_DEC001_verify_anotherManagerCannotSquatTheSpokeVaultOfARealFund` is the inverted form of FF-OQ-1 (fixed):
 ///      the fund id binds the Manager.
-contract FundFactoryVerifyTest is Test, FactoryDeployment, FundMandate {
+contract FundFactoryVerifyTest is Test, FactoryDeployment, FundMandate, FundSeed {
     uint256 internal constant HUB = 42_161;
     uint256 internal constant SPOKE = 4663;
 
@@ -75,6 +76,8 @@ contract FundFactoryVerifyTest is Test, FactoryDeployment, FundMandate {
         d = _deployFactory(_wiring(true), true, d);
         hubDeployment = d;
         factory = d.factory;
+        // DEC-127: the manager holds the seed and approved the factory before `createFund`.
+        _fundManagerSeed(address(usdc), manager, address(factory), 10_000e6);
     }
 
     function _wiring(bool hub) internal returns (IFundFactory.ProtocolWiring memory w) {

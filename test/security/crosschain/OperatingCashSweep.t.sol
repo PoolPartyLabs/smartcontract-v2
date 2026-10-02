@@ -39,7 +39,7 @@ contract OperatingCashSweepPoC is CrossChainFixture {
         (, uint256 depositId) = _sendToSpoke(50_000e6, 49_975e6);
         _fillOnSpoke(depositId);
         _reportAndDeliver(900);
-        assertEq(core.shareAssets(), 99_725e6);
+        assertEq(core.shareAssets(), SEED_IDLE + 99_725e6);
 
         // 1. The manager lifts the spoke's floor and top-up to the maximum.
         vm.chainId(SPOKE);
@@ -66,7 +66,9 @@ contract OperatingCashSweepPoC is CrossChainFixture {
 
         // The next report takes the spoke's principal out of Share Assets.
         _reportAndDeliver(900);
-        assertEq(core.shareAssets(), 49_749e6, "Idle only, less the stranger's unit of unknown-origin value");
+        assertEq(
+            core.shareAssets(), SEED_IDLE + 49_749e6, "Idle only, less the stranger's unit of unknown-origin value"
+        );
 
         // 3. The same on the hub: all Free Idle but the 1 USDC the triggering call moves.
         uint256 freeIdle = core.freeIdle();

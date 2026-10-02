@@ -24,7 +24,7 @@ contract CoreVaultConsolidateVerifyRound3Test is CoreVaultFixture {
         uint256 arrives = 999_500_000; // a 5 bps route fee, under the Mandate's 50 bps
         bytes32 id = _send(SENT, arrives);
         uint256 assets0 = vault.shareAssets();
-        assertEq(assets0, 8975e6 + arrives, "DEC-085: in flight at the amount that will arrive");
+        assertEq(assets0, SEED_IDLE + 8975e6 + arrives, "DEC-085: in flight at the amount that will arrive");
 
         _deliver(_arrived(_spokeReport(arrives - 1, arrives - 1), id, arrives - 1));
         assertEq(uint8(vault.transit(id).state), uint8(TransitState.Sent), "one unit short is no arrival");
@@ -54,7 +54,7 @@ contract CoreVaultConsolidateVerifyRound3Test is CoreVaultFixture {
         _deliver(_arrived(_spokeReport(SENT, SENT), id, SENT));
         assertEq(uint8(vault.transit(id).state), uint8(TransitState.ArrivalConfirmed));
         assertEq(vault.inFlightValue(), 0);
-        assertEq(vault.shareAssets(), 9975e6, "the fund holds Idle 8,975 plus 1,000 on the spoke");
+        assertEq(vault.shareAssets(), SEED_IDLE + 9975e6, "the fund holds Idle 8,975 plus 1,000 on the spoke");
         assertEq(_bucketSum(), vault.shareAssets());
 
         vm.expectRevert(
@@ -62,7 +62,7 @@ contract CoreVaultConsolidateVerifyRound3Test is CoreVaultFixture {
         );
         vault.recognizeRefund(id);
         assertEq(usdc.balanceOf(escrow), SENT, "the refund is stranded, outside every base");
-        assertEq(vault.shareAssets(), 9975e6);
+        assertEq(vault.shareAssets(), SEED_IDLE + 9975e6);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -76,18 +76,22 @@ contract CoreVaultConsolidateVerifyRound3Test is CoreVaultFixture {
         vault.attestExpiry(id);
         pool.refund(0);
         vault.recognizeRefund(id);
-        assertEq(vault.idle(), 9975e6);
+        assertEq(vault.idle(), SEED_IDLE + 9975e6);
 
         _deliver(_arrived(_spokeReport(1e6, 1e6), id, 1e6));
         assertEq(uint8(vault.transit(id).state), uint8(TransitState.RefundRecognized), "dust confirms nothing");
         (uint256 spokeValue,,,) = vault.spokeCapUsage(0);
         assertEq(spokeValue, 0, "the dust is deducted as unknown-origin value");
-        assertEq(vault.shareAssets(), 9975e6);
+        assertEq(vault.shareAssets(), SEED_IDLE + 9975e6);
 
         _deliver(_arrived(_spokeReport(SENT, SENT), id, SENT));
         assertEq(uint8(vault.transit(id).state), uint8(TransitState.ArrivalConfirmed), "a full listing is a donation");
         assertEq(vault.inFlightValue(), 0, "In-flight Value was already released by the refund");
-        assertEq(vault.shareAssets(), 9975e6 + SENT, "counted once: Idle holds the refund, the spoke the donation");
+        assertEq(
+            vault.shareAssets(),
+            SEED_IDLE + 9975e6 + SENT,
+            "counted once: Idle holds the refund, the spoke the donation"
+        );
         assertEq(_bucketSum(), vault.shareAssets());
     }
 
@@ -114,7 +118,7 @@ contract CoreVaultConsolidateVerifyRound3Test is CoreVaultFixture {
         vm.warp(uint256(vault.transit(id).fillDeadline) + MAX_REPORT_AGE + 1);
         vault.attestExpiry(id);
         assertEq(uint8(vault.transit(id).state), uint8(TransitState.ExpiryAttested));
-        assertEq(vault.shareAssets(), 9975e6, "counted once through the fund-level deduction");
+        assertEq(vault.shareAssets(), SEED_IDLE + 9975e6, "counted once through the fund-level deduction");
     }
 
     // ---------------------------------------------------------------------------------------------------------------

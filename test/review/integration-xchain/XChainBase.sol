@@ -427,6 +427,7 @@ abstract contract XChainBase is EndToEndScenario {
             IFundFactory.HubParams memory p
         ) = _hubInputs(plan);
         mandateHash = MandateLib.hash(m);
+        _fundManagerSeed(ARB_USDC, manager, address(factory), p.seedAmount);
         vm.prank(manager);
         IFundFactory.FundAddresses memory a = factory.createFund(m, p);
         core = ICoreVault(a.coreVault);

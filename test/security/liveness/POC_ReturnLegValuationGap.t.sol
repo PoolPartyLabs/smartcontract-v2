@@ -109,7 +109,7 @@ contract POC_ReturnLegValuationGap is CoreVaultFixture {
         Transit memory t = spoke.hubBoundTransit(homebound);
         _deliverSpokeReport();
         uint256 listedAssets = vault.shareAssets();
-        assertEq(listedAssets, 497_500e6 + 99_750e6 + 399_800e6);
+        assertEq(listedAssets, SEED_IDLE + 497_500e6 + 99_750e6 + 399_800e6);
 
         // Nobody fills it. Past fillDeadline + maxReportAge the spoke still lists it (S-3).
         vm.warp(uint256(t.fillDeadline) + MAX_REPORT_AGE + 1);

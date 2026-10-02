@@ -24,6 +24,7 @@ import {MockCoreBridge} from "../../mocks/receiver/MockCoreBridge.sol";
 import {MockPriceSource} from "../../mocks/core/MockPriceSource.sol";
 import {FactoryDeployment} from "../../../script/FactoryDeployment.sol";
 import {FundMandate} from "../../../script/FundMandate.sol";
+import {FundSeed} from "../../utils/FundSeed.sol";
 
 /// @notice Review fixture (factory): the REAL deployment path (`script/FactoryDeployment.sol` and
 ///         `script/FundMandate.sol`, as the repository's factory tests use them) on two simulated chains, with every fund
@@ -37,7 +38,7 @@ import {FundMandate} from "../../../script/FundMandate.sol";
 ///      Fork_AcrossFillToCodelessSpokeVault.t.sol), the Aave pool, the Wormhole Core on the spoke (records payloads),
 ///      the Core Bridge on the hub (a VAA is `abi.encode(CoreBridgeVM)`), the price source. Uniswap V4 contracts are
 ///      bare addresses: no position is ever opened.
-abstract contract FactoryReviewFixture is Test, FactoryDeployment, FundMandate {
+abstract contract FactoryReviewFixture is Test, FactoryDeployment, FundMandate, FundSeed {
     uint256 internal constant HUB = 42_161;
     uint256 internal constant SPOKE = 4663;
     uint16 internal constant WH_SPOKE = 72;
@@ -156,9 +157,11 @@ abstract contract FactoryReviewFixture is Test, FactoryDeployment, FundMandate {
         plan.maxReportAge = 1588;
         plan.spokeOperatingCashFloor = 5e6;
         plan.spokeOperatingCashTopUp = 10e6;
-        plan.minFirstDeposit = 100e6;
+        plan.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
         plan.performanceFeeBps = 2000;
         plan.maxBridgeFeeBps = 50;
+        // DEC-127: the manager seeds one share at creation (FundSeed).
+        plan.seedAmount = _oneShareSeed(25);
     }
 
     function _createFund(Deployment memory d, FundPlan memory plan)
@@ -168,6 +171,7 @@ abstract contract FactoryReviewFixture is Test, FactoryDeployment, FundMandate {
         uint256 n = d.factory.nextCreationNumber();
         m = _buildMandate(d.factory, d.factory.fundIdOf(HUB, n, manager), plan);
         IFundFactory.HubParams memory p = _hubParams(n, plan, _coreVaultCreationCode(d.coreVaultLogic));
+        _fundManagerSeed(address(usdc), manager, address(d.factory), p.seedAmount);
         vm.prank(manager);
         a = d.factory.createFund(m, p);
     }

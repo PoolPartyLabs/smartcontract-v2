@@ -71,8 +71,10 @@ contract UnmatchedReturnLegPoC is AccessFundFixture {
         _deliverReport(a.valueReportReceiver, s.spokeVault, 3, s.reportAfterWindow);
 
         assertEq(core.unmatchedArrivals(), 0, "S-4: credited on the report after the outage");
-        assertEq(core.idle(), 198_750e6 + ARRIVES_HOME, "S-4: in Idle");
-        assertEq(core.shareAssets(), 198_750e6 + 690e6 + ARRIVES_HOME, "S-4: Share Assets whole but for the fees");
+        assertEq(core.idle(), SEED_IDLE + 198_750e6 + ARRIVES_HOME, "S-4: in Idle");
+        assertEq(
+            core.shareAssets(), SEED_IDLE + 198_750e6 + 690e6 + ARRIVES_HOME, "S-4: Share Assets whole but for the fees"
+        );
     }
 
     /// @dev Runs the spoke's half on the spoke chain: the hub's send arrives, the manager sends most of it home, and

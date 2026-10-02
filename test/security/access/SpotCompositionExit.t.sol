@@ -35,7 +35,7 @@ contract SpotCompositionExitPoC is AccessFundFixture {
         hub.openPosition(adapter, poolId, 400_000e6, 400_000e6, _wideOpenParams());
         vm.stopPrank();
         uint256 fairAssets = core.shareAssets();
-        assertApproxEqAbs(fairAssets, 997_500e6, 10);
+        assertApproxEqAbs(fairAssets, SEED_IDLE + 997_500e6, 10);
 
         // Control: an honest Instant Payout of 190,000 USDC burns 190,000 shares.
         uint256 snapshot = vm.snapshotState();

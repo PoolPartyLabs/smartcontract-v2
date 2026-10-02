@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {FundSeed} from "../../utils/FundSeed.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
@@ -49,7 +50,7 @@ import {BlocklistToken} from "./mocks/BlocklistToken.sol";
 /// @dev WETH is `currency0` and USDC `currency1`, as on Arbitrum One (0x82aF... < 0xaf88...). An external liquidity
 ///      provider (this contract) holds a wide position around the current price so the pool has depth of its own;
 ///      the fund's position is opened by the manager through the vault and adapter, exactly as in production.
-abstract contract HubFundFixture is Test {
+abstract contract HubFundFixture is Test, FundSeed {
     uint256 internal constant HUB = 42_161;
     bytes32 internal constant FUND_ID = keccak256("sec-integrations hub fund");
     /// @dev USDC per WETH: the external ("Chainlink") price and the pool's starting price.
@@ -134,6 +135,8 @@ abstract contract HubFundFixture is Test {
             m, FUND_ID, HUB, coreAddress, address(usdc), address(across), address(0), address(escrowImpl), excess
         );
         core = new CoreVault(m, _config(hubVaultAddress));
+        // DEC-127: this contract plays the factory and seeds the fund (FundSeed).
+        _seedFund(address(core), core.usdc(), core.flowFeeBps());
         assertEq(address(adapter), adapterAddress, "adapter prediction");
         assertEq(address(hubVault), hubVaultAddress, "hub vault prediction");
         assertEq(address(core), coreAddress, "core vault prediction");
@@ -160,7 +163,7 @@ abstract contract HubFundFixture is Test {
         m.operatingCash = new OperatingCashConfig[](0);
         m.payoutFeeBps = 200;
         m.standardPayoutTerm = 72 hours;
-        m.minFirstDeposit = 100e6;
+        m.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
         m.performanceFeeBps = 2000;
         m.managementFeeBps = 0;
         m.maxBridgeFeeBps = 50;
@@ -178,6 +181,7 @@ abstract contract HubFundFixture is Test {
         c.excessRecipient = excess;
         c.escrowImplementation = address(escrowImpl);
         c.flowFeeBps = 25;
+        c.factory = address(this);
         c.incomeTokens = new address[](1);
         c.incomeTokens[0] = address(weth);
         c.shareName = "Pool Party Fund 1";

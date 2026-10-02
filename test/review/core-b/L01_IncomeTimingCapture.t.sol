@@ -48,8 +48,8 @@ contract L01_IncomeTimingCapture is CoreAHubFixture {
         console2.log("  net to holders after the 20% fee", bucket * 8 / 10);
         console2.log("  Alice (held while it was earned) ", aliceIncome);
         console2.log("  Mallory (entered after)          ", malloryIncome);
-        assertEq(aliceIncome, 799_987_970);
-        assertEq(malloryIncome, 800_012_029, "the entrant takes half of income earned before she entered");
+        assertEq(aliceIncome, 799_995_989);
+        assertEq(malloryIncome, 799_995_989, "the entrant takes half of income earned before she entered");
 
         // Mallory leaves with a Standard Payout (no Payout Fee; flow fee on the way out), after the 72 h term. She asks
         // for more than her balance is worth so the burn is capped at the whole balance (DEC-020; QA23 rounding aside).
@@ -65,8 +65,8 @@ contract L01_IncomeTimingCapture is CoreAHubFixture {
         console2.log("Mallory: paid 100,000, got back principal", principalBack);
         console2.log("Mallory: profit (USDC base units)");
         console2.logInt(pnl);
-        assertEq(principalBack, 99_500_624_909);
-        assertEq(pnl, 300_636_938, "profitable at 2% of fund value waiting in the bucket");
+        assertEq(principalBack, 99_500_625_000);
+        assertEq(pnl, 300_620_989, "profitable at 2% of fund value waiting in the bucket");
         assertEq(shares.balanceOf(mallory), 0);
     }
 }

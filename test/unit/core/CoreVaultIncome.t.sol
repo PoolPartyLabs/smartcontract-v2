@@ -18,6 +18,11 @@ contract CoreVaultIncomeTest is CoreVaultFixture {
     /// @dev Protocol Recipient balance after the setUp deposit (its 25 USDC flow fee, DEC-106).
     uint256 internal protocolUsdc0;
 
+    /// @dev Alice's 9,975 shares out of 9,976: the manager's seed share takes the rest of every distribution (DEC-127).
+    function _alicePart(uint256 distributed) internal pure returns (uint256) {
+        return distributed * 9975 / 9976;
+    }
+
     function setUp() public override {
         super.setUp();
         _deposit(alice, 10_000e6);
@@ -45,8 +50,11 @@ contract CoreVaultIncomeTest is CoreVaultFixture {
         assertEq(vault.incomeState(address(weth)).distributed, 0.4e18);
         assertEq(vault.collectedIncome(address(usdc)), 800e6);
         assertEq(vault.collectedIncome(address(weth)), 0.4e18);
-        assertApproxEqAbs(vault.attributedIncome(alice, address(usdc)), 800e6, 1);
-        assertApproxEqAbs(vault.attributedIncome(alice, address(weth)), 0.4e18, 1);
+        assertApproxEqAbs(vault.attributedIncome(alice, address(usdc)), _alicePart(800e6), 2);
+        assertApproxEqAbs(vault.attributedIncome(alice, address(weth)), _alicePart(0.4e18), 2);
+        assertApproxEqAbs(
+            vault.attributedIncome(alice, address(usdc)) + vault.attributedIncome(manager, address(usdc)), 800e6, 2
+        );
     }
 
     function test_DEC109_noFeeWaitsInTheCoreVault() public {
@@ -90,10 +98,11 @@ contract CoreVaultIncomeTest is CoreVaultFixture {
     function test_LC100_incomeWithdrawalPaysNetCollectedIncome() public {
         hubVault.forwardIncome(address(usdc), 300e6);
         vm.prank(alice);
-        assertApproxEqAbs(vault.withdrawIncome(address(usdc)), 240e6, 1);
-        assertLe(vault.collectedIncome(address(usdc)), 1);
-        // No flow fee and no Payout Fee on an Income Withdrawal (LC-143 reading).
-        assertApproxEqAbs(usdc.balanceOf(alice), 240e6, 1);
+        assertApproxEqAbs(vault.withdrawIncome(address(usdc)), _alicePart(240e6), 2);
+        // What stays collected is the manager's seed share part (DEC-127), plus rounding dust.
+        assertApproxEqAbs(vault.collectedIncome(address(usdc)), vault.attributedIncome(manager, address(usdc)), 2);
+        // No flow fee and no Payout Fee on an Income Withdrawal (DEC-113).
+        assertApproxEqAbs(usdc.balanceOf(alice), _alicePart(240e6), 2);
     }
 
     function test_DEC073_withdrawIncomeUnknownTokenReverts() public {
@@ -161,13 +170,14 @@ contract CoreVaultIncomeTest is CoreVaultFixture {
             address(vault), address(usdc), 100e6, TransitMessage.encode(FUND_ID, SPOKE, homeId, TransferKind.Income)
         );
         vm.prank(alice);
-        assertApproxEqAbs(vault.withdrawIncome(address(usdc)), 80e6, 1);
+        assertApproxEqAbs(vault.withdrawIncome(address(usdc)), _alicePart(80e6), 2);
         assertEq(feeVault.balanceOf(address(usdc)), 10e6);
         assertEq(usdc.balanceOf(protocol) - protocolUsdc0, 10e6);
     }
 
+    /// @dev A supply-0 fund exists only before the seed (inside `createFund`) or after closure (DEC-121, DEC-127).
     function test_LC32_incomeWithNoSharesIsOwnerless() public {
-        _deployFeeless();
+        _deployUnseeded(_mandate(0), _config(0));
         hubVault.forwardIncome(address(usdc), 5e6);
         assertEq(vault.ownerlessIncome(address(usdc)), 5e6);
         assertEq(vault.collectedIncome(address(usdc)), 5e6);

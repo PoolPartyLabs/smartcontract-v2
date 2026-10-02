@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {FundSeed} from "../../../utils/FundSeed.sol";
 import {CoreBridgeVM} from "wormhole-sdk/interfaces/ICoreBridge.sol";
 
 import {CoreVault} from "../../../../src/core/CoreVault.sol";
@@ -40,7 +41,7 @@ import {SecAcrossSpokePool} from "./SecAcrossSpokePool.sol";
 ///      one records published payloads, the hub one takes `abi.encode(CoreBridgeVM)` as a verified VAA), the hub Spoke
 ///      Vault, the price source and the manager registry. `block.chainid` is switched to the chain each call runs on;
 ///      both chains share one clock, as in `test/fork/e2e`.
-abstract contract CrossChainFixture is Test {
+abstract contract CrossChainFixture is Test, FundSeed {
     uint256 internal constant HUB = 42_161;
     uint256 internal constant SPOKE = 4663;
     uint16 internal constant WH_SPOKE = 72;
@@ -125,6 +126,10 @@ abstract contract CrossChainFixture is Test {
         require(address(receiver) == predictedReceiver, "fixture: receiver address");
 
         core = new CoreVault(m, _coreConfig());
+
+        // DEC-127: this contract plays the factory and seeds the fund (FundSeed).
+
+        _seedFund(address(core), core.usdc(), core.flowFeeBps());
         require(address(core) == predictedCore, "fixture: core vault address");
         hubVault.setCoreVault(address(core));
         shares = ShareToken(core.shareToken());
@@ -191,7 +196,7 @@ abstract contract CrossChainFixture is Test {
         m.operatingCash = new OperatingCashConfig[](0);
         m.payoutFeeBps = 200;
         m.standardPayoutTerm = 72 hours;
-        m.minFirstDeposit = 100e6;
+        m.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
         m.performanceFeeBps = 2000;
         m.managementFeeBps = 0;
         m.maxBridgeFeeBps = 50;
@@ -209,6 +214,7 @@ abstract contract CrossChainFixture is Test {
         c.excessRecipient = excess;
         c.escrowImplementation = address(escrowImpl);
         c.flowFeeBps = 25;
+        c.factory = address(this);
         c.incomeTokens = new address[](1);
         c.incomeTokens[0] = address(weth);
         c.shareName = "Pool Party Fund 1";

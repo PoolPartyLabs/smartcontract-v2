@@ -37,7 +37,7 @@ contract New_PreSeededUnlistedArrivalRecovery is CoreBCrossChainFixture {
         _fillOnSpoke(out, ARRIVES);
         _report();
         uint256 fairAssets = vault.shareAssets();
-        assertEq(fairAssets, 997_450e6);
+        assertEq(fairAssets, SEED_IDLE + 997_450e6);
         vm.prank(bob);
         vault.requestPayout(1_000_000e6, ICoreVault.PayoutMode.Standard);
 
@@ -71,7 +71,7 @@ contract New_PreSeededUnlistedArrivalRecovery is CoreBCrossChainFixture {
         assertEq(vault.shareAssets(), fairAssets - (ARRIVES - HOME_OUT), "only the bridge fee is gone");
         vm.prank(bob);
         ICoreVault.PayoutReceipt memory r = vault.claimPayout("");
-        assertEq(r.usdcPaid, 497_453_250_000, "the honest payout");
+        assertEq(r.usdcPaid, 497_453_250_050, "the honest payout");
         vm.expectRevert(abi.encodeWithSelector(ICoreVault.NothingToRecover.selector, home));
         vault.recoverUnlistedArrival(0, home);
     }
@@ -109,7 +109,7 @@ contract New_PreSeededUnlistedArrivalRecovery is CoreBCrossChainFixture {
         assertEq(vault.shareAssets(), fairAssets - (ARRIVES - HOME_OUT), "counted once, in Idle");
         vm.prank(bob);
         ICoreVault.PayoutReceipt memory r = vault.claimPayout("");
-        assertEq(r.usdcPaid, 497_453_250_000, "the honest payout");
+        assertEq(r.usdcPaid, 497_453_250_050, "the honest payout");
     }
 
     /// @dev On main the pre-seeded Income send home was recovered as Principal at once (no fee, no income). Now the

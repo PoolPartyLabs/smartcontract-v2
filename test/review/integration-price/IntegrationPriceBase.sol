@@ -256,6 +256,7 @@ abstract contract IntegrationPriceBase is EndToEndBase {
             }
             p.uniswapV4Pools = keys;
         }
+        _fundManagerSeed(ARB_USDC, manager, address(factory), p.seedAmount);
         vm.prank(manager);
         IFundFactory.FundAddresses memory a = factory.createFund(m, p);
         core = ICoreVault(a.coreVault);

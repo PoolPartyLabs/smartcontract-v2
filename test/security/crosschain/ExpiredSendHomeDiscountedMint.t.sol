@@ -27,7 +27,7 @@ contract ExpiredSendHomeDiscountedMintPoC is CrossChainFixture {
         (, uint256 outboundDeposit) = _sendToSpoke(500_000e6, 499_750e6);
         _fillOnSpoke(outboundDeposit);
         _reportAndDeliver(900);
-        assertEq(core.shareAssets(), 997_250e6);
+        assertEq(core.shareAssets(), SEED_IDLE + 997_250e6);
         uint256 aliceShares = shares.balanceOf(alice);
 
         // 1. A transfer home that nobody fills.
@@ -39,12 +39,14 @@ contract ExpiredSendHomeDiscountedMintPoC is CrossChainFixture {
         });
         (bytes32 homeTransit, uint256 homeDeposit) = _sendToHub(400_000e6, TransferKind.Principal, quote);
         _reportAndDeliver(900);
-        assertEq(core.shareAssets(), 997_050e6, "Idle 497,500 + spoke 99,750 + return leg 399,800");
+        assertEq(
+            core.shareAssets(), SEED_IDLE + 997_050e6, "Idle 497,500 + spoke 99,750 + return leg 399,800 + the seed"
+        );
 
         // 2. fillDeadline + maxReportAge passes: the spoke keeps listing the unrefunded transfer.
         vm.warp(uint256(spokePool.deposit(homeDeposit).fillDeadline) + MAX_REPORT_AGE + 1);
         _reportAndDeliver(900);
-        assertEq(core.shareAssets(), 997_050e6, "S-3: the 400,000 USDG are still counted in flight");
+        assertEq(core.shareAssets(), SEED_IDLE + 997_050e6, "S-3: the 400,000 USDG are still counted in flight");
 
         // 3. A would-be attacker mints at the fair Share Price.
         (uint256 attackerShares,) = _deposit(attacker, 600_000e6);

@@ -140,6 +140,8 @@ contract FundSystemHandler is Test {
         fundId = system.core.fundId();
         listSendsHomeAtOnce = listSendsHomeAtOnce_;
         recognizeRefundsBeforeReports = recognizeRefundsBeforeReports_;
+        // DEC-127: the manager's seed is the first principal in.
+        principalIn = system.core.idle() + system.core.operatingCash();
         _actors.push(makeAddr("shareholder0"));
         _actors.push(makeAddr("shareholder1"));
         _actors.push(makeAddr("shareholder2"));

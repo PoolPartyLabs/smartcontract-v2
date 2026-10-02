@@ -64,7 +64,7 @@ contract FeeRecipientLivenessPoC is AccessFundFixture {
         poolId = _hubPoolId();
         _deposit(core, alice, 600_000e6);
         _deposit(core, bob, 400_000e6);
-        assertEq(core.idle(), 997_500e6, "both deposits sit in Idle, net of the flow fee");
+        assertEq(core.idle(), SEED_IDLE + 997_500e6, "both deposits sit in Idle, net of the flow fee");
     }
 
     function test_SEC_S12_blacklistedProtocolRecipientNoLongerBlocksDepositsOrPayouts() public {

@@ -94,6 +94,7 @@ contract Fork_RelayerAndOperatingCash is XChainBase {
         FundPlan memory plan = _plan();
         plan.maxBridgeFeeBps = 10_000;
         (FundFactory factory,, Mandate memory m, IFundFactory.HubParams memory p) = _hubInputs(plan);
+        _fundManagerSeed(ARB_USDC, manager, address(factory), p.seedAmount);
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsAboveMax.selector, 10_000, MandateLib.MAX_BRIDGE_FEE_BPS));
         factory.createFund(m, p);

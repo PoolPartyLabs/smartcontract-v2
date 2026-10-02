@@ -45,7 +45,7 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
         (uint256 spokeValue, uint256 sentAfter,,) = vault.spokeCapUsage(0);
         assertEq(spokeValue, ARRIVES, "the report carries it now, nothing deducted as unknown");
         assertEq(sentAfter, 0, "the Spoke Cap is released once, at the confirmation");
-        assertEq(vault.shareAssets(), 9975e6 - SENT + ARRIVES);
+        assertEq(vault.shareAssets(), SEED_IDLE + 9975e6 - SENT + ARRIVES);
         assertEq(vault.shareAssets(), _bucketSum());
 
         // A refund can no longer be recognized, even with the full amount sitting in the escrow.
@@ -54,7 +54,7 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
             abi.encodeWithSelector(ICoreVault.InvalidTransitState.selector, id, uint8(TransitState.ArrivalConfirmed))
         );
         vault.recognizeRefund(id);
-        assertEq(vault.shareAssets(), 9975e6 - SENT + ARRIVES, "nothing moved");
+        assertEq(vault.shareAssets(), SEED_IDLE + 9975e6 - SENT + ARRIVES, "nothing moved");
         assertEq(usdc.balanceOf(address(vault)), _ledgerUsdc());
     }
 
@@ -128,16 +128,16 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
             vm.prank(manager);
             vm.expectRevert(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector);
             vault.sendToSpoke(0, SENT, 0, _quote(ARRIVES));
-            assertEq(vault.idle(), 9975e6, "the send was rolled back");
+            assertEq(vault.idle(), SEED_IDLE + 9975e6, "the send was rolled back");
             assertEq(vault.inFlightValue(), 0);
-            assertEq(usdc.balanceOf(address(vault)), 9975e6);
+            assertEq(usdc.balanceOf(address(vault)), SEED_IDLE + 9975e6);
             assertEq(usdc.allowance(address(vault), address(malPool)), 0, "no approval survives a failed send");
         }
         // Disarmed, the same send goes through and leaves no approval behind.
         malPool.disarm();
         vm.prank(manager);
         vault.sendToSpoke(0, SENT, 0, _quote(ARRIVES));
-        assertEq(vault.idle(), 9975e6 - SENT);
+        assertEq(vault.idle(), SEED_IDLE + 9975e6 - SENT);
         assertEq(usdc.allowance(address(vault), address(malPool)), 0);
     }
 

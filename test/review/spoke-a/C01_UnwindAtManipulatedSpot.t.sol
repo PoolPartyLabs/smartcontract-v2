@@ -24,9 +24,9 @@ contract C01_UnwindAtManipulatedSpot is SpokeAHubFixture {
         uint256 assetsBefore = vault.shareAssets();
         uint256 aliceBefore = _valueOf(alice);
         uint256 freeIdleBefore = vault.freeIdle();
-        assertEq(assetsBefore, 1_017_446_939_997);
-        assertEq(aliceBefore, 997_496_999_997);
-        assertEq(freeIdleBefore, 17_446_939_999);
+        assertEq(assetsBefore, 1_017_450_999_998);
+        assertEq(aliceBefore, 997_499_999_998);
+        assertEq(freeIdleBefore, 17_451e6);
 
         // Same push as the e5c778a PoC: WETH spot at 1/1,250 of the oracle, the mock fills at that spot.
         _crushWethSpot(1250);
@@ -44,11 +44,11 @@ contract C01_UnwindAtManipulatedSpot is SpokeAHubFixture {
         // The unwind reverted whole: no position closed, no WETH sold, nothing taken from the fund.
         assertEq(r.unwindProceeds, 0, "unwind reverted under the oracle floor");
         assertEq(hubVault.positions().length, 1, "position kept");
-        assertEq(r.usdcPaid, 17_053_413_712, "paid from Free Idle only");
+        assertEq(r.usdcPaid, 17_058_352_501, "paid from Free Idle only");
         assertTrue(vault.payoutRequest(mallory).open, "partial payout, request stays open");
         // Share Assets fall only by what Mallory was paid gross less her Payout Fee, which stays in Idle (DEC-144);
         // Alice's value is untouched, and the fee even raises it.
-        assertEq(vault.shareAssets(), 1_000_000_992_467 + r.payoutFee);
+        assertEq(vault.shareAssets(), assetsBefore - r.usdcGross + r.payoutFee);
         assertGe(_valueOf(alice), aliceBefore, "the holder who stays loses nothing");
     }
 }

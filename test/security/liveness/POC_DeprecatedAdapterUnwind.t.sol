@@ -19,7 +19,7 @@ contract POC_DeprecatedAdapterUnwind is HubStackFixture {
     function test_SEC_S10_deprecatedHubAdapterStillUnwindsAndSellsWeth() public {
         _deposit(alice, 200_000e6); // 199,500 Idle after the flow fee
         bytes32 positionKey = _openHubPosition(100_000e6, 50_000e6, 50_000e6); // 20 WETH + 50,000 USDC in range
-        assertEq(vault.freeIdle(), 99_500e6);
+        assertEq(vault.freeIdle(), SEED_IDLE + 99_500e6);
 
         _request(alice, 150_000e6, ICoreVault.PayoutMode.Instant);
         uint256 snapshot = vm.snapshotState();

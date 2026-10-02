@@ -34,7 +34,7 @@ contract POC_OperatingCashFreeze is CoreVaultFixture {
     function test_POC_operatingCashTopUpMovesFreeIdleIntoADeadBucket() public {
         _deposit(alice, 100_000e6);
         uint256 assetsBefore = vault.shareAssets();
-        assertEq(assetsBefore, 99_750e6); // 25 bps flow fee left the fund
+        assertEq(assetsBefore, SEED_IDLE + 99_750e6); // 25 bps flow fee left the fund
         assertEq(vault.operatingCash(), 0);
 
         // The manager (or an agent with a bug) sets a top-up worth half the fund; nothing bounds it.
@@ -47,7 +47,8 @@ contract POC_OperatingCashFreeze is CoreVaultFixture {
         // Half of the fund left Share Assets for good.
         assertEq(vault.operatingCash(), 50_000e6);
         uint256 assetsAfter = vault.shareAssets();
-        assertApproxEqAbs(assetsAfter, 49_750e6 + 997_500_000, 0.01e6); // what is left plus bob's net deposit
+        // What is left plus bob's net deposit, less his whole-share rounding at the halved price.
+        assertApproxEqAbs(assetsAfter, SEED_IDLE + 49_750e6 + 997_500_000, 1e6);
         assertLt(assetsAfter, assetsBefore);
 
         // Alice's full exit is priced at the reduced Share Assets: her 100,000 USDC deposit pays back under half.

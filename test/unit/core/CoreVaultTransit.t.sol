@@ -60,7 +60,7 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         assertEq(ITransitEscrow(t.escrow).vault(), address(vault));
         assertEq(ITransitEscrow(t.escrow).token(), address(usdc));
         assertEq(usdc.allowance(address(vault), address(pool)), 0, "approval reset");
-        assertEq(vault.idle(), 9975e6 - SENT);
+        assertEq(vault.idle(), SEED_IDLE + 9975e6 - SENT);
         // DEC-085: In-flight Value counts at the amount that will arrive.
         assertEq(vault.inFlightValue(), ARRIVES);
         assertEq(vault.shareAssets(), assetsBefore - SENT + ARRIVES);
@@ -147,7 +147,7 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         vm.startPrank(manager);
         vm.expectRevert(abi.encodeWithSelector(ICoreVault.UnknownSpoke.selector, 1));
         vault.sendToSpoke(1, SENT, 0, _quote(ARRIVES));
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.InsufficientFreeIdle.selector, 20_000e6, 9975e6));
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.InsufficientFreeIdle.selector, 20_000e6, SEED_IDLE + 9975e6));
         vault.sendToSpoke(0, 20_000e6, 0, _quote(19_990e6));
         vm.stopPrank();
     }
@@ -303,7 +303,7 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         pool.refund(0);
         vault.recognizeRefund(id);
         assertEq(vault.inFlightValue(), 0);
-        assertEq(vault.idle(), 9975e6);
+        assertEq(vault.idle(), SEED_IDLE + 9975e6);
     }
 
     function test_DEC063_dustInEscrowIsNoRefundAndMovesNothing() public {
@@ -330,7 +330,7 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         pool.refund(0);
         // DEC-063: exactly the amount sent enters Idle; DEC-080: the donated surplus is excess, never a base.
         assertEq(vault.recognizeRefund(id), SENT);
-        assertEq(vault.idle(), 9975e6);
+        assertEq(vault.idle(), SEED_IDLE + 9975e6);
         assertEq(usdc.balanceOf(escrow), 0);
         assertEq(vault.sweepExcess(address(usdc)), 1);
         assertEq(usdc.balanceOf(address(vault)), _ledgerUsdc());
@@ -347,7 +347,7 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         assertEq(uint8(vault.transit(id).state), uint8(TransitState.ArrivalConfirmed));
         (uint256 spokeValue,,,) = vault.spokeCapUsage(0);
         assertEq(spokeValue, ARRIVES, "the arrival is not treated as unknown");
-        assertEq(vault.shareAssets(), 9975e6 + ARRIVES, "the donor's amount stays with the fund");
+        assertEq(vault.shareAssets(), SEED_IDLE + 9975e6 + ARRIVES, "the donor's amount stays with the fund");
     }
 
     function test_DEC090_onlyReceiverAppliesReports() public {
@@ -395,7 +395,7 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         // The report that lists it (and no longer counts it in the spoke's balances) credits Idle.
         _deliver(_inFlightToHub(_spokeReport(0, 0), homeId, 500e6));
         assertEq(vault.unmatchedArrivals(), 0);
-        assertEq(vault.idle(), 9975e6 + 500e6);
+        assertEq(vault.idle(), SEED_IDLE + 9975e6 + 500e6);
         assertEq(vault.inFlightValue(), 0, "credited, so no longer in flight");
     }
 
@@ -417,7 +417,7 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         uint256 protocol0 = usdc.balanceOf(protocol);
         pool.fill(address(vault), address(usdc), 100e6, _homeMessage(homeId, TransferKind.Income));
         assertEq(vault.collectedIncome(address(usdc)), 80e6);
-        assertEq(vault.idle(), 9975e6);
+        assertEq(vault.idle(), SEED_IDLE + 9975e6);
         assertEq(usdc.balanceOf(protocol) - protocol0, 10e6);
         assertEq(usdc.balanceOf(vault.managerFeeVault()), 10e6);
     }
@@ -445,11 +445,11 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         pool.fill(address(vault), address(usdc), 1, _homeMessage(homeId, TransferKind.Principal));
         pool.fill(address(vault), address(usdc), 500e6, _homeMessage(homeId, TransferKind.Principal));
         _deliver(_inFlightToHub(_spokeReport(0, 0), homeId, 500e6));
-        assertEq(vault.idle(), 9975e6 + 500e6);
+        assertEq(vault.idle(), SEED_IDLE + 9975e6 + 500e6);
         assertEq(vault.unmatchedArrivals(), 1);
         // A late repeat of the id is held apart too.
         pool.fill(address(vault), address(usdc), 10e6, _homeMessage(homeId, TransferKind.Principal));
-        assertEq(vault.idle(), 9975e6 + 500e6);
+        assertEq(vault.idle(), SEED_IDLE + 9975e6 + 500e6);
         assertEq(vault.unmatchedArrivals(), 10e6 + 1);
     }
 

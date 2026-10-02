@@ -74,6 +74,7 @@ contract L01_MandateSizeInitcodeCliff is FactoryReviewFixture {
     function _createFundGas(uint256 extraPools) internal returns (uint256 used) {
         Deployment memory d = _hubChain();
         (Mandate memory m, IFundFactory.HubParams memory p) = _bigMandate(d, extraPools);
+        _fundManagerSeed(address(usdc), manager, address(d.factory), p.seedAmount);
         vm.prank(manager);
         uint256 g = gasleft();
         d.factory.createFund(m, p);

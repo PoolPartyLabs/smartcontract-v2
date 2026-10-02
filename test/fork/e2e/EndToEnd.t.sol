@@ -71,6 +71,7 @@ abstract contract EndToEndScenario is EndToEndBase {
 
         IFundFactory.HubParams memory p =
             _hubParams(creationNumber, _plan(), _coreVaultCreationCode(hubDeployment.coreVaultLogic));
+        _fundManagerSeed(ARB_USDC, manager, address(factory), p.seedAmount);
         vm.prank(manager);
         IFundFactory.FundAddresses memory a = factory.createFund(m, p);
         assertEq(a.coreVault, predicted.coreVault, "DEC-054: Core Vault at its prediction");

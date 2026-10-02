@@ -30,6 +30,7 @@ import {MockCoreBridge} from "../../mocks/receiver/MockCoreBridge.sol";
 import {MockPriceSource} from "../../mocks/core/MockPriceSource.sol";
 import {FactoryDeployment} from "../../../script/FactoryDeployment.sol";
 import {FundMandate} from "../../../script/FundMandate.sol";
+import {FundSeed} from "../../utils/FundSeed.sol";
 
 /// @notice Shared fixture of the access-control security PoCs: a fund created by the REAL FundFactory (real Core
 ///         Vault, Spoke Vault, ShareToken, ManagerFeeVault, ValueReportReceiver, Uniswap V4, Aave V3 and Across
@@ -39,7 +40,7 @@ import {FundMandate} from "../../../script/FundMandate.sol";
 ///      deployments at the same address, one per simulated chain (state reverted in between).
 /// @dev The mock Uniswap V4 pool is initialized at tick 0 (one raw WETH unit for one raw USDC unit) and the price
 ///      source agrees with it, so amounts read the same in both tokens; only ratios matter to the PoCs.
-abstract contract AccessFundFixture is Test, FactoryDeployment, FundMandate {
+abstract contract AccessFundFixture is Test, FactoryDeployment, FundMandate, FundSeed {
     uint256 internal constant HUB = 42_161;
     uint256 internal constant SPOKE = 4663;
     uint32 internal constant MAX_REPORT_AGE = 1588;
@@ -170,9 +171,11 @@ abstract contract AccessFundFixture is Test, FactoryDeployment, FundMandate {
         plan.maxReportAge = MAX_REPORT_AGE;
         plan.spokeOperatingCashFloor = 5e6;
         plan.spokeOperatingCashTopUp = 10e6;
-        plan.minFirstDeposit = 100e6;
+        plan.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
         plan.performanceFeeBps = 2000;
         plan.maxBridgeFeeBps = 50;
+        // DEC-127: the manager seeds one share at creation (FundSeed).
+        plan.seedAmount = _oneShareSeed(25);
     }
 
     /// @dev Creates fund number 1 on the hub from `plan`, as its manager.
@@ -181,8 +184,10 @@ abstract contract AccessFundFixture is Test, FactoryDeployment, FundMandate {
         returns (IFundFactory.FundAddresses memory a, Mandate memory m)
     {
         m = _buildMandate(factory, factory.fundIdOf(HUB, 1, plan.manager), plan);
+        IFundFactory.HubParams memory p = _hubParams(1, plan, _coreVaultCreationCode(hubDeployment.coreVaultLogic));
+        _fundManagerSeed(address(usdc), plan.manager, address(factory), p.seedAmount);
         vm.prank(plan.manager);
-        a = factory.createFund(m, _hubParams(1, plan, _coreVaultCreationCode(hubDeployment.coreVaultLogic)));
+        a = factory.createFund(m, p);
     }
 
     // ---------------------------------------------------------------------------------------------------------------

@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {IFundFactory} from "../interfaces/IFundFactory.sol";
 import {IAdapter} from "../interfaces/IAdapter.sol";
+import {ICoreVaultLifecycle} from "../interfaces/ICoreVaultLifecycle.sol";
 import {Mandate, MandateLib, SpokeConfig, PoolConfig} from "../mandate/Mandate.sol";
 import {CoreVaultConfig} from "../core/CoreVaultTypes.sol";
 import {TransitEscrow} from "../core/TransitEscrow.sol";
@@ -30,6 +33,7 @@ import {CodeStore} from "./CodeStore.sol";
 ///      the fund registry. DEC-001: creation is permissionless.
 contract FundFactory is IFundFactory, ReentrancyGuardTransient {
     using MandateLib for Mandate;
+    using SafeERC20 for IERC20;
 
     /// @notice Salt roles (the fund contract each salt deploys).
     bytes32 public constant ROLE_CORE_VAULT = "CoreVault";
@@ -176,6 +180,7 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
             abi.encode(_wormholeCore, addresses.coreVault, fundId, m.spokes, VARIATION_BAND_BPS)
         );
         _deployCoreVault(m, addresses, p.coreVaultCreationCode);
+        _seed(addresses.coreVault, p.seedAmount);
 
         emit FundCreated(creationNumber, fundId, m.manager, m.hash(), addresses);
     }
@@ -471,11 +476,25 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
         c.excessRecipient = _protocolRecipient;
         c.escrowImplementation = transitEscrowImplementation;
         c.flowFeeBps = _flowFeeBps;
+        c.factory = address(this);
         c.incomeTokens = _hubIncomeTokens(m, chainId);
         string memory number = Strings.toString(a.creationNumber);
         c.shareName = string.concat("Pool Party Fund ", number);
         c.shareSymbol = string.concat("PP-", number);
         Create3.deploy(saltOf(a.fundId, ROLE_CORE_VAULT, chainId), abi.encodePacked(creationCode, abi.encode(m, c)));
+    }
+
+    /// @dev DEC-127, DEC-061, DEC-113: the manager's seed. The factory pulls exactly what the seed costs at the initial
+    ///      Share Price (the flow fee plus the whole shares it buys; the sub-share remainder never leaves the manager,
+    ///      DEC-035), approves the Core Vault for exactly that and calls `seed`, which pulls it back to zero allowance.
+    ///      The Core Vault enforces `minFirstDeposit` and the one-share floor.
+    function _seed(address coreVault, uint256 seedAmount) private {
+        (, uint256 usdcForShares, uint256 fee) =
+            ShareMath.previewDeposit(seedAmount, _flowFeeBps, ShareMath.INITIAL_SHARE_PRICE);
+        uint256 cost = usdcForShares + fee;
+        IERC20(_baseToken).safeTransferFrom(msg.sender, address(this), cost);
+        IERC20(_baseToken).forceApprove(coreVault, cost);
+        ICoreVaultLifecycle(coreVault).seed(seedAmount);
     }
 
     /// @dev The distinct tokens of the Mandate's hub pools, in Mandate order (the Core Vault registers USDC first).

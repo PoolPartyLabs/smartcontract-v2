@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
+import {ICoreVaultLifecycle} from "../interfaces/ICoreVaultLifecycle.sol";
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {Mandate} from "../mandate/Mandate.sol";
 import {ShareMath} from "../libraries/ShareMath.sol";
@@ -15,9 +16,9 @@ import {CoreVaultTransit} from "./CoreVaultTransit.sol";
 import {CoreVaultLogic} from "./CoreVaultLogic.sol";
 
 /// @title CoreVault
-/// @notice Hub Chain contract of a fund: custody of Idle USDC, the Share ledger, Payout Requests and Payouts, the
-///         Attributed Income bucket and Income Withdrawal, sends to spokes and the transit state machine.
-/// @dev See ICoreVault for the rules of every verb. DEC-022, DEC-058: no proxy, no upgrade path, no selfdestruct.
+/// @notice Hub Chain contract of a fund: custody of Idle USDC, the Share ledger, the manager's seed, Payout Requests and
+///         Payouts, the Attributed Income bucket and Income Withdrawal, sends to spokes and the transit state machine.
+/// @dev See ICoreVault and ICoreVaultLifecycle for the rules of every verb. DEC-022, DEC-058: no proxy, no upgrade path, no selfdestruct.
 ///      The value bases, report application, sends and transit outcomes live in the linked external library
 ///      `CoreVaultLogic`, called by DELEGATECALL over this vault's storage: its address is part of the creation code
 ///      and trust surface; the factory deploys it once per chain and pins it. It is the only DELEGATECALL the vault
@@ -53,6 +54,8 @@ contract CoreVault is CoreVaultTransit {
     // ---------------------------------------------------------------------------------------------------------------
 
     /// @inheritdoc ICoreVault
+    /// @dev DEC-121, DEC-127: only a seeded fund takes deposits; the first-deposit minimum (DEC-061, DEC-095) applies to
+    ///      the seed, the only mint at supply 0, so a fund whose shares were all burned never re-opens at 1.00.
     function deposit(uint256 usdcAmount, uint256 minShares)
         external
         nonReentrant
@@ -60,8 +63,7 @@ contract CoreVault is CoreVaultTransit {
     {
         if (usdcAmount == 0) revert ZeroAmount();
         uint256 supply = _totalShares();
-        // DEC-061, DEC-095: the first deposit of a fund with no shares is at least the Mandate minimum.
-        if (supply == 0 && usdcAmount < _minFirstDeposit) revert BelowMinFirstDeposit(usdcAmount, _minFirstDeposit);
+        if (supply == 0) revert FundNotSeeded();
         // DEC-096: Operating Cash top-up first, so the depositor enters at the post-expense price.
         _topUpOperatingCash();
         // Q57 reading: a mint reverts on a stale spoke report or a stale price. DEC-014: the entrant's checkpoint below
@@ -90,6 +92,41 @@ contract CoreVault is CoreVaultTransit {
         // fails it is owed, never a reason to refuse the deposit.
         CoreVaultLogic.payFee(_s, usdc, protocolRecipient, fee);
         ShareToken(shareToken).mint(msg.sender, shares);
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Seed (DEC-061, DEC-113, DEC-121, DEC-127)
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// @inheritdoc ICoreVaultLifecycle
+    /// @dev Called by `FundFactory.createFund` in the creation transaction, so no fund exists without the seed. The
+    ///      price is the initial Share Price by definition (DEC-061): nothing else is in the fund yet. D-34: the seed is a
+    ///      deposit and pays the flow fee (DEC-113). The remainder below one share never leaves the caller (DEC-035).
+    function seed(uint256 usdcAmount) external nonReentrant returns (uint256 shares) {
+        if (msg.sender != factory) revert NotFactory(msg.sender);
+        // The peak is non-zero once seeded; a supply-0 fund is either new or closed, and a closed one never re-opens.
+        if (_s.managerPeakShares != 0 || _totalShares() != 0) revert AlreadySeeded();
+        if (usdcAmount < _minFirstDeposit) revert BelowMinFirstDeposit(usdcAmount, _minFirstDeposit);
+        uint256 price = ShareMath.INITIAL_SHARE_PRICE;
+        (uint256 minted, uint256 usdcForShares, uint256 fee) = ShareMath.previewDeposit(usdcAmount, flowFeeBps, price);
+        if (minted == 0) revert DepositBelowOneShare(usdcAmount - fee, price);
+        shares = minted;
+
+        // DEC-014: no income checkpoint is needed: no share ever existed, so every income index is still 0 (income met
+        // at supply 0 is kept ownerless and never moves an index, IncomeAccumulator.distribute).
+        _s.idle += usdcForShares;
+        // DEC-146: the manager's first balance is the first peak.
+        _s.managerPeakShares = shares;
+        emit FundSeeded(manager, usdcForShares, fee, shares);
+
+        IERC20(usdc).safeTransferFrom(msg.sender, address(this), usdcForShares + fee);
+        CoreVaultLogic.payFee(_s, usdc, protocolRecipient, fee);
+        ShareToken(shareToken).mint(manager, shares);
+    }
+
+    /// @inheritdoc ICoreVaultLifecycle
+    function managerPeakShares() external view returns (uint256) {
+        return _s.managerPeakShares;
     }
 
     // ---------------------------------------------------------------------------------------------------------------

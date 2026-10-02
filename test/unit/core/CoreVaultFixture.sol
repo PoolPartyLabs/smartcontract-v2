@@ -25,9 +25,13 @@ import {MockAcrossSpokePool} from "../../mocks/core/MockAcrossSpokePool.sol";
 import {MockBridgeAdapter} from "../../mocks/core/MockBridgeAdapter.sol";
 import {MockHubSpokeVault} from "../../mocks/core/MockHubSpokeVault.sol";
 import {MockReportReceiver} from "../../mocks/core/MockReportReceiver.sol";
+import {FundSeed} from "../../utils/FundSeed.sol";
 
 /// @notice Shared deployment of a Core Vault against mocks: Arbitrum as hub (42161), Robinhood as the one spoke (4663).
-abstract contract CoreVaultFixture is Test {
+/// @dev The test contract plays the factory (`CoreVaultConfig.factory`): `_deploy` seeds every fund at creation, as
+///      `FundFactory.createFund` does (DEC-127), with the smallest seed that buys one whole share at 1.00 after the flow
+///      fee, so the manager holds `SEED_SHARES` and Idle starts at `SEED_IDLE` (the Mandate minimum is 1 USDC here).
+abstract contract CoreVaultFixture is Test, FundSeed {
     uint256 internal constant HUB = 42_161;
     uint256 internal constant SPOKE = 4663;
     uint16 internal constant WH_SPOKE = 72;
@@ -114,7 +118,7 @@ abstract contract CoreVaultFixture is Test {
         m.operatingCash = new OperatingCashConfig[](0);
         m.payoutFeeBps = 200;
         m.standardPayoutTerm = 72 hours;
-        m.minFirstDeposit = 100e6;
+        m.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
         m.performanceFeeBps = performanceFeeBps;
         m.managementFeeBps = 0;
         m.maxBridgeFeeBps = 50;
@@ -132,6 +136,7 @@ abstract contract CoreVaultFixture is Test {
         c.excessRecipient = excess;
         c.escrowImplementation = address(escrowImpl);
         c.flowFeeBps = flowFeeBps;
+        c.factory = address(this);
         c.incomeTokens = new address[](1);
         c.incomeTokens[0] = address(weth);
         c.shareName = "Pool Party Fund 1";
@@ -139,6 +144,12 @@ abstract contract CoreVaultFixture is Test {
     }
 
     function _deploy(Mandate memory m, CoreVaultConfig memory c) internal returns (CoreVault v) {
+        v = _deployUnseeded(m, c);
+        _seedFund(address(v), address(usdc), c.flowFeeBps);
+    }
+
+    /// @dev A fund as the factory leaves it before the seed call (DEC-127): no shares yet.
+    function _deployUnseeded(Mandate memory m, CoreVaultConfig memory c) internal returns (CoreVault v) {
         v = new CoreVault(m, c);
         hubVault.setCoreVault(address(v));
         receiver.setCoreVault(address(v));

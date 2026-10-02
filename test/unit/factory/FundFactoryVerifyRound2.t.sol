@@ -28,6 +28,7 @@ import {MockWormholeCore} from "../../mocks/spoke/MockWormholeCore.sol";
 import {FactoryDeployment} from "../../../script/FactoryDeployment.sol";
 import {FundMandate} from "../../../script/FundMandate.sol";
 import {AnyPriceSource} from "../../mocks/core/AnyPriceSource.sol";
+import {FundSeed} from "../../utils/FundSeed.sol";
 
 /// @notice Adversarial verification of the factory stage (round 2), after the fund id bound the Manager and
 ///         `createSpoke` started deriving the id from the Mandate's Hub Chain. Same two-chain fixture as
@@ -35,7 +36,7 @@ import {AnyPriceSource} from "../../mocks/core/AnyPriceSource.sol";
 /// @dev `test_FFOQ1_verify_managerCanCreateTheSpokeFromAMandateOtherThanTheHubs` and
 ///      `test_DEC087_verify_hubMandateMayNameASpokeThatCanNeverBeCreated` document open limits (FF-OQ-1 residual and a
 ///      Mandate foot-gun), not fixed behaviour; the other two confirm the round 1 fixes hold from other directions.
-contract FundFactoryVerifyRound2Test is Test, FactoryDeployment, FundMandate {
+contract FundFactoryVerifyRound2Test is Test, FactoryDeployment, FundMandate, FundSeed {
     uint256 internal constant HUB = 42_161;
     uint256 internal constant SPOKE = 4663;
 
@@ -77,6 +78,8 @@ contract FundFactoryVerifyRound2Test is Test, FactoryDeployment, FundMandate {
         d = _deployFactory(_wiring(true), true, d);
         hubDeployment = d;
         factory = d.factory;
+        // DEC-127: the manager holds the seed and approved the factory before `createFund`.
+        _fundManagerSeed(address(usdc), manager, address(factory), 10_000e6);
     }
 
     function _wiring(bool hub) internal returns (IFundFactory.ProtocolWiring memory w) {

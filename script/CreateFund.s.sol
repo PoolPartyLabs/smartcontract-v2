@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {Script, console} from "forge-std/Script.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
@@ -21,7 +22,9 @@ import {FundMandate} from "./FundMandate.sol";
 ///      environment with the defaults below.
 /// @dev Environment: `FUND_FACTORY`, `MANAGER` (the broadcaster; DEC-001: the creator is the Manager); on Robinhood also
 ///      `CREATION_NUMBER` and `MANDATE_HASH` from the hub's `FundCreated` event. Optional: `SPOKE_CAP`,
-///      `MIN_FIRST_DEPOSIT`, `PERFORMANCE_FEE_BPS`, `MAX_BRIDGE_FEE_BPS`.
+///      `MIN_FIRST_DEPOSIT`, `PERFORMANCE_FEE_BPS`, `MAX_BRIDGE_FEE_BPS`, `SEED_AMOUNT` (default `MIN_FIRST_DEPOSIT`).
+/// @dev DEC-127: the manager seeds the fund in the creation transaction; on Arbitrum the script approves the factory
+///      for `SEED_AMOUNT` USDC first, so `MANAGER` must hold it.
 contract CreateFund is Script, FactoryDeployment, FundMandate {
     /// @notice Ruling 2026-09-29: Robinhood report lifetime 1,587 s plus one block, rounded up.
     uint32 internal constant ROBINHOOD_MAX_REPORT_AGE = 1588;
@@ -37,9 +40,11 @@ contract CreateFund is Script, FactoryDeployment, FundMandate {
             IFundFactory.HubParams memory p =
                 _hubParams(n, plan, _coreVaultCreationCode(factory.wiring().coreVaultLogic));
             vm.startBroadcast(manager);
+            IERC20(ARB_USDC).approve(address(factory), p.seedAmount);
             IFundFactory.FundAddresses memory a = factory.createFund(m, p);
             vm.stopBroadcast();
             console.log("CREATION_NUMBER", n);
+            console.log("seed (USDC base units)", p.seedAmount);
             console.log("MANDATE_HASH");
             console.logBytes32(MandateLib.hash(m));
             console.log("fund id");
@@ -85,5 +90,6 @@ contract CreateFund is Script, FactoryDeployment, FundMandate {
         plan.minFirstDeposit = vm.envOr("MIN_FIRST_DEPOSIT", uint256(100e6));
         plan.performanceFeeBps = SafeCast.toUint16(vm.envOr("PERFORMANCE_FEE_BPS", uint256(2000)));
         plan.maxBridgeFeeBps = SafeCast.toUint16(vm.envOr("MAX_BRIDGE_FEE_BPS", uint256(50)));
+        plan.seedAmount = vm.envOr("SEED_AMOUNT", plan.minFirstDeposit);
     }
 }

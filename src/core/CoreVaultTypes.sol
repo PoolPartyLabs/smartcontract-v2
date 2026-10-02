@@ -18,6 +18,8 @@ import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 /// @param excessRecipient Recipient of swept excess balances (DEC-096, DEC-101; LC-132 OPEN).
 /// @param escrowImplementation TransitEscrow implementation cloned once per send (DEC-066, QA6 OPEN).
 /// @param flowFeeBps Protocol flow fee in bps, capped at 100 (DEC-106, DEC-110; LC-143 OPEN as to storage).
+/// @param factory The only caller of `seed` (DEC-127). A field, not `msg.sender`: the factory deploys through CREATE3,
+///        so the constructor's `msg.sender` is the one-use proxy.
 /// @param incomeTokens Hub income tokens besides USDC: the tokens of the Mandate's hub pools, which the factory reads
 ///        from the hub adapters (`IAdapter.poolTokens`) because a Mandate pool key is a hash and the Core Vault never
 ///        calls an adapter (DEC-054).
@@ -35,6 +37,7 @@ struct CoreVaultConfig {
     address excessRecipient;
     address escrowImplementation;
     uint16 flowFeeBps;
+    address factory;
     address[] incomeTokens;
     string shareName;
     string shareSymbol;
@@ -119,6 +122,7 @@ struct HubBoundTransfer {
 /// @param owedFeesTotal Sum of `owedFees` per token (part of the ledger, DEC-080).
 /// @param spokeCapHeld An ExpiryAttested transit whose expiry was proven by time alone keeps its Spoke Cap until its
 ///        arrival is confirmed or its refund recognized (security review S-13).
+/// @param managerPeakShares ICoreVaultLifecycle.managerPeakShares (DEC-146); non-zero once the fund is seeded.
 struct CoreVaultState {
     Mandate mandate;
     uint256 idle;
@@ -144,4 +148,5 @@ struct CoreVaultState {
     mapping(address token => mapping(address recipient => uint256)) owedFees;
     mapping(address token => uint256) owedFeesTotal;
     mapping(bytes32 transitId => bool) spokeCapHeld;
+    uint256 managerPeakShares;
 }

@@ -24,11 +24,12 @@ import {MockWormholeCore} from "../../mocks/spoke/MockWormholeCore.sol";
 import {FactoryDeployment} from "../../../script/FactoryDeployment.sol";
 import {FundMandate} from "../../../script/FundMandate.sol";
 import {AnyPriceSource} from "../../mocks/core/AnyPriceSource.sol";
+import {FundSeed} from "../../utils/FundSeed.sol";
 
 /// @notice Fund Factory without the network: salt derivation, predictions, hub and spoke creation against mock
 ///         protocols, and every refusal. The hub and the spoke factory are two deployments at the same address, one per
 ///         simulated chain (state reverted in between), as on mainnet.
-contract FundFactoryTest is Test, FactoryDeployment, FundMandate {
+contract FundFactoryTest is Test, FactoryDeployment, FundMandate, FundSeed {
     uint256 internal constant HUB = 42_161;
     uint256 internal constant SPOKE = 4663;
 
@@ -65,6 +66,8 @@ contract FundFactoryTest is Test, FactoryDeployment, FundMandate {
         spokeWormhole = new MockWormholeCore();
         cleanState = vm.snapshotState();
         factory = _hubFactory();
+        // DEC-127: the manager holds the seed and approved the factory before `createFund`.
+        _fundManagerSeed(address(usdc), manager, address(factory), 10_000e6);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
