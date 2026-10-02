@@ -9,6 +9,11 @@ interface IMintableToken {
     function mint(address to, uint256 amount) external;
 }
 
+/// @notice Third-party code a swap runs between taking the input and paying the output.
+interface IMidSwapHook {
+    function onMidSwap() external;
+}
+
 /// @notice A Mandate swap adapter stand-in (DEC-136): code at an address the Spoke Vault can pin (Q17-4) and a swap at
 ///         a rate the test sets, with the custody of ISwapAdapter: it pulls exactly the input from the caller and pays
 ///         the whole output to it. `swapDirect` and `bestDirectFee` (one tier, `directFee`) serve the automatic
@@ -18,7 +23,9 @@ interface IMintableToken {
 ///      `maxLossBps` is applied as the real adapter does (0 or >= 10,000: none, D-23) and the minimum is returned. The
 ///      output is paid from the mock's balance when it holds enough (a fork test `deal`s it) and minted otherwise (every
 ///      unit-test token is a mintable mock). Misbehaviours for the vault's custody checks: `pullBps` pulls only that
-///      share of the input; `reportedExtra` reports more output than it pays.
+///      share of the input; `reportedExtra` reports more output than it pays. `midSwapHook`, when set, is called once
+///      the input is taken and before the output is paid, as SwapRouter02 calls a hop token's `transfer` on an API
+///      route through a token outside the Mandate (DEC-173).
 contract MockSwapAdapter {
     using SafeERC20 for IERC20;
 
@@ -31,6 +38,7 @@ contract MockSwapAdapter {
     uint256 public haircutBps;
     uint256 public pullBps = 10_000;
     uint256 public reportedExtra;
+    address public midSwapHook;
     uint256 public calls;
     uint16 public lastMaxLossBps;
     bytes public lastRoute;
@@ -52,6 +60,10 @@ contract MockSwapAdapter {
 
     function setReportedExtra(uint256 amount) external {
         reportedExtra = amount;
+    }
+
+    function setMidSwapHook(address hook) external {
+        midSwapHook = hook;
     }
 
     function swap(address tokenIn, address tokenOut, uint256 amountIn, uint16 maxLossBps, bytes calldata route)
@@ -110,6 +122,7 @@ contract MockSwapAdapter {
         calls++;
         lastMaxLossBps = maxLossBps;
         IERC20(tokenIn).safeTransferFrom(msg.sender, address(this), amountIn * pullBps / 10_000);
+        if (midSwapHook != address(0)) IMidSwapHook(midSwapHook).onMidSwap();
         spotOut = amountIn * r.numerator / r.denominator;
         amountOut = spotOut * (10_000 - haircutBps) / 10_000;
         if (maxLossBps != 0 && maxLossBps < 10_000) minOut = spotOut * (10_000 - maxLossBps) / 10_000;

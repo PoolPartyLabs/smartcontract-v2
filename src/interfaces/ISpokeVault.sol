@@ -297,6 +297,8 @@ interface ISpokeVault is IAcrossMessageHandler, ISpokeVaultUnwind, ISpokeVaultIn
 
     /// @notice The data a report would carry now (sequence = the next report sequence). On the hub this is the
     ///         reader the Core Vault uses for the hub Spoke Vault's principal and income (same chain, no message).
+    /// @dev Reverts `ReentrancyGuardReentrantCall` while any guarded call of this vault is in progress, when the ledger
+    ///      is mid-update.
     function buildReport() external view returns (ReportCodec.Report memory);
 
     /// @notice Across fill callback. Only the Across SpokePool; only the base token.
