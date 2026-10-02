@@ -42,11 +42,14 @@ library CoreVaultClosureLogic {
             revert ICoreVaultLifecycle.ClosingDeadlineNotReached(deadline);
         }
         bytes32 closureId = requestId(state, wiring.fundId);
+        uint32 attempt = ++state.closureAttempt;
         bytes32 slot = CORE_VAULT_UNWINDING_SLOT;
         assembly ("memory-safe") { tstore(slot, 1) }
         try ISpokeVault(wiring.hubSpokeVault)
             .unwindForPayout(
-                ISpokeVaultUnwind.UnwindRequest(closureId, 1, 1, 0, ICoreVaultPayouts.PayoutMode.Standard)
+                ISpokeVaultUnwind.UnwindRequest(
+                    keccak256(abi.encode(closureId, attempt)), 1, 1, 0, ICoreVaultPayouts.PayoutMode.Standard
+                )
             ) returns (
             ISpokeVaultUnwind.UnwindResult memory result
         ) {
@@ -63,7 +66,7 @@ library CoreVaultClosureLogic {
         order.kind = OrderCodec.CLOSE;
         order.fundId = wiring.fundId;
         order.requestId = closureId;
-        order.attempt = ++state.closureAttempt;
+        order.attempt = attempt;
         order.fracNum = 1;
         order.fracDen = 1;
         order.payoutMode = uint8(ICoreVaultPayouts.PayoutMode.Standard);
