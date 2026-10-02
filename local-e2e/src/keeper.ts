@@ -54,6 +54,7 @@ import {
   isPrunedStateError,
   nodes,
   read,
+  simulateRevert,
   revertOf,
   send,
   type Side,
@@ -438,6 +439,22 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
     track(next);
   }
 
+  const acknowledgedTransits = new Set<string>();
+
+  async function acknowledgePrincipal(fund: FundEntry) {
+    const [report] = await read<readonly [any, bigint, bigint]>("arbitrum", { address: fund.receiver, abi: valueReportReceiverAbi, functionName: "latestReport", args: [BigInt(fund.spokeIndex)] });
+    for (const transit of report.inFlightToHub) {
+      if (Number(transit.kind) !== 0) continue;
+      const key = `${fund.coreVault}:${transit.transitId}`;
+      if (acknowledgedTransits.has(key)) continue;
+      const value = await read<bigint>("arbitrum", { address: ARBITRUM.wormholeCore, abi: wormholeCoreAbi, functionName: "messageFee" });
+      const call = { address: fund.coreVault, abi: coreVaultAbi, functionName: "acknowledgeSpokeTransit", args: [BigInt(fund.spokeIndex), transit.transitId], value };
+      if (await simulateRevert("arbitrum", "keeper", call)) continue;
+      await send("arbitrum", "keeper", call);
+      acknowledgedTransits.add(key);
+    }
+  }
+
   async function deliver(fund: FundEntry, message: DecodedLog, blockTimestamp: number) {
     const a = message.args;
     const sequence = a.sequence as bigint;
@@ -448,6 +465,12 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
     ]);
     if (hasReport && last >= sequence) {
       wormholeLog.info("already delivered", fields);
+      return;
+    }
+    const hubHeader = await nodes.arbitrum.client.getBlock();
+    const maxAge = BigInt(await read<number>("arbitrum", { address: fund.receiver, abi: valueReportReceiverAbi, functionName: "maxReportAge", args: [BigInt(fund.spokeIndex)] }));
+    if (hubHeader.timestamp > BigInt(blockTimestamp) + maxAge) {
+      wormholeLog.warn("report made stale by a harness warp; waiting for the fresh report", fields);
       return;
     }
     const vaa = await signVaa(
@@ -476,6 +499,7 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
         receiver: fund.receiver,
         tx: sent.hash,
       });
+      await acknowledgePrincipal(fund);
     } catch (err) {
       const revert = revertOf(err)?.name;
       if (revert === "SequenceNotIncreasing" || revert === "ReportSequenceNotIncreasing") {

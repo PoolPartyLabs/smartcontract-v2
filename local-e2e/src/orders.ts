@@ -4,8 +4,8 @@
 import { decodeAbiParameters, encodeAbiParameters, keccak256, type Hex } from "viem";
 
 export const ORDER_VERSION = 1n;
-export const ORDER_KIND = { UNWIND: 1, CLOSE: 2, COLLECT: 3 } as const;
-export const ORDER_KIND_NAME: Record<number, string> = { 1: "UNWIND", 2: "CLOSE", 3: "COLLECT" };
+export const ORDER_KIND = { UNWIND: 1, CLOSE: 2, COLLECT: 3, ACKNOWLEDGE: 4 } as const;
+export const ORDER_KIND_NAME: Record<number, string> = { 1: "UNWIND", 2: "CLOSE", 3: "COLLECT", 4: "ACKNOWLEDGE" };
 /** DEC-120 item 1: orders travel at instant consistency; reports stay finalized (DEC-093). */
 export const ORDER_CONSISTENCY = 200;
 /** `OrderCodec.ORDER_LIFETIME`: a Spoke Vault refuses an order one hour after the Hub published it (OPEN). */
