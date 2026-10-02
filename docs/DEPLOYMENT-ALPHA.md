@@ -59,7 +59,7 @@ empty `REGISTRY_OWNER` is not an unset variable: `unset REGISTRY_OWNER` to use `
 | `REGISTRY_OWNER` | Optional alternate hub registry owner. Normally **unset**, so it is `API_SIGNER`; an alternative is a deviation requiring approval. |
 | `ADAPTER_GUARDIAN` | Public address authorized to `setPaused` / `deprecate` each adapter on both chains; fund its transaction wallet. |
 | `PROTOCOL_RECIPIENT` | Protocol Recipient receiving flow fees, protocol income slices and swept excess; not the manager fee wallet. |
-| `MANAGER`; manager keystore | First fund Manager / creator. Same address signs hub and spoke creation. Holds hub USDC seed and ETH on both chains. Manager pays own gas (DEC-187). |
+| `MANAGER`; manager keystore | Only the wallet that creates the first (smoke-test) fund, not a deployment manager list or registration input. Same address signs hub and spoke creation. Holds hub USDC seed and ETH on both chains. Manager pays own gas (DEC-187). |
 | `PERFORMANCE_FEE_BPS` | Manager-selected 1,000..9,000 inclusive (10..90%); default 2,000. |
 | `MANAGEMENT_FEE_BPS` | Annual manager-selected 0..500 inclusive (0..5%); default 0, DEC-186. |
 | `SPOKE_CAP` | Maximum spoke principal including In-flight Value, in hub USDC base units (6 decimals); default `10000000000` = 10,000 USDC. Not a fund-wide TVL cap. |
@@ -159,7 +159,13 @@ CoreVaultPayoutLogic → CoreVaultTransitLogic; CodeStores; CREATE3 factory (whi
 implementation). Save every actual library address and both creation-code hashes. If any differ unexpectedly,
 stop before creating a fund.
 
-Export `FUND_FACTORY` from the successful logs. Dry-run hub creation with the actual manager, inspect predictions
+There is **no manager list or manager registration at deploy**. `createFund` is permissionless (DEC-001): managers
+appear as they create funds. The ManagerRegistry gives any manager without an entry the default **50% protocol
+slice of the manager fee** (DEC-052/106). The API signer may set a manager-specific **5–50% protocol slice later**
+(DEC-112); this is optional and is not a prerequisite for creating the smoke-test fund. `MANAGER` below selects
+only that fund's creator wallet, not an approved or registered manager.
+
+Export `FUND_FACTORY` from the successful logs. Dry-run hub creation with the smoke-test fund's creator, inspect predictions
 and seed charge, then broadcast. Re-read `nextCreationNumber` just before creation: permissionless creation can
 advance it between simulation and broadcast. Do not assume number 1.
 
