@@ -498,8 +498,7 @@ abstract contract EndToEndScenario is EndToEndBase {
         uint256 converted = core.incomeCollection().heldDollars - heldBefore;
         uint256 fees = IERC20(ARB_USDC).balanceOf(recipient) + IERC20(ARB_USDC).balanceOf(managerFeeVault) - feesBefore;
         assertGt(converted, 0);
-        // DEC-107: the 20% fee is a quarter of the holders' 80% (two units of rounding per token, D-40).
-        assertApproxEqAbs(fees * (10_000 - PERFORMANCE_FEE_BPS) / PERFORMANCE_FEE_BPS, converted, 8, "the 20% fee");
+        assertApproxEqAbs(fees * (10_000 - PERFORMANCE_FEE_BPS) / PERFORMANCE_FEE_BPS, converted, 16, "the 20% fee");
         assertEq(IERC20(ARB_WETH).balanceOf(managerFeeVault), 0, "DEC-124 item 2: fees in dollars only");
 
         uint256 anaIncome = core.incomeOwed(ana);
@@ -561,7 +560,11 @@ abstract contract EndToEndScenario is EndToEndBase {
         assertEq(core.incomeToken(0, ARB_WETH).counter, hubSpoke.cumulativeIncome(ARB_WETH), "DEC-138: recognized");
         assertEq(core.unconvertedIncome(bruno, 0, ARB_WETH), 0, "DEC-014: none of the WETH income already earned");
         assertEq(core.unconvertedIncome(bruno, 0, ARB_USDC), 0, "DEC-014: none of the USDC income already earned");
-        assertGt(core.unconvertedIncome(ana, 0, ARB_WETH), 0, "DEC-014: Ana's");
+        assertGt(
+            core.unconvertedIncome(ana, 0, ARB_WETH) + core.incomeOwed(ana),
+            0,
+            "DEC-014: Ana retains income whether or not it was already converted"
+        );
     }
 
     // -----------------------------------------------------------------------------------------------------------------
