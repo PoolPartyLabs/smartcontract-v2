@@ -170,7 +170,7 @@ abstract contract FactoryReviewFixture is Test, FactoryDeployment, FundMandate, 
     {
         uint256 n = d.factory.nextCreationNumber();
         m = _buildMandate(d.factory, d.factory.fundIdOf(HUB, n, manager), plan);
-        IFundFactory.HubParams memory p = _hubParams(n, plan, _coreVaultCreationCode(d.coreVaultLogic));
+        IFundFactory.HubParams memory p = _hubParams(n, plan, _coreVaultCreationCode(d));
         _fundManagerSeed(address(usdc), manager, address(d.factory), p.seedAmount);
         vm.prank(manager);
         a = d.factory.createFund(m, p);

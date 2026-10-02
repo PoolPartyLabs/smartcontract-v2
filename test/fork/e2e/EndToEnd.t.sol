@@ -72,8 +72,7 @@ abstract contract EndToEndScenario is EndToEndBase {
         mandateHash = MandateLib.hash(m);
         _assertMandate(m, predicted);
 
-        IFundFactory.HubParams memory p =
-            _hubParams(creationNumber, _plan(), _coreVaultCreationCode(hubDeployment.coreVaultLogic));
+        IFundFactory.HubParams memory p = _hubParams(creationNumber, _plan(), _coreVaultCreationCode(hubDeployment));
         _fundManagerSeed(ARB_USDC, manager, address(factory), p.seedAmount);
         vm.prank(manager);
         IFundFactory.FundAddresses memory a = factory.createFund(m, p);

@@ -246,8 +246,7 @@ abstract contract IntegrationPriceBase is EndToEndBase {
         if (extraHubPools.length != 0) m = _withExtraHubPools(m, extraHubPools, extraInUnwind);
         mandateHash = MandateLib.hash(m);
 
-        IFundFactory.HubParams memory p =
-            _hubParams(creationNumber, plan, _coreVaultCreationCode(hubDeployment.coreVaultLogic));
+        IFundFactory.HubParams memory p = _hubParams(creationNumber, plan, _coreVaultCreationCode(hubDeployment));
         if (extraHubPools.length != 0) {
             PoolKey[] memory keys = new PoolKey[](1 + extraHubPools.length);
             keys[0] = plan.hubPool;

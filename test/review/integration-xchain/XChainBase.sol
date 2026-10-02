@@ -408,7 +408,7 @@ abstract contract XChainBase is EndToEndScenario {
         predicted = factory.predictAddresses(creationNumber, manager, _chainIds());
         fundId = predicted.fundId;
         m = _buildMandate(factory, fundId, plan);
-        p = _hubParams(creationNumber, plan, _coreVaultCreationCode(hubDeployment.coreVaultLogic));
+        p = _hubParams(creationNumber, plan, _coreVaultCreationCode(hubDeployment));
     }
 
     /// @dev Phase 1 on Arbitrum only: protocol, Mandate from `plan`, `createFund`. The Robinhood Spoke Vault is only

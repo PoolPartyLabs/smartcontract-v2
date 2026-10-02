@@ -184,7 +184,7 @@ abstract contract AccessFundFixture is Test, FactoryDeployment, FundMandate, Fun
         returns (IFundFactory.FundAddresses memory a, Mandate memory m)
     {
         m = _buildMandate(factory, factory.fundIdOf(HUB, 1, plan.manager), plan);
-        IFundFactory.HubParams memory p = _hubParams(1, plan, _coreVaultCreationCode(hubDeployment.coreVaultLogic));
+        IFundFactory.HubParams memory p = _hubParams(1, plan, _coreVaultCreationCode(hubDeployment));
         _fundManagerSeed(address(usdc), plan.manager, address(factory), p.seedAmount);
         vm.prank(plan.manager);
         a = factory.createFund(m, p);

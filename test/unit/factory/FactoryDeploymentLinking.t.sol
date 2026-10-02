@@ -24,7 +24,16 @@ contract FactoryDeploymentLinkingTest is Test, FactoryDeployment {
         Deployment memory d;
         _deployLibraries(true, d);
         assertTrue(d.coreVaultLogic.code.length != 0, "CoreVaultLogic deployed on the hub");
-        assertTrue(vm.contains(vm.toString(_coreVaultCreationCode(d.coreVaultLogic)), _bareHex(d.coreVaultLogic)));
+        assertTrue(vm.contains(vm.toString(_coreVaultCreationCode(d)), _bareHex(d.coreVaultLogic)));
+    }
+
+    /// @notice `CreateFund` links the Core Vault code to the predicted addresses, so they must be where step 2 deploys.
+    function test_DEC131_predictedLibraryAddressesAreTheDeployedOnes() public {
+        Deployment memory predicted = _libraryAddresses(true);
+        Deployment memory d;
+        _deployLibraries(true, d);
+        assertEq(abi.encode(predicted), abi.encode(d), "every library at its predicted address");
+        assertEq(keccak256(_coreVaultCreationCode(predicted)), keccak256(_coreVaultCreationCode(d)));
     }
 
     function test_DEC131_aLibraryMissingFromTheLinkListRevertsByName() public {

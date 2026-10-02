@@ -42,7 +42,7 @@ contract L01_MandateSizeInitcodeCliff is FactoryReviewFixture {
         FundPlan memory plan = _plan();
         uint256 n = d.factory.nextCreationNumber();
         m = _buildMandate(d.factory, d.factory.fundIdOf(HUB, n, manager), plan);
-        p = _hubParams(n, plan, _coreVaultCreationCode(d.coreVaultLogic));
+        p = _hubParams(n, plan, _coreVaultCreationCode(d));
         address hubUniswap = m.adapters[0].adapter;
 
         PoolConfig[] memory pools = new PoolConfig[](m.pools.length + extra);
