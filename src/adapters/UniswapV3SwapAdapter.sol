@@ -59,10 +59,16 @@ import {ISwapRouter02} from "../interfaces/external/ISwapRouter02.sol";
 ///        market on a fork), so that ranking was withdrawn (review round 3).
 ///      - When the sale exceeds what every honest tier can fill, such a tier below the market is the only one that
 ///        fills, so it is chosen, meets the maximum against its own mid, and buys the input at its own price.
-///      Proposed ruling (review round 2): measure every empty-route sale against the mid of the pair's tier with the
-///      most in-range liquidity. Until ruled, a vault must not charge any cost measured against the `spotOut` of an
-///      empty-route sale (DEC-118 item 2, the DEC-141 excess, D-29), with or without a maximum; the maximum still
-///      refuses a sale (DEC-148).
+///      No selection within the register closes this: DEC-153 fixes the reference at the chosen pool's mid. Review
+///      round 2 proposed measuring every empty-route sale against the mid of the pair's tier with the most in-range
+///      liquidity, but that is the liquidity at one tick: a one-tick position at a third party's mid outweighs an
+///      honest tier about 1,000 tokens deep for about 0.1 of each token (fork). Depth summed over a price band is
+///      bought the same way with one-sided depth on the side of the mid away from the market, which arbitrage never
+///      takes. Proposed instead (review round 4): the tier with the most depth on both sides of its mid (the smaller
+///      of its two token reserves within a band around the mid); one side of an off-market mid always faces the
+///      market, so depth posted there to win the reference goes to arbitrage and moves the mid back. Until ruled, a
+///      vault must not charge any cost measured against the `spotOut` of an empty-route sale (DEC-118 item 2, the
+///      DEC-141 excess, D-29), with or without a maximum; the maximum still refuses a sale (DEC-148).
 contract UniswapV3SwapAdapter is AdapterGuard, EIP712, ISwapAdapter {
     using SafeERC20 for IERC20;
 
