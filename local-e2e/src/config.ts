@@ -112,10 +112,10 @@ export const AAVE_USDC_POOL_KEY: Hex = `0x${ARBITRUM.usdc.slice(2).toLowerCase()
 // Actors: anvil's default mnemonic ("test test test test test test test test test test test junk")
 // ---------------------------------------------------------------------------------------------------------------------
 
-/** Keys of anvil's default accounts 0..7. Public test keys: never use them on a real network. */
+/** Keys of anvil's default accounts 0..8. Public test keys: never use them on a real network. */
 export const ACTOR_KEYS = {
   /** Account 0: the protocol operator, deploys the factories (same key and salt on both chains, docs/DEPLOYMENT.md);
-   *  also the adapter guardian and the ManagerRegistry owner. */
+   *  also the adapter guardian. */
   operator: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
   /** Account 1: the fund Manager (DEC-001: the creator is the Manager). */
   manager: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
@@ -131,6 +131,10 @@ export const ACTOR_KEYS = {
   protocolRecipient: "0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e",
   /** Account 7: a third-party trader who swaps in the Uniswap V4 pools to generate fees. */
   trader: "0x4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356",
+  /** Account 8: the Pool Party API's key (reading D-01 of DEC-112): owner of the ManagerRegistry (`REGISTRY_OWNER`),
+   *  route signer of the swap adapters and future quote signer of the bridge adapters (`API_SIGNER`), and sender of
+   *  the report the API publishes after each deposit (DEC-159). */
+  apiSigner: "0xdbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97",
 } as const satisfies Record<string, Hex>;
 
 export type ActorName = keyof typeof ACTOR_KEYS;

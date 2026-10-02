@@ -89,12 +89,14 @@ export interface FactoryDeployment {
 }
 
 /** Protocol wiring handed to script/DeployFactory.s.sol: the fee wallet is its own actor; the operator guards the
- *  adapters and owns the ManagerRegistry. */
+ *  adapters; the API signer owns the ManagerRegistry and signs swap routes and bridge quotes (reading D-01 of DEC-112;
+ *  the scripts read `API_SIGNER` once Mandate v2 wires the swap adapters). */
 export function protocolRoles() {
   return {
     protocolRecipient: actors.protocolRecipient.address,
     adapterGuardian: actors.operator.address,
-    registryOwner: actors.operator.address,
+    registryOwner: actors.apiSigner.address,
+    apiSigner: actors.apiSigner.address,
   };
 }
 
@@ -109,6 +111,7 @@ export async function deployFactory(side: Side, log: Logger): Promise<FactoryDep
       PROTOCOL_RECIPIENT: roles.protocolRecipient,
       ADAPTER_GUARDIAN: roles.adapterGuardian,
       REGISTRY_OWNER: roles.registryOwner,
+      API_SIGNER: roles.apiSigner,
     },
     log,
   );

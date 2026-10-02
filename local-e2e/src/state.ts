@@ -56,6 +56,8 @@ export interface ProtocolState {
     protocolRecipient: Address;
     adapterGuardian: Address;
     registryOwner: Address;
+    /** The API's key: route and quote signer (reading D-01 of DEC-112). */
+    apiSigner: Address;
   };
   robinhood: {
     fundFactory: Address;
@@ -63,6 +65,7 @@ export interface ProtocolState {
     spokeCrossChainLib: Address;
     spokeUnwindLib: Address;
     transitEscrowImplementation: Address;
+    apiSigner: Address;
   };
 }
 

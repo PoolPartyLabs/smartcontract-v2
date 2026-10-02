@@ -131,6 +131,7 @@ export async function up(warmUp: "scenario" | "none"): Promise<DeploymentState> 
         protocolRecipient: roles.protocolRecipient,
         adapterGuardian: roles.adapterGuardian,
         registryOwner: roles.registryOwner,
+        apiSigner: roles.apiSigner,
       },
       robinhood: {
         fundFactory: robinhood.fundFactory,
@@ -138,6 +139,7 @@ export async function up(warmUp: "scenario" | "none"): Promise<DeploymentState> 
         spokeCrossChainLib: robinhood.spokeCrossChainLib,
         spokeUnwindLib: robinhood.spokeUnwindLib,
         transitEscrowImplementation: robinhood.transitEscrowImplementation,
+        apiSigner: roles.apiSigner,
       },
     },
     external: { arbitrum: { ...ARBITRUM }, robinhood: { ...ROBINHOOD } },
