@@ -68,6 +68,7 @@ jobs:
           arbitrum=$(cast block-number --rpc-url "$ARBITRUM_RPC_URL")
           robinhood=$(cast block-number --rpc-url "$ROBINHOOD_RPC_URL")
           export ARBITRUM_FORK_BLOCK=$((arbitrum - 300)) ROBINHOOD_FORK_BLOCK=$((robinhood - 300))
+          echo "fork pins: ARBITRUM_FORK_BLOCK=$ARBITRUM_FORK_BLOCK ROBINHOOD_FORK_BLOCK=$ROBINHOOD_FORK_BLOCK"
           forge test --match-path "test/fork/**" --no-match-path "test/fork/{swap,e2e,security}/**" -j 2 -vvv
       - name: "Fork shard 2/5: test/fork/swap"
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
@@ -75,6 +76,7 @@ jobs:
           arbitrum=$(cast block-number --rpc-url "$ARBITRUM_RPC_URL")
           robinhood=$(cast block-number --rpc-url "$ROBINHOOD_RPC_URL")
           export ARBITRUM_FORK_BLOCK=$((arbitrum - 300)) ROBINHOOD_FORK_BLOCK=$((robinhood - 300))
+          echo "fork pins: ARBITRUM_FORK_BLOCK=$ARBITRUM_FORK_BLOCK ROBINHOOD_FORK_BLOCK=$ROBINHOOD_FORK_BLOCK"
           forge test --match-path "test/fork/swap/**" -j 2 -vvv
       - name: "Fork shard 3/5: scenario suites"
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
@@ -82,6 +84,7 @@ jobs:
           arbitrum=$(cast block-number --rpc-url "$ARBITRUM_RPC_URL")
           robinhood=$(cast block-number --rpc-url "$ROBINHOOD_RPC_URL")
           export ARBITRUM_FORK_BLOCK=$((arbitrum - 300)) ROBINHOOD_FORK_BLOCK=$((robinhood - 300))
+          echo "fork pins: ARBITRUM_FORK_BLOCK=$ARBITRUM_FORK_BLOCK ROBINHOOD_FORK_BLOCK=$ROBINHOOD_FORK_BLOCK"
           forge test -j 2 -vvv --match-path "test/{fork/e2e/**,fork/security/**,review/integration-xchain/**/*Fork*,review/integration-price/DeprecatedAdapterFork.t.sol,review/integration-price/SpokeReportSpotFork.t.sol}"
       - name: "Fork shard 4/5: review integration-price, except the scenario suites"
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
@@ -89,6 +92,7 @@ jobs:
           arbitrum=$(cast block-number --rpc-url "$ARBITRUM_RPC_URL")
           robinhood=$(cast block-number --rpc-url "$ROBINHOOD_RPC_URL")
           export ARBITRUM_FORK_BLOCK=$((arbitrum - 300)) ROBINHOOD_FORK_BLOCK=$((robinhood - 300))
+          echo "fork pins: ARBITRUM_FORK_BLOCK=$ARBITRUM_FORK_BLOCK ROBINHOOD_FORK_BLOCK=$ROBINHOOD_FORK_BLOCK"
           forge test -j 2 -vvv --match-path "test/review/integration-price/**/*Fork*" \
             --no-match-path "test/review/integration-price/{DeprecatedAdapterFork,SpokeReportSpotFork}.t.sol"
       - name: "Fork shard 5/5: review, except integration-price and integration-xchain"
@@ -97,5 +101,6 @@ jobs:
           arbitrum=$(cast block-number --rpc-url "$ARBITRUM_RPC_URL")
           robinhood=$(cast block-number --rpc-url "$ROBINHOOD_RPC_URL")
           export ARBITRUM_FORK_BLOCK=$((arbitrum - 300)) ROBINHOOD_FORK_BLOCK=$((robinhood - 300))
+          echo "fork pins: ARBITRUM_FORK_BLOCK=$ARBITRUM_FORK_BLOCK ROBINHOOD_FORK_BLOCK=$ROBINHOOD_FORK_BLOCK"
           forge test -j 2 -vvv --match-path "test/review/**/*Fork*" \
             --no-match-path "test/review/{integration-price,integration-xchain}/**"
