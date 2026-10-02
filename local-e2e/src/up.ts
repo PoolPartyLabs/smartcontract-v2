@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { encodeDeployData, encodeFunctionData, type Address, type Hex } from "viem";
 import { acrossSpokePoolAbi, forgeArtifact, v4SwapRouterAbi, v4SwapRouterBytecode, wormholeCoreAbi } from "./abis.ts";
 import { anvil, deploy, explain, nodes, nodesUp, rpc, type Side } from "./chain.ts";
-import { ARBITRUM, HARNESS_DIR, ROBINHOOD, actors, guardian, isMain } from "./config.ts";
+import { ARBITRUM, HARNESS_DIR, ROBINHOOD, SWAP_ADAPTER_TOKENS, actors, guardian, isMain } from "./config.ts";
 import { createFund, deployFactory, forgeBuild, protocolRoles } from "./deploy.ts";
 import { discoverLayouts, discoverMappingSlot, fundAccounts, mappingSlot, storageRead } from "./fund-accounts.ts";
 import { CORES, WORMHOLE_SEQUENCES_SLOT, overrideBothCores, selfTest } from "./guardian.ts";
@@ -76,13 +76,13 @@ async function deploySwapRouter(side: Side, poolManager: Address): Promise<Addre
 }
 
 /** A UniswapV3SwapAdapter (WP-03) for the API's signed routes: the operator guards it, the API signer signs its routes
- *  (reading D-01), the chain's base token and WETH are its Mandate tokens (DEC-136 item 2), and the manager's wallet
- *  stands in for the Spoke Vault that will own it once the factory deploys swap adapters (WP-07). */
+ *  (reading D-01), its Mandate tokens (DEC-136 item 2) are SWAP_ADAPTER_TOKENS, and the manager's wallet stands in for
+ *  the Spoke Vault that will own it once the factory deploys swap adapters (WP-07). */
 async function deploySwapAdapter(side: Side): Promise<Address> {
   const chain = side === "arbitrum" ? ARBITRUM : ROBINHOOD;
-  const base = side === "arbitrum" ? ARBITRUM.usdc : ROBINHOOD.usdg;
+  const tokens = SWAP_ADAPTER_TOKENS[side];
   const { abi, bytecode } = forgeArtifact("UniswapV3SwapAdapter.sol", "UniswapV3SwapAdapter");
-  const args = [actors.manager.address, actors.operator.address, base, [base, chain.weth], chain.v3Factory, chain.v3SwapRouter02, chain.v3QuoterV2, actors.apiSigner.address];
+  const args = [actors.manager.address, actors.operator.address, tokens[0], tokens, chain.v3Factory, chain.v3SwapRouter02, chain.v3QuoterV2, actors.apiSigner.address];
   return deploy(side, "operator", encodeDeployData({ abi, bytecode, args }), "deploy UniswapV3SwapAdapter");
 }
 

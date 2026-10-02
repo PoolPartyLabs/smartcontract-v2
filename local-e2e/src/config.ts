@@ -81,7 +81,17 @@ export const ROBINHOOD = {
   v3Factory: "0x1f7d7550B1b028f7571E69A784071F0205FD2EfA",
   v3QuoterV2: "0x33e885eD0Ec9bF04EcfB19341582aADCb4c8A9E7",
   v3SwapRouter02: "0xCaf681a66D020601342297493863E78C959E5cb2",
+  // A stock token with V3 pools against USDG and WETH (swap research): a Mandate token of the harness's Robinhood swap
+  // adapter, so the API's two-hop routes (through WETH) are exercised.
+  nvda: "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
 } as const satisfies Record<string, Address>;
+
+/** Mandate tokens of the harness's swap adapters, base token first: the hub's USDC and WETH; the spoke's USDG, WETH and
+ *  NVDA, so a route may hop through WETH (DEC-136 item 2, D-52: every hop a Mandate token). */
+export const SWAP_ADAPTER_TOKENS: Record<"arbitrum" | "robinhood", Address[]> = {
+  arbitrum: [ARBITRUM.usdc, ARBITRUM.weth],
+  robinhood: [ROBINHOOD.usdg, ROBINHOOD.weth, ROBINHOOD.nvda],
+};
 
 /** Uniswap V4 PoolKey as the contracts encode it. */
 export interface PoolKey {
