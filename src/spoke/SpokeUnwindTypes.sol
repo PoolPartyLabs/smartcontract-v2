@@ -2,11 +2,20 @@
 pragma solidity 0.8.28;
 
 /// @title SpokeUnwindTypes
-/// @notice The unwind's own types and errors: the claimant's hints to the hub Spoke Vault's automatic unwind
-///         (`SpokeVaultUnwind`, `SpokeUnwindLib`).
-/// @dev WP-07 D1: moved out of `SpokeVaultTypes` so the unwind work (the proportional unwind and the spoke unwind
-///      orders, DEC-120, DEC-137, DEC-139) edits its own types file.
+/// @notice The unwind's own state, types and errors: its book in the Spoke Vault's state and the claimant's hints to
+///         the hub Spoke Vault's automatic unwind (`SpokeVaultUnwind`, `SpokeUnwindLib`).
+/// @dev WP-07 D1: the unwind work (the proportional unwind and the spoke unwind orders, DEC-120, DEC-137, DEC-139)
+///      adds fields only to `Book` and edits only this types file, never `SpokeVaultTypes`.
 library SpokeUnwindTypes {
+    /// @notice The unwind's state inside `SpokeVaultTypes.State`.
+    /// @param reportBlob What the next reports carry as `ReportCodec.Report.unwindResults`: the results of the unwind
+    ///        orders this vault executed (DEC-120 item 2, DEC-105: the Hub settles on the post-unwind report), opaque to
+    ///        the report builder. Empty until the unwind orders exist; their work owns its encoding and how long an
+    ///        entry stays in it.
+    struct Book {
+        bytes reportBlob;
+    }
+
     /// @notice The claimant's optional tightening of the swap of one non-USDC token an unwind exit returned, into hub
     ///         USDC. Final verification (DEC-069, DEC-081, DEC-097, QA3 OPEN): a hint can never widen what the vault
     ///         would do on its own.

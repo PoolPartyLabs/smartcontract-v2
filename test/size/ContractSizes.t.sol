@@ -37,7 +37,7 @@ contract ContractSizesTest is Test {
 
     /// @dev Every top-level contract and library under `src/`, as `<path>:<name>`.
     function _entries() internal pure returns (Entry[] memory e) {
-        e = new Entry[](36);
+        e = new Entry[](37);
         uint256 i;
         // Contracts deployed on chain (the factory's roles, the protocol-level contracts and what they deploy).
         e[i++] = Entry("src/adapters/AaveV3Adapter.sol:AaveV3Adapter", Kind.Contract);
@@ -75,6 +75,7 @@ contract ContractSizesTest is Test {
         e[i++] = Entry("src/libraries/ShareMath.sol:ShareMath", Kind.InlinedLibrary);
         e[i++] = Entry("src/libraries/TransitMessage.sol:TransitMessage", Kind.InlinedLibrary);
         e[i++] = Entry("src/mandate/Mandate.sol:MandateLib", Kind.InlinedLibrary);
+        e[i++] = Entry("src/spoke/SpokeIncomeTypes.sol:SpokeIncomeTypes", Kind.InlinedLibrary);
         e[i++] = Entry("src/spoke/SpokeLedger.sol:SpokeLedger", Kind.InlinedLibrary);
         e[i++] = Entry("src/spoke/SpokeUnwindTypes.sol:SpokeUnwindTypes", Kind.InlinedLibrary);
         e[i++] = Entry("src/spoke/SpokeVaultTypes.sol:SpokeVaultTypes", Kind.InlinedLibrary);

@@ -3,6 +3,9 @@ pragma solidity 0.8.28;
 
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {Transit} from "../interfaces/FundTypes.sol";
+import {OrderVerifier} from "../libraries/OrderVerifier.sol";
+import {SpokeIncomeTypes} from "./SpokeIncomeTypes.sol";
+import {SpokeUnwindTypes} from "./SpokeUnwindTypes.sol";
 
 /// @title SpokeVaultTypes
 /// @notice Storage layout and wiring of the Spoke Vault, shared by `SpokeVault` and its linked libraries, plus the
@@ -80,7 +83,9 @@ library SpokeVaultTypes {
 
     /// @notice Every mutable and pinned value of a Spoke Vault.
     /// @dev Chain-local Mandate copy pinned at creation (DEC-030, DEC-053, DEC-087, DEC-088, DEC-136, Q17-4), the
-    ///      internal ledger (DEC-080), Operating Cash (DEC-096) and the cross-chain books (DEC-066, DEC-090, OQ-09).
+    ///      internal ledger (DEC-080), Operating Cash (DEC-096), the cross-chain books (DEC-066, DEC-090, OQ-09), the
+    ///      unwind and income books (WP-07 D1: each grows only in its own types file) and the order cursor
+    ///      (DEC-093, DEC-120: written only by `OrderVerifier.accept`).
     struct State {
         // Pinned at creation.
         address[] adapters;
@@ -112,6 +117,11 @@ library SpokeVaultTypes {
         mapping(bytes32 => uint256) arrivals;
         uint256 arrivalCount;
         bytes32[ARRIVAL_WINDOW] recentArrivals;
+        // Books of the order-driven flows.
+        SpokeUnwindTypes.Book unwind;
+        SpokeIncomeTypes.Book income;
+        // The Core Vault's order stream (DEC-120, DEC-139).
+        OrderVerifier.Cursor orders;
     }
 
     // ---------------------------------------------------------------------------------------------------------------
