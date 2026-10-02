@@ -162,6 +162,7 @@ contract FundFactoryVerifyTest is Test, FactoryDeployment, FundMandate, FundSeed
         m.operatingCash[0] = OperatingCashConfig(HUB, 5e6, 10e6);
         m.payoutFeeBps = MandateLib.DEFAULT_PAYOUT_FEE_BPS;
         m.minFirstDeposit = 1e6;
+        m.performanceFeeBps = MandateLib.MIN_PERFORMANCE_FEE_BPS;
     }
 
     /// @dev Verifier finding (blocking), fixed. Before the fix `createSpoke` took any `fundId`, including one this

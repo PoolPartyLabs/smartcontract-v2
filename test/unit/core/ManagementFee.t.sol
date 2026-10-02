@@ -4,7 +4,7 @@ pragma solidity 0.8.28;
 import {ICoreVaultIncome} from "../../../src/interfaces/ICoreVaultIncome.sol";
 import {ICoreVaultLifecycle} from "../../../src/interfaces/ICoreVaultLifecycle.sol";
 import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
-import {Mandate} from "../../../src/mandate/Mandate.sol";
+import {Mandate, MandateLib} from "../../../src/mandate/Mandate.sol";
 import {ShareMath} from "../../../src/libraries/ShareMath.sol";
 import {CoreVaultFixture} from "./CoreVaultFixture.sol";
 
@@ -12,14 +12,15 @@ import {CoreVaultFixture} from "./CoreVaultFixture.sol";
 ///         Share Assets net of what is already owed, at every valuation, as a liability outside Share Assets; a leaver
 ///         bears it through the Share Price, an entrant pays none of what accrued before it, a decrease books the old
 ///         rate first, and the accrual stops at `closeFund`. Payment at closure is WP-13.
-/// @dev No flow fee and no performance fee, so Share Assets are exactly what was deposited: the seed's 1 USDC plus
-///      Alice's 999,999, a fund of 1,000,000 at 1.00.
+/// @dev No flow fee, so Share Assets are exactly what was deposited: the seed's 1 USDC plus Alice's 999,999, a fund of
+///      1,000,000 at 1.00. The performance fee is the 10% floor (DEC-184); no income is collected here.
 contract ManagementFeeTest is CoreVaultFixture {
     uint256 internal constant FUND = 1_000_000e6;
     uint256 internal constant YEAR = 365 days;
+    uint16 internal constant MIN_PERFORMANCE = MandateLib.MIN_PERFORMANCE_FEE_BPS;
 
     function _fund(uint16 managementFeeBps) internal {
-        Mandate memory m = _mandate(0);
+        Mandate memory m = _mandate(MIN_PERFORMANCE);
         m.managementFeeBps = managementFeeBps;
         _deploy(m, _config(0));
         _deposit(alice, FUND - SEED_IDLE);
@@ -100,9 +101,9 @@ contract ManagementFeeTest is CoreVaultFixture {
         vm.expectEmit(address(vault));
         emit ICoreVaultIncome.ManagementFeeAccrued(10_000e6, 10_000e6);
         vm.expectEmit(address(vault));
-        emit ICoreVaultIncome.ManagerFeeDecreased(0, 0, 100, 50);
+        emit ICoreVaultIncome.ManagerFeeDecreased(MIN_PERFORMANCE, MIN_PERFORMANCE, 100, 50);
         vm.prank(manager);
-        vault.decreaseManagerFee(0, 50);
+        vault.decreaseManagerFee(MIN_PERFORMANCE, 50);
         assertEq(vault.managementFeeBps(), 50);
         vm.warp(block.timestamp + YEAR);
         assertEq(vault.managementFeeAccrued(), 10_000e6 + 4950e6);
@@ -113,10 +114,10 @@ contract ManagementFeeTest is CoreVaultFixture {
         _fund(100);
         vm.startPrank(manager);
         vm.expectRevert(ICoreVaultIncome.ManagerFeeNotDecreasing.selector);
-        vault.decreaseManagerFee(0, 101);
+        vault.decreaseManagerFee(MIN_PERFORMANCE, 101);
         vm.expectRevert(ICoreVaultIncome.ManagerFeeNotDecreasing.selector);
-        vault.decreaseManagerFee(0, 100);
-        vault.decreaseManagerFee(0, 0);
+        vault.decreaseManagerFee(MIN_PERFORMANCE, 100);
+        vault.decreaseManagerFee(MIN_PERFORMANCE, 0);
         vm.stopPrank();
         vm.warp(block.timestamp + YEAR);
         assertEq(vault.managementFeeAccrued(), 0, "a fee of 0 accrues nothing");

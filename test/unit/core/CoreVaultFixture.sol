@@ -10,6 +10,7 @@ import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {
     Mandate,
+    MandateLib,
     AdapterConfig,
     PoolConfig,
     SpokeConfig,
@@ -193,9 +194,17 @@ abstract contract CoreVaultFixture is Test, FundSeed {
         _ensureSpokeReport();
     }
 
-    /// @dev A vault with no flow fee and no performance fee, for the worked examples that predate DEC-106.
-    function _deployFeeless() internal returns (CoreVault) {
-        return _deploy(_mandate(0), _config(0));
+    /// @dev A vault with no flow fee and the lowest performance fee a fund may have (DEC-184: 10%), for the worked
+    ///      examples that predate DEC-106. The performance fee is charged on collected income only (ruling 2026-09-29),
+    ///      so it leaves deposits, Share Prices and payouts as they were.
+    function _deployAtMinimumFees() internal returns (CoreVault) {
+        return _deploy(_mandate(MandateLib.MIN_PERFORMANCE_FEE_BPS), _config(0));
+    }
+
+    /// @dev What enters the shareholders' index out of `income` collected by a `_deployAtMinimumFees` vault: the income less
+    ///      its 10% performance fee (DEC-107, DEC-184; `CoreVaultIncomeLogic.collectIncome` rounds the fee down).
+    function _netOfMinimumFee(uint256 income) internal pure returns (uint256) {
+        return income - income * MandateLib.MIN_PERFORMANCE_FEE_BPS / 10_000;
     }
 
     // ---------------------------------------------------------------------------------------------------------------

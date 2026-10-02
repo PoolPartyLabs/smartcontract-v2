@@ -95,7 +95,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
     }
 
     function test_DEC077_workedExample1000At11Burns909Pays99990() public {
-        _deployFeeless();
+        _deployAtMinimumFees();
         _deposit(alice, 1000e6);
         hubVault.setPosition(address(usdc), 100.1e6); // 1,101.10 over 1,001 shares (the seed's included)
         assertEq(vault.sharePrice(), 1.1e24);
@@ -180,7 +180,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
     }
 
     function test_DEC081_unwindsShortfallPlusTwoPercentCallback() public {
-        _deployFeeless();
+        _deployAtMinimumFees();
         _deposit(alice, 1000e6);
         _allocateToPosition(600e6 + SEED_IDLE); // Idle 400 left, as before the seed
         _request(alice, 800e6, INSTANT);
@@ -196,7 +196,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
     }
 
     function test_DEC080_unwindCreditsOnlyWhatReturnToIdleCredited() public {
-        _deployFeeless();
+        _deployAtMinimumFees();
         hubVault.setUnwindMode(MockHubSpokeVault.UnwindMode.OverReports);
         _deposit(alice, 1000e6);
         _allocateToPosition(600e6 + SEED_IDLE); // Idle 400 left, as before the seed
@@ -212,7 +212,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
     }
 
     function test_DEC097_fundBearsUnwindMarketCost() public {
-        _deployFeeless();
+        _deployAtMinimumFees();
         hubVault.setUnwindLossBps(100);
         _deposit(alice, 1000e6);
         _deposit(bob, 1000e6);
@@ -227,7 +227,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
     }
 
     function test_DEC068_partialPayoutLeavesRemainderOpen() public {
-        _deployFeeless();
+        _deployAtMinimumFees();
         hubVault.setUnwindMode(MockHubSpokeVault.UnwindMode.Reverts);
         _deposit(alice, 1000e6);
         _allocateToPosition(600e6 + SEED_IDLE); // Idle 400 left, as before the seed
@@ -254,7 +254,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
     }
 
     function test_DEC068_partialPayoutEmitsPartialEvent() public {
-        _deployFeeless();
+        _deployAtMinimumFees();
         _deposit(alice, 1000e6);
         _allocateToPosition(600e6 + SEED_IDLE); // Idle 400 left, as before the seed
         hubVault.setUnwindMode(MockHubSpokeVault.UnwindMode.Reverts);
@@ -273,7 +273,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
     }
 
     function test_DEC020_insufficientSharesBurnAllAndClose() public {
-        _deployFeeless();
+        _deployAtMinimumFees();
         _deposit(alice, 100e6);
         _deposit(bob, 1000e6);
         _request(alice, 500e6, INSTANT);
@@ -286,13 +286,13 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
     }
 
     function test_DEC045_fullBurnPaysAttributedIncomeInSameTransaction() public {
-        _deployFeeless();
+        _deployAtMinimumFees();
         _deposit(alice, 1000e6);
         _deposit(bob, 1000e6);
         hubVault.forwardIncome(address(usdc), 200.1e6); // 0.10 per share over 2,001 shares (the seed's included)
         _request(alice, 1000e6, INSTANT);
         uint256 owed = vault.attributedIncome(alice, address(usdc));
-        assertApproxEqAbs(owed, 100e6, 1);
+        assertApproxEqAbs(owed, _netOfMinimumFee(100e6), 1);
         vm.expectEmit(address(vault));
         emit ICoreVaultIncome.IncomeWithdrawn(alice, address(usdc), owed);
         ICoreVault.PayoutReceipt memory r = _claim(alice);
@@ -306,7 +306,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
     /// holder (paused, blocklisting it) used to revert the full-burn claim and with it the exit of the principal. The
     /// claim now completes; that token's income is owed to the holder and paid by the permissionless claimOwedFees.
     function test_REVIEW_CF2_incomeTokenThatRefusesTheHolderNeverBlocksTheExit() public {
-        _deployFeeless();
+        _deployAtMinimumFees();
         _deposit(alice, 1000e6);
         _deposit(bob, 1000e6);
         hubVault.forwardIncome(address(usdc), 200.1e6); // per share over 2,001 shares (the seed's included)
@@ -314,7 +314,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         _request(alice, 1000e6, INSTANT);
         uint256 owedUsdc = vault.attributedIncome(alice, address(usdc));
         uint256 owedWeth = vault.attributedIncome(alice, address(weth));
-        assertApproxEqAbs(owedWeth, 0.25e18, 1);
+        assertApproxEqAbs(owedWeth, _netOfMinimumFee(0.25e18), 1);
 
         // WETH refuses every transfer to alice (a pause or a blocklist entry of the token's issuer).
         vm.mockCallRevert(address(weth), abi.encodeWithSignature("transfer(address,uint256)", alice), "paused");
@@ -337,13 +337,13 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
     }
 
     function test_DEC045_partialBurnKeepsIncomeAttributed() public {
-        _deployFeeless();
+        _deployAtMinimumFees();
         _deposit(alice, 1000e6);
         hubVault.forwardIncome(address(usdc), 100.1e6); // 0.10 per share over 1,001 shares (the seed's included)
         _request(alice, 500e6, INSTANT);
         _claim(alice);
         assertEq(usdc.balanceOf(alice), 490e6);
-        assertApproxEqAbs(vault.attributedIncome(alice, address(usdc)), 100e6, 1);
+        assertApproxEqAbs(vault.attributedIncome(alice, address(usdc)), _netOfMinimumFee(100e6), 1);
     }
 
     function test_Q57_idlePaidPayoutIgnoresStaleReportAndPrice() public {
@@ -360,7 +360,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
     }
 
     function test_DEC047_burnAndPayAtomic() public {
-        _deployFeeless();
+        _deployAtMinimumFees();
         _deposit(alice, 1000e6);
         _request(alice, 300e6, INSTANT);
         uint256 supplyBefore = shares.totalSupply();
@@ -372,7 +372,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
 
     /// @dev DEC-035 spirit, DEC-077 (final verification): a request that could never burn a share is refused.
     function test_DEC035_requestBelowOneSharePriceReverts() public {
-        _deployFeeless();
+        _deployAtMinimumFees();
         _deposit(alice, 1000e6);
         hubVault.setPosition(address(usdc), 100.1e6); // price 1.1 over 1,001 shares (the seed's included)
         vm.prank(alice);
@@ -385,7 +385,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
     /// @dev DEC-077 (final verification): an outstanding amount below one share's price at the claim closes the
     ///      request with nothing burned, visibly (`closedBelowOneShare`), and releases its reserve (DEC-072).
     function test_DEC077_outstandingBelowOneShareClosesWithoutBurn() public {
-        _deployFeeless();
+        _deployAtMinimumFees();
         _deposit(alice, 1000e6);
         _request(alice, 1e6, STANDARD); // one share at 1.00
         assertEq(vault.payoutReserve(), 1e6);

@@ -12,6 +12,7 @@ import {Transit, TransitState, TransferKind} from "../../../src/interfaces/FundT
 import {IAcrossSpokePool} from "../../../src/interfaces/external/IAcrossSpokePool.sol";
 import {
     Mandate,
+    MandateLib,
     AdapterConfig,
     PoolConfig,
     SpokeConfig,
@@ -79,6 +80,7 @@ contract CoreVaultAcrossForkTest is Test, FundSeed {
         m.operatingCash = new OperatingCashConfig[](0);
         m.payoutFeeBps = 200;
         m.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
+        m.performanceFeeBps = MandateLib.MIN_PERFORMANCE_FEE_BPS;
 
         CoreVaultConfig memory c;
         c.fundId = FUND_ID;
