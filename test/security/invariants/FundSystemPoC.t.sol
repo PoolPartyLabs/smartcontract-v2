@@ -42,7 +42,7 @@ contract FundSystemPoCTest is FundSystemFixture {
         uint256 assetsBefore = sys.core.shareAssets();
         uint256 priceBefore = sys.core.sharePrice();
         uint256 anaShares = sys.shares.balanceOf(ana);
-        assertEq(assetsBefore, SEED_IDLE + 99_999e6);
+        assertEq(assetsBefore, SYSTEM_SEED_IDLE + 99_999e6);
 
         // The manager sends the spoke's 50,000 USDG home with a quote no relayer fills (no fee for the relayer).
         uint256 depositIndex = sys.spokePool.numberOfDeposits();
@@ -153,7 +153,7 @@ contract FundSystemPoCTest is FundSystemFixture {
     function test_POC_managerMovesAllFreeIdleIntoOperatingCash() public {
         _deposit(ana, 100_250e6);
         uint256 idle = sys.core.idle();
-        assertEq(idle, SEED_IDLE + 99_999e6);
+        assertEq(idle, SYSTEM_SEED_IDLE + 99_999e6);
 
         vm.startPrank(manager);
         sys.core.setOperatingCashParameters(type(uint256).max, idle - 1);
@@ -194,7 +194,7 @@ contract FundSystemPoCTest is FundSystemFixture {
         assertEq(sys.spokeVault.operatingCash(), 50_000e6 + 1);
         _report();
         // Half of the fund left Share Assets for good (and the stranger's unit is deducted as unknown value, DEC-080).
-        assertEq(sys.core.shareAssets(), SEED_IDLE + 99_999e6 - 50_000e6 - 1);
+        assertEq(sys.core.shareAssets(), SYSTEM_SEED_IDLE + 99_999e6 - 50_000e6 - 1);
     }
 
     // ---------------------------------------------------------------------------------------------------------------

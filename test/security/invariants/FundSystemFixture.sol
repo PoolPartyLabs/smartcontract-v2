@@ -72,6 +72,11 @@ abstract contract FundSystemFixture is Test, FundSeed {
     bytes32 internal constant HUB_POOL = keccak256("hub WETH/USDC");
     bytes32 internal constant AAVE_USDC = keccak256("aave USDC");
     bytes32 internal constant SPOKE_POOL = keccak256("spoke WETH/USDG");
+    /// @dev DEC-127: the manager seeds the Mandate minimum, 100 USDC; after the flow fee it buys 99 whole shares at
+    ///      1.00 and leaves 99 USDC in Idle. Hub Operating Cash (floor 1, top-up 3) is live from creation, so the first
+    ///      value-moving operation tops it up out of the seed's Idle (DEC-096).
+    uint256 internal constant SYSTEM_SEED = 100e6;
+    uint256 internal constant SYSTEM_SEED_IDLE = 99e6;
 
     FundSystem internal sys;
     MockCoreBridge internal coreBridge;
@@ -159,8 +164,9 @@ abstract contract FundSystemFixture is Test, FundSeed {
         );
         sys.receiver = new ValueReportReceiver(address(coreBridge), coreAddress, FUND_ID, m.spokes, 0);
         sys.core = new CoreVault(m, _config());
-        // DEC-127: this contract plays the factory and seeds the fund (FundSeed).
-        _seedFund(address(sys.core), sys.core.usdc(), sys.core.flowFeeBps());
+        // DEC-127: this contract plays the factory and seeds the fund (FundSeed) with the Mandate minimum.
+        _seedFundWith(address(sys.core), sys.core.usdc(), SYSTEM_SEED);
+        assertEq(sys.core.idle(), SYSTEM_SEED_IDLE, "the seed's Idle");
         sys.shares = ShareToken(sys.core.shareToken());
         assertEq(address(sys.spokeVault), spokeVaultAddress, "spoke vault address prediction");
         assertEq(address(sys.core), coreAddress, "core vault address prediction");
@@ -189,14 +195,12 @@ abstract contract FundSystemFixture is Test, FundSeed {
         m.bridgeAdapters = new BridgeAdapterConfig[](2);
         m.bridgeAdapters[0] = BridgeAdapterConfig(SPOKE, HUB, address(hubBridge));
         m.bridgeAdapters[1] = BridgeAdapterConfig(SPOKE, SPOKE, address(spokeBridge));
-        // DEC-127: no hub Operating Cash at creation. With a one-share seed, the first deposit's top-up (floor 1,
-        // top-up 3) would take all of the seed's Idle before pricing and leave the Share Price at 0, so every deposit
-        // would revert; the handler still sets hub Operating Cash parameters (`setOperatingCash`).
-        m.operatingCash = new OperatingCashConfig[](1);
-        m.operatingCash[0] = OperatingCashConfig(SPOKE, 5e6, 10e6);
+        m.operatingCash = new OperatingCashConfig[](2);
+        m.operatingCash[0] = OperatingCashConfig(HUB, 1e6, 3e6);
+        m.operatingCash[1] = OperatingCashConfig(SPOKE, 5e6, 10e6);
         m.payoutFeeBps = 200;
         m.standardPayoutTerm = 72 hours;
-        m.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
+        m.minFirstDeposit = SYSTEM_SEED;
         m.performanceFeeBps = PERFORMANCE_FEE_BPS;
         m.managementFeeBps = 0;
         m.maxBridgeFeeBps = 50;
