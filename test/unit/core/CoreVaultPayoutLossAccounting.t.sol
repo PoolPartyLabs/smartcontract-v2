@@ -98,7 +98,16 @@ contract CoreVaultPayoutLossAccountingTest is CoreVaultFixture {
             ICoreVaultPayouts.PayoutReceipt memory retry = _claim(alice);
             assertEq(retry.marketCost, 0, "delivered position never sells twice");
             assertEq(retry.marketCostAbsorbed, 0);
-            assertLe(retry.leaverCost, pending, "retry never charges twice");
+            uint256 pendingAfter = vault.payoutRequest(alice).pendingLeaverCost;
+            if (retry.leaverCost > pending) {
+                assertEq(retry.sharesBurned, 1e18, "only terminal debt rounds up");
+                assertEq(retry.usdcPaid, 0, "terminal surplus stays with remaining holders");
+                assertEq(pendingAfter, 0, "terminal debt is cleared");
+                assertFalse(vault.payoutRequest(alice).open, "terminal request closes");
+                assertLt(retry.leaverCost - pending, retry.usdcGross, "surplus bounded by one share");
+            } else {
+                assertEq(pendingAfter, pending - retry.leaverCost, "retry never charges twice");
+            }
             if (pending > 2e6 && shares.balanceOf(alice) != 0 && principalBefore > pending * flowFeeBps / 10_000 + 1e6)
             {
                 assertGt(retry.leaverCost, 0, "debt-only retry progresses");
@@ -108,10 +117,10 @@ contract CoreVaultPayoutLossAccountingTest is CoreVaultFixture {
                 ShareMath.sharePrice(retry.shareAssets + pending, retry.totalShares),
                 "pending cost added back exactly once"
             );
-            assertEq(vault.payoutRequest(alice).pendingLeaverCost, pending - retry.leaverCost);
+            uint256 retainedSurplus = retry.leaverCost - (pending - pendingAfter);
             assertEq(
-                vault.shareAssets() + pending - retry.leaverCost,
-                retry.shareAssets + pending - retry.usdcGross + retry.payoutFee,
+                vault.shareAssets() + pendingAfter,
+                retry.shareAssets + pending - retry.usdcGross + retry.payoutFee + retainedSurplus,
                 "retry preserves the fund's net-value accounting"
             );
             assertEq(retry.usdcGross, retry.usdcPaid + retry.payoutFee + retry.flowFee + retry.leaverCost);
