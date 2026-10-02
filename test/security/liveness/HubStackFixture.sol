@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {FundSeed} from "../../utils/FundSeed.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
@@ -43,7 +44,7 @@ import {MockReportReceiver} from "../../mocks/core/MockReportReceiver.sol";
 ///         registry, receiver). WETH is token0 and USDC token1 (fixed addresses), the pool sits at 2,500 USDC per WETH
 ///         and the price source quotes exactly the pool price, so a position's value marked at the oracle equals its
 ///         pool value when the pool is at its true price.
-abstract contract HubStackFixture is Test {
+abstract contract HubStackFixture is Test, FundSeed {
     uint256 internal constant HUB = 42_161;
     bytes32 internal constant FUND_ID = keccak256("pool-party-liveness-fund");
     /// @dev Tick of 2,500 USDC (6 decimals) per WETH (18 decimals): price 2.5e-9 in base units.
@@ -117,6 +118,8 @@ abstract contract HubStackFixture is Test {
             m, FUND_ID, HUB, predictedCore, address(usdc), acrossPool, address(0), address(escrowImpl), excess
         );
         vault = new CoreVault(m, _config());
+        // DEC-127: this contract plays the factory and seeds the fund (FundSeed).
+        _seedFund(address(vault), vault.usdc(), vault.flowFeeBps());
         assertEq(address(hubSpoke), predictedSpoke, "spoke prediction");
         assertEq(address(vault), predictedCore, "core prediction");
         receiver.setCoreVault(address(vault));
@@ -142,7 +145,7 @@ abstract contract HubStackFixture is Test {
         m.operatingCash = new OperatingCashConfig[](0);
         m.payoutFeeBps = 200;
         m.standardPayoutTerm = 72 hours;
-        m.minFirstDeposit = 100e6;
+        m.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
         m.performanceFeeBps = 2000;
         m.managementFeeBps = 0;
         m.maxBridgeFeeBps = 50;
@@ -160,6 +163,7 @@ abstract contract HubStackFixture is Test {
         c.excessRecipient = excess;
         c.escrowImplementation = address(escrowImpl);
         c.flowFeeBps = 25;
+        c.factory = address(this);
         c.incomeTokens = new address[](1);
         c.incomeTokens[0] = address(weth);
         c.shareName = "Pool Party Fund 1";

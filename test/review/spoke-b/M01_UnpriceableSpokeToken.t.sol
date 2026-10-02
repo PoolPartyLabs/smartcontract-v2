@@ -62,7 +62,8 @@ contract M01_UnpriceableSpokeToken is SpokeBFixture {
 
         // 2. Bob exits in full with an Instant Payout: his claim values the 24 tokens (60,000 USDC of value) at 0.
         uint256 bobShares = shares.balanceOf(bob);
-        uint256 fairAssets = 997_450e6; // 1,000,000 deposited - 2,500 flow fee - 50 bridge fee; the swap was at par
+        // The seed's 1 + 1,000,000 deposited - 2,500 flow fee - 50 bridge fee; the swap was at par.
+        uint256 fairAssets = SEED_IDLE + 997_450e6;
         uint256 fairValue = bobShares * fairAssets / shares.totalSupply();
         vm.prank(bob);
         vault.requestPayout(fairValue, ICoreVault.PayoutMode.Instant);

@@ -34,7 +34,7 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         _deposit(alice, 10_000e6); // Idle 9,975
         bytes32 id = _send(SENT, ARRIVES);
         uint256 assetsBefore = vault.shareAssets();
-        assertEq(assetsBefore, 9975e6 - SENT + ARRIVES);
+        assertEq(assetsBefore, SEED_IDLE + 9975e6 - SENT + ARRIVES);
 
         // The fill happened before the deadline; the confirming report has not been delivered yet.
         vm.warp(uint256(vault.transit(id).fillDeadline) + 1);
@@ -115,7 +115,7 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         bytes32 id = keccak256("spoke income transfer 1");
         // 400 USDC of collected income sent home, reported as Income.
         _deliver(_inFlightToHub(_spokeReport(0, 0), id, 400e6, TransferKind.Income));
-        assertEq(vault.shareAssets(), 9975e6, "income in flight is outside Share Assets (DEC-092)");
+        assertEq(vault.shareAssets(), SEED_IDLE + 9975e6, "income in flight is outside Share Assets (DEC-092)");
         assertEq(vault.inFlightValue(), 0);
         assertEq(vault.sharePrice(), priceBefore);
         (,, uint256 capInFlight,) = vault.spokeCapUsage(0);
@@ -134,14 +134,15 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
 
     function test_DEC014_OPEN_incomeGeneratedBeforeEntryIsSharedWhenCollectedAfterIt() public {
         _deployFeeless();
-        _deposit(ana, 10_000e6); // 10,000 shares
-        hubVault.forwardIncome(address(usdc), 1000e6); // collected before Bruno: all Ana's
-        hubVault.setCumulativeIncome(address(usdc), 1000e6 + 2100e6); // generated, not yet collected
+        // 10,000 shares; the manager's seed share takes 0.10 of every 1,000.10 below (DEC-127).
+        _deposit(ana, 10_000e6);
+        hubVault.forwardIncome(address(usdc), 1000.1e6); // collected before Bruno: Ana's (and the seed share's)
+        hubVault.setCumulativeIncome(address(usdc), 1000.1e6 + 2100.1e6); // generated, not yet collected
         _deposit(bruno, 11_000e6); // 11,000 shares
         assertEq(vault.attributedIncome(bruno, address(usdc)), 0, "nothing collected since Bruno entered");
         assertApproxEqAbs(vault.attributedIncome(ana, address(usdc)), 1000e6, 1, "all of it is Ana's");
         // The 2,100 generated before Bruno's entry is collected after it: shared pro rata (10,000 / 11,000).
-        hubVault.forwardIncome(address(usdc), 2100e6);
+        hubVault.forwardIncome(address(usdc), 2100.1e6);
         assertApproxEqAbs(vault.attributedIncome(ana, address(usdc)), 2000e6, 2);
         assertApproxEqAbs(vault.attributedIncome(bruno, address(usdc)), 1100e6, 2);
     }
@@ -183,8 +184,9 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         c.incomeTokens[1] = address(mal);
         _deploy(_mandate(2000), c);
         _deposit(alice, 10_000e6);
-        hubVault.forwardIncome(address(mal), 100e18); // 80 to Alice, 20 of fees transferred out at once
-        assertApproxEqAbs(vault.attributedIncome(alice, address(mal)), 80e18, 1);
+        // 80 to the holders (Alice's 9,975 shares and the manager's seed share), 20 of fees transferred out at once.
+        hubVault.forwardIncome(address(mal), 100e18);
+        assertApproxEqAbs(vault.attributedIncome(alice, address(mal)), uint256(80e18) * 9975 / 9976, 2);
     }
 
     /// Independent review M-03 (hub half): a hub pool token the price source cannot price used to be accepted, and
@@ -209,7 +211,9 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         vm.prank(alice);
         vm.expectRevert(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector);
         vault.withdrawIncome(address(mal));
-        assertApproxEqAbs(vault.attributedIncome(alice, address(mal)), 80e18, 1, "nothing was taken");
+        assertApproxEqAbs(
+            vault.attributedIncome(alice, address(mal)), uint256(80e18) * 9975 / 9976, 2, "nothing was taken"
+        );
         assertEq(vault.collectedIncome(address(mal)), 80e18);
     }
 
@@ -229,7 +233,7 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         assertEq(shares.balanceOf(alice), 0, "the exit completed");
         assertEq(usdc.balanceOf(alice), 1000e6 + r.usdcPaid, "the re-entering deposit never ran");
         assertEq(vault.owedFees(address(mal), alice), owed, "the refused income is owed to alice");
-        assertEq(vault.idle(), 0);
+        assertEq(vault.idle(), SEED_IDLE + r.payoutFee, "the seed's Idle and the Payout Fee (DEC-144) stay");
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -259,7 +263,7 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         _request(alice, aliceRequest, ICoreVault.PayoutMode.Instant);
         vm.prank(alice);
         try vault.claimPayout("") returns (ICoreVault.PayoutReceipt memory r) {
-            assertLe(r.usdcGross, 14_950e6 - reserve, "Instant paid from Free Idle only");
+            assertLe(r.usdcGross, 14_950e6 + SEED_IDLE - reserve, "Instant paid from Free Idle only");
             assertLe(r.usdcGross, r.usdcRequested);
             assertEq(r.payoutFee, r.usdcGross * 200 / 10_000);
         } catch (bytes memory err) {
@@ -275,17 +279,18 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
     // ---------------------------------------------------------------------------------------------------------------
 
     function test_DEC068_partialStandardPayoutKeepsReserveConsistent() public {
-        _deposit(alice, 10_000e6); // 9,975 shares, Idle 9,975
+        _deposit(alice, 10_000e6); // 9,975 shares, Idle 9,976 with the seed's
         vm.prank(manager);
-        vault.allocateToHubSpokeVault(9000e6); // Free Idle 975
-        hubVault.moveToPosition(9000e6);
-        hubVault.setPosition(address(usdc), 9100e6); // the position gained: Share Assets 10,075 on 9,975 shares
+        vault.allocateToHubSpokeVault(9001e6); // Free Idle 975
+        hubVault.moveToPosition(9001e6);
+        // The position gained: Share Assets 10,075 on 9,976 shares (the manager's seed share included).
+        hubVault.setPosition(address(usdc), 9100e6);
         _request(alice, 5000e6, ICoreVault.PayoutMode.Standard);
         assertEq(vault.payoutReserve(), 975e6);
         hubVault.setUnwindMode(MockHubSpokeVault.UnwindMode.Reverts);
         vm.warp(block.timestamp + 72 hours);
         ICoreVault.PayoutReceipt memory r = _claim(alice);
-        // Price 1.010025...: 965 whole shares pay 974.674..., below the 975 reserve; the request stays open.
+        // Price 1.009924...: 965 whole shares pay 974.577..., below the 975 reserve; the request stays open.
         assertEq(r.sharesBurned, 965e18);
         assertEq(r.usdcGross, 965e18 * r.sharePrice / 1e36);
         assertLt(r.usdcGross, 975e6);

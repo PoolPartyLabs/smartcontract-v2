@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {IFundFactory} from "../interfaces/IFundFactory.sol";
 import {IAdapter} from "../interfaces/IAdapter.sol";
+import {ICoreVaultLifecycle} from "../interfaces/ICoreVaultLifecycle.sol";
+import {IManagerRegistry} from "../interfaces/IManagerRegistry.sol";
 import {Mandate, MandateLib, SpokeConfig, PoolConfig} from "../mandate/Mandate.sol";
 import {CoreVaultConfig} from "../core/CoreVaultTypes.sol";
 import {TransitEscrow} from "../core/TransitEscrow.sol";
@@ -30,6 +34,7 @@ import {CodeStore} from "./CodeStore.sol";
 ///      the fund registry. DEC-001: creation is permissionless.
 contract FundFactory is IFundFactory, ReentrancyGuardTransient {
     using MandateLib for Mandate;
+    using SafeERC20 for IERC20;
 
     /// @notice Salt roles (the fund contract each salt deploys).
     bytes32 public constant ROLE_CORE_VAULT = "CoreVault";
@@ -149,6 +154,12 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
         // DEC-001, DEC-002: permissionless; whoever creates the fund is its Manager.
         if (msg.sender != m.manager) revert NotManager(msg.sender, m.manager);
         if (m.usdc != _baseToken) revert BaseTokenMismatch(m.usdc, _baseToken);
+        // DEC-115, DEC-125 item 3 (D-36): the performance fee is at least the registry's minimum at creation; the Core
+        // Vault keeps that minimum as the floor of `decreaseManagerFee`. A later change never binds a live fund.
+        uint16 minManagerFeeBps = IManagerRegistry(_managerRegistry).minManagerFeeBps();
+        if (m.performanceFeeBps < minManagerFeeBps) {
+            revert ManagerFeeBelowMinimum(m.performanceFeeBps, minManagerFeeBps);
+        }
         uint256 creationNumber = _nextCreationNumber();
         if (p.creationNumber != creationNumber) revert CreationNumberTaken(p.creationNumber, creationNumber);
         bytes32 codeHash = keccak256(p.coreVaultCreationCode);
@@ -175,7 +186,8 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
             chainId,
             abi.encode(_wormholeCore, addresses.coreVault, fundId, m.spokes, VARIATION_BAND_BPS)
         );
-        _deployCoreVault(m, addresses, p.coreVaultCreationCode);
+        _deployCoreVault(m, addresses, p.coreVaultCreationCode, minManagerFeeBps);
+        _seed(addresses.coreVault, p.seedAmount);
 
         emit FundCreated(creationNumber, fundId, m.manager, m.hash(), addresses);
     }
@@ -428,7 +440,7 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
     }
 
     /// @dev DEC-054: one Spoke Vault per fund chain, the Hub Chain included. `wormholeCore` is zero on the hub.
-    ///      DEC-096, DEC-101: swept excess goes to the Protocol Recipient (fee wallet; LC-132 OPEN).
+    ///      DEC-096, DEC-101, DEC-116: swept excess goes to the Protocol Recipient, the fee wallet.
     function _deploySpokeVault(
         Mandate memory m,
         bytes32 fundId,
@@ -454,10 +466,16 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
         );
     }
 
-    /// @dev Q59 stance: name `Pool Party Fund {n}`, symbol `PP-{n}`, never manager text. CV-OQ-3: the hub income
-    ///      tokens are read from the hub adapters' `poolTokens`, because a Mandate pool key is a hash and the Core Vault
-    ///      never calls an adapter (DEC-054). DEC-106: flow fee and Protocol Recipient are protocol wiring.
-    function _deployCoreVault(Mandate memory m, FundAddresses memory a, bytes memory creationCode) private {
+    /// @dev Q59 stance: name `Pool Party Fund {n}`, symbol `PP-{n}`, never manager text. CV-OQ-3: the hub income tokens
+    ///      are read from the hub adapters' `poolTokens`, because a Mandate pool key is a hash and the Core Vault never
+    ///      calls an adapter (DEC-054). DEC-106: flow fee and Protocol Recipient are protocol wiring. DEC-127: this
+    ///      factory is the Core Vault's only seeder. DEC-125 item 3: the minimum manager fee read at creation.
+    function _deployCoreVault(
+        Mandate memory m,
+        FundAddresses memory a,
+        bytes memory creationCode,
+        uint16 minPerformanceFeeBps
+    ) private {
         uint256 chainId = block.chainid;
         CoreVaultConfig memory c;
         c.fundId = a.fundId;
@@ -471,11 +489,26 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
         c.excessRecipient = _protocolRecipient;
         c.escrowImplementation = transitEscrowImplementation;
         c.flowFeeBps = _flowFeeBps;
+        c.factory = address(this);
+        c.minPerformanceFeeBps = minPerformanceFeeBps;
         c.incomeTokens = _hubIncomeTokens(m, chainId);
         string memory number = Strings.toString(a.creationNumber);
         c.shareName = string.concat("Pool Party Fund ", number);
         c.shareSymbol = string.concat("PP-", number);
         Create3.deploy(saltOf(a.fundId, ROLE_CORE_VAULT, chainId), abi.encodePacked(creationCode, abi.encode(m, c)));
+    }
+
+    /// @dev DEC-127, DEC-061, DEC-113: the manager's seed. The factory pulls exactly what the seed costs at the initial
+    ///      Share Price (the flow fee plus the whole shares it buys; the sub-share remainder never leaves the manager,
+    ///      DEC-035), approves the Core Vault for exactly that and calls `seed`, which pulls it back to zero allowance.
+    ///      The Core Vault enforces `minFirstDeposit` and the one-share floor.
+    function _seed(address coreVault, uint256 seedAmount) private {
+        (, uint256 usdcForShares, uint256 fee) =
+            ShareMath.previewDeposit(seedAmount, _flowFeeBps, ShareMath.INITIAL_SHARE_PRICE);
+        uint256 cost = usdcForShares + fee;
+        IERC20(_baseToken).safeTransferFrom(msg.sender, address(this), cost);
+        IERC20(_baseToken).forceApprove(coreVault, cost);
+        ICoreVaultLifecycle(coreVault).seed(seedAmount);
     }
 
     /// @dev The distinct tokens of the Mandate's hub pools, in Mandate order (the Core Vault registers USDC first).

@@ -38,13 +38,6 @@ contract ManagerRegistryTest is Test {
         registry.setProtocolSliceBps(MANAGER, 3000);
     }
 
-    function test_DEC110_explicitZeroIsAValidEntry() public {
-        vm.prank(ADMIN);
-        registry.setProtocolSliceBps(MANAGER, 0);
-        assertEq(registry.protocolSliceBps(MANAGER), 0);
-        assertTrue(registry.hasEntry(MANAGER));
-    }
-
     function test_DEC052_clearReturnsToDefault() public {
         vm.startPrank(ADMIN);
         registry.setProtocolSliceBps(MANAGER, 1000);
@@ -89,7 +82,7 @@ contract ManagerRegistryTest is Test {
         // the pending owner cannot write before accepting
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, NEW_ADMIN));
         vm.prank(NEW_ADMIN);
-        registry.setProtocolSliceBps(MANAGER, 100);
+        registry.setProtocolSliceBps(MANAGER, 600);
 
         // a stranger cannot accept
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, MANAGER));
@@ -102,12 +95,12 @@ contract ManagerRegistryTest is Test {
         assertEq(registry.pendingOwner(), address(0));
 
         vm.prank(NEW_ADMIN);
-        registry.setProtocolSliceBps(MANAGER, 100);
-        assertEq(registry.protocolSliceBps(MANAGER), 100);
+        registry.setProtocolSliceBps(MANAGER, 600);
+        assertEq(registry.protocolSliceBps(MANAGER), 600);
 
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, ADMIN));
         vm.prank(ADMIN);
-        registry.setProtocolSliceBps(MANAGER, 200);
+        registry.setProtocolSliceBps(MANAGER, 700);
     }
 
     function test_LC142_constructorRejectsZeroOwner() public {
@@ -120,6 +113,11 @@ contract ManagerRegistryTest is Test {
         vm.prank(ADMIN);
         if (bps > 5000) {
             vm.expectRevert(abi.encodeWithSelector(IManagerRegistry.ProtocolSliceAboveMax.selector, bps, 5000));
+            registry.setProtocolSliceBps(manager, bps);
+            assertEq(registry.protocolSliceBps(manager), 5000);
+        } else if (bps < 500) {
+            // DEC-112: never below 5%.
+            vm.expectRevert(abi.encodeWithSelector(IManagerRegistry.ProtocolSliceBelowMin.selector, bps, 500));
             registry.setProtocolSliceBps(manager, bps);
             assertEq(registry.protocolSliceBps(manager), 5000);
         } else {

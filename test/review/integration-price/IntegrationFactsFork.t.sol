@@ -42,6 +42,7 @@ contract IntegrationFactsFork is IntegrationPriceBase {
         );
         IFundFactory.HubParams memory p =
             _hubParams(n, _pricePlan(SPOKE_CAP), _coreVaultCreationCode(hubDeployment.coreVaultLogic));
+        _fundManagerSeed(ARB_USDC, otherManager, address(hubDeployment.factory), p.seedAmount);
         vm.prank(otherManager);
         IFundFactory.FundAddresses memory a = hubDeployment.factory.createFund(m, p);
         assertTrue(a.chains[0].uniswapV4Adapter != hubUniswap, "a second fund, its own adapter");

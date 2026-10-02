@@ -26,9 +26,9 @@ contract M01_ManagerSwapExtraction is SpokeAHubFixture {
         console2.log("WETH received for 500,000 USDC", wethOut);
         console2.log("share assets before", assetsBefore);
         console2.log("share assets after", assetsAfter);
-        assertEq(assetsBefore, 997_497e6);
+        assertEq(assetsBefore, 997_501e6);
         assertEq(wethOut, 2e18, "2 WETH (5,000 USDC at the oracle) for 500,000 USDC");
-        assertEq(assetsAfter, 502_497e6);
+        assertEq(assetsAfter, 502_501e6);
         assertEq(assetsBefore - assetsAfter, 495_000e6, "495,000 USDC left the fund through one manager swap");
     }
 

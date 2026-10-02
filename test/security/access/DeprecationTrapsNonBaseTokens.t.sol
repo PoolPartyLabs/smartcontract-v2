@@ -42,7 +42,9 @@ contract DeprecationTrapsNonBaseTokensPoC is AccessFundFixture {
         hub.swapExactInput(adapter, poolId, address(usdc), 400_000e6, 0, "");
         (positionKey,,) = hub.openPosition(adapter, poolId, 400_000e6, 400_000e6, _openParams(400_000e6, 400_000e6));
         vm.stopPrank();
-        assertApproxEqAbs(core.shareAssets(), 997_500e6, 10, "Idle plus the position, WETH at the oracle price");
+        assertApproxEqAbs(
+            core.shareAssets(), SEED_IDLE + 997_500e6, 10, "Idle plus the position, WETH at the oracle price"
+        );
     }
 
     /// @dev With the flag the claim still unwinds the position and pays in full.

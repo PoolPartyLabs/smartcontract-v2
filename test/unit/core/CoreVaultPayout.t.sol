@@ -7,6 +7,8 @@ import {MockHubSpokeVault} from "../../mocks/core/MockHubSpokeVault.sol";
 import {CoreVaultFixture} from "./CoreVaultFixture.sol";
 import {Vm} from "forge-std/Vm.sol";
 
+/// @dev Every fund is seeded at creation (DEC-127, CoreVaultFixture): the manager's one share and its 1 USDC of Idle
+///      are part of the numbers below.
 contract CoreVaultPayoutTest is CoreVaultFixture {
     ICoreVault.PayoutMode internal constant INSTANT = ICoreVault.PayoutMode.Instant;
     ICoreVault.PayoutMode internal constant STANDARD = ICoreVault.PayoutMode.Standard;
@@ -35,7 +37,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         uint256 before = shares.balanceOf(alice);
         _request(alice, 500e6, STANDARD);
         assertEq(shares.balanceOf(alice), before);
-        assertEq(shares.totalSupply(), before);
+        assertEq(shares.totalSupply(), SEED_SHARES + before);
     }
 
     function test_DEC024_requestWithoutSharesReverts() public {
@@ -45,12 +47,12 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
     }
 
     function test_DEC072_standardReservesMinOfAmountAndFreeIdle() public {
-        _deposit(alice, 1000e6); // Idle 997.5 after the flow fee
+        _deposit(alice, 1000e6); // Idle 997 plus the seed's 1 after the flow fee
         _request(alice, 2000e6, STANDARD);
         ICoreVault.PayoutRequest memory req = vault.payoutRequest(alice);
-        assertEq(req.reserved, 997e6);
+        assertEq(req.reserved, 997e6, "bounded by alice's share value (FV-OQ-1)");
         assertEq(vault.payoutReserve(), 997e6);
-        assertEq(vault.freeIdle(), 0);
+        assertEq(vault.freeIdle(), SEED_IDLE);
         assertEq(req.termEndsAt, block.timestamp + 72 hours);
         assertLe(vault.payoutReserve(), vault.idle());
     }
@@ -66,7 +68,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         _deposit(alice, 1000e6);
         _request(alice, 900e6, STANDARD);
         vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.InsufficientFreeIdle.selector, 100e6, 97e6));
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.InsufficientFreeIdle.selector, 100e6, 97e6 + SEED_IDLE));
         vault.allocateToHubSpokeVault(100e6);
     }
 
@@ -93,7 +95,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
     function test_DEC077_workedExample1000At11Burns909Pays99990() public {
         _deployFeeless();
         _deposit(alice, 1000e6);
-        hubVault.setPosition(address(usdc), 100e6);
+        hubVault.setPosition(address(usdc), 100.1e6); // 1,101.10 over 1,001 shares (the seed's included)
         assertEq(vault.sharePrice(), 1.1e24);
         _request(alice, 1000e6, STANDARD);
         vm.warp(block.timestamp + 72 hours);
@@ -103,13 +105,13 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         assertEq(r.usdcPaid, 999.9e6);
         assertEq(r.usdcOutstanding, 0);
         assertEq(r.sharePrice, 1.1e24);
-        assertEq(r.shareAssets, 1100e6);
-        assertEq(r.totalShares, 1000e18);
+        assertEq(r.shareAssets, 1101.1e6);
+        assertEq(r.totalShares, SEED_SHARES + 1000e18);
         assertEq(usdc.balanceOf(alice), 999.9e6);
         assertEq(shares.balanceOf(alice), 91e18);
         assertFalse(vault.payoutRequest(alice).open);
         assertEq(vault.payoutReserve(), 0, "leftover reserve released");
-        assertEq(vault.idle(), 0.1e6);
+        assertEq(vault.idle(), SEED_IDLE + 0.1e6);
     }
 
     function test_DEC067_idlePaysWholeRequestWithoutUnwind() public {
@@ -123,7 +125,9 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         assertEq(r.sharesBurned, 5000e18);
     }
 
-    function test_DEC102_instantWorkedExample30000() public {
+    /// @dev DEC-144 (corrects DEC-102 items 2-4): the Payout Fee stays in Idle, never in Operating Cash.
+    function test_DEC144_instantWorkedExample30000() public {
+        uint256 protocolBefore = usdc.balanceOf(protocol); // the seed's flow fee
         _deposit(alice, 40_000e6);
         _request(alice, 30_000e6, INSTANT);
         ICoreVault.PayoutReceipt memory r = _claim(alice);
@@ -131,8 +135,9 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         assertEq(r.payoutFee, 600e6, "2% Payout Fee");
         assertEq(r.flowFee, 75e6, "25 bps flow fee on the amount paid out (LC-143 reading)");
         assertEq(r.usdcPaid, 29_325e6);
-        assertEq(vault.operatingCash(), 600e6, "Payout Fee whole to Operating Cash");
-        assertEq(usdc.balanceOf(protocol), 100e6 + 75e6);
+        assertEq(vault.operatingCash(), 0, "the Payout Fee never enters Operating Cash");
+        assertEq(vault.idle(), SEED_IDLE + 39_900e6 - 30_000e6 + 600e6, "Idle drops by usdcGross - payoutFee");
+        assertEq(usdc.balanceOf(protocol) - protocolBefore, 100e6 + 75e6);
         assertEq(usdc.balanceOf(alice), 29_325e6);
     }
 
@@ -175,7 +180,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
     function test_DEC081_unwindsShortfallPlusTwoPercentCallback() public {
         _deployFeeless();
         _deposit(alice, 1000e6);
-        _allocateToPosition(600e6);
+        _allocateToPosition(600e6 + SEED_IDLE); // Idle 400 left, as before the seed
         _request(alice, 800e6, INSTANT);
         ICoreVault.PayoutReceipt memory r = _claim(alice);
         assertEq(hubVault.lastUnwindTarget(), 408e6, "400 shortfall + 2%");
@@ -185,14 +190,14 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         assertEq(r.sharePrice, ONE, "DEC-105: one price after the unwind");
         // payoutSettlementPrice = 408 / 800 shares, same scale as Share Price; recorded only (DEC-084, DEC-105).
         assertEq(r.payoutSettlementPrice, 0.51e24);
-        assertEq(vault.idle(), 8e6);
+        assertEq(vault.idle(), 8e6 + r.payoutFee, "the 8 left plus the 16 Payout Fee (DEC-144)");
     }
 
     function test_DEC080_unwindCreditsOnlyWhatReturnToIdleCredited() public {
         _deployFeeless();
         hubVault.setUnwindMode(MockHubSpokeVault.UnwindMode.OverReports);
         _deposit(alice, 1000e6);
-        _allocateToPosition(600e6);
+        _allocateToPosition(600e6 + SEED_IDLE); // Idle 400 left, as before the seed
         _request(alice, 800e6, INSTANT);
         ICoreVault.PayoutReceipt memory r = _claim(alice);
         // The hub Spoke Vault transferred 408 without `returnToIdle` and reported twice that: nothing reaches Idle
@@ -209,7 +214,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         hubVault.setUnwindLossBps(100);
         _deposit(alice, 1000e6);
         _deposit(bob, 1000e6);
-        _allocateToPosition(1600e6);
+        _allocateToPosition(1600e6 + SEED_IDLE); // Idle 400 left, as before the seed
         _request(alice, 800e6, INSTANT);
         ICoreVault.PayoutReceipt memory r = _claim(alice);
         // 408 unwound at 1% loss: 403.92 reach Idle; the price after the unwind carries the loss for everyone.
@@ -223,7 +228,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         _deployFeeless();
         hubVault.setUnwindMode(MockHubSpokeVault.UnwindMode.Reverts);
         _deposit(alice, 1000e6);
-        _allocateToPosition(600e6);
+        _allocateToPosition(600e6 + SEED_IDLE); // Idle 400 left, as before the seed
         _request(alice, 800e6, INSTANT);
         vm.expectEmit(address(vault));
         emit ICoreVault.UnwindForPayoutFailed(408e6);
@@ -234,10 +239,14 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         ICoreVault.PayoutRequest memory req = vault.payoutRequest(alice);
         assertTrue(req.open);
         assertEq(req.usdcOutstanding, 400e6);
-        // Once the unwind works again, the next claim unwinds the rest and closes the request.
+        // Once the unwind works again, the next claim unwinds the rest and closes the request. DEC-144: the first
+        // claim's Payout Fee stayed in Idle and raised the Share Price, so the 400 outstanding burn fewer shares.
         hubVault.setUnwindMode(MockHubSpokeVault.UnwindMode.Callback);
         r = _claim(alice);
-        assertEq(r.usdcGross, 400e6);
+        assertGt(r.sharePrice, ONE);
+        assertEq(r.sharesBurned, ShareMath.sharesToBurn(400e6, r.sharePrice));
+        assertEq(r.usdcGross, ShareMath.usdcFor(r.sharesBurned, r.sharePrice));
+        assertLe(r.usdcGross, 400e6);
         assertEq(r.usdcOutstanding, 0);
         assertFalse(vault.payoutRequest(alice).open);
     }
@@ -245,7 +254,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
     function test_DEC068_partialPayoutEmitsPartialEvent() public {
         _deployFeeless();
         _deposit(alice, 1000e6);
-        _allocateToPosition(600e6);
+        _allocateToPosition(600e6 + SEED_IDLE); // Idle 400 left, as before the seed
         hubVault.setUnwindMode(MockHubSpokeVault.UnwindMode.Reverts);
         _request(alice, 800e6, INSTANT);
         vm.recordLogs();
@@ -278,7 +287,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         _deployFeeless();
         _deposit(alice, 1000e6);
         _deposit(bob, 1000e6);
-        hubVault.forwardIncome(address(usdc), 200e6);
+        hubVault.forwardIncome(address(usdc), 200.1e6); // 0.10 per share over 2,001 shares (the seed's included)
         _request(alice, 1000e6, INSTANT);
         uint256 owed = vault.attributedIncome(alice, address(usdc));
         assertApproxEqAbs(owed, 100e6, 1);
@@ -298,8 +307,8 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         _deployFeeless();
         _deposit(alice, 1000e6);
         _deposit(bob, 1000e6);
-        hubVault.forwardIncome(address(usdc), 200e6);
-        hubVault.forwardIncome(address(weth), 0.5e18);
+        hubVault.forwardIncome(address(usdc), 200.1e6); // per share over 2,001 shares (the seed's included)
+        hubVault.forwardIncome(address(weth), 0.50025e18);
         _request(alice, 1000e6, INSTANT);
         uint256 owedUsdc = vault.attributedIncome(alice, address(usdc));
         uint256 owedWeth = vault.attributedIncome(alice, address(weth));
@@ -328,7 +337,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
     function test_DEC045_partialBurnKeepsIncomeAttributed() public {
         _deployFeeless();
         _deposit(alice, 1000e6);
-        hubVault.forwardIncome(address(usdc), 100e6);
+        hubVault.forwardIncome(address(usdc), 100.1e6); // 0.10 per share over 1,001 shares (the seed's included)
         _request(alice, 500e6, INSTANT);
         _claim(alice);
         assertEq(usdc.balanceOf(alice), 490e6);
@@ -343,7 +352,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         _request(alice, 100e6, INSTANT);
         ICoreVault.PayoutReceipt memory r = _claim(alice);
         // The last report (10 USDG past its lifetime) and the old price still count; nothing reverts on age.
-        assertEq(r.shareAssets, 997e6 + 10e6);
+        assertEq(r.shareAssets, SEED_IDLE + 997e6 + 10e6);
         assertEq(r.sharesBurned, ShareMath.sharesToBurn(100e6, r.sharePrice));
         assertGt(r.usdcPaid, 0);
     }
@@ -363,7 +372,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
     function test_DEC035_requestBelowOneSharePriceReverts() public {
         _deployFeeless();
         _deposit(alice, 1000e6);
-        hubVault.setPosition(address(usdc), 100e6); // price 1.1
+        hubVault.setPosition(address(usdc), 100.1e6); // price 1.1 over 1,001 shares (the seed's included)
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(ICoreVault.PayoutBelowOneShare.selector, 1e6, 1.1e24));
         vault.requestPayout(1e6, INSTANT);

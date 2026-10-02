@@ -42,9 +42,11 @@ contract SendHomeStrandedPoC is CrossChainFixture {
         _reportAndDeliver(900);
         assertEq(core.unmatchedArrivals(), 0, "S-4: credited on the first report after the outage");
         assertEq(core.idle(), idleBefore + homeArrives, "S-4: in Idle");
+        // The manager's seed share (DEC-127) bears 1/99,751 of the two bridge fees (DEC-162).
+        uint256 fees = _ruleFee(50_000e6) + _ruleFee(40_000e6);
         assertApproxEqAbs(
             aliceShares * core.sharePrice() / 1e36,
-            100_000e6 - 250e6 - _ruleFee(50_000e6) - _ruleFee(40_000e6),
+            100_000e6 - 250e6 - fees + fees / 99_751,
             1,
             "S-4: only the two bridge fees lost"
         );
@@ -83,9 +85,11 @@ contract SendHomeStrandedPoC is CrossChainFixture {
         assertEq(core.unmatchedArrivals(), 0);
         assertEq(core.idle(), idleBefore + homeArrives, "S-4: in Idle");
         _reportAndDeliver(900);
+        // The manager's seed share (DEC-127) bears 1/99,751 of the two bridge fees (DEC-162).
+        uint256 fees = _ruleFee(50_000e6) + _ruleFee(40_000e6);
         assertApproxEqAbs(
             aliceShares * core.sharePrice() / 1e36,
-            100_000e6 - 250e6 - _ruleFee(50_000e6) - _ruleFee(40_000e6),
+            100_000e6 - 250e6 - fees + fees / 99_751,
             1,
             "S-4: only the two bridge fees lost"
         );

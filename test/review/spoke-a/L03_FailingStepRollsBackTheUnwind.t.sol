@@ -29,8 +29,8 @@ contract L03_FailingStepRollsBackTheUnwind is SpokeAHubFixture {
         // The V4 step could have produced ~99,000 USDC on its own; all of it was rolled back with the failing step.
         assertEq(r.unwindProceeds, 0);
         assertEq(hubVault.positions().length, 2, "the V4 exit was rolled back");
-        assertEq(freeIdle, 46_746_099_999);
-        assertEq(r.usdcGross, 46_745_859_410, "paid from Idle only");
+        assertEq(freeIdle, 46_751e6);
+        assertEq(r.usdcGross, 46_750_999_999, "paid from Idle only");
         assertTrue(vault.payoutRequest(mallory).open);
     }
 }

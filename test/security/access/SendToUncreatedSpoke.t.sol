@@ -24,20 +24,20 @@ contract SendToUncreatedSpokePoC is AccessFundFixture {
         (IFundFactory.FundAddresses memory a,) = _createFund(_plan());
         CoreVault core = CoreVault(a.coreVault);
         _deposit(core, alice, 500_000e6);
-        assertEq(core.idle(), 498_750e6);
+        assertEq(core.idle(), SEED_IDLE + 498_750e6);
         assertFalse(ValueReportReceiver(a.valueReportReceiver).hasReport(0), "no report: no evidence of a spoke");
 
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(ICoreVault.SpokeNotReporting.selector, 0));
         core.sendToSpoke(0, 300_000e6, 0, "");
-        assertEq(core.idle(), 498_750e6, "S-14: nothing left the Core Vault");
+        assertEq(core.idle(), SEED_IDLE + 498_750e6, "S-14: nothing left the Core Vault");
         assertEq(core.inFlightValue(), 0, "S-14: nothing in flight to a spoke that does not exist");
 
         // Once the spoke has reported, the same send goes through.
         _deliverFirstReport(a);
         vm.prank(manager);
         core.sendToSpoke(0, 300_000e6, 0, "");
-        assertEq(core.idle(), 198_750e6);
+        assertEq(core.idle(), SEED_IDLE + 198_750e6);
     }
 
     function test_SEC_S14_aStrayFillToAnUncreatedSpokeVaultIsSweptExcess() public {

@@ -19,13 +19,14 @@ import {ValueReportReceiver} from "../../../src/report/ValueReportReceiver.sol";
 import {Mandate, MandateLib} from "../../../src/mandate/Mandate.sol";
 import {FactoryDeployment} from "../../../script/FactoryDeployment.sol";
 import {FundMandate} from "../../../script/FundMandate.sol";
+import {FundSeed} from "../../utils/FundSeed.sol";
 
 /// @notice The operator's deployment (script/FactoryDeployment.sol) and a fund's creation against the live protocols of
 ///         Arbitrum One (Hub Chain) and Robinhood Chain (Spoke Chain), pinned to the .env fork blocks: the factory lands
 ///         at the same address on both chains, `createFund` puts every contract at its predicted address wired to the
 ///         real Across SpokePool, Aave V3 Pool, Uniswap V4 and Wormhole Core, and `createSpoke` puts the Spoke Vault at
 ///         the address the hub's Mandate already names (DEC-053, DEC-054).
-contract FundFactoryForkTest is Test, FactoryDeployment, FundMandate {
+contract FundFactoryForkTest is Test, FactoryDeployment, FundMandate, FundSeed {
     /// @dev docs/INTEGRATIONS.md fork-test pools.
     bytes32 internal constant ARB_WETH_USDC_POOL_ID =
         0xfc7b3ad139daaf1e9c3637ed921c154d1b04286f8a82b805a6c352da57028653;
@@ -87,6 +88,7 @@ contract FundFactoryForkTest is Test, FactoryDeployment, FundMandate {
         Mandate memory m = _buildMandate(d.factory, predicted.fundId, plan);
         IFundFactory.HubParams memory p = _hubParams(n, plan, _coreVaultCreationCode(d.coreVaultLogic));
         uint256 gasBefore = gasleft();
+        _fundManagerSeed(ARB_USDC, manager, address(d.factory), p.seedAmount);
         vm.prank(manager);
         IFundFactory.FundAddresses memory a = d.factory.createFund(m, p);
         emit log_named_uint("createFund gas (execution, Arbitrum One)", gasBefore - gasleft());
@@ -236,6 +238,7 @@ contract FundFactoryForkTest is Test, FactoryDeployment, FundMandate {
         bytes32 foreign = bytes32(uint256(uint160(makeAddr("foreignSpokeVault"))));
         m.spokes[0].spokeVault = foreign;
         IFundFactory.HubParams memory p = _hubParams(n, plan, _coreVaultCreationCode(d.coreVaultLogic));
+        _fundManagerSeed(ARB_USDC, manager, address(d.factory), p.seedAmount);
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(IFundFactory.SpokeVaultMismatch.selector, ROBINHOOD, predicted, foreign));
         d.factory.createFund(m, p);
@@ -253,6 +256,7 @@ contract FundFactoryForkTest is Test, FactoryDeployment, FundMandate {
         bytes memory reason = abi.encodeWithSelector(
             IFundFactory.ForeignCreationCode.selector, role, keccak256(foreignCode), d.factory.creationCodeHash(role)
         );
+        _fundManagerSeed(ARB_USDC, manager, address(d.factory), p.seedAmount);
         vm.prank(manager);
         vm.expectRevert(reason);
         d.factory.createFund(m, p);

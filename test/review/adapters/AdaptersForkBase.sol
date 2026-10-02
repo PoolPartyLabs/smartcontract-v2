@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {FundSeed} from "../../utils/FundSeed.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
@@ -40,7 +41,7 @@ interface IPermit2Of {
 ///         the live WETH/USDC 0.05% pool (docs/INTEGRATIONS.md) and a second hookless WETH/USDC pool whose static LP fee
 ///         the test chooses (`_secondFee()`), initialized at the live pool's price before the fund is created.
 ///         Performance fee at the Mandate cap (2,500 bps, MandateLib.MAX_PERFORMANCE_FEE_BPS), protocol slice 50%.
-abstract contract AdaptersForkBase is Test {
+abstract contract AdaptersForkBase is Test, FundSeed {
     address internal constant PM = 0x360E68faCcca8cA495c1B759Fd9EEe466db9FB32;
     address internal constant POSM = 0xd88F38F930b7952f2DB2432Cb002E7abbF3dD869;
     address internal constant SV = 0x76Fd297e2D437cd7f76d50F01AfE6160f86e9990;
@@ -121,6 +122,8 @@ abstract contract AdaptersForkBase is Test {
         // Priced before the Core Vault: it refuses a hub pool token its price source cannot price (review M-03).
         prices.setPrice(WETH, adapter.spotQuote(livePool, WETH, 1e18));
         vault = new CoreVault(m, _config(address(hubVault), address(registry), address(receiver), address(escrowImpl)));
+        // DEC-127: this contract plays the factory and seeds the fund (FundSeed).
+        _seedFund(address(vault), vault.usdc(), vault.flowFeeBps());
         require(address(hubVault) == hubVaultAt && address(vault) == coreAt, "wiring");
         shares = ShareToken(vault.shareToken());
     }
@@ -157,11 +160,12 @@ abstract contract AdaptersForkBase is Test {
         m.unwindOrder[0] = UnwindStep(HUB, adapter_, livePool);
         m.spokes = new SpokeConfig[](0);
         m.bridgeAdapters = new BridgeAdapterConfig[](0);
-        m.operatingCash = new OperatingCashConfig[](1);
-        m.operatingCash[0] = OperatingCashConfig(HUB, 1e6, 3e6);
+        // DEC-127: no hub Operating Cash here. With a one-share seed, the first deposit's top-up (floor 1, top-up 3)
+        // would take all of the seed's Idle before pricing and leave the Share Price at 0.
+        m.operatingCash = new OperatingCashConfig[](0);
         m.payoutFeeBps = 200;
         m.standardPayoutTerm = 72 hours;
-        m.minFirstDeposit = 100e6;
+        m.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
         m.performanceFeeBps = 2500; // MandateLib.MAX_PERFORMANCE_FEE_BPS
         m.managementFeeBps = 0;
         m.maxBridgeFeeBps = 50;
@@ -182,6 +186,7 @@ abstract contract AdaptersForkBase is Test {
         c.excessRecipient = makeAddr("excess");
         c.escrowImplementation = escrowImpl;
         c.flowFeeBps = 25;
+        c.factory = address(this);
         c.incomeTokens = new address[](1);
         c.incomeTokens[0] = WETH;
         c.shareName = "Pool Party Fund 1";

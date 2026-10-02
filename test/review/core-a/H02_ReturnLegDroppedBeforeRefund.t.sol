@@ -96,7 +96,7 @@ contract H02_ReturnLegDroppedBeforeRefund is CoreVaultFixture {
         );
         _publishAndDeliver();
         assetsBefore = vault.shareAssets();
-        assertEq(assetsBefore, 199_440e6);
+        assertEq(assetsBefore, SEED_IDLE + 199_440e6);
 
         // DEC-162: the spoke's (mock) bridge adapter fixes the amount to arrive; the quote argument is ignored.
         MockBridgeNextArrive.set(address(spokeBridgeReal), homeOutput);
@@ -113,7 +113,7 @@ contract H02_ReturnLegDroppedBeforeRefund is CoreVaultFixture {
     function test_REVIEW_H01_unfilledSendHomeStaysInShareAssetsUntilItsRefund() public {
         (bytes32 home, uint256 assetsBefore) = _sendHomeUnfilled(99_880e6);
         uint256 assetsInFlight = vault.shareAssets();
-        assertEq(assetsInFlight, 199_380e6);
+        assertEq(assetsInFlight, SEED_IDLE + 199_380e6);
 
         Transit memory t = spoke.hubBoundTransit(home);
         vm.warp(uint256(t.fillDeadline) + MAX_REPORT_AGE + 1);
@@ -142,9 +142,9 @@ contract H02_ReturnLegDroppedBeforeRefund is CoreVaultFixture {
         console2.log("mallory paid 100,000; worth now   ", malloryValue);
         console2.log("alice worth before / now          ", assetsBefore, aliceValue);
         // 199,380 + Mallory's 99,749.963909 charged + the 60 USDC bridge fee returned with the refund.
-        assertEq(vault.shareAssets(), 299_189_963_909, "Share Assets: nothing lost, nothing gained");
-        assertEq(malloryValue, 99_769_971_927, "the entrant is priced fairly (+20 USDC: her share of the fee back)");
-        assertEq(aliceValue, 199_419_991_981, "the existing holder keeps her value (+40: her share of the fee back)");
+        assertEq(vault.shareAssets(), 299_190_964_210, "Share Assets: nothing lost, nothing gained");
+        assertEq(malloryValue, 99_769_972_162, "the entrant is priced fairly (+20 USDC: her share of the fee back)");
+        assertEq(aliceValue, 199_419_992_448, "the existing holder keeps her value (+40: her share of the fee back)");
     }
 
     /// @dev The manager forces the no-fill without exclusivity: a zero relayer fee is accepted. Same outcome.
@@ -176,17 +176,17 @@ contract H02_ReturnLegDroppedBeforeRefund is CoreVaultFixture {
         assertEq(r.inFlightToHub.length, 0, "dropped after the retention");
         uint256 assetsInGap = vault.shareAssets();
         console2.log("Share Assets before / in the gap", assetsBefore, assetsInGap);
-        assertEq(assetsInGap, 99_500e6, "the transfer is in no value base");
+        assertEq(assetsInGap, SEED_IDLE + 99_500e6, "the transfer is in no value base");
 
         (uint256 minted,) = _deposit(mallory, 100_000e6);
         spokeAcross.refund(t.escrow, address(usdg), ARRIVED);
         _publishAndDeliver();
         assertEq(uint8(spoke.hubBoundTransit(home).state), uint8(TransitState.Sent), "report() no longer sees it");
-        assertEq(vault.shareAssets(), 199_249_872_180, "the refund is still in no base");
+        assertEq(vault.shareAssets(), 199_250_875_940, "the refund is still in no base");
         spoke.recognizeRefund(home);
         _publishAndDeliver();
         uint256 malloryValue = minted * vault.sharePrice() / 1e36;
         console2.log("mallory paid 100,000; worth now", malloryValue);
-        assertEq(malloryValue, 149_782_537_780, "an entrant in the gap gains 49,782 USDC on 100,000");
+        assertEq(malloryValue, 149_782_291_378, "an entrant in the gap gains 49,782 USDC on 100,000");
     }
 }

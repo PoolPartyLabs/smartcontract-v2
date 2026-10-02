@@ -134,9 +134,11 @@ contract MandateTest is Test {
         assertEq(MandateLib.DEFAULT_STANDARD_PAYOUT_TERM, 72 hours);
     }
 
-    function test_LC57_openCapConstantsCarryProposedValues() public pure {
-        assertEq(MandateLib.MAX_PERFORMANCE_FEE_BPS, 2500);
-        assertEq(MandateLib.MAX_MANAGEMENT_FEE_BPS, 200);
+    /// @dev DEC-115 (closes LC-57) and DEC-155: the fee caps are core constants.
+    function test_DEC115_DEC155_feeCapsAreCoreConstants() public pure {
+        assertEq(MandateLib.MAX_PERFORMANCE_FEE_BPS, 9000);
+        assertEq(MandateLib.MAX_MANAGEMENT_FEE_BPS, 500);
+        assertEq(MandateLib.MAX_PAYOUT_FEE_BPS, 1000);
     }
 
     function test_DEC053_validMandatePasses() public view {
@@ -412,15 +414,27 @@ contract MandateTest is Test {
 
     // ------------------------------------------------------------------ fees
 
-    function test_DEC110_performanceFeeAboveOpenCapReverts() public {
+    /// @dev DEC-115: 9,000 passes, 9,001 reverts.
+    function test_DEC115_performanceFeeCapIsNinetyPercent() public {
         Mandate memory m = _valid();
-        m.performanceFeeBps = 2501;
-        vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsAboveMax.selector, 2501, 2500));
+        m.performanceFeeBps = 9001;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsAboveMax.selector, 9001, 9000));
         h.validate(m);
-        m.performanceFeeBps = 2500;
+        m.performanceFeeBps = 9000;
         h.validate(m);
     }
 
+    /// @dev DEC-155: the Payout Fee is at most 10%; 1,000 passes, 1,001 reverts.
+    function test_DEC155_payoutFeeCapIsTenPercent() public {
+        Mandate memory m = _valid();
+        m.payoutFeeBps = 1001;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsAboveMax.selector, 1001, 1000));
+        h.validate(m);
+        m.payoutFeeBps = 1000;
+        h.validate(m);
+    }
+
+    /// @dev DEC-108, DEC-114: until the accrual exists only 0 is taken, even within the 500 bps cap (DEC-115).
     function test_DEC108_managementFeeMustBeZeroInMvp() public {
         Mandate memory m = _valid();
         m.managementFeeBps = 1;
@@ -443,10 +457,10 @@ contract MandateTest is Test {
     }
 
     /// @dev Security review S-17: the Payout Fee plus the largest flow fee never exceeds 100%, so the Instant Payout
-    ///      arithmetic `usdcGross - payoutFee - flowFee` can never underflow.
+    ///      arithmetic `usdcGross - payoutFee - flowFee` can never underflow (DEC-155 leaves a wide margin).
     function test_SEC_S17_payoutFeePlusTheFlowFeeCapStaysWithinOneHundredPercent() public {
         Mandate memory m = _valid();
-        assertEq(uint256(MandateLib.MAX_PAYOUT_FEE_BPS) + ShareMath.MAX_FLOW_FEE_BPS, 10_000);
+        assertLe(uint256(MandateLib.MAX_PAYOUT_FEE_BPS) + ShareMath.MAX_FLOW_FEE_BPS, 10_000);
         m.payoutFeeBps = MandateLib.MAX_PAYOUT_FEE_BPS;
         h.validate(m);
         m.payoutFeeBps = MandateLib.MAX_PAYOUT_FEE_BPS + 1;

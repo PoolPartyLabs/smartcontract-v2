@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
+import {ICoreVaultLifecycle} from "../interfaces/ICoreVaultLifecycle.sol";
 import {Transit, TransferKind} from "../interfaces/FundTypes.sol";
 import {Mandate} from "../mandate/Mandate.sol";
 import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
@@ -14,10 +15,16 @@ import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 /// @param managerRegistry Per-manager registry holding the protocol slice (DEC-106, DEC-110).
 /// @param priceSource Prices non-USDC quantities into hub USDC (docs/ARCHITECTURE.md §5, OPEN).
 /// @param acrossSpokePool Across SpokePool on the Hub Chain, the only caller of `handleV3AcrossMessage`.
-/// @param protocolRecipient Recipient of the flow fee and the protocol slice (DEC-106; LC-132 OPEN).
-/// @param excessRecipient Recipient of swept excess balances (DEC-096, DEC-101; LC-132 OPEN).
+/// @param protocolRecipient Recipient of the flow fee and the protocol slice: the fee wallet (DEC-106, DEC-116).
+/// @param excessRecipient Recipient of swept excess balances: the fee wallet too (DEC-096, DEC-101, DEC-116,
+///        DEC-121).
 /// @param escrowImplementation TransitEscrow implementation cloned once per send (DEC-066, QA6 OPEN).
-/// @param flowFeeBps Protocol flow fee in bps, capped at 100 (DEC-106, DEC-110; LC-143 OPEN as to storage).
+/// @param flowFeeBps Protocol flow fee in bps, capped at 100; a fixed value of each factory deploy, immutable per fund
+///        (DEC-106, DEC-110, DEC-125 item 1).
+/// @param factory The only caller of `seed` (DEC-127). A field, not `msg.sender`: the factory deploys through CREATE3,
+///        so the constructor's `msg.sender` is the one-use proxy.
+/// @param minPerformanceFeeBps The ManagerRegistry's minimum manager fee when the fund was created; floor of
+///        `decreaseManagerFee` (DEC-115, DEC-125 item 3, D-36).
 /// @param incomeTokens Hub income tokens besides USDC: the tokens of the Mandate's hub pools, which the factory reads
 ///        from the hub adapters (`IAdapter.poolTokens`) because a Mandate pool key is a hash and the Core Vault never
 ///        calls an adapter (DEC-054).
@@ -35,6 +42,8 @@ struct CoreVaultConfig {
     address excessRecipient;
     address escrowImplementation;
     uint16 flowFeeBps;
+    address factory;
+    uint16 minPerformanceFeeBps;
     address[] incomeTokens;
     string shareName;
     string shareSymbol;
@@ -77,7 +86,8 @@ struct SpokeBook {
 /// @param pending Arrived before any report listed it; held apart (DEC-080, OQ-01).
 /// @param kind Kind the report listed (CV-OQ-1): an arrival is credited by it, never by the Across message's claim.
 /// @param pendingSince When the last arrival held apart without a listing, at least as large as what was already held,
-///        reached the hub; `recoverUnlistedArrival` needs a spoke report built after it (security review S-4, S-45, S-64).
+///        reached the hub; `recoverUnlistedArrival` needs a spoke report built after it (security review S-4, S-45,
+///        S-64).
 struct HubBoundTransfer {
     uint256 listed;
     uint256 credited;
@@ -119,6 +129,9 @@ struct HubBoundTransfer {
 /// @param owedFeesTotal Sum of `owedFees` per token (part of the ledger, DEC-080).
 /// @param spokeCapHeld An ExpiryAttested transit whose expiry was proven by time alone keeps its Spoke Cap until its
 ///        arrival is confirmed or its refund recognized (security review S-13).
+/// @param managerPeakShares ICoreVaultLifecycle.managerPeakShares (DEC-146); non-zero once the fund is seeded.
+/// @param fundState ICoreVaultLifecycle.fundState (DEC-147).
+/// @param closingStartedAt ICoreVaultLifecycle.closingStartedAt (DEC-147, DEC-149).
 struct CoreVaultState {
     Mandate mandate;
     uint256 idle;
@@ -144,4 +157,7 @@ struct CoreVaultState {
     mapping(address token => mapping(address recipient => uint256)) owedFees;
     mapping(address token => uint256) owedFeesTotal;
     mapping(bytes32 transitId => bool) spokeCapHeld;
+    uint256 managerPeakShares;
+    ICoreVaultLifecycle.FundState fundState;
+    uint64 closingStartedAt;
 }

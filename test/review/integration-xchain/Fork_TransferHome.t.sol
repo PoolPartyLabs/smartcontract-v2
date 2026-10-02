@@ -43,7 +43,7 @@ contract Fork_TransferHome is XChainBase {
         assertEq(HOME_FEE, _ruleFee(principal));
         _onArbitrum();
         assetsBefore = core.shareAssets();
-        assertEq(assetsBefore, 9961.77e6);
+        assertEq(assetsBefore, MANAGER_SEED_IDLE + 9961.77e6);
     }
 
     /// @dev The manager sends the whole spoke principal home; a relayer fills it on Arbitrum two minutes later. Returns
@@ -262,9 +262,12 @@ contract Fork_TransferHome is XChainBase {
         _log("price in window (1e24 = 1 USDC)", priceInWindow);
         _log("price after the refund is reported", priceAfter);
         _log("Bruno paid 10,000 in the window; worth now", brunoValue);
-        _log("Ana's value before", assetsBefore);
+        // Ana's value before: her shares' part of Share Assets; the manager's seed shares hold the rest (DEC-127).
+        uint256 anaShares = IERC20(shareToken).balanceOf(ana);
+        uint256 anaBefore = assetsBefore * anaShares / (MANAGER_SEED_SHARES + anaShares);
+        _log("Ana's value before", anaBefore);
         _log("Ana's value now", anaValue);
         assertApproxEqRel(brunoValue, 9975e6, 0.001e18, "the window's depositor gets what he paid for");
-        assertApproxEqRel(anaValue, assetsBefore, 0.001e18, "the existing holder keeps her value");
+        assertApproxEqRel(anaValue, anaBefore, 0.001e18, "the existing holder keeps her value");
     }
 }

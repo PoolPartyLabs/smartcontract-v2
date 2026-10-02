@@ -53,9 +53,9 @@ contract H01_SendToASpokeThatDoesNotExist is FactoryReviewFixture {
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(ICoreVault.SpokeNotReporting.selector, 0));
         vault.sendToSpoke(0, SEND, 0, "");
-        assertEq(vault.idle(), 99_750e6);
+        assertEq(vault.idle(), SEED_IDLE + 99_750e6);
         assertEq(vault.inFlightValue(), 0);
-        assertEq(vault.shareAssets(), 99_750e6);
+        assertEq(vault.shareAssets(), SEED_IDLE + 99_750e6);
     }
 
     /// @dev Re-attack: a VAA naming the Mandate's spoke address from another Wormhole chain (where an address without
@@ -105,6 +105,6 @@ contract H01_SendToASpokeThatDoesNotExist is FactoryReviewFixture {
         bytes32 id = vault.sendToSpoke(0, SEND, 0, "");
         assertEq(uint8(vault.transit(id).state), uint8(TransitState.Sent));
         assertEq(vault.inFlightValue(), ARRIVES);
-        assertEq(vault.shareAssets(), 99_750e6 - (SEND - ARRIVES));
+        assertEq(vault.shareAssets(), SEED_IDLE + 99_750e6 - (SEND - ARRIVES));
     }
 }

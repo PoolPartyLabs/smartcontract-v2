@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {FundSeed} from "../../utils/FundSeed.sol";
 import {CoreVault} from "../../../src/core/CoreVault.sol";
 import {CoreVaultConfig} from "../../../src/core/CoreVaultTypes.sol";
 import {ShareToken} from "../../../src/core/ShareToken.sol";
@@ -59,7 +60,7 @@ struct FundSystem {
 /// @dev Principal is only ever held in USDC (hub) and USDG (spoke, priced 1:1), so nothing in the system appreciates:
 ///      Share Assets move only through deposits, payouts, fees, Operating Cash top-ups and bridge fees. That is what
 ///      makes "no actor ends with more than they put in" a checkable property. WETH exists only as income.
-abstract contract FundSystemFixture is Test {
+abstract contract FundSystemFixture is Test, FundSeed {
     uint256 internal constant HUB = 42_161;
     uint256 internal constant SPOKE = 4663;
     uint16 internal constant WH_SPOKE = 72;
@@ -71,6 +72,11 @@ abstract contract FundSystemFixture is Test {
     bytes32 internal constant HUB_POOL = keccak256("hub WETH/USDC");
     bytes32 internal constant AAVE_USDC = keccak256("aave USDC");
     bytes32 internal constant SPOKE_POOL = keccak256("spoke WETH/USDG");
+    /// @dev DEC-127: the manager seeds the Mandate minimum, 100 USDC; after the flow fee it buys 99 whole shares at
+    ///      1.00 and leaves 99 USDC in Idle. Hub Operating Cash (floor 1, top-up 3) is live from creation, so the first
+    ///      value-moving operation tops it up out of the seed's Idle (DEC-096).
+    uint256 internal constant SYSTEM_SEED = 100e6;
+    uint256 internal constant SYSTEM_SEED_IDLE = 99e6;
 
     FundSystem internal sys;
     MockCoreBridge internal coreBridge;
@@ -158,6 +164,9 @@ abstract contract FundSystemFixture is Test {
         );
         sys.receiver = new ValueReportReceiver(address(coreBridge), coreAddress, FUND_ID, m.spokes, 0);
         sys.core = new CoreVault(m, _config());
+        // DEC-127: this contract plays the factory and seeds the fund (FundSeed) with the Mandate minimum.
+        _seedFundWith(address(sys.core), sys.core.usdc(), SYSTEM_SEED);
+        assertEq(sys.core.idle(), SYSTEM_SEED_IDLE, "the seed's Idle");
         sys.shares = ShareToken(sys.core.shareToken());
         assertEq(address(sys.spokeVault), spokeVaultAddress, "spoke vault address prediction");
         assertEq(address(sys.core), coreAddress, "core vault address prediction");
@@ -191,7 +200,7 @@ abstract contract FundSystemFixture is Test {
         m.operatingCash[1] = OperatingCashConfig(SPOKE, 5e6, 10e6);
         m.payoutFeeBps = 200;
         m.standardPayoutTerm = 72 hours;
-        m.minFirstDeposit = 100e6;
+        m.minFirstDeposit = SYSTEM_SEED;
         m.performanceFeeBps = PERFORMANCE_FEE_BPS;
         m.managementFeeBps = 0;
         m.maxBridgeFeeBps = 50;
@@ -209,6 +218,7 @@ abstract contract FundSystemFixture is Test {
         c.excessRecipient = excessRecipient;
         c.escrowImplementation = address(escrowImplementation);
         c.flowFeeBps = FLOW_FEE_BPS;
+        c.factory = address(this);
         c.incomeTokens = new address[](1);
         c.incomeTokens[0] = address(sys.weth);
         c.shareName = "Pool Party Fund 1";

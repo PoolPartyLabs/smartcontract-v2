@@ -40,7 +40,7 @@ contract ManagerSwapNoPriceGuardPoC is AccessFundFixture {
         _deposit(core, bob, 400_000e6);
         vm.prank(manager);
         core.allocateToHubSpokeVault(900_000e6);
-        assertEq(core.shareAssets(), 997_500e6);
+        assertEq(core.shareAssets(), SEED_IDLE + 997_500e6);
 
         // The manager pushes the pool: 1 unit of WETH now costs 100 units of USDC (the oracle still says 1).
         v4.setSwap(0.01e18, 10_000);
@@ -51,7 +51,7 @@ contract ManagerSwapNoPriceGuardPoC is AccessFundFixture {
 
         assertEq(wethOut, 9000e6, "900,000 USDC of Unallocated Balance bought 9,000 USDC worth of WETH");
         assertEq(hub.unallocatedBalance(address(usdc)), 0);
-        assertEq(core.shareAssets(), 97_500e6 + 9000e6, "891,000 USDC left the fund in one manager call");
+        assertEq(core.shareAssets(), SEED_IDLE + 97_500e6 + 9000e6, "891,000 USDC left the fund in one manager call");
         assertLt(core.sharePrice(), 0.11e24, "Share Price: from 1.00 to under 0.11");
     }
 }

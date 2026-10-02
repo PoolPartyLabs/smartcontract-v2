@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {FundSeed} from "../../utils/FundSeed.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {CoreVault} from "../../../src/core/CoreVault.sol";
 import {CoreVaultConfig} from "../../../src/core/CoreVaultTypes.sol";
@@ -29,7 +30,7 @@ import {MockManagerRegistry} from "../../mocks/core/MockManagerRegistry.sol";
 /// @notice Core Vault custody against the live Across SpokePool on Arbitrum One (docs/INTEGRATIONS.md): the vault
 ///         approves exactly, the SpokePool pulls exactly the input amount from the vault with the per-send escrow as
 ///         depositor, the approval is reset, and a fill callback from the SpokePool address is matched by transit id.
-contract CoreVaultAcrossForkTest is Test {
+contract CoreVaultAcrossForkTest is Test, FundSeed {
     address internal constant USDC = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
     address internal constant SPOKE_POOL = 0xe35e9842fceaCA96570B734083f4a58e8F7C5f2A;
     address internal constant USDG_ROBINHOOD = 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168;
@@ -73,7 +74,7 @@ contract CoreVaultAcrossForkTest is Test {
         m.operatingCash = new OperatingCashConfig[](0);
         m.payoutFeeBps = 200;
         m.standardPayoutTerm = 72 hours;
-        m.minFirstDeposit = 100e6;
+        m.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
         m.maxBridgeFeeBps = 50;
 
         CoreVaultConfig memory c;
@@ -88,10 +89,13 @@ contract CoreVaultAcrossForkTest is Test {
         c.excessRecipient = makeAddr("excess");
         c.escrowImplementation = address(new TransitEscrow());
         c.flowFeeBps = 25;
+        c.factory = address(this);
         c.incomeTokens = new address[](0);
         c.shareName = "Pool Party Fund 1";
         c.shareSymbol = "PP-1";
         vault = new CoreVault(m, c);
+        // DEC-127: this contract plays the factory and seeds the fund (FundSeed).
+        _seedFund(address(vault), vault.usdc(), vault.flowFeeBps());
         hubVault.setCoreVault(address(vault));
         receiver.setCoreVault(address(vault));
 
@@ -123,7 +127,7 @@ contract CoreVaultAcrossForkTest is Test {
         assertEq(IAcrossSpokePool(SPOKE_POOL).numberOfDeposits(), depositId + 1);
         assertEq(IERC20(USDC).balanceOf(SPOKE_POOL), poolBefore + 1000e6);
         assertEq(IERC20(USDC).allowance(address(vault), SPOKE_POOL), 0);
-        assertEq(vault.idle(), 9975e6 - 1000e6);
+        assertEq(vault.idle(), SEED_IDLE + 9975e6 - 1000e6);
         assertEq(vault.inFlightValue(), 999.4e6);
     }
 
@@ -145,7 +149,7 @@ contract CoreVaultAcrossForkTest is Test {
         r.inFlightToHub[0] = ReportCodec.HubBoundAmount(homeId, 500e6, TransferKind.Principal);
         receiver.deliver(0, r);
         assertEq(vault.unmatchedArrivals(), 0);
-        assertEq(vault.idle(), 9975e6 + 500e6);
+        assertEq(vault.idle(), SEED_IDLE + 9975e6 + 500e6);
         assertEq(vault.sweepExcess(USDC), 0);
     }
 }

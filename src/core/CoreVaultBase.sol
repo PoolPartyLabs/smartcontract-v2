@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
+import {ICoreVaultLifecycle} from "../interfaces/ICoreVaultLifecycle.sol";
 import {IBridgeAdapter} from "../interfaces/IBridgeAdapter.sol";
 import {IPriceSource} from "../interfaces/IPriceSource.sol";
 import {Transit, ExpensePayer} from "../interfaces/FundTypes.sol";
@@ -19,8 +20,8 @@ import {CoreVaultLogic} from "./CoreVaultLogic.sol";
 /// @notice Wiring, storage, value-base views and Operating Cash of the Core Vault. See ICoreVault.
 /// @dev Split out of CoreVault only to keep each source file reviewable; the abstract layers compile into one
 ///      contract, and the heavy report logic lives in the linked external library CoreVaultLogic. Every event and
-///      error, the library's included, is declared in ICoreVault.
-abstract contract CoreVaultBase is ICoreVault, ReentrancyGuardTransient {
+///      error, the library's included, is declared in ICoreVault or ICoreVaultLifecycle.
+abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGuardTransient {
     using IncomeAccumulator for IncomeAccumulator.State;
 
     /// @dev Kind tag of the Operating Cash top-up expense (DEC-041, DEC-096).
@@ -46,6 +47,10 @@ abstract contract CoreVaultBase is ICoreVault, ReentrancyGuardTransient {
     /// @notice The fund's ManagerFeeVault (ruling 2026-09-29, DEC-107, DEC-109), deployed by this constructor.
     address public immutable managerFeeVault;
     uint16 public immutable flowFeeBps;
+    /// @inheritdoc ICoreVaultLifecycle
+    address public immutable factory;
+    /// @inheritdoc ICoreVaultLifecycle
+    uint16 public immutable minPerformanceFeeBps;
     uint16 public immutable payoutFeeBps;
     uint32 public immutable standardPayoutTerm;
     /// @dev DEC-011: the Hub Chain of the Mandate; the constructor requires `block.chainid` to equal it.
@@ -73,12 +78,16 @@ abstract contract CoreVaultBase is ICoreVault, ReentrancyGuardTransient {
             c.usdc == address(0) || c.hubSpokeVault == address(0) || c.reportReceiver == address(0)
                 || c.managerRegistry == address(0) || c.priceSource == address(0) || c.acrossSpokePool == address(0)
                 || c.protocolRecipient == address(0) || c.excessRecipient == address(0)
-                || c.escrowImplementation == address(0) || c.fundId == bytes32(0)
+                || c.escrowImplementation == address(0) || c.factory == address(0) || c.fundId == bytes32(0)
         ) revert ZeroAddress();
         if (c.usdc != m.usdc) revert UsdcMismatch(c.usdc, m.usdc);
         if (block.chainid != m.hubChainId) revert NotOnHubChain(block.chainid, m.hubChainId);
         // DEC-106, DEC-110: flow fee capped at 1% as a core constant.
         if (c.flowFeeBps > ShareMath.MAX_FLOW_FEE_BPS) revert FlowFeeAboveCap(c.flowFeeBps);
+        // DEC-115, DEC-125 item 3: the fund starts at or above the minimum manager fee it was created under.
+        if (m.performanceFeeBps < c.minPerformanceFeeBps) {
+            revert ManagerFeeBelowMinimum(m.performanceFeeBps, c.minPerformanceFeeBps);
+        }
 
         fundId = c.fundId;
         mandateHash = MandateLib.hash(m);
@@ -93,6 +102,8 @@ abstract contract CoreVaultBase is ICoreVault, ReentrancyGuardTransient {
         excessRecipient = c.excessRecipient;
         escrowImplementation = c.escrowImplementation;
         flowFeeBps = c.flowFeeBps;
+        factory = c.factory;
+        minPerformanceFeeBps = c.minPerformanceFeeBps;
         payoutFeeBps = m.payoutFeeBps;
         standardPayoutTerm = m.standardPayoutTerm;
         _hubChainId = m.hubChainId;

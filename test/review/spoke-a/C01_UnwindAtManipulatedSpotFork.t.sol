@@ -107,7 +107,8 @@ contract C01_UnwindAtManipulatedSpotFork is SpokeAForkBase {
         // Alice 199,497 -> 9,234, attacker +189,994 USDC.
         assertEq(r.unwindProceeds, 0, "unwind reverted under the oracle floor");
         assertEq(hubVault.positions().length, 1, "the fund keeps its position");
-        assertEq(a.alice, b.alice, "the holder who stays loses nothing");
+        // DEC-144: the claimant's Payout Fee stays in Idle, so Alice even gains.
+        assertGe(a.alice, b.alice, "the holder who stays loses nothing");
         assertLe(r.usdcPaid, b.assets - b.alice, "paid at most Free Idle");
         assertLt(profit, 0, "the round trip costs the attacker its pool fees");
     }

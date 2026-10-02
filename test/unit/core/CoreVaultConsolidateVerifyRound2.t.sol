@@ -44,7 +44,7 @@ contract CoreVaultConsolidateVerifyRound2Test is CoreVaultFixture {
         pool.refund(0);
         vault.attestExpiry(id);
         assertEq(vault.recognizeRefund(id), SENT, "the refund reaches Idle");
-        assertEq(vault.idle(), 9975e6);
+        assertEq(vault.idle(), SEED_IDLE + 9975e6);
         assertEq(vault.shareAssets(), assets0, "DEC-104: the fund lost nothing to the stranger");
     }
 
@@ -91,8 +91,12 @@ contract CoreVaultConsolidateVerifyRound2Test is CoreVaultFixture {
         assertEq(vault.inFlightValue(), SENT, "never confirmed: still in flight");
         (uint256 spokeValue,,,) = vault.spokeCapUsage(0);
         assertEq(spokeValue, 0, "the spoke's principal is all of unknown origin");
-        assertEq(vault.shareAssets(), 8975e6 + 990e6, "counted once, net of the Operating Cash top-up");
-        assertEq(vault.grossAssets(), 8975e6 + 990e6 + 10e6, "DEC-098: Gross Assets add the spoke's Operating Cash");
+        assertEq(vault.shareAssets(), SEED_IDLE + 8975e6 + 990e6, "counted once, net of the Operating Cash top-up");
+        assertEq(
+            vault.grossAssets(),
+            SEED_IDLE + 8975e6 + 990e6 + 10e6,
+            "DEC-098: Gross Assets add the spoke's Operating Cash"
+        );
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -113,11 +117,11 @@ contract CoreVaultConsolidateVerifyRound2Test is CoreVaultFixture {
         (, inFlightSent,,) = vault.spokeCapUsage(0);
         assertEq(inFlightSent, SENT, "S-13: the time path does not release the Spoke Cap");
         assertEq(vault.inFlightValue(), SENT, "QB11: In-flight Value keeps the transit");
-        assertEq(vault.shareAssets(), 9975e6, "counted once through the fund-level deduction");
+        assertEq(vault.shareAssets(), SEED_IDLE + 9975e6, "counted once through the fund-level deduction");
 
         vm.expectRevert(abi.encodeWithSelector(ICoreVault.NoRefund.selector, id));
         vault.recognizeRefund(id);
-        assertEq(vault.shareAssets(), 9975e6);
+        assertEq(vault.shareAssets(), SEED_IDLE + 9975e6);
     }
 
     // ---------------------------------------------------------------------------------------------------------------

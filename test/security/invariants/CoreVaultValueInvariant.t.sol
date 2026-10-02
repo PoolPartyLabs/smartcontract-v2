@@ -71,6 +71,7 @@ contract CoreVaultValueInvariantTest is FundSystemFixture {
             else assertEq(req.reserved, 0, "DEC-072: a closed request keeps a reserve");
             assertLe(req.usdcOutstanding, req.usdcRequested, "DEC-068: outstanding above requested");
         }
+        held += sys.shares.balanceOf(sys.core.manager()); // the seed (DEC-127)
         assertEq(held, sys.shares.totalSupply(), "DEC-004: shares only ever sit with who deposited");
         assertEq(reserved, sys.core.payoutReserve(), "DEC-072: the Payout Reserve is the sum of the open reserves");
     }
@@ -110,8 +111,9 @@ contract CoreVaultValueInvariantTest is FundSystemFixture {
 
     /// No shareholder ends with more USDC value than they put in (income is paid apart, in its own tokens): what they
     /// were paid plus what their shares are worth never exceeds what they paid, beyond rounding (under two base units
-    /// per deposit, payout or refund executed by anyone), the bridge fees that recognized refunds gave back, and
-    /// value strangers gave the fund. Checked at the Share Price as it stands and again with the fund at rest.
+    /// per deposit, payout or refund executed by anyone), the bridge fees that recognized refunds gave back, their own
+    /// pro-rata part of the Payout Fees leavers left in Idle (DEC-144) and value strangers gave the fund. Checked at
+    /// the Share Price as it stands and again with the fund at rest.
     function invariant_DEC104_noActorEndsWithMoreThanTheyPutIn() public {
         _assertNoActorProfits("live");
         handler.settle();
@@ -126,7 +128,11 @@ contract CoreVaultValueInvariantTest is FundSystemFixture {
         for (uint256 i; i < actors.length; ++i) {
             uint256 value = ShareMath.usdcFor(sys.shares.balanceOf(actors[i]), price);
             worth += value;
-            assertLe(handler.paidOut(actors[i]) + value, handler.paidIn(actors[i]) + slack, when);
+            assertLe(
+                handler.paidOut(actors[i]) + value,
+                handler.paidIn(actors[i]) + slack + handler.payoutFeeGain(actors[i]),
+                when
+            );
         }
         assertLe(worth, sys.core.shareAssets(), "DEC-084: the supply is worth more than Share Assets");
     }

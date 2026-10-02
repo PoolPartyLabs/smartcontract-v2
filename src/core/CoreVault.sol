@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
+import {ICoreVaultLifecycle} from "../interfaces/ICoreVaultLifecycle.sol";
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {Mandate} from "../mandate/Mandate.sol";
 import {ShareMath} from "../libraries/ShareMath.sol";
@@ -15,15 +16,16 @@ import {CoreVaultTransit} from "./CoreVaultTransit.sol";
 import {CoreVaultLogic} from "./CoreVaultLogic.sol";
 
 /// @title CoreVault
-/// @notice Hub Chain contract of a fund: custody of Idle USDC, the Share ledger, Payout Requests and Payouts, the
-///         Attributed Income bucket and Income Withdrawal, sends to spokes and the transit state machine.
-/// @dev See ICoreVault for the rules of every verb. DEC-022, DEC-058: no proxy, no upgrade path, no selfdestruct.
-///      The value bases, report application, sends and transit outcomes live in the linked external library
-///      `CoreVaultLogic`, called by DELEGATECALL over this vault's storage: its address is part of the creation code
-///      and trust surface; the factory deploys it once per chain and pins it. It is the only DELEGATECALL the vault
-///      makes; the Core Vault never calls an adapter.
-///      DEC-054: never calls an adapter; reads the hub Spoke Vault and the ValueReportReceiver. Every value-moving
-///      external entry is `nonReentrant` (the two hub Spoke Vault callbacks are guarded as described in the base).
+/// @notice Hub Chain contract of a fund: custody of Idle USDC, the Share ledger, the manager's seed and the fund
+///         states, Payout Requests and Payouts, the Attributed Income bucket and Income Withdrawal, sends to spokes and
+///         the transit state machine.
+/// @dev See ICoreVault and ICoreVaultLifecycle for the rules of every verb. DEC-022, DEC-058: no proxy, no upgrade
+///      path, no selfdestruct. The value bases, report application, sends and transit outcomes live in the linked
+///      external library `CoreVaultLogic`, called by DELEGATECALL over this vault's storage: its address is part of the
+///      creation code and trust surface; the factory deploys it once per chain and pins it. It is the only DELEGATECALL
+///      the vault makes; the Core Vault never calls an adapter. DEC-054: never calls an adapter; reads the hub Spoke
+///      Vault and the ValueReportReceiver. Every value-moving external entry is `nonReentrant` (the two hub Spoke Vault
+///      callbacks are guarded as described in the base).
 contract CoreVault is CoreVaultTransit {
     using SafeERC20 for IERC20;
     using IncomeAccumulator for IncomeAccumulator.State;
@@ -31,9 +33,11 @@ contract CoreVault is CoreVaultTransit {
     /// @notice DEC-081: the unwind targets the shortfall plus 2%.
     uint256 public constant UNWIND_MARGIN_BPS = 200;
 
-    /// @dev Working values of one claim, kept in memory to stay within the stack without via-IR.
+    /// @dev Working values of one claim, kept in memory to stay within the stack without via-IR. `burnable` is the
+    ///      most the claim may burn: the balance, or for the manager what lies above the base (DEC-146, D-27).
     struct Claim {
         uint256 balance;
+        uint256 burnable;
         uint256 available;
         uint256 wanted;
         uint256 shares;
@@ -53,15 +57,18 @@ contract CoreVault is CoreVaultTransit {
     // ---------------------------------------------------------------------------------------------------------------
 
     /// @inheritdoc ICoreVault
+    /// @dev DEC-121, DEC-127, DEC-147: only an Open fund that was seeded takes deposits; the first-deposit minimum
+    ///      (DEC-061, DEC-095) applies to the seed, the only mint at supply 0, so a fund whose shares were all burned
+    ///      never re-opens at 1.00.
     function deposit(uint256 usdcAmount, uint256 minShares)
         external
         nonReentrant
         returns (uint256 shares, uint256 usdcCharged)
     {
         if (usdcAmount == 0) revert ZeroAmount();
+        _requireOpen();
         uint256 supply = _totalShares();
-        // DEC-061, DEC-095: the first deposit of a fund with no shares is at least the Mandate minimum.
-        if (supply == 0 && usdcAmount < _minFirstDeposit) revert BelowMinFirstDeposit(usdcAmount, _minFirstDeposit);
+        if (supply == 0) revert FundNotSeeded();
         // DEC-096: Operating Cash top-up first, so the depositor enters at the post-expense price.
         _topUpOperatingCash();
         // Q57 reading: a mint reverts on a stale spoke report or a stale price. DEC-014: the entrant's checkpoint below
@@ -90,6 +97,104 @@ contract CoreVault is CoreVaultTransit {
         // fails it is owed, never a reason to refuse the deposit.
         CoreVaultLogic.payFee(_s, usdc, protocolRecipient, fee);
         ShareToken(shareToken).mint(msg.sender, shares);
+        // DEC-146: the peak moves on every mint to the manager address.
+        if (msg.sender == manager) _recordManagerPeak();
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Lifecycle (DEC-061, DEC-113, DEC-121, DEC-127, DEC-146, DEC-147, DEC-149)
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// @inheritdoc ICoreVaultLifecycle
+    /// @dev Called by `FundFactory.createFund` in the creation transaction, so no fund exists without the seed. The
+    ///      price is the initial Share Price by definition (DEC-061): nothing else is in the fund yet. D-34: the seed
+    ///      is a deposit and pays the flow fee (DEC-113). The remainder below one share never leaves the caller
+    ///      (DEC-035).
+    /// @dev No Operating Cash top-up here (DEC-096 tops up before pricing an entrant; the seed has a fixed price), so
+    ///      the first value-moving operation tops hub Operating Cash up out of the seed's Idle and the Share Price
+    ///      falls by the top-up. A seed whose Idle is at or below the top-up leaves a Share Price of 0 at that point:
+    ///      deposits revert `SharePriceBelowOneUnit` (their top-up reverts with them) until the manager lowers the
+    ///      parameters (`setOperatingCashParameters`). Not refused here: the manager can move Free Idle into Operating
+    ///      Cash at any time anyway (security review S-5, SEC-OQ-2). CoreVaultSeed.t.sol pins both cases.
+    function seed(uint256 usdcAmount) external nonReentrant returns (uint256 shares) {
+        if (msg.sender != factory) revert NotFactory(msg.sender);
+        // The peak is non-zero once seeded; a supply-0 fund is either new or closed, and a closed one never re-opens.
+        if (_s.managerPeakShares != 0 || _totalShares() != 0) revert AlreadySeeded();
+        if (usdcAmount < _minFirstDeposit) revert BelowMinFirstDeposit(usdcAmount, _minFirstDeposit);
+        uint256 price = ShareMath.INITIAL_SHARE_PRICE;
+        (uint256 minted, uint256 usdcForShares, uint256 fee) = ShareMath.previewDeposit(usdcAmount, flowFeeBps, price);
+        if (minted == 0) revert DepositBelowOneShare(usdcAmount - fee, price);
+        shares = minted;
+
+        // DEC-014: no income checkpoint is needed: no share ever existed, so every income index is still 0 (income met
+        // at supply 0 is kept ownerless and never moves an index, IncomeAccumulator.distribute).
+        _s.idle += usdcForShares;
+        // DEC-146: the manager's first balance is the first peak.
+        _s.managerPeakShares = shares;
+        emit FundSeeded(manager, usdcForShares, fee, shares);
+
+        IERC20(usdc).safeTransferFrom(msg.sender, address(this), usdcForShares + fee);
+        CoreVaultLogic.payFee(_s, usdc, protocolRecipient, fee);
+        ShareToken(shareToken).mint(manager, shares);
+    }
+
+    /// @inheritdoc ICoreVaultLifecycle
+    /// @dev DEC-147 items 2-3: from here the manager unwinds with the existing verbs; deposits, new Payout Requests and
+    ///      claims are refused (D-26) and Income Withdrawal stays open (DEC-117 item 4). DEC-149 reading: irreversible.
+    function closeFund() external onlyManager nonReentrant {
+        _requireOpen();
+        _s.fundState = FundState.Closing;
+        _s.closingStartedAt = uint64(block.timestamp);
+        emit FundClosing(uint64(block.timestamp));
+    }
+
+    /// @inheritdoc ICoreVaultLifecycle
+    function fundState() external view returns (FundState) {
+        return _s.fundState;
+    }
+
+    /// @inheritdoc ICoreVaultLifecycle
+    function closingStartedAt() external view returns (uint64) {
+        return _s.closingStartedAt;
+    }
+
+    /// @inheritdoc ICoreVaultLifecycle
+    function managerPeakShares() external view returns (uint256) {
+        return _s.managerPeakShares;
+    }
+
+    function _requireOpen() private view {
+        FundState state = _s.fundState;
+        if (state != FundState.Open) revert FundNotOpen(state);
+    }
+
+    function _recordManagerPeak() private {
+        uint256 balance = _sharesOf(manager);
+        if (balance > _s.managerPeakShares) _s.managerPeakShares = balance;
+    }
+
+    /// @notice DEC-146, DEC-147 item 1, D-27: a manager request that would leave the manager's balance below half of
+    ///         the peak reverts, telling the manager to close the fund. Sized at the request's Share Price, rounding
+    ///         the shares the request would burn up and the base up, so the check never lets the balance fall below
+    ///         half.
+    /// @dev Example (DEC-146): peak 200,000 shares at 1.00; a request of 120,000 leaves 80,000 and reverts, 90,000
+    ///      leaves 110,000 and passes.
+    function _requireManagerBase(uint256 balance, uint256 usdcAmount, uint256 price) private view {
+        uint256 peak = _s.managerPeakShares;
+        uint256 burned =
+            Math.mulDiv(usdcAmount, ShareMath.PRICE_SCALE, price, Math.Rounding.Ceil) * ShareMath.WHOLE_SHARE;
+        uint256 balanceAfter = balance > burned ? balance - burned : 0;
+        if (balanceAfter < peak - peak / 2) revert ManagerMustCloseFund(peak, balanceAfter);
+    }
+
+    /// @notice DEC-146, DEC-147 consequence, D-27: the whole shares the manager may burn at a claim, those above
+    ///         `ceil(peak / 2)`. The request was checked at its own Share Price; a price that fell before the claim
+    ///         would otherwise burn more shares for the same USDC and take the manager below the base, or a sole
+    ///         holder to zero shares while the fund is Open.
+    function _managerBurnable(uint256 balance) private view returns (uint256) {
+        uint256 peak = _s.managerPeakShares;
+        uint256 base = peak - peak / 2;
+        return balance > base ? (balance - base) / ShareMath.WHOLE_SHARE * ShareMath.WHOLE_SHARE : 0;
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -100,8 +205,10 @@ contract CoreVault is CoreVaultTransit {
     /// @dev Priced like a claim (payout liveness, DEC-021, DEC-056: a failing valuation dependency falls back to the
     ///      last known value, never a revert on age, OQ-10), so the reserve bound and the one-share floor use the Share
     ///      Price the holder would be paid at if the claim ran now.
+    /// @dev DEC-147: refused unless the fund is Open; the manager's request may not cross the base (DEC-146).
     function requestPayout(uint256 usdcAmount, PayoutMode mode) external nonReentrant {
         if (usdcAmount == 0) revert ZeroAmount();
+        _requireOpen();
         PayoutRequest storage req = _s.requests[msg.sender];
         // DEC-024, DEC-046: one open request per address, never cancellable.
         if (req.open) revert PayoutRequestAlreadyOpen(msg.sender);
@@ -111,6 +218,7 @@ contract CoreVault is CoreVaultTransit {
         uint256 price = ShareMath.sharePrice(assets, _totalShares());
         // DEC-035 spirit, DEC-077 (final verification): a request below one share's price could never burn a share.
         if (ShareMath.sharesToBurn(usdcAmount, price) == 0) revert PayoutBelowOneShare(usdcAmount, price);
+        if (msg.sender == manager) _requireManagerBase(balance, usdcAmount, price);
         uint256 reserved;
         uint64 termEndsAt = uint64(block.timestamp);
         if (mode == PayoutMode.Standard) {
@@ -144,9 +252,16 @@ contract CoreVault is CoreVaultTransit {
     ///      reaches hub positions only (`ISpokeVault.unwindForPayout` on the hub Spoke Vault), so DEC-105 needs no new
     ///      spoke report (erratum 11 reading). Q57 reading: an Idle-paid payout never reverts on a stale report or
     ///      price. Payout liveness (DEC-021, DEC-056): nor when the hub report read or a price read fails; the last
-    ///      known value is used with an event (CoreVaultLogic.recordValuation). LC-45 / LC-141: the fund bears the market cost of the unwind (flagged). LC-45 / LC-47: no Network
-    ///      Costs are charged to the requester (flagged).
+    ///      known value is used with an event (CoreVaultLogic.recordValuation). LC-45 / LC-141: the fund bears the
+    ///      market cost of the unwind (flagged). LC-45 / LC-47: no Network Costs are charged to the requester
+    ///      (flagged). DEC-147, D-26: refused unless the fund is Open; a request opened before closure is paid as a
+    ///      closed-fund exit (DEC-150 item 4).
+    /// @dev DEC-146, DEC-147, D-27: the manager's burn stops at `ceil(peak / 2)` whatever the Share Price did since the
+    ///      request. When that cap binds the request closes like one capped at the balance (DEC-024: it can never be
+    ///      cancelled, so leaving it open would block the manager's next request and keep a Standard reserve locked);
+    ///      the receipt shows the USDC paid below the amount requested.
     function claimPayout(bytes calldata unwindHints) external nonReentrant returns (PayoutReceipt memory receipt) {
+        _requireOpen();
         PayoutRequest storage req = _s.requests[msg.sender];
         if (!req.open) revert NoOpenPayoutRequest(msg.sender);
         if (req.mode == PayoutMode.Standard && block.timestamp < req.termEndsAt) {
@@ -155,6 +270,7 @@ contract CoreVault is CoreVaultTransit {
         Claim memory c;
         c.balance = _sharesOf(msg.sender);
         if (c.balance == 0) revert NoShares(msg.sender);
+        c.burnable = msg.sender == manager ? _managerBurnable(c.balance) : c.balance;
         _topUpOperatingCash();
 
         NavConsolidation memory consolidation = _priceClaim(c, req);
@@ -190,7 +306,7 @@ contract CoreVault is CoreVaultTransit {
         (c.shareAssets, consolidation) = CoreVaultLogic.recordValuation(_s, _wiring(), false);
         c.totalShares = _totalShares();
         c.price = ShareMath.sharePrice(c.shareAssets, c.totalShares);
-        // DEC-077, DEC-020: floor(outstanding / price) whole shares, capped at the balance.
+        // DEC-077, DEC-020: floor(outstanding / price) whole shares, capped at the balance (the manager: at the base).
         c.wanted = ShareMath.usdcFor(_sharesFor(c, req.usdcOutstanding), c.price);
         c.available = freeIdle();
         if (req.mode == PayoutMode.Standard) c.available += req.reserved;
@@ -200,10 +316,12 @@ contract CoreVault is CoreVaultTransit {
     ///      loss, or every value base reading zero) nothing can be paid, so no share is burned and the claim closes the
     ///      request like an outstanding tail below one share (`closedBelowOneShare`) instead of reverting
     ///      `ZeroSharePrice`; the holder keeps its shares and may request again once value returns.
+    /// @dev Capped at `burnable` (the balance; for the manager, the shares above the base, D-27). `wanted` is sized
+    ///      with the same cap, so a Partial Payout never burns more than the cap either.
     function _sharesFor(Claim memory c, uint256 usdcAmount) private pure returns (uint256 shares) {
         if (c.price == 0) return 0;
         shares = ShareMath.sharesToBurn(usdcAmount, c.price);
-        if (shares > c.balance) shares = c.balance;
+        if (shares > c.burnable) shares = c.burnable;
     }
 
     /// @notice Runs the hub Spoke Vault's automatic unwind and credits what reached the Core Vault to Idle.
@@ -229,9 +347,10 @@ contract CoreVault is CoreVaultTransit {
         r.usdcRequested = req.usdcRequested;
         r.sharesBurned = c.shares;
         r.usdcGross = ShareMath.usdcFor(c.shares, c.price);
-        // DEC-075, DEC-102: Payout Fee on Instant only, whole to Operating Cash.
+        // DEC-075: Payout Fee on Instant only. DEC-144 items 4-5 (corrects DEC-102 items 2-4): it stays in Idle, in
+        // USDC.
         if (req.mode == PayoutMode.Instant) r.payoutFee = ShareMath.bpsOf(r.usdcGross, payoutFeeBps);
-        // DEC-106, LC-143 reading: flow fee on the amount paid out, deducted from what the shareholder receives.
+        // DEC-106, DEC-113: flow fee on the amount paid out, deducted from what the shareholder receives.
         r.flowFee = ShareMath.flowFee(r.usdcGross, flowFeeBps);
         r.usdcPaid = r.usdcGross - r.payoutFee - r.flowFee;
         r.sharePrice = c.price;
@@ -246,11 +365,11 @@ contract CoreVault is CoreVaultTransit {
 
         // Effects. DEC-014: checkpoint with the balance before the burn.
         _s.income.checkpoint(msg.sender, c.balance);
-        _s.idle -= r.usdcGross;
+        // DEC-144: the Payout Fee never leaves Idle, so it raises the Share Price of those who stay (R-144-A).
+        _s.idle -= r.usdcGross - r.payoutFee;
         uint256 reserved = req.reserved;
         uint256 used = Math.min(reserved, r.usdcGross);
         reserved -= used;
-        _s.operatingCash += r.payoutFee;
         if (c.complete) {
             // Closed: release what is left of the reserve (DEC-072) and the request.
             req.open = false;

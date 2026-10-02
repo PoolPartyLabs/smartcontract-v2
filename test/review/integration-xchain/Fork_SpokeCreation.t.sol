@@ -34,7 +34,7 @@ contract Fork_SpokeCreation is XChainBase {
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(ICoreVault.SpokeNotReporting.selector, 0));
         core.sendToSpoke(0, BRIDGE_AMOUNT, 0, "");
-        assertEq(core.idle(), 9975e6, "nothing left Idle");
+        assertEq(core.idle(), MANAGER_SEED_IDLE + 9975e6, "nothing left Idle");
         assertEq(core.inFlightValue(), 0);
 
         _advance(5 minutes);
@@ -47,7 +47,7 @@ contract Fork_SpokeCreation is XChainBase {
         assertEq(spokeVault.cumulativeReceived(), ARRIVES, "the handler ran: credited");
         _report();
         assertEq(uint8(core.transit(id).state), uint8(TransitState.ArrivalConfirmed));
-        assertEq(core.shareAssets(), 9975e6 - BRIDGE_FEE - SPOKE_OPERATING_CASH_TOP_UP);
+        assertEq(core.shareAssets(), MANAGER_SEED_IDLE + 9975e6 - BRIDGE_FEE - SPOKE_OPERATING_CASH_TOP_UP);
     }
 
     /// @notice FIXED (S-9, S-6, S-14). The review's divergent Mandate (`maxBridgeFeeBps` 10,000) can no longer be
@@ -86,6 +86,6 @@ contract Fork_SpokeCreation is XChainBase {
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(ICoreVault.SpokeNotReporting.selector, 0));
         core.sendToSpoke(0, BRIDGE_AMOUNT, 0, "");
-        assertEq(core.shareAssets(), 9975e6, "the capital never leaves the hub");
+        assertEq(core.shareAssets(), MANAGER_SEED_IDLE + 9975e6, "the capital never leaves the hub");
     }
 }

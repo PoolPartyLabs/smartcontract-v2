@@ -59,6 +59,7 @@ contract FeeTierFork is IntegrationPriceBase {
         keys[0] = plan.hubPool;
         keys[1] = fullFee;
         p.uniswapV4Pools = keys;
+        _fundManagerSeed(ARB_USDC, manager, address(factory), p.seedAmount);
 
         vm.expectRevert(
             abi.encodeWithSelector(

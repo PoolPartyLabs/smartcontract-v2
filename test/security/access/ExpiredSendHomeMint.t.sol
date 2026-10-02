@@ -60,7 +60,9 @@ contract ExpiredSendHomeMintPoC is AccessFundFixture {
         _deliverReport(a.valueReportReceiver, s.spokeVault, 1, s.reportAfterArrival);
         _deliverReport(a.valueReportReceiver, s.spokeVault, 2, s.reportWhileInFlight);
         uint256 fairAssets = core.shareAssets();
-        assertEq(fairAssets, 198_750e6 + SPOKE_LEFT + HOME_ARRIVES, "Idle + spoke + the send home in flight");
+        assertEq(
+            fairAssets, SEED_IDLE + 198_750e6 + SPOKE_LEFT + HOME_ARRIVES, "Idle + spoke + the send home in flight"
+        );
         uint256 fairPrice = core.sharePrice();
         uint256 aliceFair = _shares(core, alice) * fairPrice / 1e36;
 

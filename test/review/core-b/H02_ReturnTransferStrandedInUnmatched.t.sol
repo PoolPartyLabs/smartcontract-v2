@@ -30,7 +30,7 @@ contract H02_ReturnTransferStrandedInUnmatched is CoreBCrossChainFixture {
         _fillOnSpoke(out, ARRIVES);
         _report(); // confirms the arrival: the spoke holds 99,950 USDG of principal
         assetsBefore = vault.shareAssets();
-        assertEq(assetsBefore, 997_450e6);
+        assertEq(assetsBefore, SEED_IDLE + 997_450e6);
 
         // The manager brings the principal home; a relayer fills it on Arbitrum within minutes.
         vm.prank(manager);
@@ -90,13 +90,13 @@ contract H02_ReturnTransferStrandedInUnmatched is CoreBCrossChainFixture {
         _refreshPrices();
         _report();
         uint256 assetsInGap = vault.shareAssets();
-        assertEq(assetsInGap, 897_500e6, "the transfer is in no value base");
+        assertEq(assetsInGap, SEED_IDLE + 897_500e6, "the transfer is in no value base");
 
         uint256 minted = _deposit(bob, 100_000e6); // the report is fresh: the mint goes through
         vault.recoverUnlistedArrival(0, home); // open at once now
         uint256 bobValue = minted * vault.sharePrice() / 1e36;
         console2.log("bob paid 100,000; worth after the recovery", bobValue);
-        assertEq(bobValue, 109_742_302_202, "an entrant between the delivery and the recovery gains 9.7%");
+        assertEq(bobValue, 109_742_304_329, "an entrant between the delivery and the recovery gains 9.7%");
     }
 
     /// @dev Control: one report inside the window matches and credits the same arrival to Idle.

@@ -64,6 +64,6 @@ contract ExpiredSendHomeCapBypassPoC is CrossChainFixture {
         (spokeValue,, inFlightToHub, cap) = core.spokeCapUsage(0);
         assertEq(inFlightToHub, 0);
         assertLe(spokeValue, cap, "S-3: the Spoke Cap holds");
-        assertEq(core.shareAssets(), 997_500e6 - _ruleFee(CAP), "no loss beyond the one bridge fee");
+        assertEq(core.shareAssets(), SEED_IDLE + 997_500e6 - _ruleFee(CAP), "no loss beyond the one bridge fee");
     }
 }

@@ -28,23 +28,25 @@ contract CoreVaultConsolidateVerifyTest is CoreVaultFixture {
     // ---------------------------------------------------------------------------------------------------------------
     function test_OQ09_strandedHubToSpokeTransitIsCountedOnceAfterTheSpokeSendsItHome() public {
         _send(1000e6, 1000e6); // Idle 8,975; 1,000 in flight to the spoke
-        assertEq(vault.shareAssets(), 9975e6, "in flight, counted once");
+        assertEq(vault.shareAssets(), SEED_IDLE + 9975e6, "in flight, counted once");
 
         // The spoke credited the 1,000 but no accepted report ever listed the id: deducted as unknown value.
         _deliver(_spokeReport(1000e6, 1000e6));
         assertEq(
-            vault.shareAssets(), 9975e6, "held by the spoke and deducted there, counted once through In-flight Value"
+            vault.shareAssets(),
+            SEED_IDLE + 9975e6,
+            "held by the spoke and deducted there, counted once through In-flight Value"
         );
 
         // The manager sends the whole Unallocated Balance home as Principal; the spoke's gross principal is now 0.
         bytes32 home = keccak256("home-after-strand");
         _deliver(_inFlightToHub(_spokeReport(0, 1000e6), home, 1000e6));
         assertEq(vault.inFlightValue(), 2000e6, "hub-to-spoke leg still open plus the return leg");
-        assertEq(vault.shareAssets(), 9975e6, "the clamped deduction must not resurrect the stranded 1,000");
+        assertEq(vault.shareAssets(), SEED_IDLE + 9975e6, "the clamped deduction must not resurrect the stranded 1,000");
 
         pool.fill(address(vault), address(usdc), 1000e6, _homeMessage(home, TransferKind.Principal));
-        assertEq(vault.idle(), 9975e6, "the 1,000 is back in Idle");
-        assertEq(vault.shareAssets(), 9975e6, "DEC-104: never counted twice (Idle and In-flight Value)");
+        assertEq(vault.idle(), SEED_IDLE + 9975e6, "the 1,000 is back in Idle");
+        assertEq(vault.shareAssets(), SEED_IDLE + 9975e6, "DEC-104: never counted twice (Idle and In-flight Value)");
     }
 
     /// DEC-080, OQ-09: a stranger's bridge deposit on a spoke is never Share Assets, including after the manager sends
@@ -59,7 +61,7 @@ contract CoreVaultConsolidateVerifyTest is CoreVaultFixture {
         assertEq(vault.shareAssets(), assets0, "deducted from the return leg");
 
         pool.fill(address(vault), address(usdc), 500e6, _homeMessage(home, TransferKind.Principal));
-        assertEq(vault.idle(), 9975e6 + 500e6, "credited to Idle as the report listed it");
+        assertEq(vault.idle(), SEED_IDLE + 9975e6 + 500e6, "credited to Idle as the report listed it");
         assertEq(vault.shareAssets(), assets0, "deducted from Idle");
     }
 
@@ -125,8 +127,13 @@ contract CoreVaultConsolidateVerifyTest is CoreVaultFixture {
         assertEq(usdc.balanceOf(protocol) - protocol0, 10e6, "half of the fee to the Protocol Recipient");
         assertEq(usdc.balanceOf(feeVault), 10e6, "the other half to the ManagerFeeVault");
         assertEq(vault.incomeState(address(usdc)).distributed, 80e6, "only the net enters the accumulator");
-        assertApproxEqAbs(vault.attributedIncome(alice, address(usdc)), 80e6, 1, "Alice holds every share");
-        assertEq(vault.idle(), 9975e6, "Idle never moved");
+        assertApproxEqAbs(
+            vault.attributedIncome(alice, address(usdc)),
+            uint256(80e6) * 9975 / 9976,
+            2,
+            "Alice holds every share but the manager's seed share"
+        );
+        assertEq(vault.idle(), SEED_IDLE + 9975e6, "Idle never moved");
         assertEq(usdc.balanceOf(address(vault)), _ledgerUsdc(), "DEC-080: balance equals the ledger");
         assertEq(vault.sweepExcess(address(usdc)), 0, "nothing sweepable");
     }
@@ -150,6 +157,6 @@ contract CoreVaultConsolidateVerifyTest is CoreVaultFixture {
         assertEq(inFlightToHub, 0, "released once credited");
         assertEq(vault.shareAssets(), assets0, "still outside Share Assets once collected");
         assertEq(vault.collectedIncome(address(usdc)), 400e6);
-        assertEq(vault.idle(), 9975e6);
+        assertEq(vault.idle(), SEED_IDLE + 9975e6);
     }
 }

@@ -181,7 +181,7 @@ contract CoreVaultSetupTest is CoreVaultFixture {
     function test_DEC041_shortTopUpIsInsufficientCash() public {
         _deposit(alice, 1000e6);
         vm.prank(manager);
-        vault.allocateToHubSpokeVault(996e6); // Free Idle 1
+        vault.allocateToHubSpokeVault(996e6 + SEED_IDLE); // Free Idle 1
         vm.prank(manager);
         vault.setOperatingCashParameters(5e6, 10e6);
         _request(alice, 1e6, ICoreVault.PayoutMode.Standard); // reserves the last unit
@@ -205,15 +205,16 @@ contract CoreVaultSetupTest is CoreVaultFixture {
         assertLe(vault.payoutReserve(), vault.idle());
     }
 
-    function test_DEC102_payoutFeeFeedsOperatingCashAboveFloor() public {
+    /// @dev DEC-144: the top-up is a logic of its own; the Payout Fee stays in Idle.
+    function test_DEC144_payoutFeeStaysOutOfOperatingCash() public {
         _deposit(alice, 1000e6);
         vm.prank(manager);
         vault.setOperatingCashParameters(1e6, 3e6);
         _request(alice, 100e6, ICoreVault.PayoutMode.Instant);
         ICoreVault.PayoutReceipt memory r = _claim(alice);
-        // Topped up 3 first (below floor), then the 2% Payout Fee of the amount paid out.
+        // Topped up 3 first (below floor); the 2% Payout Fee of the amount paid out stays in Idle.
         assertEq(r.payoutFee, r.usdcGross * 200 / 10_000);
-        assertEq(vault.operatingCash(), 3e6 + r.payoutFee);
+        assertEq(vault.operatingCash(), 3e6);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -227,12 +228,12 @@ contract CoreVaultSetupTest is CoreVaultFixture {
         emit ICoreVault.AllocatedToHubSpokeVault(400e6);
         vm.prank(manager);
         vault.allocateToHubSpokeVault(400e6);
-        assertEq(vault.idle(), 597e6);
+        assertEq(vault.idle(), SEED_IDLE + 597e6);
         assertEq(usdc.balanceOf(address(hubVault)), 400e6);
         assertEq(hubVault.unallocatedUsdc(), 400e6);
         assertEq(vault.shareAssets(), assets);
         hubVault.returnToCore(100e6);
-        assertEq(vault.idle(), 697e6);
+        assertEq(vault.idle(), SEED_IDLE + 697e6);
         assertEq(vault.shareAssets(), assets);
     }
 
@@ -253,7 +254,7 @@ contract CoreVaultSetupTest is CoreVaultFixture {
         r.collectedIncome[1] = ReportCodec.TokenAmount(address(spokeWeth), 0.01e18); // 25 USDC
         r.operatingCash = 5e6;
         _deliver(r);
-        assertEq(vault.shareAssets(), 997e6, "outside Share Assets");
+        assertEq(vault.shareAssets(), SEED_IDLE + 997e6, "outside Share Assets");
         assertEq(vault.grossAssets(), before + 30e6 + 25e6 + 5e6, "inside Gross Assets");
     }
 

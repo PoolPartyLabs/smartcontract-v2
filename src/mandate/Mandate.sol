@@ -114,18 +114,18 @@ library MandateLib {
     /// @notice Starting value of the Standard Payout term (DEC-095): 72 hours.
     uint32 internal constant DEFAULT_STANDARD_PAYOUT_TERM = 72 hours;
 
-    /// @notice Cap on the performance fee. OPEN (LC-57): value proposed by research, not decided (DEC-110 says caps
-    ///         are core constants).
-    uint16 internal constant MAX_PERFORMANCE_FEE_BPS = 2500;
+    /// @notice Cap on the performance fee: 90% of income, a core constant (DEC-110, DEC-115). At the cap, 72,000 of an
+    ///         income of 80,000 is fee.
+    uint16 internal constant MAX_PERFORMANCE_FEE_BPS = 9000;
 
-    /// @notice Cap on the management fee, per year. OPEN (LC-57): value proposed by research, not decided.
-    uint16 internal constant MAX_MANAGEMENT_FEE_BPS = 200;
+    /// @notice Cap on the management fee: 5% a year, a core constant (DEC-110, DEC-115). Until the accrual exists a
+    ///         non-zero management fee is still rejected (`ManagementFeeNotSupported`).
+    uint16 internal constant MAX_MANAGEMENT_FEE_BPS = 500;
 
-    /// @notice Cap on the Payout Fee: 100% less the core cap on the flow fee (`ShareMath.MAX_FLOW_FEE_BPS`, 100).
-    /// @dev Security review S-17: an Instant Payout pays `usdcGross - payoutFee - flowFee`; a Payout Fee above this
-    ///      cap made that subtraction underflow and every Instant claim of the fund revert for its whole life, while
-    ///      DEC-024 forbids switching an open Instant request to Standard. Only the 100% bound was checked.
-    uint16 internal constant MAX_PAYOUT_FEE_BPS = 9900;
+    /// @notice Cap on the Payout Fee: 10%, a core constant (DEC-155; refines DEC-075, DEC-095, DEC-110).
+    /// @dev Security review S-17 still holds with room to spare: an Instant Payout pays `usdcGross - payoutFee -
+    ///      flowFee`, and 10% plus the 1% flow fee cap (`ShareMath.MAX_FLOW_FEE_BPS`) never underflows.
+    uint16 internal constant MAX_PAYOUT_FEE_BPS = 1000;
 
     /// @notice Cap on `maxBridgeFeeBps`: 1% of the amount sent.
     /// @dev Security review S-9 (QA19 leaves the per-fund value OPEN; DEC-110 makes fee caps core constants): with
@@ -180,8 +180,9 @@ library MandateLib {
     ///      - every spoke has at least one bridge adapter on the hub side and one on the spoke side (DEC-089: a chain
     ///        is supported only through a live bridge adapter); no address listed twice as an adapter on one chain;
     ///      - Operating Cash entries on known chains, one per chain (DEC-096);
-    ///      - fees: Payout Fee at most `MAX_PAYOUT_FEE_BPS` (S-17); bridge fee at most `MAX_BRIDGE_FEE_BPS` (S-9);
-    ///        performance fee within the OPEN cap; management fee 0 in the MVP (DEC-108, LC-144, LC-57).
+    ///      - fees: Payout Fee at most `MAX_PAYOUT_FEE_BPS` (DEC-155); bridge fee at most `MAX_BRIDGE_FEE_BPS` (S-9);
+    ///        performance fee at most `MAX_PERFORMANCE_FEE_BPS` (DEC-115); management fee 0 until its accrual exists
+    ///        (DEC-108, DEC-114).
     ///      A Mandate without spokes (hub-only fund) is accepted: no decision requires a spoke.
     function validate(Mandate memory m) internal pure {
         if (m.manager == address(0)) revert ZeroManager();

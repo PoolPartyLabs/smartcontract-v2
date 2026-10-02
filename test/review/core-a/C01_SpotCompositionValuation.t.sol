@@ -17,9 +17,9 @@ import {CoreAHubFixture} from "./CoreAHubFixture.sol";
 ///         value the Core Vault derives from it does not.
 contract C01_SpotCompositionValuation is CoreAHubFixture {
     uint256 internal constant ONE_SHARE = 1e18;
-    /// @dev Share Assets of the fixture after the setUp (deposits 600,000 + 400,000, 25 bps flow fee, a 400,000 USDC
-    ///      hub position, Operating Cash topped up by 3 USDC).
-    uint256 internal constant FAIR_ASSETS = 997_496_999_987;
+    /// @dev Share Assets of the fixture after the setUp (the manager's one-share seed, deposits 600,000 + 400,000,
+    ///      25 bps flow fee, a 400,000 USDC hub position; no hub Operating Cash since DEC-127, CoreAHubFixture).
+    uint256 internal constant FAIR_ASSETS = 997_500_999_998;
 
     function setUp() public override {
         super.setUp();
@@ -77,7 +77,7 @@ contract C01_SpotCompositionValuation is CoreAHubFixture {
         assertEq(pushed.unwindProceeds, 0, "Idle-paid: no unwind");
         assertEq(pushed.sharePrice, fairPrice, "burn priced at the fair price");
         assertEq(pushed.sharesBurned, fair.sharesBurned, "same shares burned");
-        assertEq(pushed.sharesBurned, 300_001 * ONE_SHARE, "300,001 shares, as on e5c778a without the push");
+        assertEq(pushed.sharesBurned, 300_000 * ONE_SHARE, "300,000 shares, as without the push");
         assertEq(pushed.usdcPaid, fair.usdcPaid, "same USDC paid");
         assertEq(vault.sharePrice(), priceAfterFair, "the remaining holders keep the fair price");
     }

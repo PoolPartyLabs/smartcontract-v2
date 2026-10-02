@@ -22,7 +22,7 @@ contract SpotCompositionInflationForkTest is EndToEndScenario {
     uint256 internal assetsFair;
     uint256 internal priceFair;
     uint256 internal assetsDown;
-    uint256 internal paidGross;
+    uint256 internal paidOut;
 
     function test_SEC_S1_forkHubSharePriceIgnoresPoolSpotComposition() public {
         _createForks();
@@ -79,7 +79,8 @@ contract SpotCompositionInflationForkTest is EndToEndScenario {
         assertApproxEqRel(receipt.sharePrice, priceFair, 1e9, "S-1: the claim burned at the oracle-price Share Price");
         uint256 fairGross = receipt.sharesBurned * priceFair / 1e36;
         assertApproxEqAbs(receipt.usdcGross, fairGross, 1e6, "S-1: no more USDC left Idle than the shares were worth");
-        paidGross = receipt.usdcGross;
+        // What left Share Assets: the gross less the Payout Fee, which stays in Idle (DEC-144).
+        paidOut = receipt.usdcGross - receipt.payoutFee;
         emit log_named_decimal_uint("Share Price at the oracle price (USDC)", priceFair, 24);
         emit log_named_decimal_uint("Share Price the claim burned at (USDC)", receipt.sharePrice, 24);
     }
@@ -89,7 +90,7 @@ contract SpotCompositionInflationForkTest is EndToEndScenario {
         _swapToTick(arbitrumRouter, _hubPoolKey(), ARB_V4_STATE_VIEW, center + 3 * HALF_RANGE);
         IAdapter.PositionValue memory lifted = IAdapter(hubUniswap).positionValue(hubUniswapPosition);
         assertEq(lifted.principal0, 0, "out of range above: the position is reported as USDC only");
-        uint256 assetsUp = core.shareAssets() + paidGross;
+        uint256 assetsUp = core.shareAssets() + paidOut;
         assertApproxEqAbs(assetsUp, assetsFair, 1e6, "S-1: Share Assets stay at fair in this direction too");
         emit log_named_decimal_uint("Share Assets with the pool pushed up, payout added back (USDC)", assetsUp, 6);
     }
@@ -97,7 +98,7 @@ contract SpotCompositionInflationForkTest is EndToEndScenario {
     /// @dev Back at the starting price the valuation is still fair, less what the payout took out.
     function _restoreAndRead() internal {
         _swapToTick(arbitrumRouter, _hubPoolKey(), ARB_V4_STATE_VIEW, center);
-        uint256 assetsRestored = core.shareAssets() + paidGross;
+        uint256 assetsRestored = core.shareAssets() + paidOut;
         assertApproxEqAbs(assetsRestored, assetsFair, 1e6, "S-1: the pool price never moved the valuation");
         emit log_named_decimal_uint("Share Assets with the pool restored, payout added back (USDC)", assetsRestored, 6);
     }

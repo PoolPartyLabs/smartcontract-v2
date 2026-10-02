@@ -29,7 +29,7 @@ contract H02_SpokeOperatingCashDeadEnd is SpokeBFixture {
 
     function test_POC_REVIEW_H08_oneParameterChangeSinksTheSpokeAndTheCapLetsItRepeat() public {
         uint256 assetsBefore = vault.shareAssets();
-        assertEq(assetsBefore, 997_450e6);
+        assertEq(assetsBefore, SEED_IDLE + 997_450e6);
 
         // 1. The manager raises the spoke's floor and top-up (DEC-096 lets it adjust them; no bound).
         vm.prank(manager);
@@ -68,7 +68,9 @@ contract H02_SpokeOperatingCashDeadEnd is SpokeBFixture {
         _reportNow();
         assertEq(spoke.operatingCash(), 199_901e6, "twice the Spoke Cap parked where nothing can reach it");
         assertGt(spoke.operatingCash(), cap);
-        assertEq(vault.shareAssets(), 797_499e6, "a fifth of the fund gone: 99,951 + 99,950 sunk + 50 bridge fee");
+        assertEq(
+            vault.shareAssets(), SEED_IDLE + 797_499e6, "a fifth of the fund gone: 99,951 + 99,950 sunk + 50 bridge fee"
+        );
     }
 
     /// @dev The sweep's interim release verb was removed on 2026-10-01 (S-63): a spoke sink followed by a release let

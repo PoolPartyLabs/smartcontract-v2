@@ -24,7 +24,7 @@ contract L01_UnwindCannotReach is SpokeAHubFixture {
         hubVault.swapExactInput(address(adapter), poolId, address(usdc), 1_000_000e6, 0, "");
         _unwindSwapsAtOracle();
 
-        // Share Assets still count the 400 WETH at the oracle price, so Mallory's shares are worth 49,874.85 USDC ...
+        // Share Assets still count the 400 WETH at the oracle price, so Mallory's shares are worth 49,875 USDC ...
         uint256 value = _valueOf(mallory);
         _request(mallory, value, ICoreVault.PayoutMode.Instant);
         ICoreVault.PayoutReceipt memory r = _claim(mallory);
@@ -32,15 +32,22 @@ contract L01_UnwindCannotReach is SpokeAHubFixture {
         console2.log("paid gross", r.usdcGross);
         console2.log("outstanding", r.usdcOutstanding);
         // ... but the unwind returns nothing: there is no position, and it never swaps Unallocated WETH.
-        assertEq(value, 49_874_849_999);
+        assertEq(value, 49_875e6);
         assertEq(r.unwindProceeds, 0);
-        assertEq(r.usdcGross, 47_370_857_530, "paid from Free Idle only");
-        assertEq(r.usdcOutstanding, 2_503_992_469);
+        assertEq(r.usdcGross, 47_376e6, "paid from Free Idle only");
+        assertEq(r.usdcOutstanding, 2499e6);
         assertTrue(vault.payoutRequest(mallory).open);
         assertEq(hubVault.unallocatedBalance(address(weth)), 400e18);
+        // DEC-144: the first claim's Payout Fee stayed in Idle; a retry is paid from that Free Idle alone (plus the
+        // sub-share remainder), still unwinding nothing, and the request stays open.
+        uint256 free = vault.freeIdle();
+        assertGe(free, r.payoutFee);
         vm.prank(mallory);
-        vm.expectRevert();
-        vault.claimPayout("");
+        ICoreVault.PayoutReceipt memory again = vault.claimPayout("");
+        assertEq(again.unwindProceeds, 0);
+        assertLe(again.usdcGross, free);
+        assertTrue(vault.payoutRequest(mallory).open);
+        assertEq(hubVault.unallocatedBalance(address(weth)), 400e18);
     }
 }
 

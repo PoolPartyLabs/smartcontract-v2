@@ -65,7 +65,7 @@ contract UnwindAtManipulatedSpotPoC is AccountingPocFixture {
         _refreshPrices();
         mallory.enter(core, usdc, 100_000e6);
         bytes32 positionKey = _openHubPosition(1_090_000e6, HALF_WIDTH);
-        assertEq(core.freeIdle(), 7250e6, "Free Idle is far below Mallory's share value");
+        assertEq(core.freeIdle(), SEED_IDLE + 7250e6, "Free Idle is far below Mallory's share value");
 
         uint256 aliceFair = _valueOf(alice);
         uint128 liquidityBefore = hubV4.positionValue(positionKey).liquidity;
@@ -79,7 +79,7 @@ contract UnwindAtManipulatedSpotPoC is AccountingPocFixture {
 
         assertEq(r.unwindProceeds, 0, "S-2: nothing was sold at the moved price");
         assertEq(hubV4.positionValue(positionKey).liquidity, liquidityBefore, "S-2: the position is untouched");
-        assertLe(r.usdcGross, 7250e6, "S-2: the claim was paid from Free Idle only");
+        assertLe(r.usdcGross, SEED_IDLE + 7250e6, "S-2: the claim was paid from Free Idle only");
         assertGt(shares.balanceOf(address(mallory)), 0, "Partial Payout: the rest of the request stays open");
         assertGe(_valueOf(alice) + 1e6, aliceFair, "S-2: Alice keeps her value");
     }

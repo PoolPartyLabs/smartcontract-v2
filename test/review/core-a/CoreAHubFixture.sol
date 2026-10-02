@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {FundSeed} from "../../utils/FundSeed.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
@@ -40,7 +41,7 @@ import {MockReportReceiver} from "../../mocks/core/MockReportReceiver.sol";
 ///         CoreVault (+ linked CoreVaultLogic), the hub SpokeVault (+ linked SpokeCrossChainLib) and the real
 ///         UniswapV4Adapter, over MockV4 (PoolManager + PositionManager + StateView) and MockPermit2. Only the price
 ///         source, the manager registry and the (unused) report receiver are mocks.
-abstract contract CoreAHubFixture is Test {
+abstract contract CoreAHubFixture is Test, FundSeed {
     uint256 internal constant HUB = 42_161;
     bytes32 internal constant FUND_ID = keccak256("core-a review fund");
     /// @dev Oracle: 2,500 USDC per WETH, as IPriceSource price1e18 (USDC base units per wei, times 1e18).
@@ -129,6 +130,8 @@ abstract contract CoreAHubFixture is Test {
         hubVault =
             new SpokeVault(m, FUND_ID, HUB, coreAt, address(usdc), acrossHub, address(0), address(escrowImpl), excess);
         vault = new CoreVault(m, _config(address(hubVault)));
+        // DEC-127: this contract plays the factory and seeds the fund (FundSeed).
+        _seedFund(address(vault), vault.usdc(), vault.flowFeeBps());
         require(address(adapter) == adapterAt && address(hubVault) == hubVaultAt && address(vault) == coreAt, "wiring");
         shares = ShareToken(vault.shareToken());
 
@@ -149,11 +152,13 @@ abstract contract CoreAHubFixture is Test {
         m.unwindOrder[0] = UnwindStep(HUB, adapter_, poolId);
         m.spokes = new SpokeConfig[](0);
         m.bridgeAdapters = new BridgeAdapterConfig[](0);
-        m.operatingCash = new OperatingCashConfig[](1);
-        m.operatingCash[0] = OperatingCashConfig(HUB, 1e6, 3e6); // DEC-096 order of magnitude on Arbitrum
+        // DEC-127: no hub Operating Cash here. With a one-share seed, the first deposit's top-up (floor 1, top-up 3)
+        // would take all of the seed's Idle before pricing and leave the Share Price at 0; the Operating Cash reviews
+        // set their own parameters.
+        m.operatingCash = new OperatingCashConfig[](0);
         m.payoutFeeBps = 200;
         m.standardPayoutTerm = 72 hours;
-        m.minFirstDeposit = 100e6;
+        m.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
         m.performanceFeeBps = 2000;
         m.managementFeeBps = 0;
         m.maxBridgeFeeBps = 50;
@@ -171,6 +176,7 @@ abstract contract CoreAHubFixture is Test {
         c.excessRecipient = excess;
         c.escrowImplementation = address(escrowImpl);
         c.flowFeeBps = 25;
+        c.factory = address(this);
         c.incomeTokens = new address[](1);
         c.incomeTokens[0] = address(weth);
         c.shareName = "Pool Party Fund 1";

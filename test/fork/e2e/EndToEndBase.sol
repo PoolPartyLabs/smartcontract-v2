@@ -24,6 +24,7 @@ import {UniswapV4Adapter} from "../../../src/adapters/UniswapV4Adapter.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {FactoryDeployment} from "../../../script/FactoryDeployment.sol";
 import {FundMandate} from "../../../script/FundMandate.sol";
+import {FundSeed} from "../../utils/FundSeed.sol";
 import {V4SwapRouter} from "../../mocks/v4/V4SwapRouter.sol";
 
 /// @notice Shared state and helpers of the end-to-end fork scenario: one fund driven across the pinned Arbitrum One (Hub
@@ -34,7 +35,7 @@ import {V4SwapRouter} from "../../mocks/v4/V4SwapRouter.sol";
 /// @dev One scenario clock: the two pinned blocks are minutes apart, and a spoke report is judged on the hub clock
 ///      (DEC-099), so every switch warps the selected fork to the latest time either fork has reached.
 /// @dev Live prices move between runs, so the scenario asserts relations and bounds, never market numbers.
-abstract contract EndToEndBase is Test, FactoryDeployment, FundMandate {
+abstract contract EndToEndBase is Test, FactoryDeployment, FundMandate, FundSeed {
     // -----------------------------------------------------------------------------------------------------------------
     // Scenario parameters
     // -----------------------------------------------------------------------------------------------------------------
