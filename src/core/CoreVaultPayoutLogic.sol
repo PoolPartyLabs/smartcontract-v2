@@ -10,7 +10,6 @@ import {ICoreVaultPayouts} from "../interfaces/ICoreVaultPayouts.sol";
 import {ICoreVaultLifecycle} from "../interfaces/ICoreVaultLifecycle.sol";
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {ShareMath} from "../libraries/ShareMath.sol";
-import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 import {ShareToken} from "./ShareToken.sol";
 import {CoreVaultState, CoreVaultWiring, CORE_VAULT_UNWINDING_SLOT, STANDARD_PAYOUT_TERM} from "./CoreVaultTypes.sol";
 import {CoreVaultLogic} from "./CoreVaultLogic.sol";
@@ -30,7 +29,6 @@ import {CoreVaultIncomeLogic} from "./CoreVaultIncomeLogic.sol";
 ///      ICoreVaultPayouts, ICoreVault and ICoreVaultLifecycle.
 library CoreVaultPayoutLogic {
     using SafeERC20 for IERC20;
-    using IncomeAccumulator for IncomeAccumulator.State;
     using TransientSlot for *;
 
     /// @notice DEC-081: the unwind targets the shortfall plus 2%.
@@ -252,8 +250,8 @@ library CoreVaultPayoutLogic {
             r.payoutSettlementPrice = Math.mulDiv(c.proceeds, ShareMath.WHOLE_SHARE * ShareMath.PRICE_SCALE, c.shares);
         }
 
-        // Effects. DEC-014: checkpoint with the balance before the burn.
-        s.incomeBook.index.checkpoint(msg.sender, c.balance);
+        // Effects. DEC-014: the income hook checkpoints with the balance before the burn.
+        CoreVaultIncomeLogic.beforeBalanceChange(s, w, msg.sender, c.balance);
         // DEC-144: the Payout Fee never leaves Idle, so it raises the Share Price of those who stay (R-144-A).
         s.idle -= r.usdcGross - r.payoutFee;
         uint256 reserved = req.reserved;
@@ -277,6 +275,7 @@ library CoreVaultPayoutLogic {
         // Security review S-12: a failed flow-fee transfer is owed to the protocol, never a reason to refuse the claim.
         CoreVaultLogic.payFee(s, w.usdc, w.protocolRecipient, r.flowFee);
         if (r.usdcPaid != 0) IERC20(w.usdc).safeTransfer(msg.sender, r.usdcPaid);
-        if (c.shares == c.balance) CoreVaultIncomeLogic.payAllIncome(s, msg.sender);
+        // DEC-045, DEC-047: after a full burn the hook pays all Attributed Income.
+        if (c.shares != 0) CoreVaultIncomeLogic.afterBurn(s, w, msg.sender, c.shares, c.balance - c.shares);
     }
 }

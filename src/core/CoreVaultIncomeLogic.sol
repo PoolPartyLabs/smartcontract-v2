@@ -68,18 +68,45 @@ library CoreVaultIncomeLogic {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // Full exit (DEC-045, DEC-047)
+    // Share balance hooks (WP-07 D2; DEC-014, DEC-045, DEC-047, Q60)
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @notice DEC-045, DEC-047: a full burn pays all Attributed Income payable now, in every token, in the same
-    ///         transaction. The caller (`CoreVaultPayoutLogic`, after the burn) has checkpointed the holder.
+    /// @notice Called before every mint (deposit, seed) and every burn (payout) of `holder`'s shares, with the balance
+    ///         before the change.
+    /// @dev DEC-014, Q60: checkpoints the holder's Attributed Income at that balance, so an entrant gets none of the
+    ///      income collected before it entered and a leaver keeps what it earned. The income work changes this body,
+    ///      not its callers.
+    function beforeBalanceChange(
+        CoreVaultState storage s,
+        CoreVaultWiring memory,
+        address holder,
+        uint256 balanceBefore
+    ) public {
+        s.incomeBook.index.checkpoint(holder, balanceBefore);
+    }
+
+    /// @notice Called after every mint (deposit, seed): `minted` shares went to `holder`. Nothing to do yet; the income
+    ///         work fills it (DEC-145, entry time).
+    function afterMint(CoreVaultState storage, CoreVaultWiring memory, address, uint256) public pure {}
+
+    /// @notice Called after every burn (payout) that burned shares: `burned` shares of `holder` were burned, leaving
+    ///         `balanceAfter`.
+    /// @dev DEC-045, DEC-047: a full burn pays all Attributed Income payable now, in every token, in the same
+    ///      transaction; `beforeBalanceChange` checkpointed the holder before the burn.
+    function afterBurn(CoreVaultState storage s, CoreVaultWiring memory, address holder, uint256, uint256 balanceAfter)
+        public
+    {
+        if (balanceAfter == 0) _payAllIncome(s, holder);
+    }
+
+    /// @notice DEC-045, DEC-047: pays all Attributed Income payable now to `holder`, in every token.
     /// @dev Independent review (verification plan CF-2; DEC-021, DEC-056: an exit is never blocked): an income token
     ///      that cannot be transferred to the holder (paused, blocklisting the holder, reverting) no longer reverts the
     ///      claim and with it the exit of the holder's principal. That token's income leaves the accumulator as usual
     ///      and is kept for the holder as an owed transfer (the S-12 path, `CoreVaultLogic.payFee`), paid to the holder
     ///      by the permissionless `claimOwedFees(token, holder)`. `withdrawIncome` still reverts on a failed transfer:
     ///      there the holder asked for that one token.
-    function payAllIncome(CoreVaultState storage s, address holder) public {
+    function _payAllIncome(CoreVaultState storage s, address holder) private {
         address[] memory tokens = s.incomeBook.index.tokens;
         for (uint256 i; i < tokens.length; ++i) {
             address token = tokens[i];
