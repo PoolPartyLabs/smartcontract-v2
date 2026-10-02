@@ -1,9 +1,9 @@
 // Drives the minimal API (src/api.ts) over HTTP against the two forks and checks each concept the API guide relies
 // on, on a fund whose spoke never reported (the deployed one if unused, else a fresh one): quotes are exact, the API's
-// transactions do what they say, a report follows each deposit (DEC-159), freshness gates mints and not payouts, the
-// bridge quote is what the adapter fixes (DEC-162), the API signs routes only within its limits, a signed swap route
-// executes on the live V3 pools and a tampered one is refused, every operation ends with an event a server can index,
-// and the Share Price history follows the mints. Each run writes a run report.
+// transactions do what they say, a report follows each deposit and only one (DEC-159), freshness gates mints and not
+// payouts, the bridge quote is what the adapter fixes (DEC-162), the API signs routes only within its limits, a signed
+// swap route executes on the live V3 pools and a tampered one is refused, every operation ends with an event a server
+// can index, and the Share Price history follows the mints. Each run writes a run report.
 // Run: `pnpm run up && pnpm api:probe; pnpm run down`.
 import { zeroAddress, type Address, type Hex, type TransactionReceipt } from "viem";
 import { coreVaultAbi, erc20Abi, spokeVaultAbi, uniswapV3SwapAdapterAbi } from "./abis.ts";
@@ -168,6 +168,17 @@ export async function probe() {
         Number(published?.reportTimestamp) >= Number((await nodes.arbitrum.client.getBlock({ blockNumber: depositTx.blockNumber })).timestamp) &&
         h.spokeReport.fresh === true,
       `report ${published?.reportSequence} published by the API signer after deposit block ${depositTx.blockNumber}, delivered by the ${published?.deliveredBy}; the Hub holds report ${published?.hubReportSequence}`,
+    );
+
+    // The same deposit again: the first answer and no second report, which the API signer would pay.
+    const spokeSequence = () => read<bigint>("robinhood", { address: fund.spoke.spokeVault, abi: spokeVaultAbi, functionName: "reportSequence" });
+    const sequenceBefore = await spokeSequence();
+    const replay = await post<any>("/report/after-deposit", { txHash: depositTx.transactionHash });
+    const sequenceAfter = await spokeSequence();
+    record(
+      "one report per deposit",
+      replay.status === 200 && replay.body.reports?.[0]?.reportSequence === published?.reportSequence && sequenceAfter === sequenceBefore,
+      `a replay of the deposit answers report ${replay.body.reports?.[0]?.reportSequence} again; the spoke's report sequence stays ${sequenceAfter}`,
     );
 
     // 4. Freshness gates mints, not payouts (Q57 reading, OQ-10): past the report lifetime with no new report the API

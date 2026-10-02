@@ -289,7 +289,7 @@ the report after each deposit. Routes:
 
 `pnpm api:probe` drives those routes on an unused fund (the deployed one, or a fresh one) and checks: the deposit quote
 equals the minted shares; the report the API publishes right after the deposit is delivered by the keeper and is the
-Hub's latest (DEC-159); past the report lifetime with no new report `/health` shows mints closed, the chain reverts
+Hub's latest (DEC-159), and the same deposit sent again gets the same answer and no second report; past the report lifetime with no new report `/health` shows mints closed, the chain reverts
 `StaleSpokeReport` and the API refuses to build a deposit, while an Instant payout from Idle still executes and pays
 exactly what `/quote/claim` said; a fresh report reopens mints; a 1,000 USDC hub swap built by the API respects its
 oracle minimum on the live pool and the same swap at 0 bps reverts `InsufficientOutput`; the bridge quote is exactly
