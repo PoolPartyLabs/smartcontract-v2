@@ -111,7 +111,7 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
 
     function test_DEC153_bestDirectFeeIsOpenToAnyoneAndMatchesTheSwap() public {
         vm.prank(stranger);
-        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), AMOUNT, NO_MAX);
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), AMOUNT);
         assertEq(fee, 500);
         assertEq(quoted, _out(AMOUNT, 500, 0));
         (uint256 out,) = _swap(address(weth), address(base), AMOUNT, NO_MAX, "");
@@ -121,7 +121,7 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
     function test_DEC153_missingTiersAreSkipped() public {
         factory.createPool(address(stock), address(usdt), 3000, PRICE_ONE, LIQUIDITY);
         factory.createPool(address(stock), address(usdt), 10_000, PRICE_ONE, LIQUIDITY);
-        (uint24 fee,) = adapter.bestDirectFee(address(stock), address(usdt), AMOUNT, NO_MAX);
+        (uint24 fee,) = adapter.bestDirectFee(address(stock), address(usdt), AMOUNT);
         assertEq(fee, 3000);
     }
 
@@ -129,7 +129,7 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
     function test_DEC153_zeroLiquidityTierIsSkippedWithoutAQuote() public {
         wethBase[0].setImpactBps(0);
         wethBase[0].setLiquidity(0);
-        (uint24 fee,) = adapter.bestDirectFee(address(weth), address(base), AMOUNT, NO_MAX);
+        (uint24 fee,) = adapter.bestDirectFee(address(weth), address(base), AMOUNT);
         assertEq(fee, 500);
         assertEq(quoter.quotes(address(wethBase[0])), 0, "never quoted");
         assertEq(quoter.quotes(address(wethBase[1])), 1);
@@ -137,7 +137,7 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
 
     function test_DEC153_aRevertingQuoteIsSkipped() public {
         wethBase[1].setMode(MockV3Pool.Mode.QuoteReverts);
-        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), AMOUNT, NO_MAX);
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), AMOUNT);
         assertEq(fee, 3000, "0.3% beats 0.01% with 60 bps of impact");
         assertEq(quoted, _out(AMOUNT, 3000, 0));
     }
@@ -158,7 +158,7 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
         assertGt(drained, _out(AMOUNT, 500, 200), "the drained tier quotes the most");
         assertEq(sqrtPriceX96After, _limit(address(weth), address(base)), "and stops at the price limit");
 
-        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), AMOUNT, NO_MAX);
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), AMOUNT);
         assertEq(fee, 500, "the best tier that fills");
         assertEq(quoted, _out(AMOUNT, 500, 200));
         (uint256 out,) = _swap(address(weth), address(base), AMOUNT, NO_MAX, "");
@@ -178,17 +178,17 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
             wethBase[i].setFillableIn(AMOUNT - 1);
         }
         vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.NoRoute.selector, address(weth), address(base)));
-        adapter.bestDirectFee(address(weth), address(base), AMOUNT, NO_MAX);
+        adapter.bestDirectFee(address(weth), address(base), AMOUNT);
         vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.NoRoute.selector, address(base), address(weth)));
-        adapter.bestDirectFee(address(base), address(weth), AMOUNT, NO_MAX);
-        (uint24 fee,) = adapter.bestDirectFee(address(weth), address(base), AMOUNT - 1, NO_MAX);
+        adapter.bestDirectFee(address(base), address(weth), AMOUNT);
+        (uint24 fee,) = adapter.bestDirectFee(address(weth), address(base), AMOUNT - 1);
         assertEq(fee, 500, "an input the tiers can fill still routes");
     }
 
     /// @dev DEC-129 item 3 ("em qualquer quantia"): a dust input that every tier fills with a zero output still sells,
     ///      in the first tier that fills, as it does through `swapDirect`; an unwind's dust remainder must not revert.
     function test_DEC129_aDustInputEveryTierFillsAtZeroStillSells() public {
-        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), 1, NO_MAX);
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), 1);
         assertEq(fee, 100, "the first tier that fills");
         assertEq(quoted, 0);
         (uint256 out, uint256 spot) = _swap(address(weth), address(base), 1, 100, "");
@@ -199,50 +199,34 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
         assertEq(out, 0, "swapDirect sells it too");
     }
 
-    /// @dev Review round 2: a third party's tier (here it replaces the 1% one) at a mid price four times the market's
-    ///      fills the whole input and outbids every honest tier, yet loses 74% against its own mid. With a maximum it
-    ///      does not compete, and the sale fills in the 0.05% tier within the maximum. Chosen on output alone, it would
-    ///      have set the loss reference at its own mid and failed the sale.
-    function test_DEC153_aTierOutsideTheMaximumAgainstItsOwnMidDoesNotCompete() public {
+    /// @dev Open for the founder (review rounds 2 and 3): a third party's tier (here it replaces the 1% one) at a mid
+    ///      price four times the market's fills the whole input and outbids every honest tier, so it is chosen
+    ///      (DEC-153 item 2). Against its own mid it loses 74%, so a sale with a 1% maximum reverts, although the 0.05%
+    ///      tier fills it within that maximum.
+    function test_DEC153_aThirdPartyTierAboveTheMarketFailsABoundedSale() public {
         uint256 trapOut = _trapTier().out(address(weth), AMOUNT);
         assertGt(trapOut, _out(AMOUNT, 500, 0), "the trap quotes the most");
         assertEq(adapter.spotValue(address(weth), address(base), AMOUNT, 10_000), 4 * AMOUNT, "at its own mid");
 
-        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), AMOUNT, 100);
-        assertEq(fee, 500, "the best tier within the maximum");
-        assertEq(quoted, _out(AMOUNT, 500, 0));
-        (uint256 out, uint256 spot) = _swap(address(weth), address(base), AMOUNT, 100, "");
-        assertEq(out, quoted, "the sale fills within the maximum");
-        assertEq(spot, AMOUNT, "against the 0.05% tier's mid");
-        _assertNothingKept(address(weth));
-
-        // What choosing on output alone would have done.
-        _fund(address(weth), AMOUNT);
-        vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.InsufficientOutput.selector, trapOut, AMOUNT * 396 / 100));
-        adapter.swapDirect(address(weth), address(base), AMOUNT, 10_000, 100);
-    }
-
-    /// @dev When no tier meets the maximum (4 bps: under every fee but the 0.01% tier's, which loses 60 bps to
-    ///      impact), the best overall is returned, and the swap in it fails the maximum as it did before the filter.
-    function test_DEC153_noTierWithinTheMaximumFallsBackToTheBestOverall() public {
-        uint256 trapOut = _trapTier().out(address(weth), AMOUNT);
-        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), AMOUNT, 4);
-        assertEq(fee, 10_000);
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), AMOUNT);
+        assertEq(fee, 10_000, "chosen on output");
         assertEq(quoted, trapOut);
         _fund(address(weth), AMOUNT);
-        vm.expectRevert(
-            abi.encodeWithSelector(ISwapAdapter.InsufficientOutput.selector, trapOut, AMOUNT * 39_984 / 10_000)
-        );
-        adapter.swap(address(weth), address(base), AMOUNT, 4, "");
+        vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.InsufficientOutput.selector, trapOut, AMOUNT * 396 / 100));
+        adapter.swap(address(weth), address(base), AMOUNT, 100, "");
+
+        (uint256 out, uint256 spot) = adapter.swapDirect(address(weth), address(base), AMOUNT, 500, 100);
+        assertEq(out, _out(AMOUNT, 500, 0), "the 0.05% tier fills it within the maximum");
+        assertEq(spot, AMOUNT);
     }
 
-    /// @dev Open for the founder (review round 2): without a maximum nothing filters the trap. It wins on output and the
-    ///      fund receives more than any honest tier pays, but `spotOut` is the trap's own mid, so the sale reports a loss
-    ///      it did not have. Until the founder rules, a vault must not charge a cost measured against the `spotOut` of an
-    ///      empty-route sale without a maximum.
+    /// @dev Open for the founder (review round 2): without a maximum the same trap wins on output and the fund receives
+    ///      more than any honest tier pays, but `spotOut` is the trap's own mid, so the sale reports a loss it did not
+    ///      have. Until the founder rules, a vault must not charge a cost measured against the `spotOut` of an
+    ///      empty-route sale.
     function test_DEC153_withoutAMaximumAThirdPartyTierStillSetsSpotOut() public {
         uint256 trapOut = _trapTier().out(address(weth), AMOUNT);
-        (uint24 fee,) = adapter.bestDirectFee(address(weth), address(base), AMOUNT, NO_MAX);
+        (uint24 fee,) = adapter.bestDirectFee(address(weth), address(base), AMOUNT);
         assertEq(fee, 10_000);
         (uint256 out, uint256 spot) = _swap(address(weth), address(base), AMOUNT, NO_MAX, "");
         assertEq(out, trapOut, "more than any honest tier pays");
@@ -270,7 +254,7 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
         vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.NoRoute.selector, address(stock), address(usdt)));
         adapter.swap(address(stock), address(usdt), AMOUNT, NO_MAX, "");
         vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.NoRoute.selector, address(stock), address(usdt)));
-        adapter.bestDirectFee(address(stock), address(usdt), AMOUNT, NO_MAX);
+        adapter.bestDirectFee(address(stock), address(usdt), AMOUNT);
     }
 
     function test_DEC153_noTierQuotingIsNoRoute() public {
@@ -467,21 +451,21 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
         vm.expectRevert(abi.encodeWithSelector(notInMandate, address(outsider)));
         adapter.swapDirect(address(outsider), address(base), AMOUNT, 500, NO_MAX);
         vm.expectRevert(abi.encodeWithSelector(notInMandate, address(outsider)));
-        adapter.bestDirectFee(address(outsider), address(base), AMOUNT, NO_MAX);
+        adapter.bestDirectFee(address(outsider), address(base), AMOUNT);
         vm.expectRevert(abi.encodeWithSelector(notInMandate, address(outsider)));
         adapter.spotValue(address(base), address(outsider), AMOUNT, 500);
 
         vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.IdenticalTokens.selector, address(weth)));
         adapter.swap(address(weth), address(weth), AMOUNT, NO_MAX, "");
         vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.IdenticalTokens.selector, address(weth)));
-        adapter.bestDirectFee(address(weth), address(weth), AMOUNT, NO_MAX);
+        adapter.bestDirectFee(address(weth), address(weth), AMOUNT);
 
         vm.expectRevert(ISwapAdapter.ZeroAmount.selector);
         adapter.swap(address(weth), address(base), 0, NO_MAX, "");
         vm.expectRevert(ISwapAdapter.ZeroAmount.selector);
         adapter.swapDirect(address(weth), address(base), 0, 500, NO_MAX);
         vm.expectRevert(ISwapAdapter.ZeroAmount.selector);
-        adapter.bestDirectFee(address(weth), address(base), 0, NO_MAX);
+        adapter.bestDirectFee(address(weth), address(base), 0);
     }
 
     /// @dev DEC-056: pause is a quarantine of entries. A swap out of the base token (or between two non-base tokens)

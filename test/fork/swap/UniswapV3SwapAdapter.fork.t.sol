@@ -124,7 +124,7 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
 
         _setUpWithBase(c, t0, _tokens2(t0, t1));
         assertEq(uint256(_assertBestTier(t1, t0, amountIn)), 500, "the live best-tier oracle skips it too");
-        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(t1, t0, amountIn, NO_MAX);
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(t1, t0, amountIn);
         assertEq(uint256(fee), 500, "the best tier that fills");
         assertEq(quoted, fullOut);
         (uint256 out,,) = _swap(t1, t0, amountIn, NO_MAX, "", "no API, a drained 1% tier next to a 0.05% tier");
@@ -136,32 +136,32 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
         adapter.swapDirect(t1, t0, amountIn, 10_000, NO_MAX);
     }
 
-    /// @dev A third party's tier (review round 2): two new tokens, an honest 0.05% tier at price 1 with L = 1e24 over
-    ///      the full range, and a 1% tier someone created at price 0.1 (one token1 worth ten token0) with dust over the
-    ///      full range and L = 3.2e21 in ticks [-23000, -22800], about 101 token0 just above its price. Selling 100
-    ///      token1, the trap fills the whole input and quotes more than the honest tier, at a mid value of 1,000 token0.
-    ///      It is arbitrageable, so it only works inside the sale's own transaction (a permissionless unwind), and its
-    ///      only LP is the attacker. With a 1% maximum it loses about 90% against its own mid, does not compete, and
-    ///      the sale fills in the honest tier; chosen on output alone it would have failed the sale.
-    function test_arbitrum_noApi_aThirdPartyTierOutsideTheMaximumDoesNotCompete() public {
+    /// @dev Open for the founder (review rounds 2 and 3), a third party's tier above the market: two new tokens, an
+    ///      honest 0.05% tier at price 1 with L = 1e24 over the full range, and a 1% tier someone created at price 0.1
+    ///      (one token1 worth ten token0) with dust over the full range and L = 3.2e21 in ticks [-23000, -22800], about
+    ///      101 token0 just above its price. Selling 100 token1, the trap fills the whole input and quotes more than
+    ///      the honest tier, at a mid value of 1,000 token0, so it is chosen (DEC-153 item 2). It is arbitrageable, so
+    ///      it only works inside the sale's own transaction (a permissionless unwind), and its only LP is the attacker.
+    ///      With a 1% maximum it loses about 90% against its own mid and the sale reverts, although the honest tier
+    ///      fills it within that maximum.
+    function test_arbitrum_noApi_aThirdPartyTierAboveTheMarketFailsABoundedSale() public {
         V3Chain memory c = _arbitrum();
         (address t0, address t1) = _trappedPair(c);
         uint256 amountIn = 100e18;
-        (, uint256 honestOut) = _assertTheTrapQuotesMore(c, t1, t0, amountIn);
+        (uint256 trapOut, uint256 honestOut) = _assertTheTrapQuotesMore(c, t1, t0, amountIn);
 
         _setUpWithBase(c, t0, _tokens2(t0, t1));
         assertApproxEqRel(adapter.spotValue(t1, t0, amountIn, 10_000), 10 * amountIn, 1e9, "the trap's own mid");
-        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(t1, t0, amountIn, 100);
-        assertEq(uint256(fee), 500, "the best tier within the maximum");
-        assertEq(quoted, honestOut);
-        (uint256 out, uint256 spot,) = _swap(t1, t0, amountIn, 100, "", "no API, maxLoss 1%, a trap 1% tier");
-        assertEq(out, honestOut, "the sale fills in the honest tier");
-        assertEq(spot, amountIn, "valued at the honest tier's mid");
-
-        // What choosing on output alone would have done.
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(t1, t0, amountIn);
+        assertEq(uint256(fee), 10_000, "chosen on output");
+        assertEq(quoted, trapOut);
         _fund(t1, amountIn);
         vm.expectPartialRevert(ISwapAdapter.InsufficientOutput.selector);
-        adapter.swapDirect(t1, t0, amountIn, 10_000, 100);
+        adapter.swap(t1, t0, amountIn, 100, "");
+
+        (uint256 out, uint256 spot) = adapter.swapDirect(t1, t0, amountIn, 500, 100);
+        assertEq(out, honestOut, "the honest tier fills it within the maximum");
+        assertEq(spot, amountIn);
     }
 
     /// @dev Open for the founder (review round 2): the same trap without a maximum. It wins on output (the fund gets
@@ -174,7 +174,7 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
         (uint256 trapOut,) = _assertTheTrapQuotesMore(c, t1, t0, amountIn);
 
         _setUpWithBase(c, t0, _tokens2(t0, t1));
-        (uint24 fee,) = adapter.bestDirectFee(t1, t0, amountIn, NO_MAX);
+        (uint24 fee,) = adapter.bestDirectFee(t1, t0, amountIn);
         assertEq(uint256(fee), 10_000, "chosen on output alone");
         (uint256 out, uint256 spot,) = _swap(t1, t0, amountIn, NO_MAX, "", "no API, no maximum, a trap 1% tier");
         assertEq(out, trapOut, "more than the honest tier pays");
@@ -186,7 +186,7 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
     ///      reverting `NoRoute` (review round 2).
     function test_arbitrum_noApi_dustInputSellsAtZero() public {
         _setUp(_arbitrum(), _tokens2(ARB_WETH, ARB_USDC));
-        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(ARB_WETH, ARB_USDC, 1e5, 100);
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(ARB_WETH, ARB_USDC, 1e5);
         assertGt(uint256(fee), 0, "a tier");
         assertEq(quoted, 0, "every tier quotes zero");
         (uint256 out, uint256 spot,) = _swap(ARB_WETH, ARB_USDC, 1e5, 100, "", "no API, 1e5 wei WETH -> USDC");
@@ -212,7 +212,7 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
     /// @dev D-21: the vault's own libraries choose the tier once and reuse it; `swapDirect` skips the quotes.
     function test_robinhood_bestDirectFeeThenSwapDirect() public {
         _setUp(_robinhood(), _tokens2(RH_WETH, RH_USDG));
-        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(RH_WETH, RH_USDG, 10e18, 100);
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(RH_WETH, RH_USDG, 10e18);
         uint256 spot = adapter.spotValue(RH_WETH, RH_USDG, 10e18, fee);
         assertGt(spot, quoted, "the mid value has no fee and no impact");
         assertLt(_lossBps(spot, quoted), 100, "within 1% of the quote");
@@ -474,7 +474,7 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
         assertEq(IERC20(tokenIn).allowance(address(this), address(adapter)), 0, "vault approval consumed");
     }
 
-    /// @dev The adapter's tier without a maximum equals the highest of QuoterV2's capped quotes that fill the whole input
+    /// @dev The adapter's tier equals the highest of QuoterV2's capped quotes that fill the whole input
     ///      among the direct pair's live pools with in-range liquidity, taken here independently in the same state
     ///      (DEC-153). A quote whose price ends at QuoterV2's default limit is a partial fill (a drained tier) and is
     ///      skipped, as the adapter does; the first fill wins even at a zero quote.
@@ -501,7 +501,7 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
             }
         }
         uint256 quoted;
-        (fee, quoted) = adapter.bestDirectFee(tokenIn, tokenOut, amountIn, NO_MAX);
+        (fee, quoted) = adapter.bestDirectFee(tokenIn, tokenOut, amountIn);
         console2.log("adapter's tier", uint256(fee));
         assertEq(fee, bestFee, "the tier with the highest quote that fills");
         assertEq(quoted, best);
