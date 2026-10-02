@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { decodeEventLog, getAddress, type Address, type Hex, type Log } from "viem";
 import { fundFactoryAbi, shareTokenAbi } from "./abis.ts";
-import { PRUNED_STATE_HINT, isPrunedStateError, nodes, read, type Side } from "./chain.ts";
+import { PRUNED_STATE_HINT, isPrunedStateError, nodes, read, recordTransaction, type Side } from "./chain.ts";
 import {
   ACTOR_KEYS,
   AAVE_USDC_POOL_KEY,
@@ -29,7 +29,16 @@ interface ForgeRun {
   output: string;
   broadcast: {
     transactions: { hash: Hex; contractName?: string; function?: string }[];
-    receipts: { transactionHash: Hex; blockNumber: Hex; logs: Log[]; status: Hex }[];
+    receipts: {
+      transactionHash: Hex;
+      blockNumber: Hex;
+      logs: Log[];
+      status: Hex;
+      from: Address;
+      to: Address | null;
+      gasUsed: Hex;
+      effectiveGasPrice: Hex;
+    }[];
     returns: Record<string, { internal_type: string; value: string }>;
   };
 }
@@ -74,7 +83,18 @@ async function forgeScript(
     log,
   );
   const file = join(BROADCAST_DIR, `${script}.s.sol`, String(node.chain.id), "run-latest.json");
-  return { output, broadcast: JSON.parse(readFileSync(file, "utf8")) };
+  const result: ForgeRun = { output, broadcast: JSON.parse(readFileSync(file, "utf8")) };
+  for (const receipt of result.broadcast.receipts) {
+    const tx = result.broadcast.transactions.find((t) => t.hash.toLowerCase() === receipt.transactionHash.toLowerCase());
+    const what = tx?.function?.split("(")[0] ?? (tx?.contractName ? `deploy ${tx.contractName}` : "transaction");
+    recordTransaction(side, `${what} (forge ${script})`, {
+      ...receipt,
+      blockNumber: BigInt(receipt.blockNumber),
+      gasUsed: BigInt(receipt.gasUsed),
+      effectiveGasPrice: BigInt(receipt.effectiveGasPrice),
+    });
+  }
+  return result;
 }
 
 export interface FactoryDeployment {

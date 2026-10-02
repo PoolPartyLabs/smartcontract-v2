@@ -1,5 +1,6 @@
-// RPC clients for the two forks, anvil cheat methods, and a transaction helper that simulates, sends, waits and
-// explains failures (revert names, and a hint when the upstream RPC no longer serves the fork's state).
+// RPC clients for the two forks, anvil cheat methods, and a transaction helper that simulates, sends, waits, records
+// the gas of every transaction (for the run reports) and explains failures (revert names, and a hint when the upstream
+// RPC no longer serves the fork's state).
 import {
   BaseError,
   ContractFunctionRevertedError,
@@ -17,7 +18,7 @@ import {
   type WalletClient,
 } from "viem";
 import { allErrorsAbi } from "./abis.ts";
-import { actors, arbitrumFork, robinhoodFork, type ActorName } from "./config.ts";
+import { ACTOR_NAMES, actors, arbitrumFork, robinhoodFork, type ActorName } from "./config.ts";
 
 export type Side = "arbitrum" | "robinhood";
 export const SIDES: Side[] = ["arbitrum", "robinhood"];
@@ -199,6 +200,47 @@ export interface Sent<T = unknown> {
   hash: Hex;
 }
 
+/** One mined transaction as the run reports show it. */
+export interface TxRecord {
+  side: Side;
+  chainId: number;
+  /** The actor's name when the sender is one, else its address. */
+  from: string;
+  to: Address | null;
+  /** The function called (or what the transaction did, for a deployment or a forge broadcast). */
+  label: string;
+  hash: Hex;
+  blockNumber: bigint;
+  gasUsed: bigint;
+  effectiveGasPrice: bigint;
+}
+
+/** Every transaction this process sent and mined, in order: the run reports read the slice of their run. */
+export const transactionLog: TxRecord[] = [];
+
+function actorName(address: Address): string {
+  return ACTOR_NAMES.find((name) => actors[name].address.toLowerCase() === address.toLowerCase()) ?? address;
+}
+
+/** Appends a mined transaction to `transactionLog` (callers that send without `send` or `deploy` record here). */
+export function recordTransaction(
+  side: Side,
+  label: string,
+  receipt: Pick<TransactionReceipt, "from" | "to" | "transactionHash" | "blockNumber" | "gasUsed" | "effectiveGasPrice">,
+): void {
+  transactionLog.push({
+    side,
+    chainId: nodes[side].chain.id,
+    from: actorName(receipt.from),
+    to: receipt.to,
+    label,
+    hash: receipt.transactionHash,
+    blockNumber: BigInt(receipt.blockNumber),
+    gasUsed: BigInt(receipt.gasUsed),
+    effectiveGasPrice: BigInt(receipt.effectiveGasPrice ?? 0n),
+  });
+}
+
 /** Transactions per (chain, sender) go one at a time, so concurrent callers never race on nonces. */
 const queues = new Map<string, Promise<unknown>>();
 
@@ -233,6 +275,7 @@ export async function send<T = unknown>(side: Side, who: ActorName | Account, ca
     const hash = await wallet(side, account).writeContract(request as never);
     const receipt = await node.client.waitForTransactionReceipt({ hash, pollingInterval: 100 });
     if (receipt.status !== "success") throw new Error(`transaction ${hash} reverted on ${node.label}`);
+    recordTransaction(side, call.functionName, receipt);
     return { receipt, result: result as T, hash };
   });
 }
@@ -275,13 +318,14 @@ export async function simulateRevert(side: Side, who: ActorName | Account, call:
 }
 
 /** Deploys `bytecode` (creation code with constructor arguments appended) from `who`; returns the address. */
-export async function deploy(side: Side, who: ActorName, bytecode: Hex): Promise<Address> {
+export async function deploy(side: Side, who: ActorName, bytecode: Hex, label = "deploy"): Promise<Address> {
   const account = actors[who];
   return serialize(`${side}:${account.address}`, async () => {
     const node = nodes[side];
     const hash = await wallet(side, who).sendTransaction({ account, chain: node.chain, data: bytecode });
     const receipt = await node.client.waitForTransactionReceipt({ hash, pollingInterval: 100 });
     if (receipt.status !== "success" || !receipt.contractAddress) throw new Error(`deployment ${hash} failed`);
+    recordTransaction(side, label, receipt);
     return receipt.contractAddress;
   });
 }
