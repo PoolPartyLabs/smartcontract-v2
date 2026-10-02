@@ -49,7 +49,8 @@ export interface FundRecord {
  *  implementation. A field that is the zero address on a chain (the Core Vault libraries, ManagerRegistry and price
  *  source on Robinhood) is left out. */
 export interface DeployedContracts {
-  [field: string]: Address;
+  /** Present only where the chain deploys it: read a field the harness does not name below with a check. */
+  [field: string]: Address | undefined;
   fundFactory: Address;
   transitEscrowImplementation: Address;
 }
