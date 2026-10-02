@@ -1,5 +1,9 @@
 # Security sweep of the Pool Party v2 MVP (2026-09-30)
 
+**Current baseline:** `1db9a9d`, 2026-10-02, DEC-001..DEC-187. Current disposition/evidence is in
+[FINDINGS](FINDINGS.md), [KNOWN-LIMITATIONS](KNOWN-LIMITATIONS.md) and [BASELINE-2026-10-02](BASELINE-2026-10-02.md).
+The sweep and “Numbers” below are historical, not current test counts or current Spoke Vault margin.
+
 This directory documents the internal security review of `src/` and how to reproduce it. **It is not an audit.**
 The contracts have not been reviewed by an independent third party; see [`SECURITY.md`](../../SECURITY.md).
 
@@ -71,3 +75,12 @@ fixed (two in part); the suites now count 854 non-fork tests and 136 fork tests,
 
 Everything in this directory is in English and cites decisions by id (`DEC-nnn`, from the specification repository)
 and findings by id (`S-n`). NatSpec in `src/` cites the finding a rule comes from (`security review S-n`).
+## Current status: main 1db9a9d (2026-10-02)
+
+Register **DEC-001..DEC-187**, through PR #15. Current merged-code status is in
+[FINDINGS](FINDINGS.md) and [KNOWN-LIMITATIONS](KNOWN-LIMITATIONS.md); the dated sweep numbers below are historical.
+S-8 is accepted DEC-129, S-5's cap is answered but deferred, S-15 attribution answered but incomplete.
+WP-09/10/12/13 are **in progress**. Report v4/`executeOrder` foundations do not implement order execution.
+Fresh docs-sync verification: **1,173 non-fork tests in 166 suites, 3/3 size tests**, build/format pass;
+SpokeVault **22,304 B / 2,272 B margin**, no runtime margin below 1,000. Full before/after table and provenance:
+[BASELINE-2026-10-02](BASELINE-2026-10-02.md). No external-audit or complete-formal-verification claim.

@@ -1,5 +1,11 @@
 # Invariants and properties
 
+Status qualifier (2026-10-02, `main` `1db9a9d`, DEC-001..DEC-187): the inventory below records tested properties,
+not full formal certification of new flows. Current runtime/test evidence is in BASELINE-2026-10-02.md.
+WP-09/10/12/13 are **in progress**; standalone DollarIncomeIndex tests do not prove live Core integration.
+Management liability now reduces Share Assets (PR #12), so zero-management fixture equations below must not be
+generalized without subtracting that liability. Existing collection-time income behavior and PAYOUT fallback remain.
+
 The properties the test suites hold, each named after the decision it encodes. Three kinds:
 
 - **Stateful invariants** (`invariant_*`): Foundry invariant tests. A handler drives the real contracts through

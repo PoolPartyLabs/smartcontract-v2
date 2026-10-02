@@ -1,5 +1,8 @@
 # Security tooling
 
+**Current verification:** see [BASELINE-2026-10-02](BASELINE-2026-10-02.md) and the current-baseline section at
+the end. Dated sweep results below are historical; they are not the current sizes, counts or fork run configuration.
+
 Every tool the sweep ran, its version, the command, the result at the last run, and the resource limits that keep a
 laptop alive. The full pre-fix reports with per-result triage are [`reports/static-analysis.md`](reports/static-analysis.md)
 and [`reports/dynamic-analysis.md`](reports/dynamic-analysis.md); raw outputs are under [`reports/raw/`](reports/raw/).
@@ -92,3 +95,12 @@ Solhint and `forge coverage --ir-minimum` at `e5c778a` (coverage 97.31% lines, 8
 ([`verification-plan-2026-09-30/`](verification-plan-2026-09-30/)) assigns each of the 13 tools the founder listed to
 each contract; Wake, Echidna, hevm, Kontrol and Scribble have not been run on this repository yet, and Manticore is
 excluded (archived, no PUSH0, MCOPY or TLOAD support).
+## Current baseline (2026-10-02)
+
+The tool results below are dated sweep snapshots, not current release certification. Docs-sync baseline `1db9a9d`
+through PR #15: `forge build --sizes`, `forge fmt --check`, size suite 3/3 and non-fork **1173/1173 (166 suites)**
+pass. Runtime sizes/margins: [BASELINE-2026-10-02](BASELINE-2026-10-02.md); SpokeVault 22,304 / 2,272.
+Use `--no-match-path "test/{fork/**,review/**/*Fork*}"` for the network-free suite and the complementary match
+for all forks. Source the handoff `tools/rpc-env.sh` **in the same shell** before fork tests/cast/harness; it exports
+archive RPCs and fixed pins without printing credentials. PR #15 fork evidence is 216 tests across 5 shards;
+forks/harness are not rerun for docs-only changes. Coverage/static/symbolic/mutation data below has not been refreshed.
