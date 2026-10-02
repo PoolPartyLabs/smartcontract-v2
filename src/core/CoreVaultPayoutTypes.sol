@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {ICoreVaultPayouts} from "../interfaces/ICoreVaultPayouts.sol";
+import {SpokeUnwindTypes} from "../spoke/SpokeUnwindTypes.sol";
 
 /// @title CoreVaultPayoutTypes
 /// @notice The payout book of the Core Vault: the state the payout path (`CoreVaultPayout`, `CoreVaultPayoutLogic`)
@@ -18,5 +19,9 @@ library CoreVaultPayoutTypes {
     struct Book {
         mapping(address shareholder => ICoreVaultPayouts.PayoutRequest) requests;
         uint96 requestCount;
+        mapping(bytes32 requestId => mapping(uint256 spokeIndex => SpokeUnwindTypes.OrderResult)) legs;
+        mapping(bytes32 requestId => uint256) marketCost;
+        mapping(bytes32 requestId => uint256) leaverCost;
+        mapping(bytes32 requestId => uint256) proceeds;
     }
 }

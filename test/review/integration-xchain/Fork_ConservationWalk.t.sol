@@ -377,7 +377,12 @@ contract Fork_ConservationWalk is XChainBase {
         _advance(uint256(backRelay.fillDeadline) + ROBINHOOD_MAX_REPORT_AGE + 1 - block.timestamp);
         _report();
         // S-3: the spoke keeps listing the send home past `fillDeadline + maxReportAge` (on e5c778a: +299.88 here).
-        assertEq(_latest().inFlightToHub.length, 1, "S-3: still listed");
+        bool stillListed;
+        ReportCodec.HubBoundAmount[] memory listed = _latest().inFlightToHub;
+        for (uint256 index; index < listed.length; ++index) {
+            if (listed[index].transitId == back) stillListed = true;
+        }
+        assertTrue(stillListed, "S-3: the unfilled send remains listed alongside the paid unwind");
         _step("W23 past fillDeadline + maxReportAge: still listed", 0, true, 0);
         assertEq(core.shareAssets(), _sumOfBuckets(), "EndToEndBase._sumOfBuckets agrees with Share Assets");
         _onRobinhood();

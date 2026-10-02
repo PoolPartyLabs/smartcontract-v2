@@ -2,6 +2,10 @@
 pragma solidity 0.8.28;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IBridgeAdapter} from "../interfaces/IBridgeAdapter.sol";
+import {TransitState, Transit} from "../interfaces/FundTypes.sol";
+import {SpokeCrossChainLib} from "./SpokeCrossChainLib.sol";
 
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {ISpokeVaultUnwind} from "../interfaces/ISpokeVaultUnwind.sol";
@@ -9,6 +13,8 @@ import {ICoreVaultPayouts} from "../interfaces/ICoreVaultPayouts.sol";
 import {IAdapter} from "../interfaces/IAdapter.sol";
 import {ISwapAdapter} from "../interfaces/ISwapAdapter.sol";
 import {OrderCodec} from "../libraries/OrderCodec.sol";
+import {ReportCodec} from "../libraries/ReportCodec.sol";
+import {ICoreBridge} from "wormhole-sdk/interfaces/ICoreBridge.sol";
 import {OrderVerifier} from "../libraries/OrderVerifier.sol";
 import {SpokeVaultTypes} from "./SpokeVaultTypes.sol";
 import {SpokeUnwindTypes} from "./SpokeUnwindTypes.sol";
@@ -35,6 +41,224 @@ library SpokeUnwindLib {
     /// @dev Transient namespace of the fee tier chosen per token within one unwind (D-21: `bestDirectFee` once per
     ///      token per unwind); the slot of a token is `keccak256(abi.encode(TIER_NAMESPACE, token))`.
     bytes32 private constant TIER_NAMESPACE = keccak256("pool-party.SpokeUnwindLib.tier");
+
+    /// @notice DEC-120/139/151: execute the same proportional steps as the Hub, retaining unsent proceeds on refusal.
+    /// @dev DEC-149: CLOSE always takes everything, with Standard Market Costs and no requester maximum.
+    function executeUnwindOrder(
+        SpokeVaultTypes.State storage s,
+        SpokeVaultTypes.Config memory c,
+        OrderCodec.Order memory order
+    ) external {
+        bool closing = order.kind == OrderCodec.CLOSE;
+        if (s.unwind.closed && !closing) revert SpokeUnwindTypes.SpokeClosed();
+        if (closing) {
+            order.fracNum = 1;
+            order.fracDen = 1;
+            order.maxLossBps = 0;
+            order.payoutMode = uint8(ICoreVaultPayouts.PayoutMode.Standard);
+            s.unallocated[c.baseToken] += s.operatingCash;
+            s.operatingCash = 0;
+        }
+        SpokeUnwindTypes.Pending storage pending = s.unwind.pending[order.requestId];
+        _recoverSend(s, c.baseToken, pending);
+        if (closing) s.unwind.reservedBase = pending.proceeds;
+        uint256 beforeBase = s.unallocated[c.baseToken];
+        bytes32 baseId = SpokeUnwindTypes.stepId(address(0), bytes32(uint256(uint160(c.baseToken))));
+        uint256 basePart;
+        if (!s.unwind.delivered[order.requestId][baseId]) {
+            basePart = Math.mulDiv(beforeBase - s.unwind.reservedBase, order.fracNum, order.fracDen);
+            s.unwind.delivered[order.requestId][baseId] = true;
+        }
+        ISpokeVaultUnwind.UnwindResult memory result;
+        SpokeUnwindTypes.Step memory step = SpokeUnwindTypes.Step(
+            address(0),
+            bytes32(0),
+            order.fracNum,
+            order.fracDen,
+            order.maxLossBps,
+            order.payoutMode == uint8(ICoreVaultPayouts.PayoutMode.Instant)
+        );
+        address[] memory tokens = s.tokens;
+        for (uint256 index; index < tokens.length; ++index) {
+            if (tokens[index] == c.baseToken || s.unallocated[tokens[index]] == 0) continue;
+            step.positionKey = bytes32(uint256(uint160(tokens[index])));
+            _deliver(s, order.requestId, step, result);
+        }
+        ISpokeVault.PositionRef[] memory positions = s.positions;
+        for (uint256 index; index < positions.length; ++index) {
+            step.adapter = positions[index].adapter;
+            step.positionKey = positions[index].positionKey;
+            _deliver(s, order.requestId, step, result);
+        }
+        _clearTiers(tokens);
+        uint256 obtained = basePart + s.unallocated[c.baseToken] - beforeBase;
+        pending.proceeds += obtained;
+        s.unwind.reservedBase += obtained;
+        pending.spotOut += result.spotOut;
+        pending.marketCost += result.marketCost;
+        pending.leaverCost += result.leaverCost;
+        pending.attempt = order.attempt;
+        _sendResult(s, c, order, result, pending);
+        if (closing) s.unwind.closed = true;
+    }
+
+    function _recoverSend(SpokeVaultTypes.State storage s, address base, SpokeUnwindTypes.Pending storage pending)
+        private
+    {
+        if (pending.transitId == bytes32(0)) return;
+        Transit storage transit = s.hubBoundTransits[pending.transitId];
+        if (
+            transit.state == TransitState.Sent && block.timestamp > transit.fillDeadline
+                && IERC20(base).balanceOf(transit.escrow) >= transit.amountSent
+        ) {
+            SpokeCrossChainLib.recognizeRefund(s, base, pending.transitId);
+        }
+        if (transit.state == TransitState.RefundRecognized) {
+            pending.proceeds += transit.amountSent;
+            s.unwind.reservedBase += transit.amountSent;
+            pending.spotOut += pending.sentSpotOut;
+            pending.marketCost += pending.sentMarketCost;
+            pending.leaverCost += pending.sentLeaverCost;
+        }
+        pending.transitId = bytes32(0);
+    }
+
+    function _sendResult(
+        SpokeVaultTypes.State storage s,
+        SpokeVaultTypes.Config memory c,
+        OrderCodec.Order memory order,
+        ISpokeVaultUnwind.UnwindResult memory result,
+        SpokeUnwindTypes.Pending storage pending
+    ) private {
+        SpokeUnwindTypes.OrderResult memory record;
+        record.orderId = OrderCodec.orderId(order);
+        record.requestId = order.requestId;
+        record.attempt = order.attempt;
+        record.spotOut = pending.spotOut;
+        record.marketCost = pending.marketCost;
+        record.leaverCost = pending.leaverCost;
+        record.delivered = result.delivered;
+        record.excluded = result.excluded;
+        uint256 amount = pending.proceeds;
+        if (amount != 0) {
+            uint256 arrival;
+            try IBridgeAdapter(s.bridgeAdapters[0]).quoteSend(c.baseToken, c.hubChainId, amount, "") returns (
+                uint256 quoted, uint256
+            ) {
+                arrival = quoted;
+            } catch (bytes memory reason) {
+                ++record.excluded;
+                emit ISpokeVaultUnwind.UnwindStepExcluded(order.requestId, s.bridgeAdapters[0], bytes32(0), reason);
+                _append(s, record);
+                return;
+            }
+            if (arrival == 0 || arrival > amount) {
+                ++record.excluded;
+                _append(s, record);
+                return;
+            }
+            if (order.maxLossBps != 0 && order.maxLossBps < BPS && (amount - arrival) * BPS > amount * order.maxLossBps)
+            {
+                ++record.excluded;
+                emit ISpokeVaultUnwind.UnwindBridgeExcluded(order.requestId, amount, arrival, order.maxLossBps);
+            } else {
+                try ISpokeVaultUnwind(address(this)).unwindSend(amount) returns (bytes32 transitId) {
+                    record.transitId = transitId;
+                } catch (bytes memory reason) {
+                    ++record.excluded;
+                    emit ISpokeVaultUnwind.UnwindStepExcluded(order.requestId, s.bridgeAdapters[0], bytes32(0), reason);
+                    _append(s, record);
+                    return;
+                }
+                record.amountSent = amount;
+                record.amountToArrive = s.hubBoundTransits[record.transitId].amountToArrive;
+                if (order.payoutMode == uint8(ICoreVaultPayouts.PayoutMode.Instant)) {
+                    record.leaverCost += amount - record.amountToArrive;
+                }
+                pending.proceeds = 0;
+                s.unwind.reservedBase -= amount;
+                pending.sentSpotOut = pending.spotOut;
+                pending.sentMarketCost = pending.marketCost;
+                pending.sentLeaverCost = pending.leaverCost;
+                pending.spotOut = 0;
+                pending.marketCost = 0;
+                pending.leaverCost = 0;
+                pending.transitId = record.transitId;
+            }
+        }
+        _append(s, record);
+    }
+
+    function _append(SpokeVaultTypes.State storage s, SpokeUnwindTypes.OrderResult memory record) private {
+        SpokeUnwindTypes.OrderResult[] memory previous = s.unwind.reportBlob.length == 0
+            ? new SpokeUnwindTypes.OrderResult[](0)
+            : abi.decode(s.unwind.reportBlob, (SpokeUnwindTypes.OrderResult[]));
+        uint256 count = previous.length < SpokeUnwindTypes.REPORTED_RESULTS ? previous.length + 1 : previous.length;
+        SpokeUnwindTypes.OrderResult[] memory records = new SpokeUnwindTypes.OrderResult[](count);
+        uint256 offset = previous.length + 1 - count;
+        for (uint256 index; index + 1 < count; ++index) {
+            records[index] = previous[index + offset];
+        }
+        records[count - 1] = record;
+        s.unwind.reportBlob = abi.encode(records);
+    }
+
+    /// @notice DEC-068: a confirmed refund is reported as proof that this Principal send did not arrive.
+    function onRefund(SpokeVaultTypes.State storage s, bytes32 transitId) external {
+        _markRefunds(s, transitId);
+    }
+
+    /// @notice DEC-105/068: automatically recognized refunds appear in the same post-unwind report.
+    function _nextReport(SpokeVaultTypes.State storage s, SpokeVaultTypes.Config memory config)
+        private
+        returns (uint64 sequence, bytes memory payload)
+    {
+        (sequence, payload) = SpokeCrossChainLib.nextReport(s, config);
+        if (_markRefunds(s, bytes32(0))) {
+            ReportCodec.Report memory report = ReportCodec.decode(payload);
+            report.unwindResults = s.unwind.reportBlob;
+            payload = ReportCodec.encode(report);
+        }
+    }
+
+    function publishReport(
+        SpokeVaultTypes.State storage s,
+        SpokeVaultTypes.Config memory config,
+        address wormholeCore,
+        uint256 messageFee
+    ) external returns (uint64 sequence, uint64 wormholeSequence) {
+        bytes memory payload;
+        (sequence, payload) = _nextReport(s, config);
+        wormholeSequence = ICoreBridge(wormholeCore).publishMessage{value: messageFee}(0, payload, 1);
+        emit ISpokeVault.ReportPublished(sequence, wormholeSequence, uint64(block.number));
+    }
+
+    function _markRefunds(SpokeVaultTypes.State storage s, bytes32 transitId) private returns (bool changed) {
+        if (s.unwind.reportBlob.length == 0) return false;
+        bytes memory blob = s.unwind.reportBlob;
+        uint256 offset;
+        uint256 count;
+        assembly ("memory-safe") {
+            offset := mload(add(blob, 32))
+            count := mload(add(blob, 64))
+        }
+        if (
+            blob.length < 64 || offset != 32 || count > SpokeUnwindTypes.REPORTED_RESULTS
+                || blob.length != 64 + count * 384
+        ) return false;
+        SpokeUnwindTypes.OrderResult[] memory records = abi.decode(blob, (SpokeUnwindTypes.OrderResult[]));
+        for (uint256 index; index < records.length; ++index) {
+            if (
+                !records[index].refunded
+                    && (s.hubBoundTransits[records[index].transitId].state == TransitState.RefundRecognized
+                        || (transitId != bytes32(0) && records[index].transitId == transitId))
+            ) {
+                records[index].refunded = true;
+                changed = true;
+            }
+        }
+        if (changed) s.unwind.reportBlob = abi.encode(records);
+    }
 
     /// @notice The checks of `SpokeVault.executeOrder` (DEC-111, DEC-120 item 2, DEC-139, DEC-093):
     ///         `OrderVerifier.accept` on the vault's order cursor, which also moves the cursor past the order, then

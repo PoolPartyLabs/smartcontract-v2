@@ -5,7 +5,21 @@ import {Mandate} from "../../../src/mandate/Mandate.sol";
 import {OrderCodec} from "../../../src/libraries/OrderCodec.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 
-/// @notice A Spoke Vault whose order executors (stubs in production until the order work exists, WP-07 D4) succeed:
+library OrderHarnessRecorder {
+    function record(uint8[] storage executedKinds, bytes storage reentryVaa, uint8 kind)
+        external
+        returns (bytes memory reason)
+    {
+        executedKinds.push(kind);
+        if (reentryVaa.length == 0) return reason;
+        try SpokeVault(address(this)).executeOrder(reentryVaa) {}
+        catch (bytes memory failure) {
+            return failure;
+        }
+    }
+}
+
+/// @notice A Spoke Vault with stand-in order executors for dispatch and report tests:
 ///         each records the kind and writes the order's id into the book its report field comes from, so a test sees
 ///         the order checks, the dispatch and the report published in the same transaction. Optionally re-enters
 ///         `executeOrder` from inside an executor and keeps the revert data.
@@ -69,11 +83,6 @@ contract SpokeVaultOrderHarness is SpokeVault {
     }
 
     function _record(OrderCodec.Order memory o) private {
-        _executed.push(o.kind);
-        if (_reentryVaa.length == 0) return;
-        try this.executeOrder(_reentryVaa) {}
-        catch (bytes memory reason) {
-            reentryRevert = reason;
-        }
+        reentryRevert = OrderHarnessRecorder.record(_executed, _reentryVaa, o.kind);
     }
 }

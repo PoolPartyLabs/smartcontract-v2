@@ -252,6 +252,8 @@ abstract contract SpokeVaultBase is ISpokeVault, ReentrancyGuard {
     ///      DEC-041: the expense is booked with its payer, Share Assets. Spoke Chains only (on the hub, Operating Cash
     ///      lives in the Core Vault). Never reverts, so it never blocks an exit (DEC-056).
     function _topUpOperatingCash() internal {
-        if (!onHubChain) SpokeCrossChainLib.topUpOperatingCash(_s, baseToken, chainId);
+        if (!onHubChain && !_s.unwind.closed && _s.unwind.reservedBase == 0) {
+            SpokeCrossChainLib.topUpOperatingCash(_s, baseToken, chainId);
+        }
     }
 }

@@ -7,6 +7,38 @@ pragma solidity 0.8.28;
 /// @dev WP-07 D1: the unwind work (the proportional unwind and the spoke unwind orders, DEC-120, DEC-137, DEC-139)
 ///      adds fields only to `Book` and edits only this types file, never `SpokeVaultTypes`.
 library SpokeUnwindTypes {
+    /// @notice DEC-120: bounded post-unwind history carried by report v4.
+    uint256 internal constant REPORTED_RESULTS = 16;
+
+    /// @notice DEC-105/139: Principal send and Market Costs for one attempt, in spoke base-token units.
+    struct OrderResult {
+        bytes32 orderId;
+        bytes32 requestId;
+        uint32 attempt;
+        bytes32 transitId;
+        uint256 amountSent;
+        uint256 amountToArrive;
+        uint256 spotOut;
+        uint256 marketCost;
+        uint256 leaverCost;
+        uint256 delivered;
+        uint256 excluded;
+        bool refunded;
+    }
+
+    /// @notice DEC-151/156: sales retained across bridge refusal, plus costs restored if the send is refunded.
+    struct Pending {
+        uint256 sentSpotOut;
+        uint256 sentMarketCost;
+        uint256 sentLeaverCost;
+        uint256 proceeds;
+        uint256 spotOut;
+        uint256 marketCost;
+        uint256 leaverCost;
+        bytes32 transitId;
+        uint32 attempt;
+    }
+
     /// @notice The unwind's state inside `SpokeVaultTypes.State`.
     /// @param reportBlob What the next reports carry as `ReportCodec.Report.unwindResults`: the results of the unwind
     ///        orders this vault executed (DEC-120 item 2, DEC-105: the Hub settles on the post-unwind report), opaque
@@ -18,6 +50,9 @@ library SpokeUnwindTypes {
     struct Book {
         bytes reportBlob;
         mapping(bytes32 requestId => mapping(bytes32 stepId => bool)) delivered;
+        mapping(bytes32 requestId => Pending) pending;
+        bool closed;
+        uint256 reservedBase;
     }
 
     /// @notice One atomic step of an automatic unwind (`ISpokeVaultUnwind.unwindStep`).
@@ -46,6 +81,8 @@ library SpokeUnwindTypes {
 
     /// @notice `unwindStep` was called by an address other than the vault itself.
     error UnwindStepNotSelf(address caller);
+    error SpokeClosed();
+    error UnwindProceedsReserved();
 
     /// @notice The name of a step in `Book.delivered`: a position by its adapter and key, a non-base Unallocated
     ///         Balance by a zero adapter and the token.
