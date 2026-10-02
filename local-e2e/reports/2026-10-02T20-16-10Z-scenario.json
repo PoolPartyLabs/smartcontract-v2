@@ -1,0 +1,1840 @@
+{
+  "kind": "scenario",
+  "result": "pass",
+  "startedAt": "2026-10-02T20:16:10.746Z",
+  "finishedAt": "2026-10-02T20:16:46.020Z",
+  "durationSeconds": 35,
+  "commit": "a32604ec9faf36bc7004aec3bf87161702880b27",
+  "uncommittedChanges": false,
+  "forks": {
+    "arbitrum": {
+      "chainId": 42161,
+      "forkBlockNumber": 511007613
+    },
+    "robinhood": {
+      "chainId": 4663,
+      "forkBlockNumber": 78293056
+    }
+  },
+  "fund": {
+    "shareSymbol": "PP-4",
+    "fundId": "0x9edfcdad77cced5ed60c78cfc4e677a877dd7ea6e6cd3e16d53f41419083ea2f",
+    "coreVault": "0x2dc5898928e1E22eeEb46C644D249B5bd586484E",
+    "robinhoodSpokeVault": "0x049F4AAd79c35576E40FeD85A5C1337f22893137",
+    "createdInBlock": "511007749"
+  },
+  "steps": [
+    {
+      "n": 1,
+      "phase": "Phase 0: fund and keeper",
+      "message": "fresh fund PP-4 created through script/CreateFund.s.sol (Core Vault 0x2dc5898928e1E22eeEb46C644D249B5bd586484E)"
+    },
+    {
+      "n": 2,
+      "phase": "Phase 0: fund and keeper",
+      "message": "keeper started in-process (Across fills, Wormhole VAAs, Chainlink re-stamps)"
+    },
+    {
+      "n": 3,
+      "phase": "Phase 1: the fund as created, with the manager's seed (DEC-053, DEC-054, DEC-127)",
+      "message": "one factory 0x408EBd63EC5DdB000471452253A73DB682590E5c on both chains; the Robinhood Spoke Vault carries the hub's Mandate 0xc27e79b4..."
+    },
+    {
+      "n": 4,
+      "phase": "Phase 1: the fund as created, with the manager's seed (DEC-053, DEC-054, DEC-127)",
+      "message": "Mandate: hub V4 WETH/USDC + Aave USDC, spoke V4 WETH/USDG, Across both ways (the adapter's fee rule, DEC-162), Spoke Cap 4,000 USDC, Payout Fee 2%, 72 h term, performance fee 20%, maxReportAge 1588 s; Mandate v2: tokens USDC/WETH and USDG/WETH, a V3 swap adapter per chain, Hub Wormhole chain 23; spoke Operating Cash floor 0.000000 and top-up 0.000000 USDG (ruling 2026-10-02: 0)"
+    },
+    {
+      "n": 5,
+      "phase": "Phase 1: the fund as created, with the manager's seed (DEC-053, DEC-054, DEC-127)",
+      "message": "the manager seeded 100.000000 USDC at creation: 99 shares at 1.000000, 0.250000 flow fee, 99.000000 in Idle (DEC-127)"
+    },
+    {
+      "n": 6,
+      "phase": "Phase 2: Ana deposits 10,000 USDC after the seed (DEC-035, DEC-106, DEC-127)",
+      "message": "Ana deposits 10,000 USDC: 9,975 shares at 1.000000, 25.00 USDC flow fee to the Protocol Recipient (tx 0x9ebfb5a0)"
+    },
+    {
+      "n": 7,
+      "phase": "Phase 3: hub allocation, Aave supply, Uniswap V4 position, income (DEC-017, DEC-068, DEC-079, DEC-092)",
+      "message": "manager allocates 5,000 USDC of Free Idle to the hub Spoke Vault"
+    },
+    {
+      "n": 8,
+      "phase": "Phase 3: hub allocation, Aave supply, Uniswap V4 position, income (DEC-017, DEC-068, DEC-079, DEC-092)",
+      "message": "manager supplies 2,000 USDC to Aave V3 through the Aave adapter"
+    },
+    {
+      "n": 9,
+      "phase": "Phase 3: hub allocation, Aave supply, Uniswap V4 position, income (DEC-017, DEC-068, DEC-079, DEC-092)",
+      "message": "manager swaps 1,500 USDC for 0.5482 WETH through the fund's swap adapter, no API route: V3 tier 0.05%, minimum 0.5430 (mid less 100 bps); a 1 bp bound reverts InsufficientOutput"
+    },
+    {
+      "n": 10,
+      "phase": "Phase 3: hub allocation, Aave supply, Uniswap V4 position, income (DEC-017, DEC-068, DEC-079, DEC-092)",
+      "message": "manager opens a V4 range [-197370, -196970] with 0.5478 WETH + 1,500.000000 USDC"
+    },
+    {
+      "n": 11,
+      "phase": "Phase 3: hub allocation, Aave supply, Uniswap V4 position, income (DEC-017, DEC-068, DEC-079, DEC-092)",
+      "message": "both clocks warped 1 h (fresh spoke report delivered): Aave interest 0.008481 USDC is income, principal stays 2,000"
+    },
+    {
+      "n": 12,
+      "phase": "Phase 3: hub allocation, Aave supply, Uniswap V4 position, income (DEC-017, DEC-068, DEC-079, DEC-092)",
+      "message": "trader swings the hub pool to ticks -197211 / -197130 / -197171: the position earned 0.000110 WETH + 0.301691 USDC in fees, outside Share Assets"
+    },
+    {
+      "n": 13,
+      "phase": "Phase 4: 4,000 USDC to Robinhood, the adapter fixing every term (DEC-037, DEC-066, DEC-085, DEC-158, DEC-162)",
+      "message": "the hub Across adapter quotes 3,996.770000 USDG to arrive for 4,000 USDC: rate 0.08%, fee 3.230000"
+    },
+    {
+      "n": 14,
+      "phase": "Phase 4: 4,000 USDC to Robinhood, the adapter fixing every term (DEC-037, DEC-066, DEC-085, DEC-158, DEC-162)",
+      "message": "a send of 4,001 USDC, above the 4,000 USDC Spoke Cap, reverts SpokeCapExceeded"
+    },
+    {
+      "n": 15,
+      "phase": "Phase 4: 4,000 USDC to Robinhood, the adapter fixing every term (DEC-037, DEC-066, DEC-085, DEC-158, DEC-162)",
+      "message": "a manager who passes his own quote in bridgeData is refused by the adapter (QuotesNotSupported, DEC-158)"
+    },
+    {
+      "n": 16,
+      "phase": "Phase 4: 4,000 USDC to Robinhood, the adapter fixing every term (DEC-037, DEC-066, DEC-085, DEC-158, DEC-162)",
+      "message": "manager sends 4,000 USDC with no bridge parameter: Across deposit 4709281, 3,996.770000 USDG to arrive (fee 3.230000), escrow 0xEDfE15746D09757e4F5F6959e34dE990BA2a9eb7 as depositor, transit 0xbb88b669... Sent"
+    },
+    {
+      "n": 17,
+      "phase": "Phase 5: Across fill on Robinhood, spoke position, fees (DEC-079, DEC-090, DEC-096, OQ-09)",
+      "message": "the keeper filled deposit 4709281 through the Robinhood SpokePool's fillRelay; its FilledRelay links the Spoke Vault's TransitArrived in the same transaction (tx 0x43904537) to transit 0xbb88b669..."
+    },
+    {
+      "n": 18,
+      "phase": "Phase 5: Across fill on Robinhood, spoke position, fees (DEC-079, DEC-090, DEC-096, OQ-09)",
+      "message": "the Spoke Vault credited 3,996.770000 USDG to Unallocated Balance; Operating Cash 0.000000 is not below its floor 0.000000, so no top-up (ruling 2026-10-02: floor 0)"
+    },
+    {
+      "n": 19,
+      "phase": "Phase 5: Across fill on Robinhood, spoke position, fees (DEC-079, DEC-090, DEC-096, OQ-09)",
+      "message": "manager swaps 1,500 USDG for 0.5479 WETH on a route the API signed (1 hop(s), fees 100; quoted 0.5479, signed minimum 0.5424)"
+    },
+    {
+      "n": 20,
+      "phase": "Phase 5: Across fill on Robinhood, spoke position, fees (DEC-079, DEC-090, DEC-096, OQ-09)",
+      "message": "manager opens a V4 range around tick -197170 on Robinhood with 0.5478 WETH + 1,500.000000 USDG"
+    },
+    {
+      "n": 21,
+      "phase": "Phase 5: Across fill on Robinhood, spoke position, fees (DEC-079, DEC-090, DEC-096, OQ-09)",
+      "message": "trader swings the spoke pool to ticks -197210 / -197130 / -197170: 0.000110 WETH + 0.301691 USDG fees"
+    },
+    {
+      "n": 22,
+      "phase": "Phase 6: report on Robinhood, VAA delivered on Arbitrum (DEC-066, DEC-083, DEC-086, DEC-090, DEC-093)",
+      "message": "anyone calls report(): report 2, Wormhole sequence 1, finalized, on the Robinhood Core"
+    },
+    {
+      "n": 23,
+      "phase": "Phase 6: report on Robinhood, VAA delivered on Arbitrum (DEC-066, DEC-083, DEC-086, DEC-090, DEC-093)",
+      "message": "the keeper signed the VAA with the local guardian and delivered it: the hub accepted report 2"
+    },
+    {
+      "n": 24,
+      "phase": "Phase 6: report on Robinhood, VAA delivered on Arbitrum (DEC-066, DEC-083, DEC-086, DEC-090, DEC-093)",
+      "message": "transit ArrivalConfirmed, In-flight Value 0, spoke principal 3,996.813129 USDC (WETH at Chainlink 2,737.64, USDG 1:1); Share Assets 10,071.689111, Share Price 0.999770"
+    },
+    {
+      "n": 25,
+      "phase": "Phase 7: 500 USDG of Principal comes home through Across (DEC-085, DEC-104, DEC-162, OQ-01, CV-OQ-1)",
+      "message": "manager sends 500 USDG home with no bridge parameter: Across deposit 408172 from Robinhood, 499.570000 USDC to arrive (fee 0.430000, fixed by the spoke adapter)"
+    },
+    {
+      "n": 26,
+      "phase": "Phase 7: 500 USDG of Principal comes home through Across (DEC-085, DEC-104, DEC-162, OQ-01, CV-OQ-1)",
+      "message": "the keeper filled it through the Arbitrum SpokePool's fillRelay; its FilledRelay links the Core Vault's TransitReceived (499.570000 USDC, held until a report lists it) to transit 0x410167b5..."
+    },
+    {
+      "n": 27,
+      "phase": "Phase 7: 500 USDG of Principal comes home through Across (DEC-085, DEC-104, DEC-162, OQ-01, CV-OQ-1)",
+      "message": "the next report listed the transfer as Principal and the hub credited 499.570000 USDC to Idle"
+    },
+    {
+      "n": 28,
+      "phase": "Phase 8: hub income collected and split (ruling 2026-09-29, DEC-092, DEC-106, DEC-107, DEC-109)",
+      "message": "manager collects 0.310200 USDC + 0.000110 WETH of hub income; Share Assets unchanged"
+    },
+    {
+      "n": 29,
+      "phase": "Phase 8: hub income collected and split (ruling 2026-09-29, DEC-092, DEC-106, DEC-107, DEC-109)",
+      "message": "income collected on every chain, sold to dollars, and attributed at each collection's rate"
+    },
+    {
+      "n": 30,
+      "phase": "Phase 9: Bruno deposits 11,000 USDC at the new Share Price (DEC-014, DEC-035, DEC-061)",
+      "message": "Bruno deposits 11,000 USDC: 10,975 shares at 0.999727, charged 10,999.513970 USDC"
+    },
+    {
+      "n": 31,
+      "phase": "Phase 10: Ana withdraws her income (DEC-025, DEC-073, LC-143)",
+      "message": "Income Withdrawal pays only USDC and leaves the shares unchanged"
+    },
+    {
+      "n": 32,
+      "phase": "Phase 11: Ana's Standard Payout of 3,000 USDC (DEC-060, DEC-067, DEC-072, DEC-077, DEC-105)",
+      "message": "Ana requests a Standard Payout of 3,000 USDC: reserved, term 72 h; claiming now reverts PayoutTermNotEnded"
+    },
+    {
+      "n": 33,
+      "phase": "Phase 11: Ana's Standard Payout of 3,000 USDC (DEC-060, DEC-067, DEC-072, DEC-077, DEC-105)",
+      "message": "both clocks warped 72 h; Chainlink re-stamped; a fresh spoke report delivered by the keeper"
+    },
+    {
+      "n": 34,
+      "phase": "Phase 11: Ana's Standard Payout of 3,000 USDC (DEC-060, DEC-067, DEC-072, DEC-077, DEC-105)",
+      "message": "Ana claims: 3,000 shares burned at 0.999727, 2,991.685814 USDC paid, 7.497959 flow fee"
+    },
+    {
+      "n": 35,
+      "phase": "Phase 12: Bruno's Instant Payout above Free Idle, with an unwind (DEC-069, DEC-081, DEC-102, DEC-105, DEC-144)",
+      "message": "Bruno exits inline: proportional Hub unwind, proceeds 599.822152; 10,149 shares burned at 0.999717, 9,917.751706 USDC paid, Payout Fee 202.922594 kept in Idle, 400.270456 outstanding (Partial Payout)"
+    },
+    {
+      "n": 36,
+      "phase": "Phase 13: value-base invariants and a swept donation (DEC-072, DEC-080, DEC-091, DEC-101, DEC-104)",
+      "message": "Payout Reserve <= Idle, totalSupply in whole shares, Share Assets = sum of buckets, nothing to sweep"
+    },
+    {
+      "n": 37,
+      "phase": "Phase 13: value-base invariants and a swept donation (DEC-072, DEC-080, DEC-091, DEC-101, DEC-104)",
+      "message": "a stranger donates 1,234 USDC to the Core Vault: Share Price stays 1.025403, the donation is swept to the Protocol Recipient"
+    },
+    {
+      "n": 38,
+      "phase": "Phase 14: the Hub-to-spoke order channel and executeOrder (DEC-093, DEC-111, DEC-120, DEC-139)",
+      "message": "executeOrder probed with one order of each kind for the Core Vault's next sequence 1: UNWIND, CLOSE not supported yet (OrderKindNotSupported, after the order checks); COLLECT executed (left to the phases that publish them)"
+    },
+    {
+      "n": 39,
+      "phase": "Phase 14: the Hub-to-spoke order channel and executeOrder (DEC-093, DEC-111, DEC-120, DEC-139)",
+      "message": "UNWIND, CLOSE order(s) published from the Core Vault on the live Arbitrum Core at instant consistency: sequence(s) 1, 2, message fee 0 wei"
+    },
+    {
+      "n": 40,
+      "phase": "Phase 14: the Hub-to-spoke order channel and executeOrder (DEC-093, DEC-111, DEC-120, DEC-139)",
+      "message": "the keeper signed each order for the Robinhood Core and called executeOrder, paying the report's message fee; the Spoke Vault answered OrderKindNotSupported, which the keeper logs as not yet supported: nothing left waiting, nothing retried"
+    },
+    {
+      "n": 41,
+      "phase": "Phase 14: the Hub-to-spoke order channel and executeOrder (DEC-093, DEC-111, DEC-120, DEC-139)",
+      "message": "a keeper started after the orders were published rescans from the fork block and relays them too"
+    },
+    {
+      "n": 42,
+      "phase": "Phase 14: the Hub-to-spoke order channel and executeOrder (DEC-093, DEC-111, DEC-120, DEC-139)",
+      "message": "the UNWIND order's VAA is still refused as not supported (the cursor did not move); the same order from another emitter is refused by the order checks (OrderEmitterMismatch)"
+    },
+    {
+      "n": 43,
+      "phase": "Phase 14: the Hub-to-spoke order channel and executeOrder (DEC-093, DEC-111, DEC-120, DEC-139)",
+      "message": "the same VAA passes OrderVerifier on the live Robinhood Core (emitter chain 23, the Core Vault, the fund, the sequence) and executes once; a replay reverts"
+    },
+    {
+      "n": 44,
+      "phase": "Phase 15: the manager's base and the fund's closure (DEC-117, DEC-146, DEC-147, DEC-149)",
+      "message": "a manager request of 51.782881 USDC would leave him under half of his 99-share peak: ManagerMustCloseFund; 50.244776 USDC is allowed"
+    },
+    {
+      "n": 45,
+      "phase": "Phase 15: the manager's base and the fund's closure (DEC-117, DEC-146, DEC-147, DEC-149)",
+      "message": "the manager calls closeFund: the fund is Closing since 2026-10-14T17:44:06.000Z"
+    },
+    {
+      "n": 46,
+      "phase": "Phase 15: the manager's base and the fund's closure (DEC-117, DEC-146, DEC-147, DEC-149)",
+      "message": "while Closing: deposits, new requests, claims and a second closeFund revert FundNotOpen; the manager still withdraws 0.009309 USDC of his seed's income"
+    }
+  ],
+  "assertions": 294,
+  "sharePriceTimeline": [
+    {
+      "label": "start of Phase 1",
+      "block": "511007749",
+      "timestamp": "1791737014",
+      "sharePrice": "1000000000000000000000000",
+      "shareAssets": "99000000",
+      "totalShares": "99000000000000000000"
+    },
+    {
+      "label": "start of Phase 2",
+      "block": "511007749",
+      "timestamp": "1791737014",
+      "sharePrice": "1000000000000000000000000",
+      "shareAssets": "99000000",
+      "totalShares": "99000000000000000000"
+    },
+    {
+      "label": "start of Phase 3",
+      "block": "511007751",
+      "timestamp": "1791737015",
+      "sharePrice": "1000000000000000000000000",
+      "shareAssets": "10074000000",
+      "totalShares": "10074000000000000000000"
+    },
+    {
+      "label": "start of Phase 4",
+      "block": "511007763",
+      "timestamp": "1791740620",
+      "sharePrice": "1000086954734961286480047",
+      "shareAssets": "10074875982",
+      "totalShares": "10074000000000000000000"
+    },
+    {
+      "label": "start of Phase 5",
+      "block": "511007764",
+      "timestamp": "1791740621",
+      "sharePrice": "999766327377407186817550",
+      "shareAssets": "10071645982",
+      "totalShares": "10074000000000000000000"
+    },
+    {
+      "label": "start of Phase 6",
+      "block": "511007764",
+      "timestamp": "1791740621",
+      "sharePrice": "999766327377407186817550",
+      "shareAssets": "10071645982",
+      "totalShares": "10074000000000000000000"
+    },
+    {
+      "label": "start of Phase 7",
+      "block": "511007765",
+      "timestamp": "1791740626",
+      "sharePrice": "999770608596386738137780",
+      "shareAssets": "10071689111",
+      "totalShares": "10074000000000000000000"
+    },
+    {
+      "label": "start of Phase 8",
+      "block": "511007767",
+      "timestamp": "1791740631",
+      "sharePrice": "999727924459003375024816",
+      "shareAssets": "10071259111",
+      "totalShares": "10074000000000000000000"
+    },
+    {
+      "label": "start of Phase 9",
+      "block": "511007772",
+      "timestamp": "1791740637",
+      "sharePrice": "999727924459003375024816",
+      "shareAssets": "10071259111",
+      "totalShares": "10074000000000000000000"
+    },
+    {
+      "label": "start of Phase 10",
+      "block": "511007774",
+      "timestamp": "1791740637",
+      "sharePrice": "999727924414461494607819",
+      "shareAssets": "21043273081",
+      "totalShares": "21049000000000000000000"
+    },
+    {
+      "label": "start of Phase 11",
+      "block": "511007776",
+      "timestamp": "1791740637",
+      "sharePrice": "999727924414461494607819",
+      "shareAssets": "21043273081",
+      "totalShares": "21049000000000000000000"
+    },
+    {
+      "label": "start of Phase 12",
+      "block": "511007783",
+      "timestamp": "1791999841",
+      "sharePrice": "999727924427946146600919",
+      "shareAssets": "18044089308",
+      "totalShares": "18049000000000000000000"
+    },
+    {
+      "label": "start of Phase 13",
+      "block": "511007784",
+      "timestamp": "1791999841",
+      "sharePrice": "1025403592405063291139240",
+      "shareAssets": "8100688380",
+      "totalShares": "7900000000000000000000"
+    },
+    {
+      "label": "start of Phase 14",
+      "block": "511007787",
+      "timestamp": "1791999841",
+      "sharePrice": "1025403592405063291139240",
+      "shareAssets": "8100688380",
+      "totalShares": "7900000000000000000000"
+    },
+    {
+      "label": "start of Phase 15",
+      "block": "511007789",
+      "timestamp": "1791999841",
+      "sharePrice": "1025403592405063291139240",
+      "shareAssets": "8100688380",
+      "totalShares": "7900000000000000000000"
+    },
+    {
+      "label": "end of run",
+      "block": "511007792",
+      "timestamp": "1791999846",
+      "sharePrice": "1025403592531645569620253",
+      "shareAssets": "8100688381",
+      "totalShares": "7900000000000000000000"
+    }
+  ],
+  "sharePriceHistory": [
+    {
+      "block": "511007749",
+      "timestamp": "1791737014",
+      "sharePrice": "1000000000000000000000000",
+      "shareAssets": "99000000",
+      "totalShares": "99000000000000000000",
+      "events": [
+        "IncomeTokenAdded",
+        "IncomeTokenAdded",
+        "IncomeTokenAdded",
+        "IncomeTokenAdded",
+        "FundSeeded"
+      ]
+    },
+    {
+      "block": "511007751",
+      "timestamp": "1791737015",
+      "sharePrice": "1000000000000000000000000",
+      "shareAssets": "10074000000",
+      "totalShares": "10074000000000000000000",
+      "events": [
+        "Deposited"
+      ]
+    },
+    {
+      "block": "511007752",
+      "timestamp": "1791737015",
+      "sharePrice": "1000000000000000000000000",
+      "shareAssets": "10074000000",
+      "totalShares": "10074000000000000000000",
+      "events": [
+        "AllocatedToHubSpokeVault"
+      ]
+    },
+    {
+      "block": "511007760",
+      "timestamp": "1791740620",
+      "sharePrice": "1000086954734961286480047",
+      "shareAssets": "10074875982",
+      "totalShares": "10074000000000000000000",
+      "events": [
+        "ReportAccepted"
+      ]
+    },
+    {
+      "block": "511007764",
+      "timestamp": "1791740621",
+      "sharePrice": "999766327377407186817550",
+      "shareAssets": "10071645982",
+      "totalShares": "10074000000000000000000",
+      "events": [
+        "SentToSpoke"
+      ]
+    },
+    {
+      "block": "511007765",
+      "timestamp": "1791740626",
+      "sharePrice": "999770608596386738137780",
+      "shareAssets": "10071689111",
+      "totalShares": "10074000000000000000000",
+      "events": [
+        "TransitArrived",
+        "ReportAccepted",
+        "IntervalIncomeRecognized",
+        "IncomeRecognized",
+        "IntervalIncomeRecognized",
+        "IncomeRecognized"
+      ]
+    },
+    {
+      "block": "511007766",
+      "timestamp": "1791740628",
+      "sharePrice": "999770608596386738137780",
+      "shareAssets": "10071689111",
+      "totalShares": "10074000000000000000000",
+      "events": [
+        "TransitReceived"
+      ]
+    },
+    {
+      "block": "511007767",
+      "timestamp": "1791740631",
+      "sharePrice": "999727924459003375024816",
+      "shareAssets": "10071259111",
+      "totalShares": "10074000000000000000000",
+      "events": [
+        "TransitReceived",
+        "ReportAccepted"
+      ]
+    },
+    {
+      "block": "511007770",
+      "timestamp": "1791740632",
+      "sharePrice": "999727924459003375024816",
+      "shareAssets": "10071259111",
+      "totalShares": "10074000000000000000000",
+      "events": [
+        "IntervalIncomeRecognized",
+        "IncomeRecognized",
+        "IntervalIncomeRecognized",
+        "IncomeRecognized",
+        "IntervalIncomeConverted",
+        "IntervalIncomeConverted",
+        "IncomeIntervalClosed",
+        "IncomeCollectionClosed",
+        "OrderPublished",
+        "IncomeWithdrawalRequested"
+      ]
+    },
+    {
+      "block": "511007771",
+      "timestamp": "1791740635",
+      "sharePrice": "999727924459003375024816",
+      "shareAssets": "10071259111",
+      "totalShares": "10074000000000000000000",
+      "events": [
+        "TransitReceived"
+      ]
+    },
+    {
+      "block": "511007772",
+      "timestamp": "1791740637",
+      "sharePrice": "999727924459003375024816",
+      "shareAssets": "10071259111",
+      "totalShares": "10074000000000000000000",
+      "events": [
+        "TransitReceived",
+        "ReportAccepted",
+        "IntervalIncomeConverted",
+        "IntervalIncomeConverted",
+        "IncomeIntervalClosed",
+        "IncomeCollectionClosed"
+      ]
+    },
+    {
+      "block": "511007774",
+      "timestamp": "1791740637",
+      "sharePrice": "999727924414461494607819",
+      "shareAssets": "21043273081",
+      "totalShares": "21049000000000000000000",
+      "events": [
+        "IntervalIncomeRecognized",
+        "IncomeRecognized",
+        "Deposited"
+      ]
+    },
+    {
+      "block": "511007775",
+      "timestamp": "1791740637",
+      "sharePrice": "999727924414461494607819",
+      "shareAssets": "21043273081",
+      "totalShares": "21049000000000000000000",
+      "events": [
+        "IncomeWithdrawn"
+      ]
+    },
+    {
+      "block": "511007777",
+      "timestamp": "1791740637",
+      "sharePrice": "999727924414461494607819",
+      "shareAssets": "21043273081",
+      "totalShares": "21049000000000000000000",
+      "events": [
+        "PayoutRequested"
+      ]
+    },
+    {
+      "block": "511007782",
+      "timestamp": "1791999840",
+      "sharePrice": "999727924414461494607819",
+      "shareAssets": "21043273081",
+      "totalShares": "21049000000000000000000",
+      "events": [
+        "ReportAccepted"
+      ]
+    },
+    {
+      "block": "511007783",
+      "timestamp": "1791999841",
+      "sharePrice": "999727924427946146600919",
+      "shareAssets": "18044089308",
+      "totalShares": "18049000000000000000000",
+      "events": [
+        "IntervalIncomeRecognized",
+        "IncomeRecognized",
+        "PayoutExecuted"
+      ]
+    },
+    {
+      "block": "511007784",
+      "timestamp": "1791999841",
+      "sharePrice": "1025403592405063291139240",
+      "shareAssets": "8100688380",
+      "totalShares": "7900000000000000000000",
+      "events": [
+        "PayoutRequested",
+        "ReturnedToIdle",
+        "PartialPayoutExecuted"
+      ]
+    },
+    {
+      "block": "511007787",
+      "timestamp": "1791999841",
+      "sharePrice": "1025403592405063291139240",
+      "shareAssets": "8100688380",
+      "totalShares": "7900000000000000000000",
+      "events": [
+        "ExcessSwept"
+      ]
+    },
+    {
+      "block": "511007790",
+      "timestamp": "1791999846",
+      "sharePrice": "1025403592531645569620253",
+      "shareAssets": "8100688381",
+      "totalShares": "7900000000000000000000",
+      "events": [
+        "FundClosing"
+      ]
+    },
+    {
+      "block": "511007792",
+      "timestamp": "1791999846",
+      "sharePrice": "1025403592531645569620253",
+      "shareAssets": "8100688381",
+      "totalShares": "7900000000000000000000",
+      "events": [
+        "IncomeWithdrawn"
+      ]
+    }
+  ],
+  "feeLedger": {
+    "flowFee": {
+      "seed": "250000",
+      "deposits": "52500000",
+      "payouts": "32863283",
+      "total": "85613283"
+    },
+    "payoutFee": "202922594",
+    "performanceFee": [
+      {
+        "token": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+        "collected": "1184152",
+        "performanceFee": "236829",
+        "managerPart": "118415",
+        "protocolSlice": "118414",
+        "toHolders": "947323"
+      }
+    ],
+    "managementFeeAccrued": "0",
+    "bridgeFees": {
+      "toSpokes": "3230000",
+      "toSpokesSends": 1,
+      "toHub": "460483",
+      "toHubSends": 2
+    }
+  },
+  "gasByVerb": [
+    {
+      "chainId": 42161,
+      "contract": "USDC",
+      "label": "approve (forge CreateFund)",
+      "count": 1,
+      "totalGas": "38325",
+      "minGas": "38325",
+      "maxGas": "38325"
+    },
+    {
+      "chainId": 42161,
+      "contract": "FundFactory",
+      "label": "createFund (forge CreateFund)",
+      "count": 1,
+      "totalGas": "24156613",
+      "minGas": "24156613",
+      "maxGas": "24156613"
+    },
+    {
+      "chainId": 4663,
+      "contract": "FundFactory",
+      "label": "createSpoke (forge CreateFund)",
+      "count": 1,
+      "totalGas": "12177909",
+      "minGas": "12177909",
+      "maxGas": "12177909"
+    },
+    {
+      "chainId": 42161,
+      "contract": "USDC",
+      "label": "approve",
+      "count": 3,
+      "totalGas": "149235",
+      "minGas": "38337",
+      "maxGas": "55449"
+    },
+    {
+      "chainId": 42161,
+      "contract": "Core Vault",
+      "label": "deposit",
+      "count": 2,
+      "totalGas": "1356711",
+      "minGas": "333147",
+      "maxGas": "1023564"
+    },
+    {
+      "chainId": 42161,
+      "contract": "Core Vault",
+      "label": "allocateToHubSpokeVault",
+      "count": 1,
+      "totalGas": "136109",
+      "minGas": "136109",
+      "maxGas": "136109"
+    },
+    {
+      "chainId": 42161,
+      "contract": "hub Spoke Vault",
+      "label": "openPosition",
+      "count": 2,
+      "totalGas": "1162090",
+      "minGas": "487876",
+      "maxGas": "674214"
+    },
+    {
+      "chainId": 42161,
+      "contract": "hub Spoke Vault",
+      "label": "swap",
+      "count": 1,
+      "totalGas": "1172713",
+      "minGas": "1172713",
+      "maxGas": "1172713"
+    },
+    {
+      "chainId": 4663,
+      "contract": "0x3a0ef4d68eddd9821593472ac84a75741bbcf3cf",
+      "label": "report",
+      "count": 2,
+      "totalGas": "571638",
+      "minGas": "285819",
+      "maxGas": "285819"
+    },
+    {
+      "chainId": 4663,
+      "contract": "0x772d26fc86cd5a19ce11bcb90a61489eecfce6af",
+      "label": "report",
+      "count": 2,
+      "totalGas": "571638",
+      "minGas": "285819",
+      "maxGas": "285819"
+    },
+    {
+      "chainId": 4663,
+      "contract": "0x95e37a4a1c6031996fc34917d1d2f95b399763f6",
+      "label": "report",
+      "count": 2,
+      "totalGas": "303987",
+      "minGas": "144603",
+      "maxGas": "159384"
+    },
+    {
+      "chainId": 4663,
+      "contract": "Robinhood Spoke Vault",
+      "label": "report",
+      "count": 4,
+      "totalGas": "977160",
+      "minGas": "163002",
+      "maxGas": "328625"
+    },
+    {
+      "chainId": 42161,
+      "contract": "0xce60dcaccaacc13ca0423035248047e44384eaf4",
+      "label": "deliver",
+      "count": 2,
+      "totalGas": "1076204",
+      "minGas": "416028",
+      "maxGas": "660176"
+    },
+    {
+      "chainId": 42161,
+      "contract": "0xf90640a43acf3f7443fcf01891f1c9772a560b54",
+      "label": "deliver",
+      "count": 2,
+      "totalGas": "905382",
+      "minGas": "416052",
+      "maxGas": "489330"
+    },
+    {
+      "chainId": 42161,
+      "contract": "0x89d208026fd23589b99dc5fa28fe708410f69c22",
+      "label": "deliver",
+      "count": 2,
+      "totalGas": "930329",
+      "minGas": "326810",
+      "maxGas": "603519"
+    },
+    {
+      "chainId": 42161,
+      "contract": "ValueReportReceiver",
+      "label": "deliver",
+      "count": 5,
+      "totalGas": "4250848",
+      "minGas": "447416",
+      "maxGas": "1387952"
+    },
+    {
+      "chainId": 42161,
+      "contract": "trader's V4 router (Arbitrum)",
+      "label": "swap",
+      "count": 3,
+      "totalGas": "558562",
+      "minGas": "164396",
+      "maxGas": "213497"
+    },
+    {
+      "chainId": 42161,
+      "contract": "Core Vault",
+      "label": "sendToSpoke",
+      "count": 1,
+      "totalGas": "738621",
+      "minGas": "738621",
+      "maxGas": "738621"
+    },
+    {
+      "chainId": 4663,
+      "contract": "Across SpokePool (Robinhood)",
+      "label": "fillRelay",
+      "count": 1,
+      "totalGas": "259398",
+      "minGas": "259398",
+      "maxGas": "259398"
+    },
+    {
+      "chainId": 4663,
+      "contract": "Robinhood Spoke Vault",
+      "label": "swap",
+      "count": 1,
+      "totalGas": "283762",
+      "minGas": "283762",
+      "maxGas": "283762"
+    },
+    {
+      "chainId": 4663,
+      "contract": "Robinhood Spoke Vault",
+      "label": "openPosition",
+      "count": 1,
+      "totalGas": "712540",
+      "minGas": "712540",
+      "maxGas": "712540"
+    },
+    {
+      "chainId": 4663,
+      "contract": "trader's V4 router (Robinhood)",
+      "label": "swap",
+      "count": 3,
+      "totalGas": "465145",
+      "minGas": "130074",
+      "maxGas": "167763"
+    },
+    {
+      "chainId": 4663,
+      "contract": "Robinhood Spoke Vault",
+      "label": "sendToHub",
+      "count": 1,
+      "totalGas": "636082",
+      "minGas": "636082",
+      "maxGas": "636082"
+    },
+    {
+      "chainId": 42161,
+      "contract": "Across SpokePool (Arbitrum)",
+      "label": "fillRelay",
+      "count": 2,
+      "totalGas": "399138",
+      "minGas": "199569",
+      "maxGas": "199569"
+    },
+    {
+      "chainId": 42161,
+      "contract": "hub Spoke Vault",
+      "label": "collectIncome",
+      "count": 2,
+      "totalGas": "588710",
+      "minGas": "269892",
+      "maxGas": "318818"
+    },
+    {
+      "chainId": 42161,
+      "contract": "Core Vault",
+      "label": "requestIncomeWithdrawal",
+      "count": 1,
+      "totalGas": "1502426",
+      "minGas": "1502426",
+      "maxGas": "1502426"
+    },
+    {
+      "chainId": 4663,
+      "contract": "Robinhood Spoke Vault",
+      "label": "executeOrder",
+      "count": 1,
+      "totalGas": "2321061",
+      "minGas": "2321061",
+      "maxGas": "2321061"
+    },
+    {
+      "chainId": 42161,
+      "contract": "Core Vault",
+      "label": "settleIncomeWithdrawal",
+      "count": 1,
+      "totalGas": "228086",
+      "minGas": "228086",
+      "maxGas": "228086"
+    },
+    {
+      "chainId": 42161,
+      "contract": "Core Vault",
+      "label": "withdrawIncome",
+      "count": 2,
+      "totalGas": "248649",
+      "minGas": "62418",
+      "maxGas": "186231"
+    },
+    {
+      "chainId": 42161,
+      "contract": "Core Vault",
+      "label": "requestPayout",
+      "count": 2,
+      "totalGas": "3429992",
+      "minGas": "789414",
+      "maxGas": "2640578"
+    },
+    {
+      "chainId": 42161,
+      "contract": "Core Vault",
+      "label": "claimPayout",
+      "count": 1,
+      "totalGas": "826352",
+      "minGas": "826352",
+      "maxGas": "826352"
+    },
+    {
+      "chainId": 42161,
+      "contract": "Core Vault",
+      "label": "sweepExcess",
+      "count": 2,
+      "totalGas": "109659",
+      "minGas": "46219",
+      "maxGas": "63440"
+    },
+    {
+      "chainId": 42161,
+      "contract": "USDC",
+      "label": "transfer",
+      "count": 1,
+      "totalGas": "45071",
+      "minGas": "45071",
+      "maxGas": "45071"
+    },
+    {
+      "chainId": 42161,
+      "contract": "Wormhole Core (Arbitrum)",
+      "label": "publishMessage",
+      "count": 2,
+      "totalGas": "87030",
+      "minGas": "43515",
+      "maxGas": "43515"
+    },
+    {
+      "chainId": 4663,
+      "contract": "(contract creation)",
+      "label": "deploy OrderReceiverHarness",
+      "count": 1,
+      "totalGas": "763794",
+      "minGas": "763794",
+      "maxGas": "763794"
+    },
+    {
+      "chainId": 4663,
+      "contract": "0xabb514f8632ef6d881daec5e33f7940b92e6d003",
+      "label": "execute",
+      "count": 1,
+      "totalGas": "130592",
+      "minGas": "130592",
+      "maxGas": "130592"
+    },
+    {
+      "chainId": 42161,
+      "contract": "Core Vault",
+      "label": "closeFund",
+      "count": 1,
+      "totalGas": "47442",
+      "minGas": "47442",
+      "maxGas": "47442"
+    }
+  ],
+  "transactions": [
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "manager",
+      "to": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+      "label": "approve (forge CreateFund)",
+      "hash": "0xe32c7683d748a19817bf075bf4850a89c0d3ac22578b4af452f68598e07af2ef",
+      "blockNumber": "511007748",
+      "gasUsed": "38325",
+      "effectiveGasPrice": "7",
+      "contract": "USDC"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "manager",
+      "to": "0x408ebd63ec5ddb000471452253a73db682590e5c",
+      "label": "createFund (forge CreateFund)",
+      "hash": "0xff2d54f17c7ad9db7f12980f546f106c17ea690b143b14b82591025275a58873",
+      "blockNumber": "511007749",
+      "gasUsed": "24156613",
+      "effectiveGasPrice": "7",
+      "contract": "FundFactory"
+    },
+    {
+      "side": "robinhood",
+      "chainId": 4663,
+      "from": "manager",
+      "to": "0x408ebd63ec5ddb000471452253a73db682590e5c",
+      "label": "createSpoke (forge CreateFund)",
+      "hash": "0x3d422037e3229a3c800e474a141d18a4ce402c25734d80edb1d5cfecf3acb84c",
+      "blockNumber": "78293138",
+      "gasUsed": "12177909",
+      "effectiveGasPrice": "559",
+      "contract": "FundFactory"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "ana",
+      "to": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+      "label": "approve",
+      "hash": "0x064f0f145dfbc168ba84828a5cac667abf3e75121807b7a4d030a744912643ca",
+      "blockNumber": "511007750",
+      "gasUsed": "55449",
+      "effectiveGasPrice": "1000000007",
+      "contract": "USDC"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "ana",
+      "to": "0x2dc5898928e1e22eeeb46c644d249b5bd586484e",
+      "label": "deposit",
+      "hash": "0x9ebfb5a0b22a5a34c9bd436435c44bff2f4b17a0749b2fef2ab59250626a10cf",
+      "blockNumber": "511007751",
+      "gasUsed": "333147",
+      "effectiveGasPrice": "1000000007",
+      "contract": "Core Vault"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "manager",
+      "to": "0x2dc5898928e1e22eeeb46c644d249b5bd586484e",
+      "label": "allocateToHubSpokeVault",
+      "hash": "0x120e19ea41c01f56a1276610f7e94075711a0a38ffd3579b1c6ea4b63e79f424",
+      "blockNumber": "511007752",
+      "gasUsed": "136109",
+      "effectiveGasPrice": "1000000007",
+      "contract": "Core Vault"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "manager",
+      "to": "0x31b80fae13029bb14925faf4ced214cb85b28a44",
+      "label": "openPosition",
+      "hash": "0xcbd34f3668a4a898c1e05d7c24b9dd994e8ff27916b87a3e42d6063e0ee131c8",
+      "blockNumber": "511007753",
+      "gasUsed": "487876",
+      "effectiveGasPrice": "1000000007",
+      "contract": "hub Spoke Vault"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "manager",
+      "to": "0x31b80fae13029bb14925faf4ced214cb85b28a44",
+      "label": "swap",
+      "hash": "0x6f01ca4324e3ee769d4803eb8525e7b0c3caad63cf5a2a0d0d71e1c236a37baa",
+      "blockNumber": "511007754",
+      "gasUsed": "1172713",
+      "effectiveGasPrice": "1000000007",
+      "contract": "hub Spoke Vault"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "manager",
+      "to": "0x31b80fae13029bb14925faf4ced214cb85b28a44",
+      "label": "openPosition",
+      "hash": "0x68d5da3a5c78da6e652d37ab843f20a64e9bcd60c9003f3e6ba8ad965ab5192b",
+      "blockNumber": "511007755",
+      "gasUsed": "674214",
+      "effectiveGasPrice": "1000000007",
+      "contract": "hub Spoke Vault"
+    },
+    {
+      "side": "robinhood",
+      "chainId": 4663,
+      "from": "keeper",
+      "to": "0x3a0ef4d68eddd9821593472ac84a75741bbcf3cf",
+      "label": "report",
+      "hash": "0xb50857eee89199552507d85b4bc088dce29e5556c7d970f99e77de1c0a1ed6ff",
+      "blockNumber": "78293140",
+      "gasUsed": "285819",
+      "effectiveGasPrice": "1000000429",
+      "contract": "0x3a0ef4d68eddd9821593472ac84a75741bbcf3cf"
+    },
+    {
+      "side": "robinhood",
+      "chainId": 4663,
+      "from": "keeper",
+      "to": "0x772d26fc86cd5a19ce11bcb90a61489eecfce6af",
+      "label": "report",
+      "hash": "0xaa6ba23266b1becfa94958f48cd36254922c3bc40a539246265843055da2e783",
+      "blockNumber": "78293141",
+      "gasUsed": "285819",
+      "effectiveGasPrice": "1000000376",
+      "contract": "0x772d26fc86cd5a19ce11bcb90a61489eecfce6af"
+    },
+    {
+      "side": "robinhood",
+      "chainId": 4663,
+      "from": "keeper",
+      "to": "0x95e37a4a1c6031996fc34917d1d2f95b399763f6",
+      "label": "report",
+      "hash": "0x301e133d66eb354d18476b46dae79144b8fec7d5536606760e7e541a1622252e",
+      "blockNumber": "78293142",
+      "gasUsed": "144603",
+      "effectiveGasPrice": "1000000330",
+      "contract": "0x95e37a4a1c6031996fc34917d1d2f95b399763f6"
+    },
+    {
+      "side": "robinhood",
+      "chainId": 4663,
+      "from": "keeper",
+      "to": "0x049f4aad79c35576e40fed85a5c1337f22893137",
+      "label": "report",
+      "hash": "0x641dd51f0080a98b474b35a8efcbf8da0cb74f1fe5bf9aeb51f3aa64bc3fef0c",
+      "blockNumber": "78293143",
+      "gasUsed": "163002",
+      "effectiveGasPrice": "1000000289",
+      "contract": "Robinhood Spoke Vault"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "keeper",
+      "to": "0xce60dcaccaacc13ca0423035248047e44384eaf4",
+      "label": "deliver",
+      "hash": "0x6a6bdd42d489b3599adea378d913ef52fa6a0fa4970c1915a991c7359a86602c",
+      "blockNumber": "511007757",
+      "gasUsed": "416028",
+      "effectiveGasPrice": "1000000007",
+      "contract": "0xce60dcaccaacc13ca0423035248047e44384eaf4"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "keeper",
+      "to": "0xf90640a43acf3f7443fcf01891f1c9772a560b54",
+      "label": "deliver",
+      "hash": "0x7350afe131967a06d37ead5768daeea8ec5dcc5172847d43068db75f36d800ff",
+      "blockNumber": "511007758",
+      "gasUsed": "416052",
+      "effectiveGasPrice": "1000000007",
+      "contract": "0xf90640a43acf3f7443fcf01891f1c9772a560b54"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "keeper",
+      "to": "0x89d208026fd23589b99dc5fa28fe708410f69c22",
+      "label": "deliver",
+      "hash": "0xd7e85a992717de2614042632bb29584c8d4fc2839e8dabee3b2a52c16244899f",
+      "blockNumber": "511007759",
+      "gasUsed": "603519",
+      "effectiveGasPrice": "1000000007",
+      "contract": "0x89d208026fd23589b99dc5fa28fe708410f69c22"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "keeper",
+      "to": "0x43a364020a4c88d2bd58f6aeaaf90a8749cfcc7b",
+      "label": "deliver",
+      "hash": "0xdf0bc179a1e57c4fb37775be3740b32d08d1428dcedc67b240b799e6cfac9acd",
+      "blockNumber": "511007760",
+      "gasUsed": "826705",
+      "effectiveGasPrice": "1000000007",
+      "contract": "ValueReportReceiver"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "trader",
+      "to": "0x82e8459c70719a85cd491a1e66382975c4e65a78",
+      "label": "swap",
+      "hash": "0x7545cf49e22874cff594d9b887663f876a6b2b417a6bac4f260685b02617a120",
+      "blockNumber": "511007761",
+      "gasUsed": "164396",
+      "effectiveGasPrice": "1000000007",
+      "contract": "trader's V4 router (Arbitrum)"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "trader",
+      "to": "0x82e8459c70719a85cd491a1e66382975c4e65a78",
+      "label": "swap",
+      "hash": "0x6fc598ba200f9662bc54521c31e9e187664063e27732b477a9f76309a7463ade",
+      "blockNumber": "511007762",
+      "gasUsed": "213497",
+      "effectiveGasPrice": "1000000007",
+      "contract": "trader's V4 router (Arbitrum)"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "trader",
+      "to": "0x82e8459c70719a85cd491a1e66382975c4e65a78",
+      "label": "swap",
+      "hash": "0xac7662ed8766fdc3e5faba827a6beff3f16e33419894355fafa6a6c08a92231e",
+      "blockNumber": "511007763",
+      "gasUsed": "180669",
+      "effectiveGasPrice": "1000000007",
+      "contract": "trader's V4 router (Arbitrum)"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "manager",
+      "to": "0x2dc5898928e1e22eeeb46c644d249b5bd586484e",
+      "label": "sendToSpoke",
+      "hash": "0x6c6d4510440559140aff1eee0ad3f855c194721e6acceac611426644f806bdcd",
+      "blockNumber": "511007764",
+      "gasUsed": "738621",
+      "effectiveGasPrice": "1000000007",
+      "contract": "Core Vault"
+    },
+    {
+      "side": "robinhood",
+      "chainId": 4663,
+      "from": "keeper",
+      "to": "0xd29c85f15df544ba632c9e25829fd29d767d7978",
+      "label": "fillRelay",
+      "hash": "0x439045379eba5ecdad06d7b9cc0fc0f7e57b5175970bbfe57c0ab595e94b17ea",
+      "blockNumber": "78293144",
+      "gasUsed": "259398",
+      "effectiveGasPrice": "1000000253",
+      "contract": "Across SpokePool (Robinhood)"
+    },
+    {
+      "side": "robinhood",
+      "chainId": 4663,
+      "from": "manager",
+      "to": "0x049f4aad79c35576e40fed85a5c1337f22893137",
+      "label": "swap",
+      "hash": "0xa1dd862502160b9484828157fffebaa49b08de62980960b3dc8340aaf8db85c7",
+      "blockNumber": "78293145",
+      "gasUsed": "283762",
+      "effectiveGasPrice": "1000000222",
+      "contract": "Robinhood Spoke Vault"
+    },
+    {
+      "side": "robinhood",
+      "chainId": 4663,
+      "from": "manager",
+      "to": "0x049f4aad79c35576e40fed85a5c1337f22893137",
+      "label": "openPosition",
+      "hash": "0xe5b949f53e2a3945f4da67e41c489432d346c3f906cf76455cb268897c8b685e",
+      "blockNumber": "78293146",
+      "gasUsed": "712540",
+      "effectiveGasPrice": "1000000195",
+      "contract": "Robinhood Spoke Vault"
+    },
+    {
+      "side": "robinhood",
+      "chainId": 4663,
+      "from": "trader",
+      "to": "0xaa07486c20f73ff4309495411927e6ae7c884dba",
+      "label": "swap",
+      "hash": "0x0357ca140bf5133eeb4437f62debe8f2e0428dde826604607eaf31a2ac9fba7e",
+      "blockNumber": "78293147",
+      "gasUsed": "130074",
+      "effectiveGasPrice": "1000000171",
+      "contract": "trader's V4 router (Robinhood)"
+    },
+    {
+      "side": "robinhood",
+      "chainId": 4663,
+      "from": "trader",
+      "to": "0xaa07486c20f73ff4309495411927e6ae7c884dba",
+      "label": "swap",
+      "hash": "0x85c013cde50b8a78c5168bbffb6e92c228387014fc29c1e3b7adb26a5fcb994d",
+      "blockNumber": "78293148",
+      "gasUsed": "167308",
+      "effectiveGasPrice": "1000000150",
+      "contract": "trader's V4 router (Robinhood)"
+    },
+    {
+      "side": "robinhood",
+      "chainId": 4663,
+      "from": "trader",
+      "to": "0xaa07486c20f73ff4309495411927e6ae7c884dba",
+      "label": "swap",
+      "hash": "0xfb7ce627bdd9ab6256cc3139e033afd1b5bbc97526b1aa3d45d0ef52e4fa8ecf",
+      "blockNumber": "78293149",
+      "gasUsed": "167763",
+      "effectiveGasPrice": "1000000132",
+      "contract": "trader's V4 router (Robinhood)"
+    },
+    {
+      "side": "robinhood",
+      "chainId": 4663,
+      "from": "stranger",
+      "to": "0x049f4aad79c35576e40fed85a5c1337f22893137",
+      "label": "report",
+      "hash": "0xe0f87cca72f46102c917a76a629470730e24b675d36f37844ba8f954b533a3be",
+      "blockNumber": "78293150",
+      "gasUsed": "237705",
+      "effectiveGasPrice": "1000000116",
+      "contract": "Robinhood Spoke Vault"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "keeper",
+      "to": "0x43a364020a4c88d2bd58f6aeaaf90a8749cfcc7b",
+      "label": "deliver",
+      "hash": "0xe926f134196c642e5ce9c715d101bf2a1ee5b6e70f380b2a7c2a0e535c266067",
+      "blockNumber": "511007765",
+      "gasUsed": "1076422",
+      "effectiveGasPrice": "1000000007",
+      "contract": "ValueReportReceiver"
+    },
+    {
+      "side": "robinhood",
+      "chainId": 4663,
+      "from": "manager",
+      "to": "0x049f4aad79c35576e40fed85a5c1337f22893137",
+      "label": "sendToHub",
+      "hash": "0x3e6846a591d6dd5d0747b298eed3006a7fd5b8b79aa2a78e3d56ac0d76094834",
+      "blockNumber": "78293151",
+      "gasUsed": "636082",
+      "effectiveGasPrice": "1000000102",
+      "contract": "Robinhood Spoke Vault"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "keeper",
+      "to": "0xe35e9842fceaca96570b734083f4a58e8f7c5f2a",
+      "label": "fillRelay",
+      "hash": "0xeada1e3dc00b397712bdde186a553301d27251cd79eb7aad4cb322b3616e82b9",
+      "blockNumber": "511007766",
+      "gasUsed": "199569",
+      "effectiveGasPrice": "1000000007",
+      "contract": "Across SpokePool (Arbitrum)"
+    },
+    {
+      "side": "robinhood",
+      "chainId": 4663,
+      "from": "stranger",
+      "to": "0x049f4aad79c35576e40fed85a5c1337f22893137",
+      "label": "report",
+      "hash": "0xb985a5f7c86e60fdc733b09ae4d6792533ecea1d7178be89550f2173cfe770c5",
+      "blockNumber": "78293152",
+      "gasUsed": "247828",
+      "effectiveGasPrice": "1000000090",
+      "contract": "Robinhood Spoke Vault"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "keeper",
+      "to": "0x43a364020a4c88d2bd58f6aeaaf90a8749cfcc7b",
+      "label": "deliver",
+      "hash": "0x96adf65095acca7e887c67186490b842c784b890844eb95c878f21cdb12f0c7c",
+      "blockNumber": "511007767",
+      "gasUsed": "512353",
+      "effectiveGasPrice": "1000000007",
+      "contract": "ValueReportReceiver"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "manager",
+      "to": "0x31b80fae13029bb14925faf4ced214cb85b28a44",
+      "label": "collectIncome",
+      "hash": "0x562f86197400fe9bfa143f4e1dcda7fd8707386b4150f0a3e735dc1b3137fd6c",
+      "blockNumber": "511007768",
+      "gasUsed": "318818",
+      "effectiveGasPrice": "1000000007",
+      "contract": "hub Spoke Vault"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "manager",
+      "to": "0x31b80fae13029bb14925faf4ced214cb85b28a44",
+      "label": "collectIncome",
+      "hash": "0x5d016a77a8f23c9a8bf6ffb762e8158322628fc555e779066c2118a62fab26db",
+      "blockNumber": "511007769",
+      "gasUsed": "269892",
+      "effectiveGasPrice": "1000000007",
+      "contract": "hub Spoke Vault"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "ana",
+      "to": "0x2dc5898928e1e22eeeb46c644d249b5bd586484e",
+      "label": "requestIncomeWithdrawal",
+      "hash": "0x117ef194941983e861a6825acfb40012c2d4dbe52b5d9e90adbf858202ccdf80",
+      "blockNumber": "511007770",
+      "gasUsed": "1502426",
+      "effectiveGasPrice": "1000000007",
+      "contract": "Core Vault"
+    },
+    {
+      "side": "robinhood",
+      "chainId": 4663,
+      "from": "keeper",
+      "to": "0x049f4aad79c35576e40fed85a5c1337f22893137",
+      "label": "executeOrder",
+      "hash": "0x82bc5fa060acc4dc8e2e6fef85a7edd8b49d5937caf89a45822eb1a471847533",
+      "blockNumber": "78293153",
+      "gasUsed": "2321061",
+      "effectiveGasPrice": "1000000079",
+      "contract": "Robinhood Spoke Vault"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "keeper",
+      "to": "0xe35e9842fceaca96570b734083f4a58e8f7c5f2a",
+      "label": "fillRelay",
+      "hash": "0x13a2cc5d317a998a3132d268df420f6235828521a2c8d417dee9b2f8346c69e9",
+      "blockNumber": "511007771",
+      "gasUsed": "199569",
+      "effectiveGasPrice": "1000000007",
+      "contract": "Across SpokePool (Arbitrum)"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "keeper",
+      "to": "0x43a364020a4c88d2bd58f6aeaaf90a8749cfcc7b",
+      "label": "deliver",
+      "hash": "0x16f1bb13a3e3ef8d4c32bd562cd7dce912232d80a5be21c86981b1396c6c812b",
+      "blockNumber": "511007772",
+      "gasUsed": "1387952",
+      "effectiveGasPrice": "1000000007",
+      "contract": "ValueReportReceiver"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "bruno",
+      "to": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+      "label": "approve",
+      "hash": "0x47d42df2e7ef58095fc434c69312f91ea79c921436ac200cdb176567bcb8d49a",
+      "blockNumber": "511007773",
+      "gasUsed": "55449",
+      "effectiveGasPrice": "1000000007",
+      "contract": "USDC"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "bruno",
+      "to": "0x2dc5898928e1e22eeeb46c644d249b5bd586484e",
+      "label": "deposit",
+      "hash": "0x8fa2af2d2f14a02e5959bfd65ae2e53f831f1d757fc83ee11dd38b65d30d25cb",
+      "blockNumber": "511007774",
+      "gasUsed": "1023564",
+      "effectiveGasPrice": "1000000007",
+      "contract": "Core Vault"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "ana",
+      "to": "0x2dc5898928e1e22eeeb46c644d249b5bd586484e",
+      "label": "settleIncomeWithdrawal",
+      "hash": "0xa89fc0f50278cafa4bc0004f7054591eb567e30c8bcbce8f87c84c60b6254a8e",
+      "blockNumber": "511007775",
+      "gasUsed": "228086",
+      "effectiveGasPrice": "1000000007",
+      "contract": "Core Vault"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "bruno",
+      "to": "0x2dc5898928e1e22eeeb46c644d249b5bd586484e",
+      "label": "withdrawIncome",
+      "hash": "0x4e5508046462bbbfc1ae5d9768447bcb47a94f0fe66b896ddec65b8d7ba2701a",
+      "blockNumber": "511007776",
+      "gasUsed": "62418",
+      "effectiveGasPrice": "1000000007",
+      "contract": "Core Vault"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "ana",
+      "to": "0x2dc5898928e1e22eeeb46c644d249b5bd586484e",
+      "label": "requestPayout",
+      "hash": "0xcab948444d18ee3a27e2d7f5a8866ee5d771344ab74a76248de12b1a74a170b5",
+      "blockNumber": "511007777",
+      "gasUsed": "789414",
+      "effectiveGasPrice": "1000000007",
+      "contract": "Core Vault"
+    },
+    {
+      "side": "robinhood",
+      "chainId": 4663,
+      "from": "keeper",
+      "to": "0x3a0ef4d68eddd9821593472ac84a75741bbcf3cf",
+      "label": "report",
+      "hash": "0xeffb365cc0b805456e1215cba2f3c4472af8cb59e06c42fff413e2d8a392e33f",
+      "blockNumber": "78293155",
+      "gasUsed": "285819",
+      "effectiveGasPrice": "1000000062",
+      "contract": "0x3a0ef4d68eddd9821593472ac84a75741bbcf3cf"
+    },
+    {
+      "side": "robinhood",
+      "chainId": 4663,
+      "from": "keeper",
+      "to": "0x772d26fc86cd5a19ce11bcb90a61489eecfce6af",
+      "label": "report",
+      "hash": "0xea2cc0fcc33629d43ff72a4684da013ea8db6cad3296390c4b3622008b0ea66e",
+      "blockNumber": "78293156",
+      "gasUsed": "285819",
+      "effectiveGasPrice": "1000000055",
+      "contract": "0x772d26fc86cd5a19ce11bcb90a61489eecfce6af"
+    },
+    {
+      "side": "robinhood",
+      "chainId": 4663,
+      "from": "keeper",
+      "to": "0x95e37a4a1c6031996fc34917d1d2f95b399763f6",
+      "label": "report",
+      "hash": "0x5646e7e927a847c54e8734ac4eb659c94c60539f07680672ca7791128966962b",
+      "blockNumber": "78293157",
+      "gasUsed": "159384",
+      "effectiveGasPrice": "1000000049",
+      "contract": "0x95e37a4a1c6031996fc34917d1d2f95b399763f6"
+    },
+    {
+      "side": "robinhood",
+      "chainId": 4663,
+      "from": "keeper",
+      "to": "0x049f4aad79c35576e40fed85a5c1337f22893137",
+      "label": "report",
+      "hash": "0x90a56be4ebd3a854dcb93efee202545f462446dc45b2fed7273cb98b9b2fb57a",
+      "blockNumber": "78293158",
+      "gasUsed": "328625",
+      "effectiveGasPrice": "1000000043",
+      "contract": "Robinhood Spoke Vault"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "keeper",
+      "to": "0xf90640a43acf3f7443fcf01891f1c9772a560b54",
+      "label": "deliver",
+      "hash": "0xce3c154cd226d6d9bde43216145c544f6ff717364e969b9169cf6c175dbf0b99",
+      "blockNumber": "511007779",
+      "gasUsed": "489330",
+      "effectiveGasPrice": "1000000007",
+      "contract": "0xf90640a43acf3f7443fcf01891f1c9772a560b54"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "keeper",
+      "to": "0x89d208026fd23589b99dc5fa28fe708410f69c22",
+      "label": "deliver",
+      "hash": "0x4beecec3535808f1f1b6135089a84306923bedad4e803afd3d8a59865b721237",
+      "blockNumber": "511007780",
+      "gasUsed": "326810",
+      "effectiveGasPrice": "1000000007",
+      "contract": "0x89d208026fd23589b99dc5fa28fe708410f69c22"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "keeper",
+      "to": "0xce60dcaccaacc13ca0423035248047e44384eaf4",
+      "label": "deliver",
+      "hash": "0x38ad125ec6d5c81d1e4bd5acdf340713135df4d33b1bf61eb2a994ef6185edd3",
+      "blockNumber": "511007781",
+      "gasUsed": "660176",
+      "effectiveGasPrice": "1000000007",
+      "contract": "0xce60dcaccaacc13ca0423035248047e44384eaf4"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "keeper",
+      "to": "0x43a364020a4c88d2bd58f6aeaaf90a8749cfcc7b",
+      "label": "deliver",
+      "hash": "0x74c7765464f156fdfc925a9c5a2f59358e04666a9961caabd5eadef1a6290757",
+      "blockNumber": "511007782",
+      "gasUsed": "447416",
+      "effectiveGasPrice": "1000000007",
+      "contract": "ValueReportReceiver"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "ana",
+      "to": "0x2dc5898928e1e22eeeb46c644d249b5bd586484e",
+      "label": "claimPayout",
+      "hash": "0x3add28988c69460306cdd2e08a534c5fc995b942a0084327f571dc7c56422dd8",
+      "blockNumber": "511007783",
+      "gasUsed": "826352",
+      "effectiveGasPrice": "1000000007",
+      "contract": "Core Vault"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "bruno",
+      "to": "0x2dc5898928e1e22eeeb46c644d249b5bd586484e",
+      "label": "requestPayout",
+      "hash": "0x7f6acbf9c0adde1a8e256550dba6009156aa0ddf0a565a5ec2763ecf5c70a133",
+      "blockNumber": "511007784",
+      "gasUsed": "2640578",
+      "effectiveGasPrice": "1000000007",
+      "contract": "Core Vault"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "stranger",
+      "to": "0x2dc5898928e1e22eeeb46c644d249b5bd586484e",
+      "label": "sweepExcess",
+      "hash": "0x7771d0d0967bd5ad0eafbc648da391d5cf182db8b335d634358de29f694b7d5f",
+      "blockNumber": "511007785",
+      "gasUsed": "46219",
+      "effectiveGasPrice": "1000000007",
+      "contract": "Core Vault"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "stranger",
+      "to": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+      "label": "transfer",
+      "hash": "0xd3b0913a61269cfbe52ff0a6e49068105a8b232ae60b70c5dac9fa68299bb841",
+      "blockNumber": "511007786",
+      "gasUsed": "45071",
+      "effectiveGasPrice": "1000000007",
+      "contract": "USDC"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "stranger",
+      "to": "0x2dc5898928e1e22eeeb46c644d249b5bd586484e",
+      "label": "sweepExcess",
+      "hash": "0xec7277771e66cd59963aba8b1b6e66d0ed5c4369bd93254dfa7985cb0874aaec",
+      "blockNumber": "511007787",
+      "gasUsed": "63440",
+      "effectiveGasPrice": "1000000007",
+      "contract": "Core Vault"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "0x2dc5898928e1e22eeeb46c644d249b5bd586484e",
+      "to": "0xa5f208e072434bc67592e4c49c1b991ba79bca46",
+      "label": "publishMessage",
+      "hash": "0x288d1077642df2a2bcd92f154103e3de0baf3c72f61c6e50d72400a0b08b683d",
+      "blockNumber": "511007788",
+      "gasUsed": "43515",
+      "effectiveGasPrice": "1000000007",
+      "contract": "Wormhole Core (Arbitrum)"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "0x2dc5898928e1e22eeeb46c644d249b5bd586484e",
+      "to": "0xa5f208e072434bc67592e4c49c1b991ba79bca46",
+      "label": "publishMessage",
+      "hash": "0xb6f058a500d62c6cb015d93f5778009c53093c7eccb881e4b6b55042e4f31547",
+      "blockNumber": "511007789",
+      "gasUsed": "43515",
+      "effectiveGasPrice": "1000000007",
+      "contract": "Wormhole Core (Arbitrum)"
+    },
+    {
+      "side": "robinhood",
+      "chainId": 4663,
+      "from": "stranger",
+      "to": null,
+      "label": "deploy OrderReceiverHarness",
+      "hash": "0x474f9b883cbbe222fa71832ec1aed30ab4746239ac9bc1a6efad90d7216c4537",
+      "blockNumber": "78293159",
+      "gasUsed": "763794",
+      "effectiveGasPrice": "1000000038",
+      "contract": "(contract creation)"
+    },
+    {
+      "side": "robinhood",
+      "chainId": 4663,
+      "from": "keeper",
+      "to": "0xabb514f8632ef6d881daec5e33f7940b92e6d003",
+      "label": "execute",
+      "hash": "0x3e1ba6da46fb6af9cdd24372ceee287cc3b306fd8e6502f4dec9b3e7beb5c5d8",
+      "blockNumber": "78293160",
+      "gasUsed": "130592",
+      "effectiveGasPrice": "1000000034",
+      "contract": "0xabb514f8632ef6d881daec5e33f7940b92e6d003"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "manager",
+      "to": "0x2dc5898928e1e22eeeb46c644d249b5bd586484e",
+      "label": "closeFund",
+      "hash": "0x741aa594422aab847ac72a7445b46187463838a7cb4e43b82a9fed15eeace132",
+      "blockNumber": "511007790",
+      "gasUsed": "47442",
+      "effectiveGasPrice": "1000000007",
+      "contract": "Core Vault"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "bruno",
+      "to": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+      "label": "approve",
+      "hash": "0x6641cec68b5c2cc2da36e4ad5f952e47faa4be8c590f2a359b4d05656b4ecbd2",
+      "blockNumber": "511007791",
+      "gasUsed": "38337",
+      "effectiveGasPrice": "1000000007",
+      "contract": "USDC"
+    },
+    {
+      "side": "arbitrum",
+      "chainId": 42161,
+      "from": "manager",
+      "to": "0x2dc5898928e1e22eeeb46c644d249b5bd586484e",
+      "label": "withdrawIncome",
+      "hash": "0x7aa2aea450eec699c26085caf52e60b26771db7bc4f91675b583a37e8a9dfc72",
+      "blockNumber": "511007792",
+      "gasUsed": "186231",
+      "effectiveGasPrice": "1000000007",
+      "contract": "Core Vault"
+    }
+  ],
+  "balances": {
+    "actors": {
+      "operator": {
+        "usdc": "0",
+        "usdg": "0",
+        "weth": "0",
+        "shares": "0"
+      },
+      "manager": {
+        "usdc": "9900759309",
+        "usdg": "7000000000",
+        "weth": "365496207493101894",
+        "shares": "99000000000000000000"
+      },
+      "ana": {
+        "usdc": "74975841785",
+        "usdg": "0",
+        "weth": "0",
+        "shares": "6975000000000000000000"
+      },
+      "bruno": {
+        "usdc": "96787946046",
+        "usdg": "0",
+        "weth": "0",
+        "shares": "826000000000000000000"
+      },
+      "keeper": {
+        "usdc": "998299816407",
+        "usdg": "987010520000",
+        "weth": "0",
+        "shares": "0"
+      },
+      "stranger": {
+        "usdc": "6298000000",
+        "usdg": "10000000000",
+        "weth": "0",
+        "shares": "0"
+      },
+      "protocolRecipient": {
+        "usdc": "3974520767",
+        "usdg": "0",
+        "weth": "0",
+        "shares": "0"
+      },
+      "trader": {
+        "usdc": "49998812198137",
+        "usdg": "49998572802440",
+        "weth": "10000414696359363392162",
+        "shares": "0"
+      },
+      "apiSigner": {
+        "usdc": "0",
+        "usdg": "0",
+        "weth": "0",
+        "shares": "0"
+      }
+    },
+    "managerFeeVault": {
+      "usdc": "118415",
+      "weth": "0"
+    },
+    "coreVault": {
+      "sharePrice": "1025403592531645569620253",
+      "shareAssets": "8100688381",
+      "grossAssets": "8101298422",
+      "idle": "203105319",
+      "freeIdle": "203105319",
+      "payoutReserve": "0",
+      "inFlightValue": "0",
+      "operatingCash": "0",
+      "fundState": 1,
+      "totalShares": "7900000000000000000000"
+    }
+  },
+  "keeper": "inprocess",
+  "fills": {
+    "real": 2,
+    "simulated": 0
+  },
+  "keeperStats": {
+    "fills": 3,
+    "simulatedFills": 0,
+    "deliveries": 11,
+    "orders": 1,
+    "ordersUnsupported": 2,
+    "reports": 0,
+    "errors": 0
+  }
+}
