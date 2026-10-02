@@ -894,7 +894,9 @@ library CoreVaultLogic {
     }
 
     /// @dev DEC-162: tells the transit's bridge adapter that the send will never arrive, so its fee rule steps the
-    ///      route's next send up. DEC-056: an adapter never blocks an outcome; a failure is only reported.
+    ///      route's next send up. DEC-056: an adapter never blocks an outcome; a failure is only reported. A caller
+    ///      cannot starve the call to skip the note: EIP-150 leaves the vault 1/64 of the gas, far less than the work
+    ///      after the call, so a starved call reverts the whole outcome.
     function _noteExpiry(Transit storage t, bytes32 transitId) private {
         address adapter = t.bridgeAdapter;
         try IBridgeAdapter(adapter).noteExpiry(t.bridgeRef) {}

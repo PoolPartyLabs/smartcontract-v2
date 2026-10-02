@@ -119,7 +119,8 @@ library SpokeCrossChainLib {
 
     /// @dev Effects then the escrow release of a refund whose escrow holds at least `amountSent`. DEC-162: the refund
     ///      is the spoke's proof that the send never arrived, so the bridge adapter learns the expiry here (in
-    ///      try/catch: an adapter never blocks a refund, DEC-056).
+    ///      try/catch: an adapter never blocks a refund, DEC-056). A starved call cannot skip the note: EIP-150 leaves
+    ///      1/64 of the gas, far less than the escrow release that follows, so the whole recognition reverts.
     function _recognize(SpokeVaultTypes.State storage s, Transit storage t, address baseToken, bytes32 transitId)
         private
         returns (uint256 amount)

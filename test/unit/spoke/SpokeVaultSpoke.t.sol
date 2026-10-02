@@ -1143,4 +1143,27 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         assertEq(uint8(vault.hubBoundTransit(id).state), uint8(TransitState.RefundRecognized));
         assertEq(vault.unallocatedBalance(address(usdg)), 1000e6);
     }
+
+    /// DEC-162, DEC-056: a caller cannot starve `noteExpiry` so that the fee rule silently misses an expiry: at any gas
+    /// limit, the refund recognition either reverts or the adapter has the note.
+    function test_DEC162_starvedRefundRecognitionNeverSkipsTheNote() public {
+        _disableOperatingCash();
+        _arrive(1000e6, ARRIVAL, TransferKind.Principal);
+        vm.prank(manager);
+        bytes32 id = vault.sendToHub(400e6, TransferKind.Principal, 0, _quote(399e6));
+        Transit memory t = vault.hubBoundTransit(id);
+        vm.warp(uint256(t.fillDeadline) + 1);
+        spokePool.refund(t.escrow, address(usdg), 400e6);
+        uint256 succeeded;
+        for (uint256 g = 40_000; g <= 400_000; g += 4000) {
+            uint256 snapshot = vm.snapshotState();
+            (bool ok,) = address(vault).call{gas: g}(abi.encodeCall(ISpokeVault.recognizeRefund, (id)));
+            if (ok) {
+                ++succeeded;
+                assertEq(spokeBridge.expiryNotes(t.bridgeRef), 1, "every recognized refund reached the adapter");
+            }
+            vm.revertToState(snapshot);
+        }
+        assertGt(succeeded, 0, "enough gas recognizes");
+    }
 }

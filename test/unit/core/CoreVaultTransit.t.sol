@@ -574,4 +574,24 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         assertEq(vault.recognizeRefund(second), SENT);
         assertEq(uint8(vault.transit(second).state), uint8(TransitState.RefundRecognized));
     }
+
+    /// DEC-162, DEC-056: a caller cannot starve `noteExpiry` so that the fee rule silently misses an expiry: at any gas
+    /// limit, the attestation either reverts or the adapter has the note.
+    function test_DEC162_starvedAttestationNeverSkipsTheNote() public {
+        bytes32 id = _sendDefault();
+        bytes32 ref = vault.transit(id).bridgeRef;
+        vm.warp(vault.transit(id).fillDeadline + 1);
+        _deliver(_spokeReport(0, 0)); // a report built after the deadline proves non-arrival
+        uint256 succeeded;
+        for (uint256 g = 40_000; g <= 400_000; g += 4000) {
+            uint256 snapshot = vm.snapshotState();
+            (bool ok,) = address(vault).call{gas: g}(abi.encodeCall(ICoreVault.attestExpiry, (id)));
+            if (ok) {
+                ++succeeded;
+                assertEq(bridge.expiryNotes(ref), 1, "every successful attestation reached the adapter");
+            }
+            vm.revertToState(snapshot);
+        }
+        assertGt(succeeded, 0, "enough gas attests");
+    }
 }
