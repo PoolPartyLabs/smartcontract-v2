@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {console2} from "forge-std/console2.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {DollarIncomeIndex} from "../../src/libraries/DollarIncomeIndex.sol";
 import {DollarIncomeIndexHarness} from "../mocks/income/DollarIncomeIndexHarness.sol";
@@ -76,6 +77,86 @@ contract DollarIncomeIndexTest is Test {
         }
         vm.expectRevert(DollarIncomeIndex.IncomeTokenListFull.selector);
         h.registerToken(address(uint160(5000)));
+    }
+
+    /// Review L-2, DEC-152 worst case: 16 income tokens, a holder adjusted in all of them, a collection selling every
+    /// token, the holder's settlement, and a settlement at the step bound (`MAX_SETTLE_STEPS` carried conversions).
+    /// Gas is measured with the harness storage cooled before each call (doc 10 section 7 left the bytes and gas
+    /// unmeasured); WP-10 sizes its hooks and collection against these numbers. Measured on this branch: mint with 16
+    /// adjustments 547,104; collection with 16 full sales 881,617; settlement with 16 conversions 325,383; collection
+    /// with 16 partial sales 1,151,830; settlement at the bound (64 conversions) 607,554. The ceilings sit about 20%
+    /// above them.
+    function test_DEC152_sixteenTokensWorstCaseGas() public {
+        address dora = makeAddr("dora");
+        address[] memory list = new address[](DollarIncomeIndex.MAX_TOKENS);
+        list[0] = usdc;
+        list[1] = weth;
+        for (uint256 k = 2; k < list.length; ++k) {
+            list[k] = makeAddr(string.concat("token", vm.toString(k)));
+            h.registerToken(list[k]);
+        }
+        h.mint(ana, 100 * SHARE);
+        _recognizeAll(list, WETH);
+
+        vm.cool(address(h));
+        uint256 g = gasleft();
+        h.mint(caio, 100 * SHARE);
+        uint256 mintGas = g - gasleft();
+        _recognizeAll(list, WETH);
+
+        uint256[] memory sold = new uint256[](list.length);
+        for (uint256 k; k < list.length; ++k) {
+            sold[k] = h.incomeToken(list[k]).recognized;
+        }
+        vm.cool(address(h));
+        g = gasleft();
+        h.collect(sold, sold);
+        uint256 collectGas = g - gasleft();
+
+        vm.cool(address(h));
+        g = gasleft();
+        assertTrue(h.settleRaw(caio, h.sharesOf(caio)));
+        uint256 settleGas = g - gasleft();
+        (,,, bool adjusted) = h.holderState(caio);
+        assertFalse(adjusted, "16 adjustments converted at the full sale");
+
+        // Dora enters with income open in every token; four partial sales carry her 16 adjustments four times.
+        _recognizeAll(list, WETH);
+        h.mint(dora, 100 * SHARE);
+        uint256 partialGas;
+        for (uint256 c; c < DollarIncomeIndex.MAX_SETTLE_STEPS / list.length; ++c) {
+            for (uint256 k; k < list.length; ++k) {
+                sold[k] = h.incomeToken(list[k]).recognized / 2;
+            }
+            vm.cool(address(h));
+            g = gasleft();
+            h.collect(sold, sold);
+            partialGas = g - gasleft();
+        }
+        uint256 owed = h.owedDollars(dora);
+        vm.cool(address(h));
+        g = gasleft();
+        assertTrue(h.settleRaw(dora, h.sharesOf(dora)), "exactly MAX_SETTLE_STEPS conversions fit in one call");
+        uint256 boundGas = g - gasleft();
+        (uint256 dollars,,,) = h.holderState(dora);
+        assertEq(dollars, owed);
+
+        console2.log("mint, 16 adjustments      ", mintGas);
+        console2.log("collect, 16 full sales    ", collectGas);
+        console2.log("settle, 16 conversions    ", settleGas);
+        console2.log("collect, 16 partial sales ", partialGas);
+        console2.log("settle, 64 conversions    ", boundGas);
+        assertLt(mintGas, 660_000);
+        assertLt(collectGas, 1_060_000);
+        assertLt(settleGas, 400_000);
+        assertLt(partialGas, 1_390_000);
+        assertLt(boundGas, 730_000);
+    }
+
+    function _recognizeAll(address[] memory list, uint256 amount) internal {
+        for (uint256 k; k < list.length; ++k) {
+            assertTrue(h.recognize(list[k], amount));
+        }
     }
 
     function test_DEC161_registrationEmitsWithSource() public {
