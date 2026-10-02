@@ -152,10 +152,13 @@ contract StaticReviewFindingsTest is CoreVaultFixture {
         assertLt(vault.shareAssets(), assetsBefore);
         assertEq(vault.sweepExcess(address(usdc)), 0, "Operating Cash is ledger value, never swept");
 
-        // The holder's whole balance is now worth 1 USDC, and nothing is left in Idle to pay even that.
-        vm.expectPartialRevert(ICoreVault.InsufficientFreeIdle.selector);
+        // The holder's whole balance is now worth 1 USDC, which only the hub Spoke Vault's Unallocated USDC can pay
+        // (D-11): the claim takes it and stays open for the rest.
         vm.prank(alice);
-        vault.requestPayout(9975e6, ICoreVaultPayouts.PayoutMode.Instant, 0);
+        ICoreVault.PayoutReceipt memory r = vault.requestPayout(9975e6, ICoreVaultPayouts.PayoutMode.Instant, 0);
+        assertEq(r.unwindProceeds, 1e6);
+        assertLe(r.usdcGross, 1e6);
+        assertFalse(vault.payoutRequest(alice).open, "the balance cap closes the request");
     }
 
     /// @dev SA-03, fixed by DEC-144 (corrects DEC-102 items 2-4): the Payout Fee of an Instant Payout used to go

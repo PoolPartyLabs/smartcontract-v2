@@ -11,8 +11,8 @@ import {STANDARD_PAYOUT_TERM} from "./CoreVaultTypes.sol";
 /// @dev The entries keep the reentrancy guard, the open-fund check (DEC-147, D-26) and the Operating Cash top-up; the
 ///      bodies, the request checks included, run in the linked library `CoreVaultPayoutLogic` (DEC-131 pattern, D-43).
 abstract contract CoreVaultPayout is CoreVaultTransit {
-    /// @notice DEC-081: the unwind targets the shortfall plus 2%. Applied by the linked `CoreVaultPayoutLogic`, whose
-    ///         constant this is.
+    /// @notice DEC-081, DEC-132, DEC-137: the margin of the automatic unwind's fraction, 2%. Applied by the linked
+    ///         `CoreVaultPayoutLogic`, whose constant this is.
     uint256 public constant UNWIND_MARGIN_BPS = CoreVaultPayoutLogic.UNWIND_MARGIN_BPS;
 
     // ---------------------------------------------------------------------------------------------------------------

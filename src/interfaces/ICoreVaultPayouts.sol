@@ -28,6 +28,10 @@ interface ICoreVaultPayouts {
     ///        positions already delivered (DEC-151).
     /// @param maxLossBps The requester's maximum loss per sale of the automatic unwind, in bps, as given at the
     ///        request or at the last claim; 0 or >= 10,000 for none (DEC-140, DEC-148, D-23, DEC-178 item 2).
+    /// @param attempt Automatic unwinds of positions run for this request so far (DEC-151).
+    /// @param fracNum Numerator of the share of every position the automatic unwind takes, the 2% margin included,
+    ///        fixed at the first attempt that unwinds positions (DEC-137, DEC-151, D-11); 0 until then.
+    /// @param fracDen Denominator of that share; 0 until the first attempt that unwinds positions.
     struct PayoutRequest {
         PayoutMode mode;
         bool open;
@@ -38,6 +42,9 @@ interface ICoreVaultPayouts {
         uint256 reserved;
         bytes32 requestId;
         uint16 maxLossBps;
+        uint32 attempt;
+        uint256 fracNum;
+        uint256 fracDen;
     }
 
     /// @notice How Share Assets were consolidated for a mint or burn (DEC-083). Carried by every mint and burn event.
@@ -62,21 +69,36 @@ interface ICoreVaultPayouts {
     /// @param payoutFee Payout Fee, Instant only (DEC-075, DEC-155); it stays in Idle, in USDC (DEC-144 items 4-5,
     ///        correcting DEC-102).
     /// @param flowFee Protocol flow fee on the gross amount (DEC-106, DEC-113).
-    /// @param usdcPaid USDC transferred to the Shareholder: `usdcGross - payoutFee - flowFee`.
+    /// @param usdcPaid USDC transferred to the Shareholder: `usdcGross - payoutFee - flowFee - leaverCost`.
     /// @param usdcOutstanding Amount still open after a Partial Payout (DEC-068); 0 for a full Payout.
     /// @param sharePrice Share Price used for the burn (DEC-105: one price for the whole request, read after the
-    ///        unwind).
-    /// @param shareAssets Numerator of that price.
+    ///        unwind): `(shareAssets + leaverCost) / totalShares`, so the requester bears the Market Cost once (D-17).
+    /// @param shareAssets Share Assets read after the unwind.
     /// @param totalShares Denominator of that price, before the burn.
-    /// @param unwindProceeds USDC realized by an automatic unwind in this claim; 0 when Idle paid.
+    /// @param unwindProceeds USDC the automatic unwind of this claim brought into Idle, the hub Spoke Vault's base
+    ///        token Unallocated Balance included (D-11); 0 when Idle paid.
     /// @param payoutSettlementPrice Realized unwind proceeds per whole share burned, same scale as Share Price;
     ///        event-only measure (DEC-084, DEC-105); 0 when nothing was unwound.
     /// @param closedBelowOneShare True when the request closed with no share burned and nothing paid because its
     ///        outstanding amount was below one share's price at this claim's Share Price (DEC-077 rounds the burn
     ///        down; final verification: a zero-share close is explicit, never a silent zero receipt).
-    /// @param requestId The request's id (`PayoutRequest.requestId`).
+    /// @param requestId The request's id (`PayoutRequest.requestId`), which the hub Spoke Vault's
+    ///        `ISpokeVaultUnwind.UnwoundForPayout` of the same claim carries.
     /// @param cappedByManagerBase True when the manager's burn stopped at `ceil(peak / 2)` shares and the request
     ///        closed below the amount requested (DEC-146, DEC-183 item 1, D-27).
+    /// @param marketCost What this claim's unwind sales lost against the mid value before each sale (DEC-118 item 2,
+    ///        D-19).
+    /// @param marketCostAbsorbed The part of `marketCost` the fund bore: in a Standard Payout up to 1% of the value of
+    ///        each sale (DEC-141), plus any `leaverCost` above what the payout could carry.
+    /// @param leaverCost The part of `marketCost` deducted from what the Shareholder receives: all of it in an Instant
+    ///        Payout (DEC-118), the excess over 1% per sale in a Standard one (DEC-141); never above
+    ///        `usdcGross - payoutFee - flowFee`.
+    /// @param excludedPositions Positions and Unallocated Balance tokens this claim's unwind left out because their
+    ///        exit or sale failed, a sale above the requester's maximum included (DEC-148); unwound at the next attempt
+    ///        (DEC-151).
+    /// @param fracNum Numerator of the share of every position the request's automatic unwind takes (DEC-137); 0 when
+    ///        no position was unwound for the request.
+    /// @param fracDen Denominator of that share.
     struct PayoutReceipt {
         PayoutMode mode;
         uint256 usdcRequested;
@@ -94,6 +116,12 @@ interface ICoreVaultPayouts {
         bool closedBelowOneShare;
         bytes32 requestId;
         bool cappedByManagerBase;
+        uint256 marketCost;
+        uint256 marketCostAbsorbed;
+        uint256 leaverCost;
+        uint256 excludedPositions;
+        uint256 fracNum;
+        uint256 fracDen;
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -164,14 +192,23 @@ interface ICoreVaultPayouts {
     ///         (DEC-068 (b)), as its next attempt (DEC-151).
     /// @dev DEC-160: every spoke with an accepted report must have a fresh one, else `StaleSpokeReport`, whether Idle
     ///      pays or not; the price-source fallback is unchanged (D-28). Idle first (Instant: Free Idle only, never the
-    ///      Payout Reserve; Standard: its reserve, then Free Idle, DEC-067, DEC-095); otherwise the automatic unwind of
-    ///      the hub Spoke Vault (`ISpokeVault.unwindForPayout`), whose proceeds reach Idle (DEC-080), then one Share
-    ///      Price read after it (DEC-105). Burns `ShareMath.sharesToBurn(outstanding, sharePrice)` capped at the
-    ///      balance (DEC-020, DEC-077; the manager: at the base, DEC-146, D-27). A full burn pays all Attributed Income
-    ///      payable now in the same transaction (DEC-045). Partial Payout when not everything can be paid (DEC-068);
-    ///      reverts `InsufficientFreeIdle` when nothing can. When the outstanding amount is below one share's price at
-    ///      the claim's Share Price, the request closes with nothing burned or paid, the reserve is released and the
-    ///      receipt carries `closedBelowOneShare = true` in `PayoutExecuted` (DEC-077; final verification).
+    ///      Payout Reserve; Standard: its reserve, then Free Idle, DEC-067, DEC-095; DEC-151 item 3: a retry too).
+    ///      Otherwise the proportional automatic unwind of the hub Spoke Vault (DEC-137, D-11): with P the Share Price,
+    ///      S the shares to serve, T all shares and A the available Idle plus the hub Spoke Vault's base token
+    ///      Unallocated Balance (paid into Idle first), every position and every non-base Unallocated Balance gives
+    ///      `f = (S - A/P) / (T - A/P) x 1.02` (DEC-081), capped at 1, computed from shares and fixed at the first
+    ///      attempt (DEC-151); a retry unwinds only what has not delivered (`ISpokeVaultUnwind`). Each sale is held to
+    ///      `maxLossBps` and a position whose sale would pass it is left out (DEC-140, DEC-148). The proceeds reach
+    ///      Idle (DEC-080), then one Share Price is read after the unwind on `NAV + leaverCost` (DEC-105, D-17). Burns
+    ///      `ShareMath.sharesToBurn(outstanding, sharePrice)` capped at the balance (DEC-020, DEC-077; the manager: at
+    ///      the base, DEC-146, D-27) and at what Idle can pay. Instant: the requester bears each sale's whole Market
+    ///      Cost (DEC-118); Standard: the excess over 1% of each sale's value (DEC-141); the Payout Fee stays in Idle
+    ///      (DEC-144). A full burn pays all Attributed Income payable now in the same transaction (DEC-045). Partial
+    ///      Payout when not everything can be paid (DEC-068 (b)); reverts `InsufficientFreeIdle` when nothing can. When
+    ///      the outstanding amount is below one share's price at the claim's Share Price, the request closes with
+    ///      nothing burned or paid, the reserve is released and the receipt carries `closedBelowOneShare = true` in
+    ///      `PayoutExecuted` (DEC-077; final verification). Spoke positions are not unwound here (the spoke leg is
+    ///      the Hub's unwind order, DEC-120, DEC-139).
     /// @param maxLossBps The requester's maximum loss per sale for this attempt, replacing the one kept in the request
     ///        (DEC-140 item 2, DEC-148: the next attempt may come with another maximum); 0 or >= 10,000 for none.
     function claimPayout(uint16 maxLossBps) external returns (PayoutReceipt memory receipt);

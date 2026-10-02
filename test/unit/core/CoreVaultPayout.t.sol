@@ -162,7 +162,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         _deposit(alice, 10_000e6);
         _allocateToPosition(1000e6);
         ICoreVault.PayoutReceipt memory r = _request(alice, 5000e6, INSTANT);
-        assertEq(hubVault.lastUnwindTarget(), 0, "nothing unwound");
+        assertEq(hubVault.unwindCalls(), 0, "nothing unwound");
         assertEq(r.unwindProceeds, 0);
         assertEq(r.payoutSettlementPrice, 0);
         assertEq(r.sharesBurned, 5000e18);
@@ -201,12 +201,15 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         uint256 free = vault.freeIdle();
         vm.prank(manager);
         vault.allocateToHubSpokeVault(free); // the rest of Idle leaves, Free Idle is 0
+        hubVault.moveToPosition(free); // into a position whose unwind fails
+        hubVault.setUnwindMode(MockHubSpokeVault.UnwindMode.Reverts);
         assertEq(vault.freeIdle(), 0);
-        // The Instant request is its claim: nothing can be paid, so the request itself reverts.
+        // DEC-148/151: no progress keeps the request and its fraction without touching another request's reserve.
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.InsufficientFreeIdle.selector, 500e6, 0));
-        vault.requestPayout(500e6, INSTANT, 0);
-        assertFalse(vault.payoutRequest(alice).open);
+        ICoreVault.PayoutReceipt memory receipt = vault.requestPayout(500e6, INSTANT, 0);
+        assertEq(receipt.sharesBurned, 0);
+        assertEq(receipt.usdcOutstanding, 500e6);
+        assertTrue(vault.payoutRequest(alice).open);
         assertEq(vault.payoutReserve(), 997e6);
     }
 
@@ -220,19 +223,47 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         assertEq(vault.payoutReserve(), 0);
     }
 
-    function test_DEC081_unwindsShortfallPlusTwoPercentCallback() public {
+    /// @dev DEC-137, D-11: Idle 400 of an 800 request, so 400 of the 1,001 - 400 shares not covered by Idle are
+    ///      missing: every position gives 400 / 601 x 1.02 (the mock's one position of 601 gives 408), computed from
+    ///      shares and stored in the request; DEC-105: one Share Price after the unwind.
+    function test_DEC137_fractionFromSharesAndOnePriceAfterTheUnwind() public {
         _deployAtMinimumFees();
         _deposit(alice, 1000e6);
         _allocateToPosition(600e6 + SEED_IDLE); // Idle 400 left, as before the seed
         ICoreVault.PayoutReceipt memory r = _request(alice, 800e6, INSTANT);
-        assertEq(hubVault.lastUnwindTarget(), 408e6, "400 shortfall + 2%");
+        (bytes32 requestId, uint256 fracNum, uint256 fracDen,,) = hubVault.lastRequest();
+        assertEq(requestId, r.requestId);
+        assertEq(fracNum, 400e18 * 10_200, "(S - A/P) x (10,000 + 200)");
+        assertEq(fracDen, 601e18 * 10_000, "(T - A/P) x 10,000");
+        assertEq(r.fracNum, fracNum);
+        assertEq(r.fracDen, fracDen);
+        ICoreVault.PayoutRequest memory req = vault.payoutRequest(alice);
+        assertEq(req.fracNum, fracNum, "DEC-151: the fraction is kept in the request");
+        assertEq(req.attempt, 1);
         assertEq(r.unwindProceeds, 408e6);
         assertEq(r.sharesBurned, 800e18);
         assertEq(r.usdcGross, 800e6);
         assertEq(r.sharePrice, ONE, "DEC-105: one price after the unwind");
+        assertEq(r.marketCost, 0);
         // payoutSettlementPrice = 408 / 800 shares, same scale as Share Price; recorded only (DEC-084, DEC-105).
         assertEq(r.payoutSettlementPrice, 0.51e24);
         assertEq(vault.idle(), 8e6 + r.payoutFee, "the 8 left plus the 16 Payout Fee (DEC-144)");
+    }
+
+    /// @dev D-11: the hub Spoke Vault's Unallocated USDC counts as available and is paid into Idle first; when it and
+    ///      Idle cover the request no position is touched (fraction 0, DEC-067).
+    function test_D11_hubUnallocatedUsdcPaysBeforeAnyPosition() public {
+        _deposit(alice, 1000e6);
+        vm.prank(manager);
+        vault.allocateToHubSpokeVault(600e6); // Unallocated in the hub Spoke Vault, no position
+        hubVault.setPosition(address(usdc), 0);
+        ICoreVault.PayoutReceipt memory r = _request(alice, 800e6, INSTANT);
+        (, uint256 fracNum,,,) = hubVault.lastRequest();
+        assertEq(fracNum, 0, "no position needed");
+        assertEq(r.fracNum, 0);
+        assertEq(r.unwindProceeds, 600e6, "all of the hub's USDC moved to Idle");
+        assertEq(r.usdcOutstanding, 0);
+        assertEq(hubVault.unallocatedUsdc(), 0);
     }
 
     function test_DEC080_unwindCreditsOnlyWhatReturnToIdleCredited() public {
@@ -242,26 +273,53 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         _allocateToPosition(600e6 + SEED_IDLE); // Idle 400 left, as before the seed
         ICoreVault.PayoutReceipt memory r = _request(alice, 800e6, INSTANT);
         // The hub Spoke Vault transferred 408 without `returnToIdle` and reported twice that: nothing reaches Idle
-        // (DEC-080: no balance-derived credit), the claim is a Partial Payout of the Idle it had (DEC-068) and the
-        // 408 stay above the ledger for the garbage collector.
+        // (DEC-080: no balance-derived credit), the claim is a Partial Payout of the Idle it had (DEC-068) at the price
+        // read after the unwind (DEC-105: the 408 left the position and count nowhere) and the 408 stay above the
+        // ledger for the garbage collector.
         assertEq(r.unwindProceeds, 0);
-        assertEq(r.usdcGross, 400e6);
+        assertEq(r.sharePrice, ShareMath.sharePrice(1001e6 - 408e6, 1001e18));
+        assertEq(r.usdcGross, ShareMath.usdcFor(ShareMath.sharesToBurn(400e6, r.sharePrice), r.sharePrice));
+        assertLe(r.usdcGross, 400e6);
         assertEq(usdc.balanceOf(address(vault)), _ledgerUsdc() + 408e6);
         assertEq(vault.sweepExcess(address(usdc)), 408e6);
     }
 
-    function test_DEC097_fundBearsUnwindMarketCost() public {
+    /// @dev DEC-118: an Instant requester bears the unwind's Market Cost. 408 unwound at 1%: 403.92 reach Idle; the
+    ///      burn price adds the 4.08 back (D-17), so it stays 1.00 and the requester pays the 4.08 once, from the gross.
+    function test_DEC118_instantRequesterBearsTheUnwindMarketCost() public {
         _deployAtMinimumFees();
         hubVault.setUnwindLossBps(100);
         _deposit(alice, 1000e6);
         _deposit(bob, 1000e6);
         _allocateToPosition(1600e6 + SEED_IDLE); // Idle 400 left, as before the seed
+        uint256 bobValue = vault.sharePrice() * shares.balanceOf(bob);
         ICoreVault.PayoutReceipt memory r = _request(alice, 800e6, INSTANT);
-        // 408 unwound at 1% loss: 403.92 reach Idle; the price after the unwind carries the loss for everyone.
         assertEq(r.unwindProceeds, 403.92e6);
-        assertLt(r.sharePrice, ONE);
-        assertEq(r.sharesBurned, ShareMath.sharesToBurn(800e6, r.sharePrice));
-        assertLe(r.usdcGross, 800e6, "never more than requested");
+        assertEq(r.marketCost, 4.08e6);
+        assertEq(r.leaverCost, 4.08e6, "Instant: all of it");
+        assertEq(r.marketCostAbsorbed, 0);
+        assertEq(r.sharePrice, ONE, "D-17: NAV after the unwind plus the requester's cost");
+        assertEq(r.sharesBurned, 800e18);
+        assertEq(r.usdcPaid, 800e6 - r.payoutFee - 4.08e6);
+        assertGe(vault.sharePrice() * shares.balanceOf(bob), bobValue, "the holder who stays bears none of it");
+    }
+
+    /// @dev DEC-141: a Standard requester bears only what the sale loses above 1% of its value; the fund the rest.
+    ///      408 unwound at 1.5%: 6.12 lost, 4.08 absorbed, 2.04 deducted from the payout.
+    function test_DEC141_standardRequesterBearsOnlyTheExcessOverOnePercent() public {
+        _deployAtMinimumFees();
+        hubVault.setUnwindLossBps(150);
+        _deposit(alice, 1000e6);
+        _deposit(bob, 1000e6);
+        _allocateToPosition(1600e6 + SEED_IDLE); // Free Idle 400
+        _request(alice, 800e6, STANDARD); // reserves the 400
+        vm.warp(block.timestamp + 72 hours);
+        ICoreVault.PayoutReceipt memory r = _claim(alice);
+        assertEq(r.marketCost, 6.12e6, "1.5% of the 408 sold");
+        assertEq(r.marketCostAbsorbed, 4.08e6, "1% of the value sold");
+        assertEq(r.leaverCost, 2.04e6, "the excess");
+        assertEq(r.payoutFee, 0);
+        assertEq(r.usdcPaid, r.usdcGross - 2.04e6);
     }
 
     function test_DEC068_partialPayoutLeavesRemainderOpen() public {

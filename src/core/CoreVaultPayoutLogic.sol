@@ -9,6 +9,7 @@ import {ICoreVault} from "../interfaces/ICoreVault.sol";
 import {ICoreVaultPayouts} from "../interfaces/ICoreVaultPayouts.sol";
 import {ICoreVaultLifecycle} from "../interfaces/ICoreVaultLifecycle.sol";
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
+import {ISpokeVaultUnwind} from "../interfaces/ISpokeVaultUnwind.sol";
 import {IValueReportReceiver} from "../interfaces/IValueReportReceiver.sol";
 import {ShareMath} from "../libraries/ShareMath.sol";
 import {ReportCodec} from "../libraries/ReportCodec.sol";
@@ -33,7 +34,7 @@ library CoreVaultPayoutLogic {
     using SafeERC20 for IERC20;
     using TransientSlot for *;
 
-    /// @notice DEC-081: the unwind targets the shortfall plus 2%.
+    /// @notice DEC-081, DEC-132, DEC-137: the margin of the unwind fraction, 2%.
     uint256 internal constant UNWIND_MARGIN_BPS = 200;
 
     /// @dev Working values of one claim, kept in memory to stay within the stack without via-IR. `burnable` is the
@@ -50,6 +51,10 @@ library CoreVaultPayoutLogic {
         uint256 shareAssets;
         uint256 totalShares;
         uint256 price;
+        uint256 marketCost;
+        uint256 leaverCost;
+        uint256 excluded;
+        uint256 served;
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -181,13 +186,13 @@ library CoreVaultPayoutLogic {
         c.burnable = msg.sender == w.manager ? _managerBurnable(s, c.balance) : c.balance;
 
         ICoreVaultPayouts.NavConsolidation memory consolidation = _priceClaim(s, w, c, req);
-        // DEC-067, DEC-095: Idle first (Instant: Free Idle only; Standard: its reserve, then Free Idle).
+        // DEC-067, DEC-095, DEC-151 item 3: Idle first (Instant: Free Idle only; Standard: its reserve, then Free Idle).
         if (c.wanted > c.available) {
-            // DEC-081, DEC-097: unwind the shortfall plus 2% (registry order until WP-09, DEC-137), proceeds to Idle.
-            uint256 shortfall = c.wanted - c.available;
-            c.proceeds = _unwindForPayout(s, w, req.requestId, shortfall + shortfall * UNWIND_MARGIN_BPS / 10_000);
-            // DEC-105: one Share Price for the whole request, read after the unwind.
-            if (c.proceeds != 0) consolidation = _priceClaim(s, w, c, req);
+            c.served = _sharesFor(c, req.usdcOutstanding);
+            _unwindForPayout(s, w, c, req);
+            _requireFreshReports(s, w);
+            // DEC-105, D-17: one Share Price for the whole request, read after the unwind, on NAV + leaverCost.
+            consolidation = _priceClaim(s, w, c, req);
         }
         // DEC-077: an outstanding amount below one share's price (after a Partial Payout, or a Share Price that rose
         // since the request) closes the request with nothing burned; the receipt says so (`closedBelowOneShare`).
@@ -202,7 +207,6 @@ library CoreVaultPayoutLogic {
             c.shares = _sharesFor(c, c.available);
             c.complete = false;
             c.cappedByManagerBase = false;
-            if (c.shares == 0) revert ICoreVault.InsufficientFreeIdle(c.wanted, c.available);
         }
         receipt = _executePayout(s, w, c, req);
         if (c.complete) emit ICoreVaultPayouts.PayoutExecuted(msg.sender, receipt, consolidation);
@@ -231,7 +235,9 @@ library CoreVaultPayoutLogic {
         // Payout liveness (DEC-021, DEC-056): a failing valuation dependency falls back to the last known value.
         (c.shareAssets, consolidation) = CoreVaultLogic.recordValuation(s, w, false);
         c.totalShares = IERC20(w.shareToken).totalSupply();
-        c.price = ShareMath.sharePrice(c.shareAssets, c.totalShares);
+        // D-17: the requester's Market Cost is added back, so the burn price does not charge it to everyone and the
+        // requester pays it once, from the gross (0 before an unwind).
+        c.price = ShareMath.sharePrice(c.shareAssets + c.leaverCost, c.totalShares);
         // DEC-077, DEC-020: floor(outstanding / price) whole shares, capped at the balance (the manager: at the base).
         c.wanted = ShareMath.usdcFor(_sharesFor(c, req.usdcOutstanding), c.price);
         c.available = s.idle - s.payoutReserve;
@@ -248,29 +254,72 @@ library CoreVaultPayoutLogic {
         if (c.price == 0) return 0;
         shares = ShareMath.sharesToBurn(usdcAmount, c.price);
         if (shares > c.burnable) shares = c.burnable;
+        if (c.served != 0 && shares > c.served) shares = c.served;
     }
 
-    /// @notice Runs the hub Spoke Vault's automatic unwind and credits what reached the Core Vault to Idle.
+    /// @notice Runs the hub Spoke Vault's proportional automatic unwind for the claim `c` of request `req` and credits
+    ///         what reached the Core Vault to Idle (`c.proceeds`), with the unwind's Market Costs (`c.marketCost`,
+    ///         `c.leaverCost`) and exclusions (`c.excluded`).
+    /// @dev DEC-137, D-11: A = what Idle makes available to the request plus the hub Spoke Vault's base token
+    ///      Unallocated Balance, which the unwind pays into Idle first. When A covers what the request wants, only that
+    ///      balance moves (DEC-067: no position is touched). Otherwise every position and every non-base Unallocated
+    ///      Balance gives `f = (S - A/P) / (T - A/P) x (10,000 + UNWIND_MARGIN_BPS) / 10,000`, capped at 1: S the
+    ///      shares to serve, T all shares, P the Share Price before the unwind. Computed from shares (A/P rounded down,
+    ///      which only raises f), never from what a pool says a position is worth, so one share unwinds 0.0102% of each
+    ///      position whatever the pool's price (DEC-132). Fixed at the first attempt that unwinds positions and kept in
+    ///      the request; a retry applies it to the positions that have not delivered (DEC-151), at their size then
+    ///      (D-25). The hub only: the spokes' share is their unwind order's (DEC-120, DEC-139).
     /// @dev DEC-080 (Core Vault verifier finding): only what the hub Spoke Vault credits through `returnToIdle` during
-    ///      the call (itself backed by USDC above the ledger) reaches Idle; the amount it reports is informational, so
-    ///      no `balanceOf`-derived amount can reach a value base. A reverting unwind never blocks the claim (DEC-056):
-    ///      the payout continues with Idle and may be partial (DEC-068).
+    ///      the call (itself backed by USDC above the ledger) reaches Idle; the proceeds it reports are informational.
+    ///      Its Market Costs are the fund's own vault's measure and are taken as reported. A reverting unwind never
+    ///      blocks the claim (DEC-056): the payout continues with Idle and may be partial (DEC-068); the event carries
+    ///      the revert data.
     /// @dev The unwinding flag (`CORE_VAULT_UNWINDING_SLOT`, transient) is set only around the call, so the hub Spoke
     ///      Vault may call back `returnToIdle` from inside it and from nowhere else in the claim
     ///      (`CoreVaultBase.onlyHubSpokeVaultCallback`).
-    function _unwindForPayout(CoreVaultState storage s, CoreVaultWiring memory w, bytes32 requestId, uint256 target)
-        private
-        returns (uint256 proceeds)
-    {
+    function _unwindForPayout(
+        CoreVaultState storage s,
+        CoreVaultWiring memory w,
+        Claim memory c,
+        ICoreVaultPayouts.PayoutRequest storage req
+    ) private {
+        uint256 available = c.available + ISpokeVault(w.hubSpokeVault).unallocatedBalance(w.usdc);
+        bool positions = available < c.wanted;
+        if (positions && req.fracDen == 0) {
+            (req.fracNum, req.fracDen) = _fraction(c, available, req.usdcOutstanding);
+        }
+        ISpokeVaultUnwind.UnwindRequest memory u;
+        u.requestId = req.requestId;
+        u.maxLossBps = req.maxLossBps;
+        u.mode = req.mode;
+        if (positions) {
+            (u.fracNum, u.fracDen) = (req.fracNum, req.fracDen);
+            ++req.attempt;
+        }
         uint256 idleBefore = s.idle;
         CORE_VAULT_UNWINDING_SLOT.asBoolean().tstore(true);
-        try ISpokeVault(w.hubSpokeVault).unwindForPayout(target, "") {
-            CORE_VAULT_UNWINDING_SLOT.asBoolean().tstore(false);
+        try ISpokeVault(w.hubSpokeVault).unwindForPayout(u) returns (ISpokeVaultUnwind.UnwindResult memory r) {
+            (c.marketCost, c.leaverCost, c.excluded) = (r.marketCost, r.leaverCost, r.excluded);
         } catch (bytes memory reason) {
-            CORE_VAULT_UNWINDING_SLOT.asBoolean().tstore(false);
-            emit ICoreVaultPayouts.UnwindForPayoutFailed(requestId, reason);
+            emit ICoreVaultPayouts.UnwindForPayoutFailed(req.requestId, reason);
         }
-        proceeds = s.idle - idleBefore;
+        CORE_VAULT_UNWINDING_SLOT.asBoolean().tstore(false);
+        c.proceeds = s.idle - idleBefore;
+    }
+
+    /// @notice D-11's fraction for the claim `c`: `(S - A/P) / (T - A/P) x 1.02`, capped at 1 (DEC-137, DEC-081).
+    /// @dev Called only when A < S x P (so P > 0, A/P < S <= T and both differences are positive). Example (DEC-137): 100,000
+    ///      shares at 1.00, 30,000 available, a request of 40,000: 10,000 / 70,000 x 1.02 = 14.57%.
+    function _fraction(Claim memory c, uint256 available, uint256 outstanding)
+        private
+        pure
+        returns (uint256 fracNum, uint256 fracDen)
+    {
+        uint256 availableShares = Math.mulDiv(available, ShareMath.WHOLE_SHARE * ShareMath.PRICE_SCALE, c.price);
+        uint256 served = _sharesFor(c, outstanding);
+        fracNum = (served - availableShares) * (ShareMath.BPS + UNWIND_MARGIN_BPS);
+        fracDen = (c.totalShares - availableShares) * ShareMath.BPS;
+        if (fracNum > fracDen) fracNum = fracDen;
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -304,7 +353,15 @@ library CoreVaultPayoutLogic {
         }
         // DEC-106, DEC-113: flow fee on the amount paid out, deducted from what the shareholder receives.
         r.flowFee = ShareMath.flowFee(r.usdcGross, w.flowFeeBps);
-        r.usdcPaid = r.usdcGross - r.payoutFee - r.flowFee;
+        // DEC-118, DEC-141, D-17: the requester's Market Cost is deducted once and stays in Idle for those who stay;
+        // what the payout cannot carry is the fund's.
+        r.leaverCost = Math.min(c.leaverCost, r.usdcGross - r.payoutFee - r.flowFee);
+        r.marketCost = c.marketCost;
+        r.marketCostAbsorbed = c.marketCost - r.leaverCost;
+        r.usdcPaid = r.usdcGross - r.payoutFee - r.flowFee - r.leaverCost;
+        r.excludedPositions = c.excluded;
+        r.fracNum = req.fracNum;
+        r.fracDen = req.fracDen;
         r.sharePrice = c.price;
         r.shareAssets = c.shareAssets;
         r.totalShares = c.totalShares;
@@ -319,8 +376,9 @@ library CoreVaultPayoutLogic {
 
         // Effects. DEC-014: the income hook checkpoints with the balance before the burn.
         CoreVaultIncomeLogic.beforeBalanceChange(s, w, msg.sender, c.balance);
-        // DEC-144: the Payout Fee never leaves Idle, so it raises the Share Price of those who stay (R-144-A).
-        s.idle -= r.usdcGross - r.payoutFee;
+        // DEC-144: the Payout Fee never leaves Idle, so it raises the Share Price of those who stay (R-144-A); nor
+        // does the requester's Market Cost (DEC-118, DEC-141).
+        s.idle -= r.usdcGross - r.payoutFee - r.leaverCost;
         uint256 reserved = req.reserved;
         uint256 used = Math.min(reserved, r.usdcGross);
         reserved -= used;
