@@ -195,7 +195,7 @@ export async function health(state: DeploymentState) {
     spokeReport: { hasReport, reportSequence, ageSeconds: reportAge, maxReportAge, fresh: reportFresh },
     wethPrice: { ageSeconds: priceAge, maxPriceAge, fresh: priceFresh },
     mintsOpen: reportFresh && priceFresh,
-    payoutsOpen: true,
+    payoutsOpen: reportFresh,
   };
 }
 
@@ -241,11 +241,11 @@ export async function holderState(state: DeploymentState, holder: Address) {
   const view = <T>(functionName: string, args: unknown[] = []) => read<T>("arbitrum", { address: core, abi: coreVaultAbi, functionName, args });
   const shares = await read<bigint>("arbitrum", { address: fund.hub.shareToken, abi: erc20Abi, functionName: "balanceOf", args: [holder] });
   const price = await view<bigint>("sharePrice");
-  const tokens = await view<readonly Address[]>("incomeTokens");
+  const tokens = [ARBITRUM.usdc];
   const income: Record<string, { attributed: bigint; owedTransfer: bigint }> = {};
   for (const token of tokens) {
     income[token] = {
-      attributed: await view<bigint>("attributedIncome", [holder, token]),
+      attributed: await view<bigint>("incomeOwed", [holder]),
       owedTransfer: await view<bigint>("owedFees", [token, holder]),
     };
   }
@@ -281,10 +281,9 @@ export async function quoteDeposit(state: DeploymentState, from: Address, amount
 
 export async function quoteClaim(state: DeploymentState, from: Address) {
   const core = hub(state).hub.coreVault;
-  const hints = await unwindHints(state);
-  const sim = await simulate<Record<string, bigint | boolean>>("arbitrum", from, core, coreVaultAbi, "claimPayout", [hints]);
+  const sim = await simulate<Record<string, bigint | boolean>>("arbitrum", from, core, coreVaultAbi, "claimPayout", [0]);
   if (!sim.ok) return { ok: false, revert: sim.revert };
-  return { ok: true, receipt: sim.result, hints };
+  return { ok: true, receipt: sim.result, maxLossBps: 0 };
 }
 
 /** A manager swap minimum the API will sign off on: the oracle value of `amountIn` less the API slippage. The vault
@@ -300,26 +299,6 @@ export async function quoteSwap(state: DeploymentState, tokenIn: Address, amount
     return { tokenOut: ARBITRUM.weth, oracleAmountOut: wethOut, minAmountOut: (wethOut * (10_000n - slippageBps)) / 10_000n, slippageBps };
   }
   return { tokenOut: ARBITRUM.usdc, oracleAmountOut: value, minAmountOut: (value * (10_000n - slippageBps)) / 10_000n, slippageBps };
-}
-
-/** Unwind hints for a claim. The vault sizes and floors every step itself; a hint is needed only to give a route to
- *  a position whose own pool does not pair its token with USDC (a single-asset non-USDC reserve, plan T14). The
- *  MVP Mandate has none (hub V4 WETH/USDC pairs with USDC, Aave is USDC), so the hints are empty; the function shows
- *  where the API would add them. */
-async function unwindHints(state: DeploymentState): Promise<Hex> {
-  const positions = await read<readonly { adapter: Address; positionKey: Hex; poolKey: Hex }[]>("arbitrum", {
-    address: hub(state).hub.spokeVault,
-    abi: spokeVaultAbi,
-    functionName: "positions",
-  });
-  const needsRoute = positions.some((p) => p.adapter.toLowerCase() !== hub(state).hub.uniswapV4Adapter.toLowerCase() && p.poolKey.toLowerCase() !== `0x${ARBITRUM.usdc.slice(2).toLowerCase().padStart(64, "0")}`);
-  if (!needsRoute) return "0x";
-  // One hint per position visited, routing a non-USDC single asset through the hub WETH/USDC pool.
-  const hints = positions.map(() => ({ swaps: [{ adapter: hub(state).hub.uniswapV4Adapter, poolKey: HUB_POOL_ID, tokenIn: ARBITRUM.weth, minAmountOut: 0n, params: "0x" as Hex }] }));
-  return encodeAbiParameters(
-    [{ type: "tuple[]", components: [{ name: "swaps", type: "tuple[]", components: [{ name: "adapter", type: "address" }, { name: "poolKey", type: "bytes32" }, { name: "tokenIn", type: "address" }, { name: "minAmountOut", type: "uint256" }, { name: "params", type: "bytes" }] }] }],
-    [hints],
-  );
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -341,12 +320,12 @@ export async function buildDeposit(state: DeploymentState, from: Address, amount
 
 export function buildRequest(state: DeploymentState, amount: bigint, mode: "instant" | "standard"): UnsignedTx[] {
   const core = hub(state).hub.coreVault;
-  return [{ chainId: nodes.arbitrum.chain.id, to: core, data: encodeFunctionData({ abi: coreVaultAbi, functionName: "requestPayout", args: [amount, mode === "instant" ? 0 : 1] }), description: `requestPayout (${mode})` }];
+  return [{ chainId: nodes.arbitrum.chain.id, to: core, data: encodeFunctionData({ abi: coreVaultAbi, functionName: "requestPayout", args: [amount, mode === "instant" ? 0 : 1, 0] }), description: `requestPayout (${mode})` }];
 }
 
 export async function buildClaim(state: DeploymentState): Promise<UnsignedTx[]> {
   const core = hub(state).hub.coreVault;
-  return [{ chainId: nodes.arbitrum.chain.id, to: core, data: encodeFunctionData({ abi: coreVaultAbi, functionName: "claimPayout", args: [await unwindHints(state)] }), description: "claimPayout" }];
+  return [{ chainId: nodes.arbitrum.chain.id, to: core, data: encodeFunctionData({ abi: coreVaultAbi, functionName: "claimPayout", args: [0] }), description: "claimPayout" }];
 }
 
 /** The manager's swap on the hub Spoke Vault (`SpokeVault.swap`, WP-07C) through the fund's own swap adapter (Mandate

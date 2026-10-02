@@ -250,13 +250,13 @@ Across (the keeper's fill on Arbitrum), the Hub-to-spoke order channel, and the 
 6. `report()` on the real Robinhood Core, the VAA delivered by the keeper, `ArrivalConfirmed`, the spoke value priced
 7. 500 USDG of Principal sent home with a zero quote, at the spoke adapter's `quoteSend`, filled on Arbitrum, credited
    to Idle once a report lists it
-8. Hub income collected and forwarded; the 20% fee split at collection (Protocol Recipient, ManagerFeeVault, holders);
-   the net attributed pro rata to Ana and the manager's seed
+8. Hub and spoke income collected through the Income Withdrawal order, sold into dollars and attributed at each
+   collection's rate; the 20% fee paid in USDC to the Protocol Recipient and ManagerFeeVault
 9. Bruno deposits 11,000 USDC at the new Share Price, owing none of the income already collected
-10. Ana's Income Withdrawal
+10. Ana's Income Withdrawal settled in USDC without burning shares
 11. Ana's Standard Payout: request, a 72 h warp of both clocks with a fresh report, the claim from Idle
-12. Bruno's Instant Payout above Free Idle, with the automatic unwind of the hub V4 position; the Payout Fee stays in
-    Idle (DEC-144)
+12. Bruno's inline Instant Payout above Free Idle, with a proportional unwind of both Hub Aave and V4 positions;
+    the requester pays Market Costs, the Payout Fee stays in Idle, and a shortfall remains open for WP-12
 13. Invariants: Payout Reserve within Idle, whole shares, Share Assets = sum of buckets, a donation swept
 14. The order channel: until the Core Vault publishes orders itself, an UNWIND order is published from its address on
     the live Arbitrum Core (instant consistency); the keeper relays it (skipped until the Spoke Vault has
@@ -287,9 +287,9 @@ the report after each deposit. Routes:
 |---|---|
 | `GET /health` | both nodes, clocks, the spoke report's age against its lifetime, the WETH price's age against its feed bound, `mintsOpen` (a spoke that never reported does not close mints), `payoutsOpen` |
 | `GET /fund` | identity, the value bases (Share Assets, Gross Assets, Idle, Free Idle, Payout Reserve, In-flight Value, Operating Cash, held-apart arrivals), the Share Price, Spoke Cap usage, fee parameters in force |
-| `GET /holders/:address` | shares, their value at the Share Price, Attributed Income and owed transfers per income token, the open Payout Request |
+| `GET /holders/:address` | shares, their value at the Share Price, Attributed Income and owed transfers in USDC, the open Payout Request |
 | `GET /quote/deposit?from=&amount=` | the exact shares and USDC charged, by simulating `deposit`, or the decoded revert (`StaleSpokeReport`, `StalePrice`, `SharePriceBelowOneUnit`, ...) |
-| `GET /quote/claim?from=` | the exact payout receipt by simulating `claimPayout` with the API's hints |
+| `GET /quote/claim?from=` | the exact Standard Payout receipt by simulating `claimPayout(0)`; Instant Payout executes inside the request |
 | `GET /quote/swap?tokenIn=&amountIn=` | a manager swap minimum: the oracle value less 1%; the vault holds a swap only to the manager's `maxLossBps` and a signed route's minimum (DEC-142; security review S-8, open), so `/tx/swap` signs this one into its route |
 | `GET /quote/swap-route?chain=&tokenIn=&tokenOut=&amountIn=&slippageBps=&adapter=&hops=` | the best single Uniswap V3 path QuoterV2 quotes on the fork (1,000,000 gas per quote, D-21), direct in one of the four fee tiers or two hops through another Mandate token of the adapter (D-52; `hops=1` or `hops=2` keeps only those), over the tiers with at least 1% of the pair's deepest in-range liquidity, signed by the API signer as the EIP-712 `SwapRoute` of `UniswapV3SwapAdapter` (domain bound to the adapter); `encodedRoute` is the `route` argument of `swap`; the minimum is the quote less `slippageBps` (default 100, at most 500, the Spoke Vault's own unwind floor: the API never signs a near-zero minimum, DEC-142); `adapter` may name the harness's adapter (the default) or the fund's own swap adapter on that chain (422 for any other), since every production adapter accepts the API signer's routes (D-01) |
 | `GET /quote/bridge?direction=to-spoke\|to-hub&amount=` | what the fund's Across adapter fixes for a send of `amount` now (`quoteSend`: amount to arrive, fee, rate) and the route's fee state; `signed: false` until signed quotes (R-162-B, WP-11) |

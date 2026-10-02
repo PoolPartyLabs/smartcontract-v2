@@ -15,7 +15,7 @@ import { DEFAULT_KEEPER_OPTIONS, startKeeper, type Keeper } from "./keeper.ts";
 import { bold, green, logger, red, units } from "./log.ts";
 import { RunReport } from "./report.ts";
 import { readState } from "./state.ts";
-import { API_PORT, startApi, type UnsignedTx } from "./api.ts";
+import { API_PORT, decodeRevert, startApi, type UnsignedTx } from "./api.ts";
 import { encodeRoute, type ApiRoute } from "./swap-route.ts";
 import { warp } from "./warp.ts";
 
@@ -207,17 +207,23 @@ export async function probe() {
       h.mintsOpen === false && staleQuote.ok === false && staleQuote.revert?.error === "StaleSpokeReport" && staleBuild.status === 409,
       `health mintsOpen=${h.mintsOpen}; chain says ${staleQuote.revert?.error}; API answers ${staleBuild.status}`,
     );
-    const { body: requestTxs } = await post<UnsignedTx[]>("/tx/request", { amount: "1000000000", mode: "instant" });
+    const stalePayout = await nodes.arbitrum.client.simulateContract({
+      account: actors.ana.address,
+      address: core,
+      abi: coreVaultAbi,
+      functionName: "requestPayout",
+      args: [1_000_000_000n, 0, 0],
+    }).then(() => "none", (error) => decodeRevert(error)?.error ?? "reverted");
+    record("stale report blocks burns", stalePayout === "StaleSpokeReport", stalePayout);
+    await warp(0n, { log: log.child("warp"), report: true, deliverer: "self" });
+    const { body: requestTxs } = await post<UnsignedTx[]>("/tx/request", { amount: "1000000000", mode: "standard" });
     await signAndSend("arbitrum", "ana", requestTxs);
+    await warp(72n * 3600n, { log: log.child("warp"), report: true, deliverer: "self" });
     const claimQuote = await get(`/quote/claim?from=${ana}`);
     const { body: claimTxs } = await post<UnsignedTx[]>("/tx/claim", {});
     const [claimReceipt] = await signAndSend("arbitrum", "ana", claimTxs);
-    const executed = (await get(`/events?fromBlock=${claimReceipt.blockNumber}`)).find((e: any) => e.event === "PayoutExecuted" || e.event === "PartialPayoutExecuted");
-    record(
-      "payout works on a stale report; its quote is exact",
-      claimQuote.ok === true && executed && executed.args.receipt.usdcPaid === claimQuote.receipt.usdcPaid,
-      `quoted ${units(BigInt(claimQuote.receipt.usdcPaid))} USDC, paid ${executed ? units(BigInt(executed.args.receipt.usdcPaid)) : "?"} (${executed?.event})`,
-    );
+    const executed = (await get(`/events?fromBlock=${claimReceipt.blockNumber}`)).find((event: any) => event.event === "PayoutExecuted" || event.event === "PartialPayoutExecuted");
+    record("fresh report permits payout; quote is exact", claimQuote.ok === true && executed?.args.receipt.usdcPaid === claimQuote.receipt.usdcPaid, "Standard Payout after its term and a fresh report");
 
     // 5. The keeper brings mints back with a fresh report.
     await warp(30n, { log: log.child("warp"), report: true, deliverer: "keeper" });
