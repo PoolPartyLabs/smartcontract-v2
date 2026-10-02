@@ -1,8 +1,9 @@
-// `pnpm run up`: builds the contracts, starts both forks, deploys the protocol and a fund through the real Foundry
-// scripts, funds the actors, puts the Wormhole guardian set under the harness's key, re-stamps Chainlink, writes
-// local-e2e/.state/deployment.json, and warms the fork caches: the scenario runs inside a snapshot, the snapshot is
-// reverted, and everything it touched is read again while the upstream still serves the fork block (public RPCs serve
-// fork state for minutes only; see README "Troubleshooting").
+// `pnpm run up`: builds the contracts, starts both forks, deploys the protocol through the real Foundry scripts, puts
+// the Wormhole guardian set under the harness's key, re-stamps Chainlink, funds the actors, creates a fund with the
+// manager's seed (DEC-127) through script/CreateFund.s.sol, writes local-e2e/.state/deployment.json, and warms the
+// fork caches: the scenario runs inside a snapshot, the snapshot is reverted, and everything it touched is read again
+// while the upstream still serves the fork block (public RPCs serve fork state for minutes only; see README
+// "Troubleshooting").
 //
 // Usage: pnpm run up [--warm-up scenario|none]
 // (`pnpm up` is pnpm's own `update` command; the script needs `pnpm run up`.)
@@ -42,7 +43,7 @@ async function nodeState(side: Side): Promise<NodeState> {
 
 const PROBE_KEY: Hex = "0x00000000000000000000000000000000000000000000000000000000000000aa";
 
-async function discoverStorage(fundSpokeVault: Address, log: Logger): Promise<DeploymentState["storage"]> {
+async function discoverStorage(log: Logger): Promise<DeploymentState["storage"]> {
   const fillStatusesData = encodeFunctionData({ abi: acrossSpokePoolAbi, functionName: "fillStatuses", args: [PROBE_KEY] });
   const storage: DeploymentState["storage"] = {
     balances: await discoverLayouts(),
@@ -53,12 +54,13 @@ async function discoverStorage(fundSpokeVault: Address, log: Logger): Promise<De
     wormholeSequencesSlot: WORMHOLE_SEQUENCES_SLOT.toString(),
   };
   // The Wormhole table in guardian.ts says `sequences` sits at slot 4: confirm it on the live Robinhood Core.
+  const emitter = actors.keeper.address;
   const read = await storageRead(
     "robinhood",
     ROBINHOOD.wormholeCore,
-    encodeFunctionData({ abi: wormholeCoreAbi, functionName: "nextSequence", args: [fundSpokeVault] }),
+    encodeFunctionData({ abi: wormholeCoreAbi, functionName: "nextSequence", args: [emitter] }),
   );
-  if (!read.includes(mappingSlot(fundSpokeVault, WORMHOLE_SEQUENCES_SLOT))) {
+  if (!read.includes(mappingSlot(emitter, WORMHOLE_SEQUENCES_SLOT))) {
     throw new Error("the Robinhood Wormhole Core does not keep sequences at slot 4");
   }
   log.info("storage layouts found", {
@@ -95,17 +97,19 @@ export async function up(warmUp: "scenario" | "none"): Promise<DeploymentState> 
   if (robinhood.fundFactory !== arbitrum.fundFactory) {
     throw new Error(`DEC-054: the factory landed at ${arbitrum.fundFactory} on Arbitrum but ${robinhood.fundFactory} on Robinhood`);
   }
-  const fund = await createFund(arbitrum.fundFactory, log.child("deploy"));
 
   const guardianSetIndex = await overrideGuardianSet(log.child("guardian"));
   await selfTest(guardianSetIndex, log.child("guardian"));
   await restampFeed(log.child("chainlink"));
-  const storage = await discoverStorage(fund.spoke.spokeVault, log);
+  const storage = await discoverStorage(log);
   const helpers = {
     arbitrumSwapRouter: await deploySwapRouter("arbitrum", ARBITRUM.v4PoolManager),
     robinhoodSwapRouter: await deploySwapRouter("robinhood", ROBINHOOD.v4PoolManager),
   };
   log.info("trader swap routers deployed (test/mocks/v4/V4SwapRouter.sol)", helpers);
+  // DEC-127: the manager seeds the fund in the creation transaction, so the actors are funded first.
+  await fundAccounts({ storage, helpers }, log.child("funding"));
+  const fund = await createFund(arbitrum.fundFactory, log.child("deploy"));
 
   const roles = protocolRoles();
   const state: DeploymentState = {
@@ -142,7 +146,6 @@ export async function up(warmUp: "scenario" | "none"): Promise<DeploymentState> 
     storage,
   };
   writeState(state);
-  await fundAccounts(state, log.child("funding"));
   log.info(`deployed in ${((Date.now() - started) / 1000).toFixed(0)}s`, { state: "local-e2e/.state/deployment.json" });
 
   if (warmUp === "scenario") await warmUpCaches(log);

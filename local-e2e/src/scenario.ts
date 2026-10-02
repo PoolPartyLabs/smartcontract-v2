@@ -47,6 +47,7 @@ import {
   type ActorName,
 } from "./config.ts";
 import { createFund } from "./deploy.ts";
+import { TARGETS, layoutOf, topUpToken } from "./fund-accounts.ts";
 import { universal } from "./guardian.ts";
 import { DEFAULT_KEEPER_OPTIONS, runningKeeperPid, startKeeper, type Keeper } from "./keeper.ts";
 import { bold, dim, green, logger, red, units, type Logger } from "./log.ts";
@@ -88,6 +89,8 @@ const ARRIVAL_CONFIRMED = 2;
 const PRINCIPAL = 0;
 const INSTANT = 0;
 const STANDARD = 1;
+// FundState (src/interfaces/ICoreVaultLifecycle.sol, DEC-121, DEC-147).
+const OPEN = 0;
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Assertions and the numbered step log
@@ -199,6 +202,18 @@ const sharesFor = (usdc: bigint, sharePrice: bigint) => mulDiv(usdc, WHOLE, shar
 const usdcFor = (shares: bigint, sharePrice: bigint) => mulDiv(shares, sharePrice, 10n ** 36n);
 const bps = (amount: bigint, b: bigint) => mulDiv(amount, b, 10_000n);
 
+/** Whether a fund is past its creation: no longer Open, holders other than the manager's seed (DEC-127: every fund is
+ *  born with shares), or a spoke report already accepted. */
+export async function fundUsed(fund: FundRecord): Promise<boolean> {
+  const [state, supply, managerShares, reported] = await Promise.all([
+    view<number>("arbitrum", fund.hub.coreVault, coreVaultAbi, "fundState"),
+    view<bigint>("arbitrum", fund.hub.shareToken, shareTokenAbi, "totalSupply"),
+    view<bigint>("arbitrum", fund.hub.shareToken, shareTokenAbi, "balanceOf", [fund.manager]),
+    view<boolean>("arbitrum", fund.hub.valueReportReceiver, valueReportReceiverAbi, "hasReport", [BigInt(fund.spoke.spokeIndex)]),
+  ]);
+  return state !== OPEN || supply !== managerShares || reported;
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // The scenario
 // ---------------------------------------------------------------------------------------------------------------------
@@ -229,9 +244,11 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
   // --------------------------------------------------------------------------------------------------------------
   run.phase("Phase 0: fund and keeper");
   let fund = state.fund;
-  const used = (await view<bigint>("arbitrum", fund.hub.shareToken, shareTokenAbi, "totalSupply")) > 0n;
+  const used = await fundUsed(fund);
   if (options.newFund || used) {
-    run.note(used ? "the deployed fund already has shares: creating a fresh fund for this run" : "creating a fresh fund (--new-fund)");
+    run.note(used ? "the deployed fund was used: creating a fresh fund for this run" : "creating a fresh fund (--new-fund)");
+    // DEC-127: the manager seeds every new fund, so his USDC goes back to its target first.
+    await topUpToken("arbitrum", layoutOf(state, "arbitrum", ARBITRUM.usdc), actors.manager.address, TARGETS.arbitrum.usdc.manager);
     fund = await createFund(state.protocol.arbitrum.fundFactory, log.child("deploy"));
     run.ok(`fresh fund ${fund.shareSymbol} created through script/CreateFund.s.sol (Core Vault ${fund.hub.coreVault})`);
   } else {

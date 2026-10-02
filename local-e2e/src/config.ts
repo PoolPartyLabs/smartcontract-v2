@@ -152,12 +152,15 @@ export const guardian = privateKeyToAccount(GUARDIAN_PRIVATE_KEY);
 
 /** Mandate rule values passed to script/CreateFund.s.sol, overridable through the same environment variables. The
  *  defaults are the end-to-end fork scenario's (test/fork/e2e/EndToEndBase.sol): a Spoke Cap of 40% of Ana's first
- *  deposit, and a maximum bridge fee derived from its Across quote (1.60 USDC on 4,000, 4 bps; QA19 OPEN). */
+ *  deposit and the manager's seed at the Mandate minimum. `MAX_BRIDGE_FEE_BPS` is a dead Mandate field since the
+ *  Across adapter fixes every send (DEC-156, DEC-162) until Mandate v2 removes it. */
 export const FUND_PLAN = {
   SPOKE_CAP: process.env.SPOKE_CAP ?? "4000000000", // 4,000 USDC (DEC-037, DEC-095)
   MIN_FIRST_DEPOSIT: process.env.MIN_FIRST_DEPOSIT ?? "100000000", // 100 USDC (DEC-061)
+  // DEC-127: the manager's seed at creation, in USDC base units; the script approves the factory for it.
+  SEED_AMOUNT: process.env.SEED_AMOUNT ?? process.env.MIN_FIRST_DEPOSIT ?? "100000000",
   PERFORMANCE_FEE_BPS: process.env.PERFORMANCE_FEE_BPS ?? "2000", // 20% (DEC-107)
-  MAX_BRIDGE_FEE_BPS: process.env.MAX_BRIDGE_FEE_BPS ?? "4", // 0.04% (QA19 OPEN)
+  MAX_BRIDGE_FEE_BPS: process.env.MAX_BRIDGE_FEE_BPS ?? "4", // dead field (DEC-156, DEC-162)
 } as const;
 
 /** Whether the module at `url` (`import.meta.url`) is the script node was started with. */
