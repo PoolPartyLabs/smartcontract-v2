@@ -49,6 +49,7 @@ export interface ProtocolState {
     create3Deployer: Address;
     coreVaultLogic: Address;
     spokeCrossChainLib: Address;
+    spokeUnwindLib: Address;
     managerRegistry: Address;
     priceSource: Address;
     transitEscrowImplementation: Address;
@@ -60,6 +61,7 @@ export interface ProtocolState {
     fundFactory: Address;
     create3Deployer: Address;
     spokeCrossChainLib: Address;
+    spokeUnwindLib: Address;
     transitEscrowImplementation: Address;
   };
 }

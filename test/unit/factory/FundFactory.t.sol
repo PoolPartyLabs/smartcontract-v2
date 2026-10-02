@@ -218,8 +218,7 @@ contract FundFactoryTest is Test, FactoryDeployment, FundMandate, FundSeed {
         assertEq(w.coreVaultCreationCodeHash, keccak256(_coreVaultCreationCode(hubDeployment.coreVaultLogic)));
         assertEq(factory.creationCodeHash(factory.ROLE_CORE_VAULT()), w.coreVaultCreationCodeHash);
         assertEq(
-            factory.creationCodeHash(factory.ROLE_SPOKE_VAULT()),
-            keccak256(_spokeVaultCreationCode(hubDeployment.spokeCrossChainLib))
+            factory.creationCodeHash(factory.ROLE_SPOKE_VAULT()), keccak256(_spokeVaultCreationCode(hubDeployment))
         );
         assertEq(
             factory.creationCodeHash(factory.ROLE_UNISWAP_V4_ADAPTER()),
@@ -604,7 +603,7 @@ contract FundFactoryTest is Test, FactoryDeployment, FundMandate, FundSeed {
     // ---------------------------------------------------------------------------------------------------------------
 
     function _stores() internal returns (IFundFactory.CreationCodeStores memory) {
-        return _writeCodeStores(false, hubDeployment.spokeCrossChainLib);
+        return _writeCodeStores(false, hubDeployment);
     }
 
     function test_DEC022_constructorRejectsZeroWiring() public {

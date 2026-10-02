@@ -25,7 +25,7 @@ Wormhole (finalized consistency) for value reports. Addresses in `docs/INTEGRATI
 |---|---|---|---|
 | `ShareToken` | hub | ERC-20, 18 decimals, only whole shares (multiples of 1e18) ever minted or burned; `transfer`, `transferFrom`, `approve` revert; only the Core Vault mints and burns | DEC-004, DEC-035, DEC-077, DEC-091 |
 | `CoreVault` (+ linked library `CoreVaultLogic`) | hub | Custody of Idle USDC; share ledger via `ShareToken`; Payout Requests and Payouts; Attributed Income bucket and Income Withdrawal; the fee split at collection; sends capital to spokes through a bridge adapter; the transit state machine; reads the hub `SpokeVault` directly and the spoke values from `ValueReportReceiver`. Never calls a DeFi protocol. Deploys its `ShareToken` and `ManagerFeeVault` in its constructor. | DEC-009, DEC-020, DEC-054, DEC-065, DEC-067, DEC-072, DEC-077, DEC-081, DEC-085, DEC-090, DEC-095, DEC-105, DEC-107 |
-| `SpokeVault` (+ linked library `SpokeCrossChainLib`) | every chain, hub included | The fund's account on a chain: internal ledger per token (never `balanceOf`), position registry per adapter, Unallocated Balance, Operating Cash bucket; drives adapters within the Mandate's closed lists; receives Across fills; builds and publishes value reports (spoke chains) or exposes the same data to the Core Vault (hub) | DEC-054, DEC-069, DEC-070, DEC-079, DEC-080, DEC-093, DEC-096 |
+| `SpokeVault` (+ linked libraries `SpokeCrossChainLib`, `SpokeUnwindLib`) | every chain, hub included | The fund's account on a chain: internal ledger per token (never `balanceOf`), position registry per adapter, Unallocated Balance, Operating Cash bucket; drives adapters within the Mandate's closed lists; receives Across fills; builds and publishes value reports (spoke chains) or exposes the same data to the Core Vault (hub) | DEC-054, DEC-069, DEC-070, DEC-079, DEC-080, DEC-093, DEC-096 |
 | `ValueReportReceiver` | hub | Accepts a spoke's report only if the guardian quorum signed it, the emitter is the fund's Spoke Vault on that chain, the sequence is strictly greater than the last accepted, and the report is within the max age; stores the latest accepted report per spoke | DEC-086, DEC-093, DEC-094, DEC-099 |
 | `UniswapV4Adapter` | both | Opens, increases, decreases, closes and collects V4 positions (PositionManager, pools identified by `PoolId`, closed list in the Mandate, hookless pools only in the MVP; pools whose hooks charge on withdrawal are OPEN, DEC-079); reports principal (liquidity at current price) and income (`feesAccrued`, tracked as a monotonic cumulative counter per token) **separately** from the PoolManager's own accounting; price-dependent (`isExactValue() == false`); immutable, one instance per fund per chain | DEC-018, DEC-053, DEC-058, DEC-079 |
 | `AaveV3Adapter` | hub only | Supplies USDC to the Aave V3 Pool and withdraws it; never borrows; Exact-Value Position (DEC-059): ledger keeps scaled units and the `liquidityIndex` at the last measurement, interest since then is income (DEC-068); read, not unwound, while the reserve has liquidity; `isExactValue() == true`; every exit withdraws the principal asked first and the pending income only up to the reserve's available liquidity (the rest stays pending; a close the reserve cannot finish keeps the key holding only that income); entry verbs take an explicit amount (final verification) | DEC-018, DEC-028, DEC-059, DEC-068 |
@@ -39,14 +39,18 @@ Wormhole (finalized consistency) for value reports. Addresses in `docs/INTEGRATI
 ### 1.1 Linked external libraries (what the factory must link)
 
 Two fund contracts do not fit the 24,576-byte runtime limit in one piece (compiler settings are fixed), so part of
-their code is an **external linked library** that runs by DELEGATECALL over the fund contract's own storage. This is
-the only DELEGATECALL in the system; adapters are always called with a plain CALL (§6). Ratified in the consolidation
-of 2026-09-29 (Core Vault and Spoke Vault verifier majors) instead of a restructuring.
+their code is an **external linked library** that runs by DELEGATECALL over the fund contract's own storage. These are
+the only DELEGATECALLs in the system; adapters are always called with a plain CALL (§6). Ratified in the consolidation
+of 2026-09-29 (Core Vault and Spoke Vault verifier majors) instead of a restructuring; DEC-131 (2026-10-01) moved the
+automatic unwind into a third one and fixed the limit as the smallest across the chains (Arbitrum One's 24,576 bytes,
+Robinhood Chain included), checked by `test/size/ContractSizes.t.sol`. The registry and ledger helpers the Spoke Vault
+and its libraries share are the internal library `SpokeLedger` (inlined, no deployed code).
 
 | Library | Linked into | Holds | Runtime size (consolidation) |
 |---|---|---|---|
 | `CoreVaultLogic` | `CoreVault` | Value bases and the payout fallback valuation, collected income and the fee split, report application, sends to spokes, transit outcomes | ~19.0 KB (Core Vault ~19.7 KB) |
 | `SpokeCrossChainLib` | `SpokeVault` | Send home, refund recognition, the hub-bound in-flight list, report building and encoding | ~10.2 KB (Spoke Vault ~21.7 KB) |
+| `SpokeUnwindLib` | `SpokeVault` | The automatic unwind behind `unwindForPayout` (hub): Mandate unwind order, exit sizing, swaps into USDC, proceeds to Idle (DEC-131) | 9.3 KB (Spoke Vault 20.3 KB, 2026-10-02) |
 
 What the factory does (`src/factory/FundFactory.sol`, docs/DEPLOYMENT.md):
 - The operator deploys each library once per chain through the deterministic deployer, immutable (no proxy, DEC-022,
@@ -55,8 +59,8 @@ What the factory does (`src/factory/FundFactory.sol`, docs/DEPLOYMENT.md):
   (CREATE3), and the Spoke Vault address differs per chain because the salt carries the chain id.
 - The Core Vault's creation code (about 34 KB, the `ShareToken` and `ManagerFeeVault` creation code included) comes in
   calldata and must hash to `coreVaultCreationCodeHash`, the code linked to `CoreVaultLogic`, a factory immutable. The
-  Spoke Vault creation code (about 31 KB, linked to `SpokeCrossChainLib`), the adapters' and the receiver's are read
-  from immutable code stores (`CodeStore`) whose hashes the factory records at construction.
+  Spoke Vault creation code (about 29 KB, linked to `SpokeCrossChainLib` and `SpokeUnwindLib`), the adapters' and the
+  receiver's are read from immutable code stores (`CodeStore`) whose hashes the factory records at construction.
 - Surfaces `FillDeadlineBufferTooShort` from the Across adapter constructor as the creation's revert reason (the
   CREATE3 proxy bubbles constructor reverts; DEC-066).
 - Passes the fund id to the `ValueReportReceiver` constructor and the hub income tokens (read from the hub adapters'

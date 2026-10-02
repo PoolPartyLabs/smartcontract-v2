@@ -4,20 +4,20 @@ pragma solidity 0.8.28;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ICoreBridge} from "wormhole-sdk/interfaces/ICoreBridge.sol";
 
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {IAdapter} from "../interfaces/IAdapter.sol";
 import {IBridgeAdapter} from "../interfaces/IBridgeAdapter.sol";
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
-import {IPriceSource} from "../interfaces/IPriceSource.sol";
 import {Transit, TransferKind, ExpensePayer, BridgeQuote} from "../interfaces/FundTypes.sol";
-import {Mandate, MandateLib, SpokeConfig, PoolConfig, UnwindStep, BridgeAdapterConfig} from "../mandate/Mandate.sol";
+import {Mandate, MandateLib, SpokeConfig, PoolConfig, BridgeAdapterConfig} from "../mandate/Mandate.sol";
 import {ReportCodec} from "../libraries/ReportCodec.sol";
 import {TransitMessage} from "../libraries/TransitMessage.sol";
 import {SpokeVaultTypes} from "./SpokeVaultTypes.sol";
 import {SpokeCrossChainLib} from "./SpokeCrossChainLib.sol";
+import {SpokeLedger} from "./SpokeLedger.sol";
+import {SpokeUnwindLib} from "./SpokeUnwindLib.sol";
 
 /// @title SpokeVault
 /// @notice The fund's account on one chain, the Hub Chain included. See ISpokeVault.
@@ -27,17 +27,20 @@ import {SpokeCrossChainLib} from "./SpokeCrossChainLib.sol";
 /// @dev DEC-022, DEC-058: no proxy, no upgrade path, no selfdestruct. The constructor takes everything it needs, so the
 ///      FundFactory deploys it at a CREATE3 address that depends only on the factory and the salt (fund id, role,
 ///      chain id), never on this creation code (DEC-054). The Spoke Chain half (send home, refunds, report) lives in the
-///      linked external library `SpokeCrossChainLib`, which runs by DELEGATECALL over this vault's storage and holds
-///      none of its own: its address is part of this vault's creation code and trust surface (immutable, no upgrade
-///      path). The operator deploys it once per chain at a chain-independent address (so the linked creation code and
-///      its hash are the same on every chain) and the factory stores that code with its hash fixed at construction.
-///      This is the only DELEGATECALL the vault makes; adapters are always called with a plain CALL.
+///      linked external library `SpokeCrossChainLib` and the automatic unwind in `SpokeUnwindLib` (DEC-131); both run
+///      by DELEGATECALL over this vault's storage and hold none of their own: their addresses are part of this vault's
+///      creation code and trust surface (immutable, no upgrade path). The operator deploys them once per chain at
+///      chain-independent addresses (so the linked creation code and its hash are the same on every chain) and the
+///      factory stores that code with its hash fixed at construction. These are the only DELEGATECALLs the vault
+///      makes; adapters are always called with a plain CALL. The registry and ledger helpers both sides use are the
+///      internal library `SpokeLedger`.
 /// @dev DEC-080: every value that reaches a base comes from the internal ledger (`unallocated`, `collectedIncome`,
 ///      `operatingCash`), never from `balanceOf`. `balanceOf` is read only to assert the ledger is backed, to verify
 ///      an exact bridge debit and to size the excess sweep.
 contract SpokeVault is ISpokeVault, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using MandateLib for Mandate;
+    using SpokeLedger for SpokeVaultTypes.State;
 
     /// @dev DEC-093: reports are published with finalized consistency.
     uint8 internal constant WORMHOLE_FINALIZED = 1;
@@ -52,8 +55,9 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
     ///         swap's minimum output is at least the route's `IAdapter.spotQuote` less this share.
     /// @dev OPEN parameter (QA3: the price guard of hub positions is undecided; final verification). Measured from the
     ///      higher of the route's spot quote and the Core Vault's price-source value (security review S-2: a spot price
-    ///      can be moved within a block by the claimant); a claimant hint may only raise the minimum.
-    uint256 public constant MAX_UNWIND_SLIPPAGE_BPS = 500;
+    ///      can be moved within a block by the claimant); a claimant hint may only raise the minimum. Applied by the
+    ///      linked `SpokeUnwindLib`, whose constant this is (DEC-131).
+    uint256 public constant MAX_UNWIND_SLIPPAGE_BPS = SpokeUnwindLib.MAX_UNWIND_SLIPPAGE_BPS;
 
     // ---------------------------------------------------------------------------------------------------------------
     // Identity and wiring (immutable, DEC-053, DEC-058)
@@ -253,14 +257,14 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         nonReentrant
         returns (bytes32 positionKey, uint256 used0, uint256 used1)
     {
-        IAdapter a = _positionAdapter(adapter);
-        SpokeVaultTypes.PoolTokens memory p = _pool(adapter, poolKey);
+        IAdapter a = _s.positionAdapter(adapter);
+        SpokeVaultTypes.PoolTokens memory p = _s.pool(adapter, poolKey);
         if (amount0 == 0 && amount1 == 0) revert ZeroAmount();
         _topUpOperatingCash();
-        _sendToAdapter(adapter, p.token0, amount0);
-        _sendToAdapter(adapter, p.token1, amount1);
+        _s.sendToAdapter(adapter, p.token0, amount0);
+        _s.sendToAdapter(adapter, p.token1, amount1);
         (positionKey, used0, used1) = a.openPosition(poolKey, params);
-        _creditUnused(adapter, p, amount0, used0, amount1, used1);
+        _s.creditUnused(adapter, p, amount0, used0, amount1, used1);
         if (_s.positionSlot[adapter][positionKey] != 0) {
             revert SpokeVaultTypes.PositionAlreadyRegistered(adapter, positionKey);
         }
@@ -269,7 +273,7 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         }
         _s.positions.push(PositionRef(adapter, positionKey, poolKey));
         _s.positionSlot[adapter][positionKey] = _s.positions.length;
-        _requireBacked(p);
+        _s.requireBacked(baseToken, p);
         emit PositionOpened(adapter, positionKey, poolKey, used0, used1);
     }
 
@@ -282,16 +286,16 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         uint256 amount1,
         bytes calldata params
     ) external onlyManager nonReentrant returns (uint256 used0, uint256 used1, uint256 income0, uint256 income1) {
-        IAdapter a = _positionAdapter(adapter);
-        SpokeVaultTypes.PoolTokens memory p = _pool(adapter, _positionPool(adapter, positionKey));
+        IAdapter a = _s.positionAdapter(adapter);
+        SpokeVaultTypes.PoolTokens memory p = _s.pool(adapter, _s.positionPool(adapter, positionKey));
         if (amount0 == 0 && amount1 == 0) revert ZeroAmount();
         _topUpOperatingCash();
-        _sendToAdapter(adapter, p.token0, amount0);
-        _sendToAdapter(adapter, p.token1, amount1);
+        _s.sendToAdapter(adapter, p.token0, amount0);
+        _s.sendToAdapter(adapter, p.token1, amount1);
         (used0, used1, income0, income1) = a.increasePosition(positionKey, params);
-        _creditUnused(adapter, p, amount0, used0, amount1, used1);
-        _credit(p, IAdapter.Amounts(0, 0, income0, income1));
-        _requireBacked(p);
+        _s.creditUnused(adapter, p, amount0, used0, amount1, used1);
+        _s.credit(p, IAdapter.Amounts(0, 0, income0, income1));
+        _s.requireBacked(baseToken, p);
         emit PositionIncreased(adapter, positionKey, used0, used1, income0, income1);
     }
 
@@ -304,7 +308,7 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         returns (IAdapter.Amounts memory amounts)
     {
         _topUpOperatingCash();
-        (amounts,) = _exit(adapter, positionKey, SpokeVaultTypes.ExitKind.Decrease, params);
+        (amounts,) = _s.exit(baseToken, adapter, positionKey, SpokeVaultTypes.ExitKind.Decrease, params);
     }
 
     /// @inheritdoc ISpokeVault
@@ -316,7 +320,7 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         returns (IAdapter.Amounts memory amounts)
     {
         _topUpOperatingCash();
-        (amounts,) = _exit(adapter, positionKey, SpokeVaultTypes.ExitKind.Close, params);
+        (amounts,) = _s.exit(baseToken, adapter, positionKey, SpokeVaultTypes.ExitKind.Close, params);
     }
 
     /// @inheritdoc ISpokeVault
@@ -328,7 +332,7 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         returns (IAdapter.Amounts memory amounts)
     {
         _topUpOperatingCash();
-        (amounts,) = _exit(adapter, positionKey, SpokeVaultTypes.ExitKind.Collect, "");
+        (amounts,) = _s.exit(baseToken, adapter, positionKey, SpokeVaultTypes.ExitKind.Collect, "");
     }
 
     /// @inheritdoc ISpokeVault
@@ -342,10 +346,10 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         uint256 minAmountOut,
         bytes calldata params
     ) external onlyManager nonReentrant returns (uint256 amountOut) {
-        IAdapter a = _positionAdapter(adapter);
-        SpokeVaultTypes.PoolTokens memory p = _pool(adapter, poolKey);
+        IAdapter a = _s.positionAdapter(adapter);
+        SpokeVaultTypes.PoolTokens memory p = _s.pool(adapter, poolKey);
         _topUpOperatingCash();
-        amountOut = _swap(a, p, poolKey, tokenIn, amountIn, minAmountOut, params, false);
+        amountOut = _s.swap(baseToken, a, p, poolKey, tokenIn, amountIn, minAmountOut, params, false);
     }
 
     /// @inheritdoc ISpokeVault
@@ -359,11 +363,11 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         uint256 minAmountOut,
         bytes calldata params
     ) external onlyOnSpokeChain onlyManager nonReentrant returns (uint256 amountOut) {
-        IAdapter a = _positionAdapter(adapter);
-        SpokeVaultTypes.PoolTokens memory p = _pool(adapter, poolKey);
-        if (_otherToken(p, tokenIn) != baseToken) revert UnexpectedToken(tokenIn);
+        IAdapter a = _s.positionAdapter(adapter);
+        SpokeVaultTypes.PoolTokens memory p = _s.pool(adapter, poolKey);
+        if (SpokeLedger.otherToken(p, tokenIn) != baseToken) revert UnexpectedToken(tokenIn);
         _topUpOperatingCash();
-        amountOut = _swap(a, p, poolKey, tokenIn, amountIn, minAmountOut, params, true);
+        amountOut = _s.swap(baseToken, a, p, poolKey, tokenIn, amountIn, minAmountOut, params, true);
     }
 
     /// @inheritdoc ISpokeVault
@@ -457,7 +461,7 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         if (originChainId != hubChainId) revert SpokeVaultTypes.UnexpectedOriginChain(originChainId);
 
         SpokeCrossChainLib.creditArrival(_s, tokenSent, transitId, kind, amount);
-        _requireBacked(tokenSent);
+        _s.requireBacked(baseToken, tokenSent);
         emit TransitArrived(transitId, originChainId, tokenSent, amount, kind);
         _topUpOperatingCash();
     }
@@ -473,15 +477,15 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         if (msg.sender != coreVault) revert NotCoreVault(msg.sender);
         if (amount == 0) revert ZeroAmount();
         _s.unallocated[baseToken] += amount;
-        _requireBacked(baseToken);
+        _s.requireBacked(baseToken, baseToken);
         emit ReceivedFromCoreVault(amount);
     }
 
     /// @inheritdoc ISpokeVault
     function returnToCoreVault(uint256 amount) external onlyOnHubChain onlyManager nonReentrant {
         if (amount == 0) revert ZeroAmount();
-        _debitUnallocated(baseToken, amount);
-        _payCoreVaultIdle(amount);
+        _s.debitUnallocated(baseToken, amount);
+        SpokeLedger.payCoreVaultIdle(baseToken, coreVault, amount);
         emit ReturnedToCoreVault(amount);
     }
 
@@ -497,23 +501,8 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
     }
 
     /// @inheritdoc ISpokeVault
-    /// @dev DEC-069: walks the Mandate unwind order restricted to this chain; within a step, every open position of
-    ///      that (adapter, pool) in registry order. An illiquid step reverts (no try/catch, a position is never
-    ///      skipped). The stop condition (USDC Unallocated Balance at `usdcTarget`) is re-evaluated before every
-    ///      position.
-    /// @dev Final verification (DEC-069, DEC-081, DEC-097, QA3 OPEN): the vault, not the claimant, sizes every step.
-    ///      For each position it values the principal in USDC (`IAdapter.positionValue`, non-USDC legs at the route's
-    ///      `spotQuote`), takes the shortfall still needed (`usdcTarget` minus the USDC Unallocated Balance so far)
-    ///      and asks the adapter for the exit that removes only that share (`IAdapter.unwindExitParams`); the whole
-    ///      position is closed only when its whole value is needed. A position with no principal value is skipped.
-    /// @dev DEC-059, DEC-067: Unallocated USDC (exact value) is used first; every position, Exact-Value ones included
-    ///      (`isExactValue`), is only exited while the target is not reached, so an Exact-Value position is read, not
-    ///      exited, when what comes before it covers the target.
-    /// @dev Non-USDC principal an exit returns is swapped to USDC through `swapExactInput` with a minimum output of
-    ///      at least the route's spot quote less `MAX_UNWIND_SLIPPAGE_BPS` (DEC-081: `usdcTarget` already holds the 2%
-    ///      margin; DEC-097: its Market Costs are the fund's). The claimant's hints can only raise that minimum or
-    ///      restrict the swap; they never size an exit. Income from the exits goes to the collected income bucket,
-    ///      never to the proceeds (DEC-092).
+    /// @dev DEC-069, DEC-081, DEC-097, DEC-131: the body lives in the linked library `SpokeUnwindLib` (see
+    ///      `SpokeUnwindLib.unwindForPayout`); the vault keeps the chain, caller and reentrancy checks.
     /// @param unwindHints `abi.encode(SpokeVaultTypes.UnwindHint[])`, optional, one per position visited in order.
     function unwindForPayout(uint256 usdcTarget, bytes calldata unwindHints)
         external
@@ -522,22 +511,7 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         returns (uint256 usdcProceeds)
     {
         if (msg.sender != coreVault) revert NotCoreVault(msg.sender);
-        if (usdcTarget == 0) revert ZeroAmount();
-        SpokeVaultTypes.UnwindHint[] memory hints = unwindHints.length == 0
-            ? new SpokeVaultTypes.UnwindHint[](0)
-            : abi.decode(unwindHints, (SpokeVaultTypes.UnwindHint[]));
-
-        uint256 visited;
-        for (uint256 s; s < _s.unwindOrder.length && _s.unallocated[baseToken] < usdcTarget; ++s) {
-            visited = _unwindStep(_s.unwindOrder[s], hints, visited, usdcTarget);
-        }
-
-        usdcProceeds = Math.min(_s.unallocated[baseToken], usdcTarget);
-        if (usdcProceeds != 0) {
-            _s.unallocated[baseToken] -= usdcProceeds;
-            _payCoreVaultIdle(usdcProceeds);
-        }
-        emit UnwoundForPayout(usdcTarget, usdcProceeds);
+        usdcProceeds = SpokeUnwindLib.unwindForPayout(_s, _config(), usdcTarget, unwindHints);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -549,7 +523,7 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
     ///      and Operating Cash; ledger value is never swept. Returns 0 when there is no excess.
     function sweepExcess(address token) external nonReentrant returns (uint256 amount) {
         uint256 balance = IERC20(token).balanceOf(address(this));
-        uint256 ledger = _ledgerTotal(token);
+        uint256 ledger = _s.ledgerTotal(baseToken, token);
         if (balance <= ledger) return 0;
         amount = balance - ledger;
         IERC20(token).safeTransfer(excessRecipient, amount);
@@ -583,7 +557,7 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
 
     /// @notice Tokens of a Mandate pool on this chain, as the adapter reported them at creation.
     function poolTokens(address adapter, bytes32 poolKey) external view returns (address token0, address token1) {
-        SpokeVaultTypes.PoolTokens memory p = _pool(adapter, poolKey);
+        SpokeVaultTypes.PoolTokens memory p = _s.pool(adapter, poolKey);
         return (p.token0, p.token1);
     }
 
@@ -667,9 +641,10 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // Internal: adapters and positions
+    // Internal
     // ---------------------------------------------------------------------------------------------------------------
 
+    /// @dev The vault's immutable wiring for its linked libraries.
     function _config() internal view returns (SpokeVaultTypes.Config memory) {
         return SpokeVaultTypes.Config({
             fundId: fundId,
@@ -685,319 +660,11 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         });
     }
 
-    /// @dev DEC-053: Mandate adapters on this chain only. Q17-4: the pinned codehash must still match.
-    function _positionAdapter(address adapter) internal view returns (IAdapter) {
-        if (!_s.isPositionAdapter[adapter]) revert AdapterNotInMandate(adapter);
-        bytes32 expected = _s.codehash[adapter];
-        bytes32 actual = adapter.codehash;
-        if (actual != expected) revert AdapterCodehashMismatch(adapter, expected, actual);
-        return IAdapter(adapter);
-    }
-
-    /// @dev DEC-030: Mandate pools on this chain only.
-    function _pool(address adapter, bytes32 poolKey) internal view returns (SpokeVaultTypes.PoolTokens memory p) {
-        p = _s.pools[adapter][poolKey];
-        if (!p.listed) revert PoolNotInMandate(adapter, poolKey);
-    }
-
-    function _positionPool(address adapter, bytes32 positionKey) internal view returns (bytes32) {
-        uint256 slot = _s.positionSlot[adapter][positionKey];
-        if (slot == 0) revert UnknownPosition(adapter, positionKey);
-        return _s.positions[slot - 1].poolKey;
-    }
-
-    function _removePosition(address adapter, bytes32 positionKey) internal {
-        uint256 slot = _s.positionSlot[adapter][positionKey];
-        uint256 last = _s.positions.length;
-        if (slot != last) {
-            PositionRef memory moved = _s.positions[last - 1];
-            _s.positions[slot - 1] = moved;
-            _s.positionSlot[moved.adapter][moved.positionKey] = slot;
-        }
-        _s.positions.pop();
-        delete _s.positionSlot[adapter][positionKey];
-    }
-
-    /// @dev Whether `a` still lists `positionKey` among its open positions.
-    function _adapterLists(IAdapter a, bytes32 positionKey) internal view returns (bool) {
-        bytes32[] memory keys = a.positionKeys();
-        for (uint256 i; i < keys.length; ++i) {
-            if (keys[i] == positionKey) return true;
-        }
-        return false;
-    }
-
-    function _positionKeysOf(address adapter, bytes32 poolKey) internal view returns (bytes32[] memory keys) {
-        uint256 n = _s.positions.length;
-        keys = new bytes32[](n);
-        uint256 found;
-        for (uint256 i; i < n; ++i) {
-            PositionRef storage ref = _s.positions[i];
-            if (ref.adapter == adapter && ref.poolKey == poolKey) keys[found++] = ref.positionKey;
-        }
-        assembly ("memory-safe") {
-            mstore(keys, found)
-        }
-    }
-
-    /// @dev DEC-056, DEC-079: decrease, close or collect; principal to Unallocated Balance, income to the collected
-    ///      income bucket, both from what the adapter returned. A close leaves the registry only when the adapter no
-    ///      longer lists the key: an adapter may keep it open holding income the protocol could not pay yet (Aave
-    ///      reserve liquidity, final verification, DEC-056, DEC-068), and that income stays reachable and reported.
-    function _exit(address adapter, bytes32 positionKey, SpokeVaultTypes.ExitKind kind, bytes memory params)
-        internal
-        returns (IAdapter.Amounts memory amounts, SpokeVaultTypes.PoolTokens memory p)
-    {
-        IAdapter a = _positionAdapter(adapter);
-        p = _pool(adapter, _positionPool(adapter, positionKey));
-        if (kind == SpokeVaultTypes.ExitKind.Decrease) {
-            amounts = a.decreasePosition(positionKey, params);
-            emit PositionDecreased(adapter, positionKey, amounts);
-        } else if (kind == SpokeVaultTypes.ExitKind.Close) {
-            amounts = a.closePosition(positionKey, params);
-            if (_adapterLists(a, positionKey)) {
-                emit PositionDecreased(adapter, positionKey, amounts);
-            } else {
-                _removePosition(adapter, positionKey);
-                emit PositionClosed(adapter, positionKey, amounts);
-            }
-        } else {
-            amounts = a.collectIncome(positionKey);
-            emit IncomeCollected(adapter, positionKey, amounts.income0, amounts.income1);
-        }
-        _credit(p, amounts);
-        _requireBacked(p);
-    }
-
-    /// @dev Swaps `tokenIn` for the pool's other token (DEC-079, DEC-080), from and into Unallocated Balance, or from
-    ///      and into the collected income bucket when `income` is true (DEC-092: the two never mix).
-    function _swap(
-        IAdapter a,
-        SpokeVaultTypes.PoolTokens memory p,
-        bytes32 poolKey,
-        address tokenIn,
-        uint256 amountIn,
-        uint256 minAmountOut,
-        bytes memory params,
-        bool income
-    ) internal returns (uint256 amountOut) {
-        address tokenOut = _otherToken(p, tokenIn);
-        if (amountIn == 0) revert ZeroAmount();
-        if (income) {
-            uint256 available = _s.collectedIncome[tokenIn];
-            if (amountIn > available) revert InsufficientCollectedIncome(tokenIn, available, amountIn);
-            _s.collectedIncome[tokenIn] = available - amountIn;
-            IERC20(tokenIn).safeTransfer(address(a), amountIn);
-        } else {
-            _sendToAdapter(address(a), tokenIn, amountIn);
-        }
-        amountOut = a.swapExactInput(poolKey, tokenIn, amountIn, minAmountOut, params);
-        if (amountOut < minAmountOut) revert SpokeVaultTypes.SwapOutputBelowMinimum(amountOut, minAmountOut);
-        if (income) {
-            _s.collectedIncome[tokenOut] += amountOut;
-            emit IncomeSwapped(address(a), poolKey, tokenIn, tokenOut, amountIn, amountOut);
-        } else {
-            _s.unallocated[tokenOut] += amountOut;
-            emit Swapped(address(a), poolKey, tokenIn, tokenOut, amountIn, amountOut);
-        }
-        _requireBacked(tokenOut);
-    }
-
-    function _otherToken(SpokeVaultTypes.PoolTokens memory p, address tokenIn) internal pure returns (address out) {
-        if (tokenIn != address(0)) {
-            if (tokenIn == p.token0) out = p.token1;
-            else if (tokenIn == p.token1) out = p.token0;
-        }
-        if (out == address(0)) revert UnexpectedToken(tokenIn);
-    }
-
-    /// @dev Every open position of one Mandate unwind step, in registry order, while the target is not reached; the
-    ///      `visited`-th position takes the `visited`-th hint, if any. Returns the positions visited so far.
-    function _unwindStep(
-        UnwindStep memory step,
-        SpokeVaultTypes.UnwindHint[] memory hints,
-        uint256 visited,
-        uint256 usdcTarget
-    ) internal returns (uint256) {
-        bytes32[] memory keys = _positionKeysOf(step.adapter, step.poolKey);
-        for (uint256 k; k < keys.length; ++k) {
-            uint256 held = _s.unallocated[baseToken];
-            if (held >= usdcTarget) break;
-            SpokeVaultTypes.UnwindSwap[] memory swaps;
-            if (visited < hints.length) swaps = hints[visited].swaps;
-            ++visited;
-            _unwindPosition(step.adapter, step.poolKey, keys[k], usdcTarget - held, swaps);
-        }
-        return visited;
-    }
-
-    /// @dev One unwind step on one position (final verification): value the principal in USDC, exit only the share
-    ///      of it the `shortfall` needs (the whole position when its whole value is needed), then swap the non-USDC
-    ///      principal the exit returned into USDC above the vault's floor.
-    function _unwindPosition(
-        address adapter,
-        bytes32 poolKey,
-        bytes32 positionKey,
-        uint256 shortfall,
-        SpokeVaultTypes.UnwindSwap[] memory swaps
-    ) internal {
-        IAdapter a = _positionAdapter(adapter);
-        SpokeVaultTypes.PoolTokens memory p = _pool(adapter, poolKey);
-        SpokeVaultTypes.UnwindSwap memory r0 = _unwindRoute(adapter, poolKey, p, p.token0, swaps);
-        SpokeVaultTypes.UnwindSwap memory r1 = _unwindRoute(adapter, poolKey, p, p.token1, swaps);
-        uint256 value;
-        {
-            IAdapter.PositionValue memory v = a.positionValue(positionKey);
-            value = _unwindValue(r0, v.principal0) + _unwindValue(r1, v.principal1);
-        }
-        if (value == 0) return;
-        (bool close, bytes memory params) = a.unwindExitParams(positionKey, Math.min(shortfall, value), value);
-        (IAdapter.Amounts memory amounts,) = _exit(
-            adapter, positionKey, close ? SpokeVaultTypes.ExitKind.Close : SpokeVaultTypes.ExitKind.Decrease, params
-        );
-        _unwindSwap(r0, amounts.principal0);
-        _unwindSwap(r1, amounts.principal1);
-    }
-
-    /// @dev The swap route of `token` into USDC for an unwind exit: none for USDC (or a missing token1); the
-    ///      position's own pool when it pairs `token` with USDC (a hint for `token` must then name that same route);
-    ///      otherwise the hint's route, which must be a Mandate pool of a Mandate adapter pairing `token` with USDC.
-    ///      The hint entry's `minAmountOut` and `params` travel with the route.
-    /// @dev Independent verification plan T14: a single-asset position (`token1` zero, an Aave reserve) has no pair of
-    ///      its own, so a non-USDC one takes the hint's route; asking its one-token pool for the other token reverted
-    ///      every unwind that reached the step.
-    function _unwindRoute(
-        address adapter,
-        bytes32 poolKey,
-        SpokeVaultTypes.PoolTokens memory p,
-        address token,
-        SpokeVaultTypes.UnwindSwap[] memory swaps
-    ) internal view returns (SpokeVaultTypes.UnwindSwap memory r) {
-        address usdc = baseToken;
-        if (token == usdc || token == address(0)) return r;
-        for (uint256 i; i < swaps.length; ++i) {
-            if (swaps[i].tokenIn == token) r = swaps[i];
-        }
-        if (p.token1 != address(0) && _otherToken(p, token) == usdc) {
-            if (r.adapter != address(0) && (r.adapter != adapter || r.poolKey != poolKey)) {
-                revert SpokeVaultTypes.InvalidUnwindSwap(r.adapter, r.poolKey, token);
-            }
-            (r.adapter, r.poolKey, r.tokenIn) = (adapter, poolKey, token);
-        } else {
-            if (r.adapter == address(0)) revert SpokeVaultTypes.MissingUnwindSwap(token);
-            _positionAdapter(r.adapter);
-            if (_otherToken(_pool(r.adapter, r.poolKey), token) != usdc) {
-                revert SpokeVaultTypes.InvalidUnwindSwap(r.adapter, r.poolKey, token);
-            }
-        }
-    }
-
-    /// @dev USDC value of `amount` of a route's token at the route's spot price; USDC itself (no route) at par.
-    function _unwindValue(SpokeVaultTypes.UnwindSwap memory r, uint256 amount) internal view returns (uint256) {
-        if (amount == 0 || r.adapter == address(0)) return amount;
-        return IAdapter(r.adapter).spotQuote(r.poolKey, r.tokenIn, amount);
-    }
-
-    /// @dev Swaps `amountIn` along route `r` into USDC with a minimum output of at least the higher of the route's
-    ///      spot quote and the Core Vault's price-source value, less `MAX_UNWIND_SLIPPAGE_BPS`; the hint's minimum
-    ///      only when it is higher (final verification, QA3 OPEN).
-    /// @dev Security review S-2: the claimant runs this inside its own transaction and can move `slot0` first, so a
-    ///      floor measured against the spot quote alone followed the moved price. The price-source value (Chainlink
-    ///      for WETH, the price Share Assets use) cannot be moved in the same block; a pushed-down spot now makes the
-    ///      swap revert, the whole unwind reverts and the claim is paid from Idle only (DEC-068). A reverting price
-    ///      source reverts the unwind the same way (the claim itself never reverts, `CoreVault._unwindForPayout`).
-    function _unwindSwap(SpokeVaultTypes.UnwindSwap memory r, uint256 amountIn) internal {
-        if (amountIn == 0 || r.adapter == address(0)) return;
-        IAdapter a = IAdapter(r.adapter);
-        (uint256 oracleValue,) = IPriceSource(ICoreVault(coreVault).priceSource()).usdcValue(r.tokenIn, amountIn);
-        uint256 floor = Math.mulDiv(
-            Math.max(a.spotQuote(r.poolKey, r.tokenIn, amountIn), oracleValue),
-            MandateLib.BPS - MAX_UNWIND_SLIPPAGE_BPS,
-            MandateLib.BPS
-        );
-        _swap(
-            a,
-            _pool(r.adapter, r.poolKey),
-            r.poolKey,
-            r.tokenIn,
-            amountIn,
-            Math.max(floor, r.minAmountOut),
-            r.params,
-            false
-        );
-    }
-
-    // ---------------------------------------------------------------------------------------------------------------
-    // Internal: ledger (DEC-080)
-    // ---------------------------------------------------------------------------------------------------------------
-
-    function _sendToAdapter(address adapter, address token, uint256 amount) internal {
-        if (amount == 0) return;
-        if (token == address(0)) revert UnexpectedToken(token);
-        _debitUnallocated(token, amount);
-        IERC20(token).safeTransfer(adapter, amount);
-    }
-
-    function _creditUnused(
-        address adapter,
-        SpokeVaultTypes.PoolTokens memory p,
-        uint256 sent0,
-        uint256 used0,
-        uint256 sent1,
-        uint256 used1
-    ) internal {
-        if (used0 > sent0) revert SpokeVaultTypes.AdapterUsedAboveInput(adapter, p.token0, sent0, used0);
-        if (used1 > sent1) revert SpokeVaultTypes.AdapterUsedAboveInput(adapter, p.token1, sent1, used1);
-        if (sent0 != used0) _s.unallocated[p.token0] += sent0 - used0;
-        if (sent1 != used1) _s.unallocated[p.token1] += sent1 - used1;
-    }
-
-    /// @dev DEC-079: principal to Unallocated Balance, income to the collected income bucket (DEC-092).
-    function _credit(SpokeVaultTypes.PoolTokens memory p, IAdapter.Amounts memory a) internal {
-        if (p.token1 == address(0) && (a.principal1 != 0 || a.income1 != 0)) revert UnexpectedToken(address(0));
-        _s.unallocated[p.token0] += a.principal0;
-        _s.collectedIncome[p.token0] += a.income0;
-        if (p.token1 != address(0)) {
-            _s.unallocated[p.token1] += a.principal1;
-            _s.collectedIncome[p.token1] += a.income1;
-        }
-    }
-
-    function _debitUnallocated(address token, uint256 amount) internal {
-        uint256 available = _s.unallocated[token];
-        if (amount > available) revert InsufficientUnallocatedBalance(token, available, amount);
-        _s.unallocated[token] = available - amount;
-    }
-
-    function _ledgerTotal(address token) internal view returns (uint256 total) {
-        total = _s.unallocated[token] + _s.collectedIncome[token];
-        if (token == baseToken) total += _s.operatingCash;
-    }
-
-    /// @dev DEC-080 fitness function: the ledger never exceeds the balance. An adapter or a caller that reports more
-    ///      than it delivered makes the operation revert instead of inflating a value base.
-    function _requireBacked(address token) internal view {
-        if (token == address(0)) return;
-        uint256 balance = IERC20(token).balanceOf(address(this));
-        uint256 ledger = _ledgerTotal(token);
-        if (balance < ledger) revert SpokeVaultTypes.LedgerExceedsBalance(token, balance, ledger);
-    }
-
-    function _requireBacked(SpokeVaultTypes.PoolTokens memory p) internal view {
-        _requireBacked(p.token0);
-        _requireBacked(p.token1);
-    }
-
     /// @dev DEC-096, DEC-100: below the floor, the next value-moving operation adds `operatingCashTopUp` (or what
     ///      Unallocated Balance of the base token holds, if less) to Operating Cash; the Share Price drop is accepted.
     ///      DEC-041: the expense is booked with its payer, Share Assets. Spoke Chains only (on the hub, Operating Cash
     ///      lives in the Core Vault). Never reverts, so it never blocks an exit (DEC-056).
     function _topUpOperatingCash() internal {
         if (!onHubChain) SpokeCrossChainLib.topUpOperatingCash(_s, baseToken, chainId);
-    }
-
-    function _payCoreVaultIdle(uint256 amount) internal {
-        IERC20(baseToken).safeTransfer(coreVault, amount);
-        ICoreVault(coreVault).returnToIdle(amount);
     }
 }
