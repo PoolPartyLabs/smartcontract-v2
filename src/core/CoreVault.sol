@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {TransientSlot} from "@openzeppelin/contracts/utils/TransientSlot.sol";
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
 import {ICoreVaultLifecycle} from "../interfaces/ICoreVaultLifecycle.sol";
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
@@ -12,6 +13,7 @@ import {ShareMath} from "../libraries/ShareMath.sol";
 import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 import {ShareToken} from "./ShareToken.sol";
 import {CoreVaultBase, CoreVaultConfig} from "./CoreVaultBase.sol";
+import {CORE_VAULT_UNWINDING_SLOT} from "./CoreVaultTypes.sol";
 import {CoreVaultTransit} from "./CoreVaultTransit.sol";
 import {CoreVaultLogic} from "./CoreVaultLogic.sol";
 
@@ -30,6 +32,7 @@ import {CoreVaultLogic} from "./CoreVaultLogic.sol";
 contract CoreVault is CoreVaultTransit {
     using SafeERC20 for IERC20;
     using IncomeAccumulator for IncomeAccumulator.State;
+    using TransientSlot for *;
 
     /// @notice DEC-081: the unwind targets the shortfall plus 2%.
     uint256 public constant UNWIND_MARGIN_BPS = 200;
@@ -330,13 +333,16 @@ contract CoreVault is CoreVaultTransit {
     ///      the call (itself backed by USDC above the ledger) reaches Idle; the amount it reports is informational, so
     ///      no `balanceOf`-derived amount can reach a value base. A reverting unwind never blocks the claim (DEC-056):
     ///      the payout continues with Idle and may be partial (DEC-068).
+    /// @dev The unwinding flag (`CORE_VAULT_UNWINDING_SLOT`, transient) is set only around the call, so the hub Spoke
+    ///      Vault may call back `returnToIdle` from inside it and from nowhere else in the claim
+    ///      (`CoreVaultBase.onlyHubSpokeVaultCallback`).
     function _unwindForPayout(uint256 target, bytes calldata hints) private returns (uint256 proceeds) {
         uint256 idleBefore = _s.idle;
-        _unwinding = true;
+        CORE_VAULT_UNWINDING_SLOT.asBoolean().tstore(true);
         try ISpokeVault(hubSpokeVault).unwindForPayout(target, hints) {
-            _unwinding = false;
+            CORE_VAULT_UNWINDING_SLOT.asBoolean().tstore(false);
         } catch {
-            _unwinding = false;
+            CORE_VAULT_UNWINDING_SLOT.asBoolean().tstore(false);
             emit UnwindForPayoutFailed(target);
         }
         proceeds = _s.idle - idleBefore;

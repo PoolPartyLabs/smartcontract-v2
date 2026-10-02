@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
+import {TransientSlot} from "@openzeppelin/contracts/utils/TransientSlot.sol";
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
 import {ICoreVaultLifecycle} from "../interfaces/ICoreVaultLifecycle.sol";
 import {IBridgeAdapter} from "../interfaces/IBridgeAdapter.sol";
@@ -13,7 +14,7 @@ import {ShareMath} from "../libraries/ShareMath.sol";
 import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 import {ShareToken} from "./ShareToken.sol";
 import {ManagerFeeVault} from "./ManagerFeeVault.sol";
-import {CoreVaultConfig, CoreVaultWiring, CoreVaultState} from "./CoreVaultTypes.sol";
+import {CoreVaultConfig, CoreVaultWiring, CoreVaultState, CORE_VAULT_UNWINDING_SLOT} from "./CoreVaultTypes.sol";
 import {CoreVaultLogic} from "./CoreVaultLogic.sol";
 
 /// @title CoreVaultBase
@@ -24,6 +25,7 @@ import {CoreVaultLogic} from "./CoreVaultLogic.sol";
 ///      ICoreVaultLifecycle.
 abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGuardTransient {
     using IncomeAccumulator for IncomeAccumulator.State;
+    using TransientSlot for *;
 
     /// @dev Kind tag of the Operating Cash top-up expense (DEC-041, DEC-096).
     bytes32 internal constant OPERATING_CASH_TOP_UP = keccak256("OPERATING_CASH_TOP_UP");
@@ -59,13 +61,9 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
     uint256 internal immutable _minFirstDeposit;
     uint16 internal immutable _maxBridgeFeeBps;
 
-    /// @dev Every mutable value of the Core Vault (see CoreVaultState).
+    /// @dev Every mutable value of the Core Vault (see CoreVaultState). The unwinding flag lives in transient storage
+    ///      at `CORE_VAULT_UNWINDING_SLOT`, written by `CoreVault._unwindForPayout`.
     CoreVaultState internal _s;
-
-    /// @dev Set while the Core Vault waits on `ISpokeVault.unwindForPayout`, so the hub Spoke Vault may call back
-    ///      `returnToIdle` from inside a payout. `receiveCollectedIncome` takes the reentrancy guard and is never called
-    ///      back from an unwind (the unwind's income stays in the hub Spoke Vault's collected bucket).
-    bool internal transient _unwinding;
 
     // ---------------------------------------------------------------------------------------------------------------
     // Construction
@@ -190,10 +188,15 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
     }
 
     /// @dev The hub Spoke Vault callbacks move no value out and make only static calls, so they do not take the guard;
-    ///      they revert while any guarded entry is in progress, except during a payout's automatic unwind.
+    ///      they revert while any guarded entry is in progress, except during a payout's automatic unwind (the flag at
+    ///      `CORE_VAULT_UNWINDING_SLOT`, set only around `ISpokeVault.unwindForPayout`). `receiveCollectedIncome` takes
+    ///      the reentrancy guard and is never called back from an unwind (the unwind's income stays in the hub Spoke
+    ///      Vault's collected bucket).
     modifier onlyHubSpokeVaultCallback() {
         if (msg.sender != hubSpokeVault) revert NotHubSpokeVault(msg.sender);
-        if (_reentrancyGuardEntered() && !_unwinding) revert ReentrancyGuardReentrantCall();
+        if (_reentrancyGuardEntered() && !CORE_VAULT_UNWINDING_SLOT.asBoolean().tload()) {
+            revert ReentrancyGuardReentrantCall();
+        }
         _;
     }
 
