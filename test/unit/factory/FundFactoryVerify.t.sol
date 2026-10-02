@@ -28,6 +28,7 @@ import {AnyPriceSource} from "../../mocks/core/AnyPriceSource.sol";
 import {MockManagerRegistry} from "../../mocks/core/MockManagerRegistry.sol";
 import {FundSeed} from "../../utils/FundSeed.sol";
 import {MandateFixture} from "../../utils/MandateFixture.sol";
+import {V3Stub} from "../../utils/V3Stub.sol";
 
 /// @notice Adversarial verification of the factory stage (round 1). The hub and the spoke factory are two deployments at
 ///         the same address, one per simulated chain, as in FundFactory.t.sol.
@@ -93,6 +94,7 @@ contract FundFactoryVerifyTest is Test, FactoryDeployment, FundMandate, FundSeed
         w.uniswapV4StateView = makeAddr(hub ? "hubStateView" : "spokeStateView");
         w.permit2 = makeAddr("permit2");
         w.aaveV3Pool = hub ? address(aave) : address(0);
+        V3Stub.wire(w);
         w.managerRegistry = hub ? registry : address(0);
         w.priceSource = hub ? prices : address(0);
         w.protocolRecipient = recipient;

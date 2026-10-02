@@ -48,7 +48,7 @@ contract FeeTierFork is IntegrationPriceBase {
 
         // `_createFund` of the base, unrolled so the revert of `createFund` itself is the one expected.
         FundPlan memory plan = _pricePlan(SPOKE_CAP);
-        hubDeployment = _deployProtocol(recipient, guardian, registryOwner);
+        hubDeployment = _deployProtocol(recipient, guardian, registryOwner, registryOwner);
         FundFactory factory = hubDeployment.factory;
         creationNumber = factory.nextCreationNumber();
         fundId = factory.fundIdOf(ARBITRUM, creationNumber, manager);

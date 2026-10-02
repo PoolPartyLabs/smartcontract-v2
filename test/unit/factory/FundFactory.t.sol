@@ -26,6 +26,7 @@ import {FundMandate} from "../../../script/FundMandate.sol";
 import {AnyPriceSource} from "../../mocks/core/AnyPriceSource.sol";
 import {MockManagerRegistry} from "../../mocks/core/MockManagerRegistry.sol";
 import {FundSeed} from "../../utils/FundSeed.sol";
+import {V3Stub} from "../../utils/V3Stub.sol";
 
 /// @notice Fund Factory without the network: salt derivation, predictions, hub and spoke creation against mock
 ///         protocols, and every refusal. The hub and the spoke factory are two deployments at the same address, one per
@@ -85,6 +86,7 @@ contract FundFactoryTest is Test, FactoryDeployment, FundMandate, FundSeed {
         w.uniswapV4StateView = makeAddr(hub ? "hubStateView" : "spokeStateView");
         w.permit2 = makeAddr("permit2");
         w.aaveV3Pool = hub ? address(aave) : address(0);
+        V3Stub.wire(w);
         w.managerRegistry = hub ? registry : address(0);
         w.priceSource = hub ? prices : address(0);
         w.protocolRecipient = recipient;

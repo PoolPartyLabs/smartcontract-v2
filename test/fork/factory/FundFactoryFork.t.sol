@@ -74,7 +74,7 @@ contract FundFactoryForkTest is Test, FactoryDeployment, FundMandate, FundSeed {
 
     function _hubDeployment() internal returns (Deployment memory d) {
         vm.selectFork(arbitrumFork);
-        d = _deployProtocol(recipient, guardian, registryOwner);
+        d = _deployProtocol(recipient, guardian, registryOwner, registryOwner);
     }
 
     function test_DEC054_forkCreateFundOnArbitrumThenCreateSpokeOnRobinhood() public {
@@ -173,7 +173,7 @@ contract FundFactoryForkTest is Test, FactoryDeployment, FundMandate, FundSeed {
         IFundFactory.FundAddresses memory predicted
     ) internal {
         vm.selectFork(robinhoodFork);
-        Deployment memory rd = _deployProtocol(recipient, guardian, registryOwner);
+        Deployment memory rd = _deployProtocol(recipient, guardian, registryOwner, registryOwner);
         assertEq(address(rd.factory), address(d.factory), "same factory address on both chains");
         assertEq(rd.spokeCrossChainLib, d.spokeCrossChainLib, "chain-independent library address");
         assertEq(rd.spokeUnwindLib, d.spokeUnwindLib, "chain-independent unwind library address");

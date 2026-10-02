@@ -21,6 +21,7 @@ import {AnyPriceSource} from "../../mocks/core/AnyPriceSource.sol";
 import {MockManagerRegistry} from "../../mocks/core/MockManagerRegistry.sol";
 import {FactoryDeployment} from "../../../script/FactoryDeployment.sol";
 import {FundMandate} from "../../../script/FundMandate.sol";
+import {V3Stub} from "../../utils/V3Stub.sol";
 
 /// @notice DEC-127, DEC-061, DEC-113: `FundFactory.createFund` seeds the fund with the manager's own capital in the
 ///         creation transaction: no fund exists without its seed, and the first shares are the manager's. DEC-115,
@@ -59,6 +60,7 @@ contract FundFactorySeedTest is Test, FactoryDeployment, FundMandate {
         w.uniswapV4StateView = makeAddr("hubStateView");
         w.permit2 = makeAddr("permit2");
         w.aaveV3Pool = address(aave);
+        V3Stub.wire(w);
         w.managerRegistry = registry;
         w.priceSource = address(new AnyPriceSource());
         w.protocolRecipient = recipient;

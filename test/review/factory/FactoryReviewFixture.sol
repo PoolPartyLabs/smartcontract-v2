@@ -25,6 +25,7 @@ import {MockPriceSource} from "../../mocks/core/MockPriceSource.sol";
 import {FactoryDeployment} from "../../../script/FactoryDeployment.sol";
 import {FundMandate} from "../../../script/FundMandate.sol";
 import {FundSeed} from "../../utils/FundSeed.sol";
+import {V3Stub} from "../../utils/V3Stub.sol";
 
 /// @notice Review fixture (factory): the REAL deployment path (`script/FactoryDeployment.sol` and
 ///         `script/FundMandate.sol`, as the repository's factory tests use them) on two simulated chains, with every fund
@@ -104,6 +105,7 @@ abstract contract FactoryReviewFixture is Test, FactoryDeployment, FundMandate, 
         w.uniswapV4StateView = makeAddr(hub ? "hubStateView" : "spokeStateView");
         w.permit2 = makeAddr("permit2");
         w.aaveV3Pool = hub ? address(aave) : address(0);
+        V3Stub.wire(w);
         w.managerRegistry = hub ? address(registry) : address(0);
         w.priceSource = hub ? address(prices) : address(0);
         w.protocolRecipient = recipient;

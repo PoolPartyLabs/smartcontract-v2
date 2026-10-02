@@ -235,7 +235,7 @@ abstract contract IntegrationPriceBase is EndToEndBase {
     /// @param extraHubPools Additional hub Uniswap V4 pools, appended to the Mandate pool list (the unwind walks the
     ///        positions in registry order, DEC-137 interim, so a test opens them in the order it wants unwound).
     function _createFund(FundPlan memory plan, PoolKey[] memory extraHubPools) internal returns (Mandate memory m) {
-        hubDeployment = _deployProtocol(recipient, guardian, registryOwner);
+        hubDeployment = _deployProtocol(recipient, guardian, registryOwner, registryOwner);
         FundFactory factory = hubDeployment.factory;
         creationNumber = factory.nextCreationNumber();
         fundId = factory.fundIdOf(ARBITRUM, creationNumber, manager);

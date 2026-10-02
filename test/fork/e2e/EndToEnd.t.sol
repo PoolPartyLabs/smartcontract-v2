@@ -65,7 +65,7 @@ abstract contract EndToEndScenario is EndToEndBase {
     ///      address on both chains and puts each contract at its prediction.
     function _phase1CreateFund() internal {
         _onArbitrum();
-        hubDeployment = _deployProtocol(recipient, guardian, registryOwner);
+        hubDeployment = _deployProtocol(recipient, guardian, registryOwner, registryOwner);
         FundFactory factory = hubDeployment.factory;
         creationNumber = factory.nextCreationNumber();
         IFundFactory.FundAddresses memory predicted = factory.predictAddresses(creationNumber, manager, _chainIds());
@@ -131,7 +131,7 @@ abstract contract EndToEndScenario is EndToEndBase {
     ///      address the hub's Mandate already names.
     function _createSpoke(Mandate memory m, IFundFactory.FundAddresses memory predicted) internal {
         _onRobinhood();
-        Deployment memory rd = _deployProtocol(recipient, guardian, registryOwner);
+        Deployment memory rd = _deployProtocol(recipient, guardian, registryOwner, registryOwner);
         assertEq(address(rd.factory), address(hubDeployment.factory), "DEC-054: one factory address on both chains");
         vm.prank(manager);
         IFundFactory.ChainAddresses memory s =

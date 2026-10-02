@@ -31,6 +31,7 @@ import {MockPriceSource} from "../../mocks/core/MockPriceSource.sol";
 import {FactoryDeployment} from "../../../script/FactoryDeployment.sol";
 import {FundMandate} from "../../../script/FundMandate.sol";
 import {FundSeed} from "../../utils/FundSeed.sol";
+import {V3Stub} from "../../utils/V3Stub.sol";
 
 /// @notice Shared fixture of the access-control security PoCs: a fund created by the REAL FundFactory (real Core
 ///         Vault, Spoke Vault, ShareToken, ManagerFeeVault, ValueReportReceiver, Uniswap V4, Aave V3 and Across
@@ -118,6 +119,7 @@ abstract contract AccessFundFixture is Test, FactoryDeployment, FundMandate, Fun
         w.uniswapV4StateView = hub ? address(v4) : makeAddr("spokeStateView");
         w.permit2 = address(permit2);
         w.aaveV3Pool = hub ? address(aave) : address(0);
+        V3Stub.wire(w);
         w.managerRegistry = hub ? address(registry) : address(0);
         w.priceSource = hub ? address(prices) : address(0);
         w.protocolRecipient = recipient;

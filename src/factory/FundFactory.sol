@@ -48,6 +48,7 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
     bytes32 public constant ROLE_AAVE_V3_ADAPTER = "AaveV3Adapter";
     bytes32 public constant ROLE_ACROSS_BRIDGE_ADAPTER = "AcrossBridgeAdapter";
     bytes32 public constant ROLE_VALUE_REPORT_RECEIVER = "ValueReportReceiver";
+    bytes32 public constant ROLE_UNISWAP_V3_SWAP_ADAPTER = "UniswapV3SwapAdapter";
 
     /// @notice Variation band handed to every receiver: 0, disabled (Q57 (d) OPEN, stance: slot reserved, not
     ///         enforced).
@@ -64,6 +65,10 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
     address internal immutable _uniswapV4StateView;
     address internal immutable _permit2;
     address internal immutable _aaveV3Pool;
+    address internal immutable _uniswapV3Factory;
+    address internal immutable _uniswapV3SwapRouter02;
+    address internal immutable _uniswapV3QuoterV2;
+    address internal immutable _apiSigner;
     address internal immutable _managerRegistry;
     address internal immutable _priceSource;
     address internal immutable _protocolRecipient;
@@ -114,6 +119,10 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
         _uniswapV4StateView = w.uniswapV4StateView;
         _permit2 = w.permit2;
         _aaveV3Pool = w.aaveV3Pool;
+        _uniswapV3Factory = w.uniswapV3Factory;
+        _uniswapV3SwapRouter02 = w.uniswapV3SwapRouter02;
+        _uniswapV3QuoterV2 = w.uniswapV3QuoterV2;
+        _apiSigner = w.apiSigner;
         _managerRegistry = w.managerRegistry;
         _priceSource = w.priceSource;
         _protocolRecipient = w.protocolRecipient;
@@ -132,6 +141,7 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
         _storeCode(ROLE_AAVE_V3_ADAPTER, stores.aaveV3Adapter);
         _storeCode(ROLE_ACROSS_BRIDGE_ADAPTER, stores.acrossBridgeAdapter);
         _storeCode(ROLE_VALUE_REPORT_RECEIVER, stores.valueReportReceiver);
+        _storeCode(ROLE_UNISWAP_V3_SWAP_ADAPTER, stores.uniswapV3SwapAdapter);
     }
 
     function _storeCode(bytes32 role, address[] memory chunks) private {
@@ -274,6 +284,10 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
         w.uniswapV4StateView = _uniswapV4StateView;
         w.permit2 = _permit2;
         w.aaveV3Pool = _aaveV3Pool;
+        w.uniswapV3Factory = _uniswapV3Factory;
+        w.uniswapV3SwapRouter02 = _uniswapV3SwapRouter02;
+        w.uniswapV3QuoterV2 = _uniswapV3QuoterV2;
+        w.apiSigner = _apiSigner;
         w.managerRegistry = _managerRegistry;
         w.priceSource = _priceSource;
         w.protocolRecipient = _protocolRecipient;
@@ -323,6 +337,7 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
         c.uniswapV4Adapter = _addressOf(fundId, ROLE_UNISWAP_V4_ADAPTER, chainId);
         c.aaveV3Adapter = _addressOf(fundId, ROLE_AAVE_V3_ADAPTER, chainId);
         c.acrossBridgeAdapter = _addressOf(fundId, ROLE_ACROSS_BRIDGE_ADAPTER, chainId);
+        c.uniswapV3SwapAdapter = _addressOf(fundId, ROLE_UNISWAP_V3_SWAP_ADAPTER, chainId);
     }
 
     /// @dev DEC-053, DEC-054, DEC-086, DEC-087: every address the Mandate lists, on every chain, must be the fund's own
@@ -344,6 +359,14 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
                 revert UnexpectedBridgeAdapter(chainId, adapter);
             }
         }
+        // DEC-136: the alpha's only swap adapter is the fund's own Uniswap V3 swap adapter of each chain.
+        for (uint256 i; i < m.swapAdapters.length; ++i) {
+            uint256 chainId = m.swapAdapters[i].chainId;
+            address adapter = m.swapAdapters[i].adapter;
+            if (adapter != _addressOf(fundId, ROLE_UNISWAP_V3_SWAP_ADAPTER, chainId)) {
+                revert UnexpectedSwapAdapter(chainId, adapter);
+            }
+        }
         for (uint256 i; i < m.spokes.length; ++i) {
             SpokeConfig memory s = m.spokes[i];
             bytes32 predicted = bytes32(uint256(uint160(_addressOf(fundId, ROLE_SPOKE_VAULT, s.chainId))));
@@ -355,10 +378,10 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
     // Deployment
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @dev Deploys the adapters the Mandate lists on `chainId`: Uniswap V4 and Aave V3 owned by this chain's Spoke
-    ///      Vault (DEC-054), Across owned by `bridgeVault` (the Core Vault on the hub, which sends to spokes; the Spoke
-    ///      Vault on a spoke, which sends home; DEC-087). A role the Mandate does not list here is not deployed and is
-    ///      address(0) in the result.
+    /// @dev Deploys the adapters the Mandate lists on `chainId`: Uniswap V4, Aave V3 and the Uniswap V3 swap adapter
+    ///      owned by this chain's Spoke Vault (DEC-054, DEC-136), Across owned by `bridgeVault` (the Core Vault on the
+    ///      hub, which sends to spokes; the Spoke Vault on a spoke, which sends home; DEC-087). A role the Mandate does
+    ///      not list here is not deployed and is address(0) in the result.
     function _deployChainAdapters(
         Mandate memory m,
         bytes32 fundId,
@@ -377,6 +400,11 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
             _deployAaveV3Adapter(m, fundId, chainId, c);
         } else {
             c.aaveV3Adapter = address(0);
+        }
+        if (m.isSwapAdapter(chainId, c.uniswapV3SwapAdapter)) {
+            _deployUniswapV3SwapAdapter(m, fundId, chainId, c);
+        } else {
+            c.uniswapV3SwapAdapter = address(0);
         }
         if (m.isBridgeAdapter(chainId, c.acrossBridgeAdapter)) {
             // DEC-066: the adapter constructor reverts FillDeadlineBufferTooShort on a SpokePool below 6 h; Create3
@@ -442,6 +470,32 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
             mstore(assets, count)
         }
         _deploy(fundId, ROLE_AAVE_V3_ADAPTER, chainId, abi.encode(c.spokeVault, _guardian, _aaveV3Pool, assets));
+    }
+
+    /// @dev DEC-136 (closing note: only the Uniswap swap adapter in the alpha), DEC-153: the adapter swaps only this
+    ///      chain's Mandate tokens (item 2), pays every output to this chain's Spoke Vault and accepts routes signed by
+    ///      the API key of this chain's wiring (reading D-01; zero: no API routes, DEC-052). Its constructor checks
+    ///      that the router and the quoter answer for the factory given (`WiringMismatch`) and that the chain's base
+    ///      token is a Mandate token.
+    function _deployUniswapV3SwapAdapter(Mandate memory m, bytes32 fundId, uint256 chainId, ChainAddresses memory c)
+        private
+    {
+        if (_uniswapV3Factory == address(0)) revert ProtocolNotOnChain(ROLE_UNISWAP_V3_SWAP_ADAPTER);
+        _deploy(
+            fundId,
+            ROLE_UNISWAP_V3_SWAP_ADAPTER,
+            chainId,
+            abi.encode(
+                c.spokeVault,
+                _guardian,
+                _baseToken,
+                m.tokensOf(chainId),
+                _uniswapV3Factory,
+                _uniswapV3SwapRouter02,
+                _uniswapV3QuoterV2,
+                _apiSigner
+            )
+        );
     }
 
     /// @dev DEC-054: one Spoke Vault per fund chain, the Hub Chain included. `wormholeCore` is zero on the hub.

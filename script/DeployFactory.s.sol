@@ -9,17 +9,20 @@ import {FactoryDeployment} from "./FactoryDeployment.sol";
 ///         the addresses of docs/INTEGRATIONS.md. Run it with the same broadcaster on every chain: the factory lands at
 ///         the same address everywhere (docs/DEPLOYMENT.md).
 /// @dev Environment: `PROTOCOL_RECIPIENT` (fee wallet, DEC-106, LC-132 OPEN), `ADAPTER_GUARDIAN` (ruling 2026-09-29,
-///      Q17-2b), `REGISTRY_OWNER` (hub ManagerRegistry owner, LC-142). Fork first:
+///      Q17-2b), `API_SIGNER` (the Pool Party API key, reading D-01: swap route signer and Across quoter of every fund;
+///      `address(0)` for none), optional `REGISTRY_OWNER` (hub ManagerRegistry owner, LC-142; defaults to
+///      `API_SIGNER`, D-01). Fork first:
 ///      `forge script script/DeployFactory.s.sol --fork-url $ARBITRUM_RPC_URL --sender <operator>`, then the same
 ///      command with `--rpc-url` and `--broadcast` and the operator's keystore.
 contract DeployFactory is Script, FactoryDeployment {
     function run() external returns (Deployment memory d) {
         address recipient = vm.envAddress("PROTOCOL_RECIPIENT");
         address guardian = vm.envAddress("ADAPTER_GUARDIAN");
-        address registryOwner = vm.envAddress("REGISTRY_OWNER");
+        address apiSigner = vm.envAddress("API_SIGNER");
+        address registryOwner = vm.envOr("REGISTRY_OWNER", apiSigner);
 
         vm.startBroadcast();
-        d = _deployProtocol(recipient, guardian, registryOwner);
+        d = _deployProtocol(recipient, guardian, registryOwner, apiSigner);
         vm.stopBroadcast();
 
         console.log("chain id", block.chainid);

@@ -9,6 +9,7 @@ import {CodeStore} from "../src/factory/CodeStore.sol";
 import {ManagerRegistry} from "../src/core/ManagerRegistry.sol";
 import {ChainlinkPriceSource} from "../src/report/ChainlinkPriceSource.sol";
 import {IImmutableState} from "@uniswap/v4-periphery/src/interfaces/IImmutableState.sol";
+import {IPeripheryImmutableState} from "@uniswap/v3-periphery/contracts/interfaces/IPeripheryImmutableState.sol";
 
 /// @title FactoryDeployment
 /// @notice The protocol operator's deployment steps for one chain, shared by `script/DeployFactory.s.sol` and the fork
@@ -59,6 +60,10 @@ abstract contract FactoryDeployment is CommonBase {
     address internal constant ARB_AAVE_V3_POOL = 0x794a61358D6845594F94dc1DB02A252b5b4814aD;
     /// @dev Chainlink ETH / USD on Arbitrum One (verified in test/fork/receiver/ChainlinkPriceSourceFork.t.sol).
     address internal constant ARB_ETH_USD_FEED = 0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612;
+    /// @dev Uniswap V3 on Arbitrum One (verified in test/fork/swap/V3Deployments.fork.t.sol; DEC-136, DEC-153).
+    address internal constant ARB_V3_FACTORY = 0x1F98431c8aD98523631AE4a59f267346ea31F984;
+    address internal constant ARB_V3_SWAP_ROUTER02 = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45;
+    address internal constant ARB_V3_QUOTER_V2 = 0x61fFE014bA17989E743c5F6cB21bF9697530B21e;
 
     // Robinhood Chain (Spoke Chain).
     address internal constant RH_USDG = 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168;
@@ -68,6 +73,10 @@ abstract contract FactoryDeployment is CommonBase {
     address internal constant RH_V4_POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
     address internal constant RH_V4_POSITION_MANAGER = 0x58daec3116aae6D93017bAAea7749052E8a04fA7;
     address internal constant RH_V4_STATE_VIEW = 0xF3334192D15450CdD385c8B70e03f9A6bD9E673b;
+    /// @dev Uniswap V3 on Robinhood Chain (verified in test/fork/swap/V3Deployments.fork.t.sol).
+    address internal constant RH_V3_FACTORY = 0x1f7d7550B1b028f7571E69A784071F0205FD2EfA;
+    address internal constant RH_V3_SWAP_ROUTER02 = 0xCaf681a66D020601342297493863E78C959E5cb2;
+    address internal constant RH_V3_QUOTER_V2 = 0x33e885eD0Ec9bF04EcfB19341582aADCb4c8A9E7;
 
     /// @notice Permit2, the PositionManager's `permit2()` on both chains.
     address internal constant PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
@@ -94,6 +103,9 @@ abstract contract FactoryDeployment is CommonBase {
     /// @notice The Uniswap V4 addresses of the wiring do not belong to one deployment.
     error V4WiringMismatch(string role, address reported, address expected);
 
+    /// @notice The Uniswap V3 router or quoter of the wiring does not answer for its V3 factory.
+    error V3WiringMismatch(string role, address reported, address expected);
+
     /// @notice What one chain's deployment produced.
     struct Deployment {
         address create3Deployer;
@@ -111,14 +123,16 @@ abstract contract FactoryDeployment is CommonBase {
     /// @notice Deploys the whole protocol stack of this chain (Arbitrum One or Robinhood Chain) and its factory.
     /// @param protocolRecipient Fee wallet (DEC-106; LC-132 OPEN).
     /// @param guardian Adapter guardian (ruling 2026-09-29, Q17-2b).
-    /// @param registryOwner Owner of the hub `ManagerRegistry` (LC-142, OQ-11).
-    function _deployProtocol(address protocolRecipient, address guardian, address registryOwner)
+    /// @param registryOwner Owner of the hub `ManagerRegistry` (LC-142, OQ-11; reading D-01: the API key).
+    /// @param apiSigner The Pool Party API key (reading D-01): swap route signer and Across quoter of every fund.
+    function _deployProtocol(address protocolRecipient, address guardian, address registryOwner, address apiSigner)
         internal
         returns (Deployment memory d)
     {
         IFundFactory.ProtocolWiring memory w = _chainWiring(block.chainid);
         w.protocolRecipient = protocolRecipient;
         w.guardian = guardian;
+        w.apiSigner = apiSigner;
         bool hub = block.chainid == ARBITRUM;
         if (hub) {
             d.managerRegistry = address(new ManagerRegistry(registryOwner));
@@ -132,7 +146,8 @@ abstract contract FactoryDeployment is CommonBase {
 
     /// @notice Refuses a wiring the factory would accept but no fund could use (independent verification plan F-12,
     ///         FF-10, SF-1, CF-V4-10): every protocol address holds code on this chain, and the PositionManager and
-    ///         StateView answer for the PoolManager given, the PositionManager for the Permit2 given. A codeless
+    ///         StateView answer for the PoolManager given, the PositionManager for the Permit2 given, SwapRouter02 and
+    ///         QuoterV2 for the V3 factory given (the swap adapter's constructor checks the same, DEC-136). A codeless
     ///         registry reverts every income collection; a PoolManager of another deployment lets positions open while
     ///         every swap reverts. The factory itself checks only for zero addresses (its unit tests wire mocks).
     function _checkWiring(IFundFactory.ProtocolWiring memory w) internal view {
@@ -144,6 +159,9 @@ abstract contract FactoryDeployment is CommonBase {
         _requireCode("uniswapV4StateView", w.uniswapV4StateView);
         _requireCode("permit2", w.permit2);
         if (w.aaveV3Pool != address(0)) _requireCode("aaveV3Pool", w.aaveV3Pool);
+        _requireCode("uniswapV3Factory", w.uniswapV3Factory);
+        _requireCode("uniswapV3SwapRouter02", w.uniswapV3SwapRouter02);
+        _requireCode("uniswapV3QuoterV2", w.uniswapV3QuoterV2);
         if (w.managerRegistry != address(0)) _requireCode("managerRegistry", w.managerRegistry);
         if (w.priceSource != address(0)) _requireCode("priceSource", w.priceSource);
         address manager = address(IImmutableState(w.uniswapV4PositionManager).poolManager());
@@ -156,6 +174,14 @@ abstract contract FactoryDeployment is CommonBase {
         }
         address permit2 = address(IPositionManagerPermit2(w.uniswapV4PositionManager).permit2());
         if (permit2 != w.permit2) revert V4WiringMismatch("positionManager.permit2", permit2, w.permit2);
+        address v3Factory = IPeripheryImmutableState(w.uniswapV3SwapRouter02).factory();
+        if (v3Factory != w.uniswapV3Factory) {
+            revert V3WiringMismatch("swapRouter02.factory", v3Factory, w.uniswapV3Factory);
+        }
+        v3Factory = IPeripheryImmutableState(w.uniswapV3QuoterV2).factory();
+        if (v3Factory != w.uniswapV3Factory) {
+            revert V3WiringMismatch("quoterV2.factory", v3Factory, w.uniswapV3Factory);
+        }
     }
 
     function _requireCode(string memory role, address target) private view {
@@ -216,8 +242,8 @@ abstract contract FactoryDeployment is CommonBase {
         return vm.computeCreate2Address(LIBRARY_SALT, keccak256(initCode), DETERMINISTIC_DEPLOYER);
     }
 
-    /// @notice The verified protocol addresses of `chainId`; recipient, guardian, registry and price source are set by
-    ///         the caller.
+    /// @notice The verified protocol addresses of `chainId`; recipient, guardian, API signer, registry and price
+    ///         source are set by the caller.
     function _chainWiring(uint256 chainId) internal pure returns (IFundFactory.ProtocolWiring memory w) {
         w.flowFeeBps = FLOW_FEE_BPS;
         w.permit2 = PERMIT2;
@@ -230,6 +256,9 @@ abstract contract FactoryDeployment is CommonBase {
             w.uniswapV4PositionManager = ARB_V4_POSITION_MANAGER;
             w.uniswapV4StateView = ARB_V4_STATE_VIEW;
             w.aaveV3Pool = ARB_AAVE_V3_POOL;
+            w.uniswapV3Factory = ARB_V3_FACTORY;
+            w.uniswapV3SwapRouter02 = ARB_V3_SWAP_ROUTER02;
+            w.uniswapV3QuoterV2 = ARB_V3_QUOTER_V2;
         } else if (chainId == ROBINHOOD) {
             w.numberOffset = ROBINHOOD_NUMBER_OFFSET;
             w.baseToken = RH_USDG;
@@ -238,6 +267,9 @@ abstract contract FactoryDeployment is CommonBase {
             w.uniswapV4PoolManager = RH_V4_POOL_MANAGER;
             w.uniswapV4PositionManager = RH_V4_POSITION_MANAGER;
             w.uniswapV4StateView = RH_V4_STATE_VIEW;
+            w.uniswapV3Factory = RH_V3_FACTORY;
+            w.uniswapV3SwapRouter02 = RH_V3_SWAP_ROUTER02;
+            w.uniswapV3QuoterV2 = RH_V3_QUOTER_V2;
         } else {
             revert UnsupportedChain(chainId);
         }
@@ -255,7 +287,8 @@ abstract contract FactoryDeployment is CommonBase {
         return address(new ChainlinkPriceSource(feeds, fixedTokens));
     }
 
-    /// @notice Stores the creation code of every role this chain serves: the hub also needs Aave V3 and the receiver.
+    /// @notice Stores the creation code of every role this chain serves (the Uniswap V3 swap adapter on every chain,
+    ///         DEC-136): the hub also needs Aave V3 and the receiver.
     /// @param d The deployment so far: its Spoke Vault libraries are linked into the stored Spoke Vault code.
     function _writeCodeStores(bool hub, Deployment memory d)
         internal
@@ -264,6 +297,7 @@ abstract contract FactoryDeployment is CommonBase {
         s.spokeVault = CodeStore.write(_spokeVaultCreationCode(d));
         s.uniswapV4Adapter = CodeStore.write(vm.getCode("UniswapV4Adapter.sol:UniswapV4Adapter"));
         s.acrossBridgeAdapter = CodeStore.write(vm.getCode("AcrossBridgeAdapter.sol:AcrossBridgeAdapter"));
+        s.uniswapV3SwapAdapter = CodeStore.write(vm.getCode("UniswapV3SwapAdapter.sol:UniswapV3SwapAdapter"));
         if (hub) {
             s.aaveV3Adapter = CodeStore.write(vm.getCode("AaveV3Adapter.sol:AaveV3Adapter"));
             s.valueReportReceiver = CodeStore.write(vm.getCode("ValueReportReceiver.sol:ValueReportReceiver"));
