@@ -371,7 +371,7 @@ contract AcrossSpokePoolReadabilityForkTest is Test {
         returns (address escrow, uint256 depositId, bytes memory message)
     {
         AcrossHarnessVault harness = new AcrossHarnessVault();
-        harness.pin(new AcrossBridgeAdapter(address(harness), guardian, r.pool, address(0)));
+        harness.pin(new AcrossBridgeAdapter(address(harness), guardian, r.pool));
         deal(r.inputToken, address(harness), INPUT);
         message = TransitMessage.encode(keccak256("fund"), r.originChainId, bytes32(uint256(1)), TransferKind.Principal);
         IBridgeAdapter.SendRequest memory req = IBridgeAdapter.SendRequest({

@@ -148,7 +148,7 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
     // one USDC base unit of rounding.
     // ---------------------------------------------------------------------------------------------------------------
     function testFuzz_DEC077_roundTripNeverExtractsValue(uint256 principal, uint256 amount) public {
-        _deployFeeless();
+        _deployAtMinimumFees();
         _deposit(alice, 10_000e6); // 10,000 shares
         vm.prank(manager);
         vault.allocateToHubSpokeVault(4000e6);

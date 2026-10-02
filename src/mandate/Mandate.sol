@@ -87,10 +87,13 @@ struct OperatingCashConfig {
 /// @param operatingCash Initial Operating Cash floor and top-up per chain (DEC-096).
 /// @param payoutFeeBps Payout Fee on Instant Payouts, in bps; immutable (DEC-006, DEC-075, DEC-095, DEC-102, DEC-110).
 /// @param minFirstDeposit Minimum first deposit, in USDC base units; no protocol floor (DEC-061, DEC-095, erratum 22).
-/// @param performanceFeeBps Manager performance fee on collected income, in bps; may only decrease (DEC-107, DEC-110).
-/// @param managementFeeBps Manager management fee, in bps per year on Share Assets, at most `MAX_MANAGEMENT_FEE_BPS`;
-///        accrued as a liability outside Share Assets at every valuation and paid at fund closure (DEC-108, DEC-114,
-///        DEC-115); may only decrease (DEC-110).
+/// @param performanceFeeBps Manager performance fee on collected income, in bps, chosen by the manager at creation
+///        within [`MIN_PERFORMANCE_FEE_BPS`, `MAX_PERFORMANCE_FEE_BPS`] = [1,000, 9,000]; may only decrease, never
+///        below the minimum (DEC-107, DEC-110, DEC-182, DEC-184).
+/// @param managementFeeBps Manager management fee, in bps per year on Share Assets, chosen by the manager at creation
+///        within [0, `MAX_MANAGEMENT_FEE_BPS`] = [0, 500]; accrued as a liability outside Share Assets at every
+///        valuation and paid at fund closure (DEC-108, DEC-114, DEC-182, DEC-184, DEC-186); may only decrease, down
+///        to 0 (DEC-110).
 /// @dev Mandate v2 (WP-07 B). No unwind order: the automatic unwind is proportional (DEC-137, DEC-139; corrects
 ///      DEC-069 item 1). No Standard Payout term: 72 hours for every fund (DEC-154). No bridge fee bound: DEC-156 (no
 ///      protocol cap on the bridge fee) and DEC-162 (the bridge adapter fixes the send terms and holds the fee rule).
@@ -121,11 +124,18 @@ library MandateLib {
     /// @notice Starting value of the Payout Fee (DEC-095): 2%.
     uint16 internal constant DEFAULT_PAYOUT_FEE_BPS = 200;
 
-    /// @notice Cap on the performance fee: 90% of income, a core constant (DEC-110, DEC-115). At the cap, 72,000 of an
-    ///         income of 80,000 is fee.
+    /// @notice Cap on the performance fee: 90% of income, a core constant (DEC-110, DEC-115, DEC-184). At the cap,
+    ///         72,000 of an income of 80,000 is fee.
     uint16 internal constant MAX_PERFORMANCE_FEE_BPS = 9000;
 
-    /// @notice Cap on the management fee: 5% a year, a core constant (DEC-110, DEC-115).
+    /// @notice Floor on the performance fee: 10% of income, the V1 minimum, a core constant (DEC-182, DEC-184). It
+    ///         binds at creation and every `decreaseManagerFee`; it replaces the ManagerRegistry's adjustable minimum
+    ///         (corrects DEC-115 and DEC-125 item 3, reading D-36), so the protocol slice (DEC-112) is at least 0.5% of
+    ///         collected income.
+    uint16 internal constant MIN_PERFORMANCE_FEE_BPS = 1000;
+
+    /// @notice Cap on the management fee: 5% a year, a core constant (DEC-110, DEC-115). DEC-186 (Slack only so far)
+    ///         keeps 5% and corrects the 10% that DEC-182 and DEC-184 state; the floor is 0 (DEC-184).
     uint16 internal constant MAX_MANAGEMENT_FEE_BPS = 500;
 
     /// @notice Cap on the Payout Fee: 10%, a core constant (DEC-155; refines DEC-075, DEC-095, DEC-110).
@@ -170,6 +180,7 @@ library MandateLib {
     error MissingBridgeAdapter(uint256 spokeChainId, uint256 chainId);
     error DuplicateOperatingCashChain(uint256 chainId);
     error BpsAboveMax(uint256 bps, uint256 maxBps);
+    error BpsBelowMin(uint256 bps, uint256 minBps);
     error NoBridgeAdapter(uint256 spokeChainId, uint256 chainId, uint256 rank);
 
     /// @notice Reverts unless the Mandate is well formed.
@@ -188,8 +199,9 @@ library MandateLib {
     ///      - every spoke has at least one bridge adapter on the hub side and one on the spoke side (DEC-089: a chain
     ///        is supported only through a live bridge adapter); no address listed twice as an adapter on one chain;
     ///      - Operating Cash entries on known chains, one per chain (DEC-096);
-    ///      - fees: Payout Fee at most `MAX_PAYOUT_FEE_BPS` (DEC-155); performance fee at most
-    ///        `MAX_PERFORMANCE_FEE_BPS` (DEC-115); management fee at most `MAX_MANAGEMENT_FEE_BPS` (DEC-114, DEC-115).
+    ///      - fees: Payout Fee at most `MAX_PAYOUT_FEE_BPS` (DEC-155); performance fee within
+    ///        [`MIN_PERFORMANCE_FEE_BPS`, `MAX_PERFORMANCE_FEE_BPS`] (DEC-115, DEC-182, DEC-184); management fee at
+    ///        most `MAX_MANAGEMENT_FEE_BPS` (DEC-114, DEC-184, DEC-186).
     ///      A Mandate without spokes (hub-only fund) is accepted: no decision requires a spoke.
     function validate(Mandate memory m) internal pure {
         if (m.manager == address(0)) revert ZeroManager();
@@ -208,6 +220,9 @@ library MandateLib {
         if (m.payoutFeeBps > MAX_PAYOUT_FEE_BPS) revert BpsAboveMax(m.payoutFeeBps, MAX_PAYOUT_FEE_BPS);
         if (m.performanceFeeBps > MAX_PERFORMANCE_FEE_BPS) {
             revert BpsAboveMax(m.performanceFeeBps, MAX_PERFORMANCE_FEE_BPS);
+        }
+        if (m.performanceFeeBps < MIN_PERFORMANCE_FEE_BPS) {
+            revert BpsBelowMin(m.performanceFeeBps, MIN_PERFORMANCE_FEE_BPS);
         }
         if (m.managementFeeBps > MAX_MANAGEMENT_FEE_BPS) {
             revert BpsAboveMax(m.managementFeeBps, MAX_MANAGEMENT_FEE_BPS);

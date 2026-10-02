@@ -60,7 +60,7 @@ contract AcrossBridgeAdapterTest is Test {
     function setUp() public {
         vm.warp(1_790_000_000);
         pool = new MockAcrossSpokePool(INITIAL_DEPOSIT_ID);
-        adapter = new AcrossBridgeAdapter(vault, guardian, address(pool), address(0));
+        adapter = new AcrossBridgeAdapter(vault, guardian, address(pool));
         usdc = new MockAcrossToken("USD Coin", "USDC");
     }
 
@@ -188,27 +188,19 @@ contract AcrossBridgeAdapterTest is Test {
 
     function test_DEC087_constructorRejectsZeroAddresses() public {
         vm.expectRevert(AcrossBridgeAdapter.ZeroVault.selector);
-        new AcrossBridgeAdapter(address(0), guardian, address(pool), address(0));
+        new AcrossBridgeAdapter(address(0), guardian, address(pool));
         vm.expectRevert(AcrossBridgeAdapter.ZeroSpokePool.selector);
-        new AcrossBridgeAdapter(vault, guardian, address(0), address(0));
+        new AcrossBridgeAdapter(vault, guardian, address(0));
         vm.expectRevert(AdapterGuard.ZeroGuardian.selector);
-        new AcrossBridgeAdapter(vault, address(0), address(pool), address(0));
-    }
-
-    /// @dev WP-07 B2, reading D-01: the API key the factory wires is stored as the quoter for WP-11's signed quotes;
-    ///      zero (no API) is accepted, since every send works without it (DEC-052).
-    function test_D01_constructorStoresTheQuoter() public {
-        assertEq(adapter.quoter(), address(0), "no API");
-        address apiKey = makeAddr("pool-party-api");
-        assertEq(new AcrossBridgeAdapter(vault, guardian, address(pool), apiKey).quoter(), apiKey);
+        new AcrossBridgeAdapter(vault, address(0), address(pool));
     }
 
     function test_DEC066_constructorRejectsShortFillDeadlineBuffer() public {
         pool.setFillDeadlineBuffer(21_599);
         vm.expectRevert(abi.encodeWithSelector(AcrossBridgeAdapter.FillDeadlineBufferTooShort.selector, 21_599));
-        new AcrossBridgeAdapter(vault, guardian, address(pool), address(0));
+        new AcrossBridgeAdapter(vault, guardian, address(pool));
         pool.setFillDeadlineBuffer(21_600);
-        new AcrossBridgeAdapter(vault, guardian, address(pool), address(0));
+        new AcrossBridgeAdapter(vault, guardian, address(pool));
     }
 
     // ------------------------------------------------------------------ buildSend: the adapter fixes the terms

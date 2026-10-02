@@ -11,6 +11,8 @@ export const STATE_DIR = join(HARNESS_DIR, ".state");
 export const DEPLOYMENT_FILE = join(STATE_DIR, "deployment.json");
 export const KEEPER_PID_FILE = join(STATE_DIR, "keeper.pid");
 export const ABI_DIR = join(HARNESS_DIR, "abis");
+/** Run reports (src/report.ts); git ignores them unless one is added on purpose (`git add -f`). */
+export const REPORTS_DIR = join(HARNESS_DIR, "reports");
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Chains
@@ -59,6 +61,10 @@ export const ARBITRUM = {
   ethUsdFeed: "0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612",
   permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
   deterministicDeployer: "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+  // Uniswap V3 (the swap adapter's venue, DEC-136, DEC-153; verified by the swap research on both forks).
+  v3Factory: "0x1F98431c8aD98523631AE4a59f267346ea31F984",
+  v3QuoterV2: "0x61fFE014bA17989E743c5F6cB21bF9697530B21e",
+  v3SwapRouter02: "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45",
 } as const satisfies Record<string, Address>;
 
 /** Robinhood Chain (Spoke Chain). */
@@ -72,7 +78,20 @@ export const ROBINHOOD = {
   v4StateView: "0xF3334192D15450CdD385c8B70e03f9A6bD9E673b",
   permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
   deterministicDeployer: "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+  v3Factory: "0x1f7d7550B1b028f7571E69A784071F0205FD2EfA",
+  v3QuoterV2: "0x33e885eD0Ec9bF04EcfB19341582aADCb4c8A9E7",
+  v3SwapRouter02: "0xCaf681a66D020601342297493863E78C959E5cb2",
+  // A stock token with V3 pools against USDG and WETH (swap research): a Mandate token of the harness's Robinhood swap
+  // adapter, so the API's two-hop routes (through WETH) are exercised.
+  nvda: "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
 } as const satisfies Record<string, Address>;
+
+/** Mandate tokens of the harness's swap adapters, base token first: the hub's USDC and WETH; the spoke's USDG, WETH and
+ *  NVDA, so a route may hop through WETH (DEC-136 item 2, D-52: every hop a Mandate token). */
+export const SWAP_ADAPTER_TOKENS: Record<"arbitrum" | "robinhood", Address[]> = {
+  arbitrum: [ARBITRUM.usdc, ARBITRUM.weth],
+  robinhood: [ROBINHOOD.usdg, ROBINHOOD.weth, ROBINHOOD.nvda],
+};
 
 /** Uniswap V4 PoolKey as the contracts encode it. */
 export interface PoolKey {
@@ -112,10 +131,10 @@ export const AAVE_USDC_POOL_KEY: Hex = `0x${ARBITRUM.usdc.slice(2).toLowerCase()
 // Actors: anvil's default mnemonic ("test test test test test test test test test test test junk")
 // ---------------------------------------------------------------------------------------------------------------------
 
-/** Keys of anvil's default accounts 0..7. Public test keys: never use them on a real network. */
+/** Keys of anvil's default accounts 0..8. Public test keys: never use them on a real network. */
 export const ACTOR_KEYS = {
   /** Account 0: the protocol operator, deploys the factories (same key and salt on both chains, docs/DEPLOYMENT.md);
-   *  also the adapter guardian and the ManagerRegistry owner. */
+   *  also the adapter guardian. */
   operator: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
   /** Account 1: the fund Manager (DEC-001: the creator is the Manager). */
   manager: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
@@ -131,6 +150,10 @@ export const ACTOR_KEYS = {
   protocolRecipient: "0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e",
   /** Account 7: a third-party trader who swaps in the Uniswap V4 pools to generate fees. */
   trader: "0x4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356",
+  /** Account 8: the Pool Party API's key (reading D-01, DEC-170): `API_SIGNER`, route signer of every fund's swap
+   *  adapters and owner of the ManagerRegistry (DEC-170 item 3; `REGISTRY_OWNER` defaults to it), and sender of the
+   *  report the API publishes after each deposit (DEC-159). No bridge quote signer in the MVP (DEC-176). */
+  apiSigner: "0xdbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97",
 } as const satisfies Record<string, Hex>;
 
 export type ActorName = keyof typeof ACTOR_KEYS;
@@ -152,12 +175,21 @@ export const guardian = privateKeyToAccount(GUARDIAN_PRIVATE_KEY);
 
 /** Mandate rule values passed to script/CreateFund.s.sol, overridable through the same environment variables. The
  *  defaults are the end-to-end fork scenario's (test/fork/e2e/EndToEndBase.sol): a Spoke Cap of 40% of Ana's first
- *  deposit, and a maximum bridge fee derived from its Across quote (1.60 USDC on 4,000, 4 bps; QA19 OPEN). */
+ *  deposit and the manager's seed at the Mandate minimum. Mandate v2 (WP-07 B): the script itself lists the Mandate
+ *  tokens (Arbitrum USDC and WETH, Robinhood USDG and WETH), the factory's Uniswap V3 swap adapter of each chain and
+ *  the Hub's Wormhole chain id 23; the Mandate has no unwind order, Standard Payout term or bridge fee bound any more
+ *  (DEC-137, DEC-154, DEC-156). The fees are the manager's, within the Mandate bounds (DEC-182, DEC-184, DEC-186). The
+ *  spoke Operating Cash floor and top-up are 0 (ruling 2026-10-02: nothing spends Operating Cash in the MVP; the hub
+ *  has no Operating Cash entry, so its floor and top-up are 0 too). */
 export const FUND_PLAN = {
   SPOKE_CAP: process.env.SPOKE_CAP ?? "4000000000", // 4,000 USDC (DEC-037, DEC-095)
   MIN_FIRST_DEPOSIT: process.env.MIN_FIRST_DEPOSIT ?? "100000000", // 100 USDC (DEC-061)
-  PERFORMANCE_FEE_BPS: process.env.PERFORMANCE_FEE_BPS ?? "2000", // 20% (DEC-107)
-  MAX_BRIDGE_FEE_BPS: process.env.MAX_BRIDGE_FEE_BPS ?? "4", // 0.04% (QA19 OPEN)
+  // DEC-127: the manager's seed at creation, in USDC base units; the script approves the factory for it.
+  SEED_AMOUNT: process.env.SEED_AMOUNT ?? process.env.MIN_FIRST_DEPOSIT ?? "100000000",
+  PERFORMANCE_FEE_BPS: process.env.PERFORMANCE_FEE_BPS ?? "2000", // 20% (DEC-107; 1,000 to 9,000, DEC-184)
+  MANAGEMENT_FEE_BPS: process.env.MANAGEMENT_FEE_BPS ?? "0", // DEC-108, DEC-114 (0 to 500, DEC-186)
+  SPOKE_OPERATING_CASH_FLOOR: process.env.SPOKE_OPERATING_CASH_FLOOR ?? "0", // USDG base units (DEC-096)
+  SPOKE_OPERATING_CASH_TOP_UP: process.env.SPOKE_OPERATING_CASH_TOP_UP ?? "0", // USDG base units (DEC-096)
 } as const;
 
 /** Whether the module at `url` (`import.meta.url`) is the script node was started with. */

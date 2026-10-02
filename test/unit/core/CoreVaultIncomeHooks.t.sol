@@ -11,7 +11,7 @@ import {PayoutCalls} from "../../utils/PayoutCalls.sol";
 contract CoreVaultIncomeHooksTest is CoreVaultFixture {
     function setUp() public override {
         super.setUp();
-        _deployFeeless();
+        _deployAtMinimumFees();
     }
 
     /// @dev `afterBurn` pays all Attributed Income when the burn takes the whole balance.
@@ -20,7 +20,7 @@ contract CoreVaultIncomeHooksTest is CoreVaultFixture {
         _deposit(bob, 1000e6);
         hubVault.forwardIncome(address(usdc), 200.1e6); // 0.10 per share over 2,001 shares (the seed's included)
         uint256 owed = vault.attributedIncome(alice, address(usdc));
-        assertApproxEqAbs(owed, 100e6, 1);
+        assertApproxEqAbs(owed, _netOfMinimumFee(100e6), 1);
 
         ICoreVaultPayouts.PayoutReceipt memory r = PayoutCalls.fullExit(vault, alice);
 
@@ -41,7 +41,9 @@ contract CoreVaultIncomeHooksTest is CoreVaultFixture {
 
         assertEq(r.sharesBurned, 500e18);
         assertEq(usdc.balanceOf(alice), 490e6, "no income paid");
-        assertApproxEqAbs(vault.attributedIncome(alice, address(usdc)), 100e6, 1, "all 1,000 shares' income kept");
+        assertApproxEqAbs(
+            vault.attributedIncome(alice, address(usdc)), _netOfMinimumFee(100e6), 1, "all 1,000 shares' income kept"
+        );
     }
 
     /// @dev DEC-014: the checkpoint before a mint gives an entrant none of the income collected before it entered.
@@ -50,6 +52,6 @@ contract CoreVaultIncomeHooksTest is CoreVaultFixture {
         hubVault.forwardIncome(address(usdc), 100.1e6);
         _deposit(bob, 1000e6);
         assertEq(vault.attributedIncome(bob, address(usdc)), 0);
-        assertApproxEqAbs(vault.attributedIncome(alice, address(usdc)), 100e6, 1);
+        assertApproxEqAbs(vault.attributedIncome(alice, address(usdc)), _netOfMinimumFee(100e6), 1);
     }
 }

@@ -169,6 +169,7 @@ contract FundFactoryVerifyRound2Test is Test, FactoryDeployment, FundMandate, Fu
         m.operatingCash[0] = OperatingCashConfig(HUB, 5e6, 10e6);
         m.payoutFeeBps = MandateLib.DEFAULT_PAYOUT_FEE_BPS;
         m.minFirstDeposit = 1e6;
+        m.performanceFeeBps = MandateLib.MIN_PERFORMANCE_FEE_BPS;
     }
 
     /// @dev FF-OQ-1 residual (OPEN; DEC-030, DEC-053): the fund id binds the Manager but not the Mandate's rules, so

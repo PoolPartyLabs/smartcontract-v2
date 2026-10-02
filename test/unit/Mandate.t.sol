@@ -155,9 +155,10 @@ contract MandateTest is Test {
         assertEq(MandateLib.DEFAULT_PAYOUT_FEE_BPS, 200);
     }
 
-    /// @dev DEC-115 (closes LC-57) and DEC-155: the fee caps are core constants.
+    /// @dev DEC-115 (closes LC-57), DEC-155, DEC-184 and DEC-186: the fee bounds are core constants.
     function test_DEC115_DEC155_feeCapsAreCoreConstants() public pure {
         assertEq(MandateLib.MAX_PERFORMANCE_FEE_BPS, 9000);
+        assertEq(MandateLib.MIN_PERFORMANCE_FEE_BPS, 1000);
         assertEq(MandateLib.MAX_MANAGEMENT_FEE_BPS, 500);
         assertEq(MandateLib.MAX_PAYOUT_FEE_BPS, 1000);
     }
@@ -565,13 +566,38 @@ contract MandateTest is Test {
 
     // ------------------------------------------------------------------ fees
 
-    /// @dev DEC-115: 9,000 passes, 9,001 reverts.
+    /// @dev DEC-115, DEC-184: 9,000 passes, 9,001 reverts.
     function test_DEC115_performanceFeeCapIsNinetyPercent() public {
         Mandate memory m = _valid();
         m.performanceFeeBps = 9001;
         vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsAboveMax.selector, 9001, 9000));
         h.validate(m);
         m.performanceFeeBps = 9000;
+        h.validate(m);
+    }
+
+    /// @dev DEC-182, DEC-184: the performance fee is at least 10%, chosen at creation; 1,000 passes, 999 and 0 revert.
+    function test_DEC184_performanceFeeFloorIsTenPercent() public {
+        Mandate memory m = _valid();
+        m.performanceFeeBps = 999;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsBelowMin.selector, 999, 1000));
+        h.validate(m);
+        m.performanceFeeBps = 0;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsBelowMin.selector, 0, 1000));
+        h.validate(m);
+        m.performanceFeeBps = 1000;
+        h.validate(m);
+    }
+
+    /// @dev DEC-184: every performance fee in [1,000, 9,000] is accepted and nothing outside it.
+    function testFuzz_DEC184_performanceFeeWithinTenToNinetyPercent(uint16 bps) public {
+        Mandate memory m = _valid();
+        m.performanceFeeBps = bps;
+        if (bps < 1000) {
+            vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsBelowMin.selector, bps, 1000));
+        } else if (bps > 9000) {
+            vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsAboveMax.selector, bps, 9000));
+        }
         h.validate(m);
     }
 
@@ -585,9 +611,12 @@ contract MandateTest is Test {
         h.validate(m);
     }
 
-    /// @dev DEC-114, DEC-115: the management fee accrues (WP-07 B5), so 0..500 bps a year is accepted; 501 reverts.
+    /// @dev DEC-114, DEC-184, DEC-186: the management fee accrues (WP-07 B5), so 0..500 bps a year is accepted, chosen
+    ///      at creation; 501 reverts.
     function test_DEC115_managementFeeCapIsFivePercentAYear() public {
         Mandate memory m = _valid();
+        m.managementFeeBps = 0;
+        h.validate(m);
         m.managementFeeBps = 500;
         h.validate(m);
         m.managementFeeBps = 501;

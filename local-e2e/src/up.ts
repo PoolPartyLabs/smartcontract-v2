@@ -1,20 +1,21 @@
-// `pnpm run up`: builds the contracts, starts both forks, deploys the protocol and a fund through the real Foundry
-// scripts, funds the actors, puts the Wormhole guardian set under the harness's key, re-stamps Chainlink, writes
-// local-e2e/.state/deployment.json, and warms the fork caches: the scenario runs inside a snapshot, the snapshot is
-// reverted, and everything it touched is read again while the upstream still serves the fork block (public RPCs serve
-// fork state for minutes only; see README "Troubleshooting").
+// `pnpm run up`: builds the contracts, starts both forks, deploys the protocol through the real Foundry scripts, puts
+// the guardian sets of both Wormhole Cores under the harness's key, re-stamps Chainlink, funds the actors, creates a
+// fund with the manager's seed (DEC-127) through script/CreateFund.s.sol, writes local-e2e/.state/deployment.json, and
+// warms the fork caches: the scenario runs inside a snapshot, the snapshot is reverted, and everything it touched is
+// read again while the upstream still serves the fork block (public RPCs serve fork state for minutes only; see README
+// "Troubleshooting").
 //
 // Usage: pnpm run up [--warm-up scenario|none]
 // (`pnpm up` is pnpm's own `update` command; the script needs `pnpm run up`.)
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { encodeDeployData, encodeFunctionData, type Address, type Hex } from "viem";
-import { acrossSpokePoolAbi, v4SwapRouterAbi, v4SwapRouterBytecode, wormholeCoreAbi } from "./abis.ts";
+import { acrossSpokePoolAbi, forgeArtifact, v4SwapRouterAbi, v4SwapRouterBytecode, wormholeCoreAbi } from "./abis.ts";
 import { anvil, deploy, explain, nodes, nodesUp, rpc, type Side } from "./chain.ts";
-import { ARBITRUM, HARNESS_DIR, ROBINHOOD, actors, guardian, isMain } from "./config.ts";
+import { ARBITRUM, HARNESS_DIR, ROBINHOOD, SWAP_ADAPTER_TOKENS, actors, guardian, isMain } from "./config.ts";
 import { createFund, deployFactory, forgeBuild, protocolRoles } from "./deploy.ts";
 import { discoverLayouts, discoverMappingSlot, fundAccounts, mappingSlot, storageRead } from "./fund-accounts.ts";
-import { WORMHOLE_SEQUENCES_SLOT, overrideGuardianSet, selfTest } from "./guardian.ts";
+import { CORES, WORMHOLE_SEQUENCES_SLOT, overrideBothCores, selfTest } from "./guardian.ts";
 import { bold, green, logger, red, type Logger } from "./log.ts";
 import { restampFeed } from "./price-feed.ts";
 import { runScenario } from "./scenario.ts";
@@ -42,7 +43,7 @@ async function nodeState(side: Side): Promise<NodeState> {
 
 const PROBE_KEY: Hex = "0x00000000000000000000000000000000000000000000000000000000000000aa";
 
-async function discoverStorage(fundSpokeVault: Address, log: Logger): Promise<DeploymentState["storage"]> {
+async function discoverStorage(log: Logger): Promise<DeploymentState["storage"]> {
   const fillStatusesData = encodeFunctionData({ abi: acrossSpokePoolAbi, functionName: "fillStatuses", args: [PROBE_KEY] });
   const storage: DeploymentState["storage"] = {
     balances: await discoverLayouts(),
@@ -53,12 +54,13 @@ async function discoverStorage(fundSpokeVault: Address, log: Logger): Promise<De
     wormholeSequencesSlot: WORMHOLE_SEQUENCES_SLOT.toString(),
   };
   // The Wormhole table in guardian.ts says `sequences` sits at slot 4: confirm it on the live Robinhood Core.
+  const emitter = actors.keeper.address;
   const read = await storageRead(
     "robinhood",
     ROBINHOOD.wormholeCore,
-    encodeFunctionData({ abi: wormholeCoreAbi, functionName: "nextSequence", args: [fundSpokeVault] }),
+    encodeFunctionData({ abi: wormholeCoreAbi, functionName: "nextSequence", args: [emitter] }),
   );
-  if (!read.includes(mappingSlot(fundSpokeVault, WORMHOLE_SEQUENCES_SLOT))) {
+  if (!read.includes(mappingSlot(emitter, WORMHOLE_SEQUENCES_SLOT))) {
     throw new Error("the Robinhood Wormhole Core does not keep sequences at slot 4");
   }
   log.info("storage layouts found", {
@@ -71,6 +73,18 @@ async function discoverStorage(fundSpokeVault: Address, log: Logger): Promise<De
 
 async function deploySwapRouter(side: Side, poolManager: Address): Promise<Address> {
   return deploy(side, "operator", encodeDeployData({ abi: v4SwapRouterAbi, bytecode: v4SwapRouterBytecode(), args: [poolManager] }) as Hex);
+}
+
+/** A UniswapV3SwapAdapter (WP-03) for executing the API's signed routes from a wallet: the operator guards it, the API
+ *  signer signs its routes (reading D-01), its Mandate tokens (DEC-136 item 2) are SWAP_ADAPTER_TOKENS, and the
+ *  manager's wallet is its vault. The fund's own swap adapters, which the factory deploys (Mandate v2), take `swap` only
+ *  from their Spoke Vault, whose manager swap verb lands in WP-07 C. */
+async function deploySwapAdapter(side: Side): Promise<Address> {
+  const chain = side === "arbitrum" ? ARBITRUM : ROBINHOOD;
+  const tokens = SWAP_ADAPTER_TOKENS[side];
+  const { abi, bytecode } = forgeArtifact("UniswapV3SwapAdapter.sol", "UniswapV3SwapAdapter");
+  const args = [actors.manager.address, actors.operator.address, tokens[0], tokens, chain.v3Factory, chain.v3SwapRouter02, chain.v3QuoterV2, actors.apiSigner.address];
+  return deploy(side, "operator", encodeDeployData({ abi, bytecode, args }), "deploy UniswapV3SwapAdapter");
 }
 
 export async function up(warmUp: "scenario" | "none"): Promise<DeploymentState> {
@@ -95,46 +109,47 @@ export async function up(warmUp: "scenario" | "none"): Promise<DeploymentState> 
   if (robinhood.fundFactory !== arbitrum.fundFactory) {
     throw new Error(`DEC-054: the factory landed at ${arbitrum.fundFactory} on Arbitrum but ${robinhood.fundFactory} on Robinhood`);
   }
-  const fund = await createFund(arbitrum.fundFactory, log.child("deploy"));
+  // The hub contracts the harness reads by name besides the factory (the scenario and the API).
+  const { managerRegistry, priceSource } = arbitrum;
+  if (!managerRegistry || !priceSource) throw new Error("DeployFactory returned no managerRegistry or priceSource on Arbitrum One");
 
-  const guardianSetIndex = await overrideGuardianSet(log.child("guardian"));
-  await selfTest(guardianSetIndex, log.child("guardian"));
+  const guardianSetIndexes = await overrideBothCores(log.child("guardian"));
+  await selfTest(guardianSetIndexes, log.child("guardian"));
   await restampFeed(log.child("chainlink"));
-  const storage = await discoverStorage(fund.spoke.spokeVault, log);
+  const storage = await discoverStorage(log);
   const helpers = {
     arbitrumSwapRouter: await deploySwapRouter("arbitrum", ARBITRUM.v4PoolManager),
     robinhoodSwapRouter: await deploySwapRouter("robinhood", ROBINHOOD.v4PoolManager),
+    swapAdapters: { arbitrum: await deploySwapAdapter("arbitrum"), robinhood: await deploySwapAdapter("robinhood") },
+    swapAdapterVault: actors.manager.address,
   };
-  log.info("trader swap routers deployed (test/mocks/v4/V4SwapRouter.sol)", helpers);
+  log.info("trader swap routers deployed (test/mocks/v4/V4SwapRouter.sol)", {
+    arbitrum: helpers.arbitrumSwapRouter,
+    robinhood: helpers.robinhoodSwapRouter,
+  });
+  log.info("swap adapters for the API's signed routes deployed (src/adapters/UniswapV3SwapAdapter.sol)", {
+    ...helpers.swapAdapters,
+    routeSigner: actors.apiSigner.address,
+    vault: helpers.swapAdapterVault,
+  });
+  // DEC-127: the manager seeds the fund in the creation transaction, so the actors are funded first.
+  await fundAccounts({ storage, helpers }, log.child("funding"));
+  const fund = await createFund(arbitrum.fundFactory, log.child("deploy"));
 
   const roles = protocolRoles();
   const state: DeploymentState = {
-    version: 1,
+    version: 2,
     createdAt: new Date().toISOString(),
     nodes: nodeStates,
     actors: Object.fromEntries(Object.entries(actors).map(([name, account]) => [name, account.address])) as DeploymentState["actors"],
-    guardian: { address: guardian.address, coreBridge: ARBITRUM.wormholeCore, guardianSetIndex },
+    guardian: {
+      address: guardian.address,
+      arbitrum: { coreBridge: CORES.arbitrum, guardianSetIndex: guardianSetIndexes.arbitrum },
+      robinhood: { coreBridge: CORES.robinhood, guardianSetIndex: guardianSetIndexes.robinhood },
+    },
     protocol: {
-      arbitrum: {
-        fundFactory: arbitrum.fundFactory,
-        create3Deployer: arbitrum.create3Deployer,
-        coreVaultLogic: arbitrum.coreVaultLogic,
-        spokeCrossChainLib: arbitrum.spokeCrossChainLib,
-        spokeUnwindLib: arbitrum.spokeUnwindLib,
-        managerRegistry: arbitrum.managerRegistry,
-        priceSource: arbitrum.priceSource,
-        transitEscrowImplementation: arbitrum.transitEscrowImplementation,
-        protocolRecipient: roles.protocolRecipient,
-        adapterGuardian: roles.adapterGuardian,
-        registryOwner: roles.registryOwner,
-      },
-      robinhood: {
-        fundFactory: robinhood.fundFactory,
-        create3Deployer: robinhood.create3Deployer,
-        spokeCrossChainLib: robinhood.spokeCrossChainLib,
-        spokeUnwindLib: robinhood.spokeUnwindLib,
-        transitEscrowImplementation: robinhood.transitEscrowImplementation,
-      },
+      arbitrum: { ...arbitrum, managerRegistry, priceSource, ...roles },
+      robinhood: { ...robinhood, apiSigner: roles.apiSigner },
     },
     external: { arbitrum: { ...ARBITRUM }, robinhood: { ...ROBINHOOD } },
     fund,
@@ -142,7 +157,6 @@ export async function up(warmUp: "scenario" | "none"): Promise<DeploymentState> 
     storage,
   };
   writeState(state);
-  await fundAccounts(state, log.child("funding"));
   log.info(`deployed in ${((Date.now() - started) / 1000).toFixed(0)}s`, { state: "local-e2e/.state/deployment.json" });
 
   if (warmUp === "scenario") await warmUpCaches(log);
@@ -197,7 +211,7 @@ async function warmUpCaches(log: Logger): Promise<void> {
   const snapshots = { arbitrum: await anvil.snapshot("arbitrum"), robinhood: await anvil.snapshot("robinhood") };
   let failure: unknown;
   try {
-    const result = await runScenario({ keeper: "inprocess", newFund: false, quiet: true }, logger("warm-up", true));
+    const result = await runScenario({ keeper: "inprocess", newFund: false, quiet: true, report: false }, logger("warm-up", true));
     log.info("warm-up scenario passed", {
       steps: result.steps,
       assertions: result.assertions,
@@ -239,6 +253,7 @@ if (isMain(import.meta.url)) {
     console.log(`\n${green(bold("up"))}: Arbitrum One fork ${state.nodes.arbitrum.rpc} (chain 42161), Robinhood Chain fork ${state.nodes.robinhood.rpc} (chain 4663)`);
     console.log(`  FundFactory          ${state.protocol.arbitrum.fundFactory} (both chains)`);
     console.log(`  fund ${state.fund.shareSymbol.padEnd(15)} Core Vault ${state.fund.hub.coreVault}, Spoke Vault (Robinhood) ${state.fund.spoke.spokeVault}`);
+    console.log(`  swap adapters        ${state.fund.hub.uniswapV3SwapAdapter} (hub), ${state.fund.spoke.uniswapV3SwapAdapter} (Robinhood)`);
     console.log(`  state                local-e2e/.state/deployment.json`);
     console.log(`  next                 pnpm keeper --auto-report 600   (another terminal), then pnpm scenario`);
   } catch (err) {

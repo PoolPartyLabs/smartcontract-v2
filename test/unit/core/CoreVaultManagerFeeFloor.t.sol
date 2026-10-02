@@ -3,27 +3,25 @@ pragma solidity 0.8.28;
 
 import {ICoreVaultLifecycle} from "../../../src/interfaces/ICoreVaultLifecycle.sol";
 import {CoreVault} from "../../../src/core/CoreVault.sol";
-import {CoreVaultConfig} from "../../../src/core/CoreVaultTypes.sol";
+import {MandateLib} from "../../../src/mandate/Mandate.sol";
 import {CoreVaultFixture} from "./CoreVaultFixture.sol";
 
-/// @notice DEC-115, DEC-125 item 3 (D-36): the minimum manager fee in force at creation is the floor of the Core
-///         Vault's `decreaseManagerFee`; the fund starts at or above it.
+/// @notice DEC-182, DEC-184 (correcting DEC-115, DEC-125 item 3 and reading D-36): the performance fee is chosen at
+///         creation within [1,000, 9,000] bps and never goes below 1,000; the floor is a core constant, not a
+///         registry value read at creation.
 contract CoreVaultManagerFeeFloorTest is CoreVaultFixture {
-    function test_DEC125_constructorRefusesAFeeBelowTheMinimum() public {
-        CoreVaultConfig memory c = _config(25);
-        c.minPerformanceFeeBps = 2001;
-        vm.expectRevert(abi.encodeWithSelector(ICoreVaultLifecycle.ManagerFeeBelowMinimum.selector, 2000, 2001));
-        new CoreVault(_mandate(2000), c);
+    function test_DEC184_constructorRefusesAFeeBelowTheFloor() public {
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsBelowMin.selector, 999, 1000));
+        new CoreVault(_mandate(999), _config(25));
     }
 
-    function test_DEC125_decreaseStopsAtTheCreationMinimum() public {
-        CoreVaultConfig memory c = _config(25);
-        c.minPerformanceFeeBps = 1000;
-        _deploy(_mandate(2000), c);
-        assertEq(vault.minPerformanceFeeBps(), 1000);
+    function test_DEC184_decreaseStopsAtTheFloor() public {
+        _deploy(_mandate(2000), _config(25));
         vm.startPrank(manager);
         vm.expectRevert(abi.encodeWithSelector(ICoreVaultLifecycle.ManagerFeeBelowMinimum.selector, 999, 1000));
         vault.decreaseManagerFee(999, 0);
+        vm.expectRevert(abi.encodeWithSelector(ICoreVaultLifecycle.ManagerFeeBelowMinimum.selector, 0, 1000));
+        vault.decreaseManagerFee(0, 0);
         vault.decreaseManagerFee(1000, 0);
         vm.stopPrank();
         assertEq(vault.performanceFeeBps(), 1000);

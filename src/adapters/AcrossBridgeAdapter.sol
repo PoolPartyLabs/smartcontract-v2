@@ -73,10 +73,6 @@ contract AcrossBridgeAdapter is AdapterGuard, IBridgeAdapter {
     /// @notice The Across SpokePool of this chain; the only target of every built call.
     address public immutable spokePool;
 
-    /// @notice The Pool Party API key whose signed quotes the fee rule will accept (R-162-B, WP-11; reading D-01: the
-    ///         factory's `apiSigner`). Zero: no API quotes. Fixed at construction; not read until WP-11.
-    address public immutable quoter;
-
     /// @notice One send the adapter priced whose outcome is still open.
     /// @param destinationChainId Route of the send.
     /// @param serial The send's 1-based number on the route (zero: unknown, or its expiry was already noted).
@@ -117,18 +113,16 @@ contract AcrossBridgeAdapter is AdapterGuard, IBridgeAdapter {
     /// @param vault_ The vault this adapter builds calls for (Core Vault on the hub, Spoke Vault on a spoke).
     /// @param guardian_ Immutable guardian of the quarantine and deprecation flags (DEC-021, DEC-058; Q17-2b OPEN).
     /// @param spokePool_ The Across SpokePool of this chain.
-    /// @param quoter_ The API key of signed quotes (WP-11); zero for none (every send works without it, DEC-052).
     /// @dev DEC-066: rejects a SpokePool whose `fillDeadlineBuffer` is below the 6 h constant, since every deposit
     ///      built by this adapter would revert there. Across governance can still lower the buffer later; `buildSend`
     ///      then uses the lower buffer (security review S-23), so sends, the send home included, keep working.
-    constructor(address vault_, address guardian_, address spokePool_, address quoter_) AdapterGuard(guardian_) {
+    constructor(address vault_, address guardian_, address spokePool_) AdapterGuard(guardian_) {
         if (vault_ == address(0)) revert ZeroVault();
         if (spokePool_ == address(0)) revert ZeroSpokePool();
         uint32 buffer = IAcrossSpokePool(spokePool_).fillDeadlineBuffer();
         if (buffer < FILL_DEADLINE_SECONDS) revert FillDeadlineBufferTooShort(buffer);
         vault = vault_;
         spokePool = spokePool_;
-        quoter = quoter_;
     }
 
     /// @inheritdoc IBridgeAdapter

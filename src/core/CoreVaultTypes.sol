@@ -25,8 +25,6 @@ import {CoreVaultPayoutTypes} from "./CoreVaultPayoutTypes.sol";
 ///        (DEC-106, DEC-110, DEC-125 item 1).
 /// @param factory The only caller of `seed` (DEC-127). A field, not `msg.sender`: the factory deploys through CREATE3,
 ///        so the constructor's `msg.sender` is the one-use proxy.
-/// @param minPerformanceFeeBps The ManagerRegistry's minimum manager fee when the fund was created; floor of
-///        `decreaseManagerFee` (DEC-115, DEC-125 item 3, D-36).
 /// @dev The hub income tokens are the Mandate's hub tokens (WP-07 B2), no longer a factory input.
 /// @param shareName Share token name (Q59 OPEN: factory-chosen, never manager text).
 /// @param shareSymbol Share token symbol (Q59 OPEN).
@@ -44,7 +42,6 @@ struct CoreVaultConfig {
     address escrowImplementation;
     uint16 flowFeeBps;
     address factory;
-    uint16 minPerformanceFeeBps;
     string shareName;
     string shareSymbol;
 }

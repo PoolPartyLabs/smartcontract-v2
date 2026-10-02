@@ -52,7 +52,7 @@ The factory address is what every fund prediction is a function of: deploy the f
 
 ```bash
 set -a; . ./.env; set +a
-export PROTOCOL_RECIPIENT=0x... ADAPTER_GUARDIAN=0x... REGISTRY_OWNER=0x...
+export PROTOCOL_RECIPIENT=0x... ADAPTER_GUARDIAN=0x... API_SIGNER=0x...
 # fork first
 forge script script/DeployFactory.s.sol --fork-url $ARBITRUM_RPC_URL --sender <operator>
 forge script script/DeployFactory.s.sol --fork-url $ROBINHOOD_RPC_URL --sender <operator>
@@ -60,6 +60,11 @@ forge script script/DeployFactory.s.sol --fork-url $ROBINHOOD_RPC_URL --sender <
 forge script script/DeployFactory.s.sol --rpc-url $ARBITRUM_RPC_URL --account <operator> --broadcast --slow
 forge script script/DeployFactory.s.sol --rpc-url $ROBINHOOD_RPC_URL --account <operator> --broadcast --slow
 ```
+
+`API_SIGNER` is the Pool Party API key: the route signer of every fund's swap adapters and, on the hub, the owner of
+the `ManagerRegistry` (DEC-170 item 3), so `REGISTRY_OWNER` defaults to it; set `REGISTRY_OWNER` only to choose another
+owner (required when `API_SIGNER` is zero). In the MVP the key is never rotated: a new key needs a new factory (DEC-170
+item 4). The Across adapters take no API key (DEC-176).
 
 Check that both runs print the same `FundFactory` address and the same Spoke Vault code hash. The factory records
 `creationCodeHash(role)` for every stored role and `coreVaultCreationCodeHash`, the hash of the Core Vault creation
@@ -85,6 +90,11 @@ forge script script/CreateFund.s.sol --rpc-url $ARBITRUM_RPC_URL --account <mana
 export CREATION_NUMBER=<from the log> MANDATE_HASH=<from the log or FundCreated>
 forge script script/CreateFund.s.sol --rpc-url $ROBINHOOD_RPC_URL --account <manager> --broadcast
 ```
+
+The script's optional rule values are listed in `.env.example`. The spoke Operating Cash floor and top-up
+(`SPOKE_OPERATING_CASH_FLOOR`, `SPOKE_OPERATING_CASH_TOP_UP`) default to 0, and the hub has no Operating Cash entry:
+Operating Cash is out of the MVP (ruling 2026-10-02; native Operating Cash, DEC-130 and DEC-144, and the gas refund come
+after the buildathon), so a fund locks no value there.
 
 What the factory refuses: a caller other than `Mandate.manager`; a chain other than the Mandate's hub for `createFund`;
 a Mandate USDC or spoke token that is not the chain's base token; any Mandate adapter, bridge adapter or Spoke Vault

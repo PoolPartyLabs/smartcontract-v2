@@ -43,7 +43,7 @@ contract CoreVaultUnwindingFlagTest is CoreVaultFixture {
     }
 
     function test_DEC131_flagIsClearedAfterAnUnwindThatReturned() public {
-        _deployFeeless();
+        _deployAtMinimumFees();
         _deposit(alice, 1000e6);
         _allocateToPosition(600e6 + SEED_IDLE); // Idle 400 left
         _request(alice, 800e6, INSTANT);
@@ -54,7 +54,7 @@ contract CoreVaultUnwindingFlagTest is CoreVaultFixture {
     }
 
     function test_DEC131_flagIsClearedAfterAnUnwindThatReverted() public {
-        _deployFeeless();
+        _deployAtMinimumFees();
         hubVault.setUnwindMode(MockHubSpokeVault.UnwindMode.Reverts);
         _deposit(alice, 1000e6);
         _allocateToPosition(600e6 + SEED_IDLE); // Idle 400 left

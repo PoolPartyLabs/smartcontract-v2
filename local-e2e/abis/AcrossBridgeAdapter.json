@@ -22,6 +22,32 @@
   },
   {
     "type": "function",
+    "name": "BAND",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "CAP_RATE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "FILL_DEADLINE_SECONDS",
     "inputs": [],
     "outputs": [
@@ -29,6 +55,45 @@
         "name": "",
         "type": "uint32",
         "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "FIXED_FEE_CENTS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "FLOOR_RATE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "INITIAL_RATE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -71,11 +136,6 @@
             "internalType": "uint256"
           },
           {
-            "name": "outputAmount",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
             "name": "destinationChainId",
             "type": "uint256",
             "internalType": "uint256"
@@ -84,21 +144,6 @@
             "name": "recipient",
             "type": "bytes32",
             "internalType": "bytes32"
-          },
-          {
-            "name": "quoteTimestamp",
-            "type": "uint32",
-            "internalType": "uint32"
-          },
-          {
-            "name": "exclusivityDeadline",
-            "type": "uint32",
-            "internalType": "uint32"
-          },
-          {
-            "name": "exclusiveRelayer",
-            "type": "address",
-            "internalType": "address"
           },
           {
             "name": "message",
@@ -111,6 +156,11 @@
         "name": "depositor",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "bridgeData",
+        "type": "bytes",
+        "internalType": "bytes"
       }
     ],
     "outputs": [
@@ -147,7 +197,7 @@
         ]
       }
     ],
-    "stateMutability": "view"
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -171,6 +221,69 @@
   },
   {
     "type": "function",
+    "name": "feeState",
+    "inputs": [
+      {
+        "name": "destinationChainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "nextRateWad",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "referenceRateWad",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "expiredRateWad",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "feeWindow",
+    "inputs": [
+      {
+        "name": "destinationChainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "rates",
+        "type": "uint64[3]",
+        "internalType": "uint64[3]"
+      },
+      {
+        "name": "next",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "sends",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "steps",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "fillDeadlineSeconds",
     "inputs": [],
     "outputs": [
@@ -184,6 +297,25 @@
   },
   {
     "type": "function",
+    "name": "fixedFee",
+    "inputs": [
+      {
+        "name": "inputToken",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "guardian",
     "inputs": [],
     "outputs": [
@@ -194,6 +326,19 @@
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "noteExpiry",
+    "inputs": [
+      {
+        "name": "transitRef",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -220,6 +365,45 @@
       }
     ],
     "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "quoteSend",
+    "inputs": [
+      {
+        "name": "inputToken",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "destinationChainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "inputAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "bridgeData",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "amountToArrive",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "rateWad",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -281,6 +465,31 @@
   },
   {
     "type": "event",
+    "name": "ExpiryNoted",
+    "inputs": [
+      {
+        "name": "destinationChainId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "transitRef",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "rateWad",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "PausedSet",
     "inputs": [
       {
@@ -288,6 +497,37 @@
         "type": "bool",
         "indexed": false,
         "internalType": "bool"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SendPriced",
+    "inputs": [
+      {
+        "name": "destinationChainId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "transitRef",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "rateWad",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "fee",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -304,28 +544,28 @@
   },
   {
     "type": "error",
+    "name": "FeeNotBelowAmount",
+    "inputs": [
+      {
+        "name": "fee",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "FillDeadlineBufferTooShort",
     "inputs": [
       {
         "name": "fillDeadlineBuffer",
         "type": "uint32",
         "internalType": "uint32"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "InvalidAmounts",
-    "inputs": [
-      {
-        "name": "inputAmount",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "outputAmount",
-        "type": "uint256",
-        "internalType": "uint256"
       }
     ]
   },
@@ -342,6 +582,49 @@
         "name": "caller",
         "type": "address",
         "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "NotVault",
+    "inputs": [
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "QuotesNotSupported",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SafeCastOverflowedUintDowncast",
+    "inputs": [
+      {
+        "name": "bits",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "value",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnknownSend",
+    "inputs": [
+      {
+        "name": "transitRef",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ]
   },

@@ -33,7 +33,7 @@ contract AcrossSendFlowTest is Test {
         pool = new MockAcrossSpokePool(INITIAL_DEPOSIT_ID);
         usdc = new MockAcrossToken("USD Coin", "USDC");
         harness = new AcrossHarnessVault();
-        adapter = new AcrossBridgeAdapter(address(harness), guardian, address(pool), address(0));
+        adapter = new AcrossBridgeAdapter(address(harness), guardian, address(pool));
         harness.pin(adapter);
         usdc.mint(address(harness), 10_000e6);
     }

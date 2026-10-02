@@ -28,6 +28,9 @@ export interface FundRecord {
     uniswapV4Adapter: Address;
     aaveV3Adapter: Address;
     acrossBridgeAdapter: Address;
+    /** The fund's Uniswap V3 swap adapter on the hub (Mandate v2, DEC-136): vault the hub Spoke Vault, route signer the
+     *  API signer. */
+    uniswapV3SwapAdapter: Address;
     createdInBlock: string;
   };
   spoke: {
@@ -37,32 +40,38 @@ export interface FundRecord {
     spokeVault: Address;
     uniswapV4Adapter: Address;
     acrossBridgeAdapter: Address;
+    /** The fund's Uniswap V3 swap adapter on Robinhood (DEC-136): vault the Robinhood Spoke Vault. */
+    uniswapV3SwapAdapter: Address;
     createdInBlock: string;
   };
   poolKeys: { hub: PoolKey[]; spoke: PoolKey[] };
   poolIds: { hub: Hex[]; spoke: Hex[]; aave: Hex };
 }
 
+/** What script/DeployFactory.s.sol deployed on one chain: each address field of `run()`'s return struct
+ *  (FactoryDeployment.Deployment: create3Deployer, the Core Vault libraries, spokeCrossChainLib, spokeUnwindLib,
+ *  managerRegistry, priceSource, ...) under its own name, `factory` as `fundFactory`, and the factory's TransitEscrow
+ *  implementation. A field that is the zero address on a chain (the Core Vault libraries, ManagerRegistry and price
+ *  source on Robinhood) is left out, and so is a non-address field (`up` warns about it). */
+export interface DeployedContracts {
+  /** Present only where the chain deploys it: read a field the harness does not name below with a check. */
+  [field: string]: Address | undefined;
+  fundFactory: Address;
+  transitEscrowImplementation: Address;
+}
+
 export interface ProtocolState {
-  arbitrum: {
-    fundFactory: Address;
-    create3Deployer: Address;
-    coreVaultLogic: Address;
-    spokeCrossChainLib: Address;
-    spokeUnwindLib: Address;
+  arbitrum: DeployedContracts & {
     managerRegistry: Address;
     priceSource: Address;
-    transitEscrowImplementation: Address;
     protocolRecipient: Address;
     adapterGuardian: Address;
     registryOwner: Address;
+    /** The API's key: swap route signer and ManagerRegistry owner (reading D-01, DEC-170). */
+    apiSigner: Address;
   };
-  robinhood: {
-    fundFactory: Address;
-    create3Deployer: Address;
-    spokeCrossChainLib: Address;
-    spokeUnwindLib: Address;
-    transitEscrowImplementation: Address;
+  robinhood: DeployedContracts & {
+    apiSigner: Address;
   };
 }
 
@@ -73,15 +82,32 @@ export interface BalanceLayout {
 }
 
 export interface DeploymentState {
-  version: 1;
+  /** 2: the guardian on both Cores and the API signer. */
+  version: 2;
   createdAt: string;
   nodes: { arbitrum: NodeState; robinhood: NodeState };
   actors: Record<ActorName, Address>;
-  guardian: { address: Address; coreBridge: Address; guardianSetIndex: number };
+  /** The local guardian and the guardian set it forms on each node's Core (reports verified on Arbitrum, Hub orders
+   *  on Robinhood). */
+  guardian: {
+    address: Address;
+    arbitrum: { coreBridge: Address; guardianSetIndex: number };
+    robinhood: { coreBridge: Address; guardianSetIndex: number };
+  };
   protocol: ProtocolState;
   external: { arbitrum: Record<string, Address>; robinhood: Record<string, Address> };
   fund: FundRecord;
-  helpers: { arbitrumSwapRouter: Address; robinhoodSwapRouter: Address };
+  helpers: {
+    arbitrumSwapRouter: Address;
+    robinhoodSwapRouter: Address;
+    /** A Uniswap V3 swap adapter per chain (src/adapters/UniswapV3SwapAdapter.sol) whose route signer is the API
+     *  signer and whose vault is the manager's wallet, so the probe can execute a signed route from a wallet: the
+     *  fund's own adapters (`fund.hub.uniswapV3SwapAdapter`, `fund.spoke.uniswapV3SwapAdapter`) take `swap` only from
+     *  their Spoke Vault, whose manager swap verb lands in WP-07 C. Its Robinhood instance also lists NVDA, so a route
+     *  can hop through WETH. The API signs routes for both; `swapAdapterVault` is the only caller of this one's `swap`. */
+    swapAdapters: { arbitrum: Address; robinhood: Address };
+    swapAdapterVault: Address;
+  };
   storage: {
     balances: { arbitrum: BalanceLayout[]; robinhood: BalanceLayout[] };
     /** Mapping slot of `fillStatuses` in each Across SpokePool (the keeper zero-fills a new relay's status slot so a

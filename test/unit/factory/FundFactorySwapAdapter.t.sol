@@ -9,7 +9,6 @@ import {IFundFactory} from "../../../src/interfaces/IFundFactory.sol";
 import {FundFactory} from "../../../src/factory/FundFactory.sol";
 import {CoreVault} from "../../../src/core/CoreVault.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
-import {AcrossBridgeAdapter} from "../../../src/adapters/AcrossBridgeAdapter.sol";
 import {UniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
 import {Mandate, MandateLib} from "../../../src/mandate/Mandate.sol";
 import {MockToken} from "../../mocks/v4/MockToken.sol";
@@ -27,7 +26,7 @@ import {V3Stub} from "../../utils/V3Stub.sol";
 /// @notice WP-07 B2 and B4 (DEC-136 and its closing note, DEC-153; reading D-01): the factory deploys one
 ///         `UniswapV3SwapAdapter` per fund chain at its predicted CREATE3 address, wired to that chain's Spoke Vault,
 ///         base token, Mandate tokens, Uniswap V3 deployment and API key, before the Spoke Vault, which pins it with
-///         its codehash. The same API key is the Across adapters' quoter.
+///         its codehash. The Across adapters take no API key (DEC-176).
 contract FundFactorySwapAdapterTest is Test, FactoryDeployment, FundMandate, FundSeed {
     uint256 internal constant HUB = 42_161;
     uint256 internal constant SPOKE = 4663;
@@ -215,7 +214,6 @@ contract FundFactorySwapAdapterTest is Test, FactoryDeployment, FundMandate, Fun
         assertEq(pinned[0], address(swap));
         assertEq(hubVault.adapterCodehash(address(swap)), address(swap).codehash, "Q17-4: codehash pinned");
 
-        assertEq(AcrossBridgeAdapter(hub.acrossBridgeAdapter).quoter(), apiSigner, "D-01: the API key quotes");
         assertEq(CoreVault(a.coreVault).wormholeCore(), address(hubWormhole), "D-15: the Hub's Core");
     }
 
@@ -241,7 +239,6 @@ contract FundFactorySwapAdapterTest is Test, FactoryDeployment, FundMandate, Fun
         SpokeVault spokeVault = SpokeVault(c.spokeVault);
         assertEq(spokeVault.swapAdapters()[0], address(swap));
         assertEq(spokeVault.adapterCodehash(address(swap)), address(swap).codehash);
-        assertEq(AcrossBridgeAdapter(c.acrossBridgeAdapter).quoter(), apiSigner);
     }
 
     // ---------------------------------------------------------------------------------------------------------------

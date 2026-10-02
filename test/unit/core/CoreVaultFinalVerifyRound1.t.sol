@@ -21,7 +21,7 @@ contract CoreVaultFinalVerifyRound1Test is CoreVaultFixture {
     /// allocatable. When the price falls before the claim, the claim burns the whole balance at the lower price and
     /// the part of the reserve above what it paid is released (DEC-072: `payoutReserve <= idle` throughout).
     function test_DEC072_reserveIsTheShareValueAtTheRequestPriceAndItsExcessIsReleasedWhenThePriceFalls() public {
-        _deployFeeless();
+        _deployAtMinimumFees();
         _deposit(alice, 1000e6); // 1,000 shares at 1.00
         _deposit(bob, 100e6); // 100 shares
         // Share Assets 1,211.10 over 1,101 shares (the manager's seed share included): 1.10
@@ -66,7 +66,7 @@ contract CoreVaultFinalVerifyRound1Test is CoreVaultFixture {
     /// report read fails does not block it: the bound uses the last known hub value with `HubValuationFallback`, a
     /// gain the failing read cannot see is not reserved against, and the request never reverts.
     function test_OQ10_requestUnderAHubValuationFailureIsBoundedByTheLastKnownValue() public {
-        _deployFeeless();
+        _deployAtMinimumFees();
         _deposit(alice, 1000e6);
         // Price 1.10 over 1,001 shares (the seed's included), seen by the next successful valuation.
         hubVault.setPosition(address(usdc), 100.1e6);

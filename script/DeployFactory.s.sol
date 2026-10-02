@@ -9,9 +9,10 @@ import {FactoryDeployment} from "./FactoryDeployment.sol";
 ///         the addresses of docs/INTEGRATIONS.md. Run it with the same broadcaster on every chain: the factory lands at
 ///         the same address everywhere (docs/DEPLOYMENT.md).
 /// @dev Environment: `PROTOCOL_RECIPIENT` (fee wallet, DEC-106, LC-132 OPEN), `ADAPTER_GUARDIAN` (ruling 2026-09-29,
-///      Q17-2b), `API_SIGNER` (the Pool Party API key, reading D-01: swap route signer and Across quoter of every fund;
+///      Q17-2b), `API_SIGNER` (the Pool Party API key, reading D-01, DEC-170: swap route signer of every fund;
 ///      `address(0)` for none), optional `REGISTRY_OWNER` (hub ManagerRegistry owner, LC-142; defaults to
-///      `API_SIGNER`, D-01). Fork first:
+///      `API_SIGNER`, which DEC-170 item 3 makes the owner; with `API_SIGNER` zero it must be set, as the registry
+///      refuses a zero owner). Fork first:
 ///      `forge script script/DeployFactory.s.sol --fork-url $ARBITRUM_RPC_URL --sender <operator>`, then the same
 ///      command with `--rpc-url` and `--broadcast` and the operator's keystore.
 contract DeployFactory is Script, FactoryDeployment {
