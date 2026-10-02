@@ -293,9 +293,9 @@ Hub's latest (DEC-159); past the report lifetime with no new report `/health` sh
 `StaleSpokeReport` and the API refuses to build a deposit, while an Instant payout from Idle still executes and pays
 exactly what `/quote/claim` said; a fresh report reopens mints; a 1,000 USDC hub swap built by the API respects its
 oracle minimum on the live pool and the same swap at 0 bps reverts `InsufficientOutput`; the bridge quote is exactly
-what the adapter fixed for a send to Robinhood and a send home (DEC-162); a route the API signed executes through the
-swap adapter on the live V3 pools of each chain for its quoted output, and a tampered minimum reverts
-`InvalidRouteSignature`; every step ended with an event the indexer served; the Share Price history holds every mint
+what the adapter fixed for a send to Robinhood and a send home (DEC-162); the API refuses to sign a minimum looser than
+5% (400) or for an adapter it does not serve (422); a route the API signed executes through the swap adapter on the
+live V3 pools of each chain for its quoted output, and a tampered minimum reverts `InvalidRouteSignature`; every step ended with an event the indexer served; the Share Price history holds every mint
 at its price; a holder's value equals shares times the Share Price.
 
 ## Run reports

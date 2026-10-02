@@ -1,9 +1,10 @@
 // Drives the minimal API (src/api.ts) over HTTP against the two forks and checks each concept the API guide relies
 // on, on a fund whose spoke never reported (the deployed one if unused, else a fresh one): quotes are exact, the API's
 // transactions do what they say, a report follows each deposit (DEC-159), freshness gates mints and not payouts, the
-// bridge quote is what the adapter fixes (DEC-162), a signed swap route executes on the live V3 pools and a tampered
-// one is refused, every operation ends with an event a server can index, and the Share Price history follows the
-// mints. Each run writes a run report. Run: `pnpm run up && pnpm api:probe; pnpm run down`.
+// bridge quote is what the adapter fixes (DEC-162), the API signs routes only within its limits, a signed swap route
+// executes on the live V3 pools and a tampered one is refused, every operation ends with an event a server can index,
+// and the Share Price history follows the mints. Each run writes a run report.
+// Run: `pnpm run up && pnpm api:probe; pnpm run down`.
 import { zeroAddress, type Address, type Hex, type TransactionReceipt } from "viem";
 import { coreVaultAbi, erc20Abi, spokeVaultAbi, uniswapV3SwapAdapterAbi } from "./abis.ts";
 import { explain, nodes, read, recordTransaction, send, simulateRevert, wallet, type Side } from "./chain.ts";
@@ -32,6 +33,13 @@ async function get<T = any>(path: string): Promise<T> {
   const body = await res.json();
   if (!res.ok) throw Object.assign(new Error(`GET ${path}: ${res.status} ${JSON.stringify(body)}`), { status: res.status, body });
   return body as T;
+}
+
+/** The HTTP status of a GET (for the routes that must refuse). */
+async function statusOf(path: string): Promise<number> {
+  const res = await fetch(`${BASE}${path}`);
+  await res.text();
+  return res.status;
 }
 
 async function post<T = any>(path: string, payload: Record<string, string>): Promise<{ status: number; body: T }> {
@@ -235,6 +243,16 @@ export async function probe() {
     );
 
     // 8. Founder chat 1, DEC-143, DEC-153: a route the API signs executes on the live V3 pools; a tampered one reverts.
+    //    The API signs only within its limits: never a minimum looser than the vault's 5% floor, never for an adapter
+    //    it does not serve (every production adapter accepts its signature, D-01; DEC-142).
+    const routeQuery = `/quote/swap-route?chain=robinhood&tokenIn=${ROBINHOOD.usdg}&tokenOut=${ROBINHOOD.weth}&amountIn=1000000000`;
+    const looseStatus = await statusOf(`${routeQuery}&slippageBps=10000`);
+    const foreignStatus = await statusOf(`${routeQuery}&adapter=${actors.stranger.address}`);
+    record(
+      "the API signs routes only within its limits",
+      looseStatus === 400 && foreignStatus === 422,
+      `slippageBps 10000 (a zero minimum) answers ${looseStatus}; an adapter the API does not serve answers ${foreignStatus}`,
+    );
     await signedRoute("arbitrum", ARBITRUM.usdc, ARBITRUM.weth, 1_000_000_000n, "Arbitrum USDC -> WETH");
     await signedRoute("robinhood", ROBINHOOD.usdg, ROBINHOOD.weth, 1_000_000_000n, "Robinhood USDG -> WETH");
     await signedRoute("robinhood", ROBINHOOD.usdg, ROBINHOOD.nvda, 1_000_000_000n, "Robinhood USDG -> NVDA, direct or through WETH", true);
