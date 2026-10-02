@@ -111,7 +111,7 @@ contract MockV3Factory {
 /// @dev Like QuoterV2 for an exact input, a quote of a drained tier returns the output of the part the pool took and
 ///      the price limit as `sqrtPriceX96After`; it does not report the input left unspent.
 contract MockQuoterV2 {
-    /// @notice V3 TickMath.MIN_SQRT_RATIO and MAX_SQRT_RATIO: QuoterV2 swaps to one past them when given no limit.
+    /// @notice V3 TickMath.MIN_SQRT_RATIO and MAX_SQRT_RATIO; given no limit, QuoterV2 stops one inside them.
     uint160 public constant MIN_SQRT_RATIO = 4_295_128_739;
     uint160 public constant MAX_SQRT_RATIO = 1_461_446_703_485_210_103_287_273_052_203_988_822_378_723_970_342;
 

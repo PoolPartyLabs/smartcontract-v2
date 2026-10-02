@@ -512,7 +512,7 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
         }
     }
 
-    /// @dev QuoterV2's price limit when it is given none: one past the end the price moves towards.
+    /// @dev QuoterV2's price limit when it is given none: one inside the end of the range the price moves towards.
     function _limit(address tokenIn, address tokenOut) internal view returns (uint160) {
         return tokenIn < tokenOut ? quoter.MIN_SQRT_RATIO() + 1 : quoter.MAX_SQRT_RATIO() - 1;
     }
