@@ -291,6 +291,32 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
         adapter.spotValue(t0, t1, AMOUNT, 2500);
     }
 
+    /// @dev `_atSpot` squares the price in 256 bits up to 2^128 and drops 64 bits first above it. Over the whole V3
+    ///      range, in both directions, the first branch is exact and the second within 1 wei of the exact floor (the
+    ///      mock pool's `mid`, which never squares the price).
+    function testFuzz_DEC118_spotValueHoldsOverTheWholePriceRange(uint160 sqrtPriceX96, uint256 amount) public {
+        sqrtPriceX96 = uint160(bound(sqrtPriceX96, quoter.MIN_SQRT_RATIO(), quoter.MAX_SQRT_RATIO() - 1));
+        amount = bound(amount, 1, (1 << 96) - 1);
+        _assertSpotValueMatchesTheMid(sqrtPriceX96, amount);
+    }
+
+    /// @dev Both ends of the range and both sides of the 2^128 switch.
+    function test_DEC118_spotValueAtTheEdgesOfThePriceRange() public {
+        uint160[6] memory prices = [
+            quoter.MIN_SQRT_RATIO(),
+            uint160(1 << 96),
+            type(uint128).max,
+            uint160(1) << 128,
+            (uint160(1) << 128) + 1,
+            quoter.MAX_SQRT_RATIO() - 1
+        ];
+        for (uint256 i; i < prices.length; ++i) {
+            _assertSpotValueMatchesTheMid(prices[i], 1);
+            _assertSpotValueMatchesTheMid(prices[i], AMOUNT);
+            _assertSpotValueMatchesTheMid(prices[i], (1 << 96) - 1);
+        }
+    }
+
     /// @dev Anyone can create a factory pool without initializing it (`sqrtPriceX96 == 0`). It has no mid value: the
     ///      read reverts in both directions instead of returning 0 one way and dividing by zero the other.
     function test_DEC118_anUninitializedPoolHasNoSpotValue() public {
@@ -467,6 +493,23 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
     {
         _fund(tokenIn, amountIn);
         return adapter.swapDirect(tokenIn, tokenOut, amountIn, fee, NO_MAX);
+    }
+
+    function _assertSpotValueMatchesTheMid(uint160 sqrtPriceX96, uint256 amount) internal {
+        MockV3Pool pool = factory.createPool(address(stock), address(usdt), 3000, sqrtPriceX96, LIQUIDITY);
+        (address t0, address t1) = (pool.token0(), pool.token1());
+        uint256 forward = adapter.spotValue(t0, t1, amount, 3000);
+        uint256 backward = adapter.spotValue(t1, t0, amount, 3000);
+        if (sqrtPriceX96 <= type(uint128).max) {
+            assertEq(forward, pool.mid(t0, amount), "token0 -> token1, exact");
+            assertEq(backward, pool.mid(t1, amount), "token1 -> token0, exact");
+        } else {
+            // The price drops below its exact value: token0 is worth at most 1 wei less, token1 at most 1 wei more.
+            assertLe(forward, pool.mid(t0, amount), "token0 -> token1, never above");
+            assertGe(forward + 1, pool.mid(t0, amount), "token0 -> token1, within 1 wei");
+            assertGe(backward, pool.mid(t1, amount), "token1 -> token0, never below");
+            assertLe(backward, pool.mid(t1, amount) + 1, "token1 -> token0, within 1 wei");
+        }
     }
 
     /// @dev QuoterV2's price limit when it is given none: one past the end the price moves towards.

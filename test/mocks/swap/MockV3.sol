@@ -67,11 +67,15 @@ contract MockV3Pool {
         return (sqrtPriceX96, 0, 0, 0, 0, 0, true);
     }
 
-    /// @notice Mid value of `amountIn` of `tokenIn` in the other token.
+    /// @notice Mid value of `amountIn` of `tokenIn` in the other token: the exact floor of `amountIn * P` or
+    ///         `amountIn / P`, with `P = (sqrtPriceX96 / 2^96)^2`.
+    /// @dev Never squares `sqrtPriceX96` in 256 bits, so it holds over the whole V3 price range (for `amountIn` below
+    ///      2^96) and serves as the reference of the adapter's `_atSpot`. token0 -> token1: `amountIn * sqrtPriceX96` is
+    ///      exact, then one 512-bit `mulDiv`. token1 -> token0: two nested floor divisions by integers equal one
+    ///      division by their product.
     function mid(address tokenIn, uint256 amountIn) public view returns (uint256) {
-        uint256 ratioX192 = uint256(sqrtPriceX96) * sqrtPriceX96;
-        return
-            tokenIn == token0 ? Math.mulDiv(ratioX192, amountIn, 1 << 192) : Math.mulDiv(1 << 192, amountIn, ratioX192);
+        uint256 s = sqrtPriceX96;
+        return tokenIn == token0 ? Math.mulDiv(amountIn * s, s, 1 << 192) : Math.mulDiv(amountIn, 1 << 192, s) / s;
     }
 
     /// @notice Output of an exact-input swap of `amountIn` of `tokenIn` in the current state.
