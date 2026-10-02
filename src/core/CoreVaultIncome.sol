@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ICoreVaultIncome} from "../interfaces/ICoreVaultIncome.sol";
 import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
+import {MandateLib} from "../mandate/Mandate.sol";
 import {CoreVaultBase} from "./CoreVaultBase.sol";
 import {CoreVaultIncomeLogic} from "./CoreVaultIncomeLogic.sol";
 import {CoreVaultLogic} from "./CoreVaultLogic.sol";
@@ -64,8 +65,9 @@ abstract contract CoreVaultIncome is CoreVaultBase {
     /// @inheritdoc ICoreVaultIncome
     /// @dev DEC-110: the manager fee only decreases, with immediate effect. Ruling 2026-09-29: the performance fee is
     ///      charged at collection only, so nothing of it has accrued at the old rate. DEC-114: a lower management fee
-    ///      applies from now; what accrued at the old rate is booked first. DEC-115, DEC-125 item 3 (D-36): the
-    ///      performance fee never goes below the registry's minimum manager fee in force at creation.
+    ///      applies from now, down to 0; what accrued at the old rate is booked first. DEC-182, DEC-184: the
+    ///      performance fee never goes below `MandateLib.MIN_PERFORMANCE_FEE_BPS` (10%), the floor it was created at
+    ///      or above.
     function decreaseManagerFee(uint16 newPerformanceFeeBps, uint16 newManagementFeeBps)
         external
         onlyManager
@@ -77,8 +79,8 @@ abstract contract CoreVaultIncome is CoreVaultBase {
             newPerformanceFeeBps > previousPerformance || newManagementFeeBps > previousManagement
                 || (newPerformanceFeeBps == previousPerformance && newManagementFeeBps == previousManagement)
         ) revert ManagerFeeNotDecreasing();
-        if (newPerformanceFeeBps < minPerformanceFeeBps) {
-            revert ManagerFeeBelowMinimum(newPerformanceFeeBps, minPerformanceFeeBps);
+        if (newPerformanceFeeBps < MandateLib.MIN_PERFORMANCE_FEE_BPS) {
+            revert ManagerFeeBelowMinimum(newPerformanceFeeBps, MandateLib.MIN_PERFORMANCE_FEE_BPS);
         }
         if (newManagementFeeBps != previousManagement) {
             // Payout mode: never reverts on a failing dependency, so the decrease is never blocked (DEC-056).

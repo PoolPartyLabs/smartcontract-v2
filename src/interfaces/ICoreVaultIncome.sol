@@ -81,8 +81,8 @@ interface ICoreVaultIncome {
     /// @dev Ruling 2026-09-29: the performance fee is charged only when collected income reaches the Core Vault, so
     ///      nothing of it is left to settle at the old rate; income collected afterwards is charged at the new rate.
     ///      DEC-110 ("settling what accrued first"), DEC-114: the management fee accrued so far is booked at the old
-    ///      rate (a payout-mode valuation) before the new rate applies. The performance fee never goes below the
-    ///      registry's minimum in force at creation (DEC-115, DEC-125 item 3, D-36).
+    ///      rate (a payout-mode valuation) before the new rate applies; it may fall to 0. DEC-182, DEC-184: the
+    ///      performance fee never goes below 10% (`MandateLib.MIN_PERFORMANCE_FEE_BPS`; `ManagerFeeBelowMinimum`).
     function decreaseManagerFee(uint16 newPerformanceFeeBps, uint16 newManagementFeeBps) external;
 
     // ---------------------------------------------------------------------------------------------------------------
