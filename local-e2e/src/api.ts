@@ -23,7 +23,16 @@
 //   POST /report/after-deposit {txHash}                  DEC-159: a report published on every spoke and delivered
 //   GET  /events?fromBlock=                 Core Vault events, decoded (the indexer a server would run)
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { decodeErrorResult, decodeEventLog, encodeAbiParameters, encodeFunctionData, type Abi, type Address, type Hex } from "viem";
+import {
+  decodeErrorResult,
+  decodeEventLog,
+  encodeAbiParameters,
+  encodeFunctionData,
+  type Abi,
+  type Address,
+  type Hex,
+  type TransactionReceipt,
+} from "viem";
 import {
   acrossBridgeAdapterAbi,
   allErrorsAbi,
@@ -475,14 +484,32 @@ export async function quoteBridge(state: DeploymentState, direction: "to-spoke" 
 // The report after each deposit (DEC-159)
 // ---------------------------------------------------------------------------------------------------------------------
 
+/** Deposits this API process has answered (or is answering), by block and transaction hash (a fork started again can
+ *  mine the same transaction hash): a replay gets the first answer, never another report paid by the API signer. A
+ *  failed attempt is forgotten, so it can be retried. */
+const answeredDeposits = new Map<string, ReturnType<typeof publishReportsAfter>>();
+
 /** DEC-159: after a deposit a report is published on every spoke of the fund and delivered on the Hub, so the new
  *  shares start earning spoke income from the next report (DEC-145). The API publishes with its own key; the VAA is
  *  delivered by the keeper (the guardians and relayer of production) or, when none runs, by the API with the harness's
- *  guardian. Anyone may do both; a depositor who skips it only delays his own income. */
+ *  guardian. Anyone may do both; a depositor who skips it only delays his own income. Once per deposit: a replayed
+ *  hash gets the first answer, and a spoke whose report accepted on the Hub is already later than the deposit gets no
+ *  new one (an API restart, the keeper's cadence or another publisher already covered it). */
 export async function reportAfterDeposit(state: DeploymentState, txHash: Hex, deliverer: "keeper" | "api") {
-  const fund = hub(state);
   const receipt = await nodes.arbitrum.client.getTransactionReceipt({ hash: txHash }).catch(() => undefined);
   if (!receipt) throw new HttpError(404, `no transaction ${txHash} on the hub`);
+  const key = `${receipt.blockHash}:${receipt.transactionHash}`.toLowerCase();
+  let answer = answeredDeposits.get(key);
+  if (!answer) {
+    answer = publishReportsAfter(state, receipt, deliverer);
+    answeredDeposits.set(key, answer);
+    answer.catch(() => answeredDeposits.delete(key));
+  }
+  return answer;
+}
+
+async function publishReportsAfter(state: DeploymentState, receipt: TransactionReceipt, deliverer: "keeper" | "api") {
+  const fund = hub(state);
   const deposits = receipt.logs
     .filter((l) => l.address.toLowerCase() === fund.hub.coreVault.toLowerCase())
     .map((l) => {
@@ -494,11 +521,36 @@ export async function reportAfterDeposit(state: DeploymentState, txHash: Hex, de
     })
     .filter((e) => e?.eventName === "Deposited");
   if (deposits.length === 0) throw new HttpError(422, "the transaction is not a deposit into this fund");
+  const depositTime = (await nodes.arbitrum.client.getBlock({ blockNumber: receipt.blockNumber })).timestamp;
   const spokes: SpokeRef[] = [
     { fundId: fund.fundId, spokeVault: fund.spoke.spokeVault, receiver: fund.hub.valueReportReceiver, spokeIndex: fund.spoke.spokeIndex },
   ];
   const reports = [];
   for (const spoke of spokes) {
+    const accepted = async () => {
+      const args = [BigInt(spoke.spokeIndex)];
+      if (!(await read<boolean>("arbitrum", { address: spoke.receiver, abi: valueReportReceiverAbi, functionName: "hasReport", args }))) return undefined;
+      const [latest] = await read<readonly [{ sequence: bigint; timestamp: bigint }, bigint, bigint]>("arbitrum", {
+        address: spoke.receiver,
+        abi: valueReportReceiverAbi,
+        functionName: "latestReport",
+        args,
+      });
+      return latest;
+    };
+    const covering = await accepted();
+    if (covering && covering.timestamp > depositTime) {
+      reports.push({
+        chainId: nodes.robinhood.chain.id,
+        spokeVault: spoke.spokeVault,
+        published: false,
+        reportSequence: covering.sequence,
+        reportTimestamp: covering.timestamp,
+        deliveredBy: "nobody: the Hub had already accepted a report later than the deposit",
+        hubReportSequence: covering.sequence,
+      });
+      continue;
+    }
     const published = await publishReport(spoke, "apiSigner");
     let deliveredBy: string;
     if (deliverer === "keeper") {
@@ -508,26 +560,21 @@ export async function reportAfterDeposit(state: DeploymentState, txHash: Hex, de
       await deliverDirectly(spoke, published.message, "apiSigner");
       deliveredBy = "api (no keeper running: VAA signed by the harness guardian)";
     }
-    const [latest] = await read<readonly [{ sequence: bigint; timestamp: bigint }, bigint, bigint]>("arbitrum", {
-      address: spoke.receiver,
-      abi: valueReportReceiverAbi,
-      functionName: "latestReport",
-      args: [BigInt(spoke.spokeIndex)],
-    });
     reports.push({
       chainId: nodes.robinhood.chain.id,
       spokeVault: spoke.spokeVault,
+      published: true,
       reportSequence: published.reportSequence,
       wormholeSequence: published.wormholeSequence,
       publishTx: published.tx,
       reportTimestamp: published.message.timestamp,
       deliveredBy,
-      hubReportSequence: latest.sequence,
+      hubReportSequence: (await accepted())!.sequence,
     });
   }
   const d = deposits[0]!.args;
   return {
-    deposit: { tx: txHash, block: receipt.blockNumber, shareholder: d.shareholder, shares: d.shares, sharePrice: d.sharePrice },
+    deposit: { tx: receipt.transactionHash, block: receipt.blockNumber, shareholder: d.shareholder, shares: d.shares, sharePrice: d.sharePrice },
     reports,
   };
 }

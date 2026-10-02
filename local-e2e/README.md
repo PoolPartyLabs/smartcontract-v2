@@ -284,7 +284,7 @@ the report after each deposit. Routes:
 | `GET /quote/bridge?direction=to-spoke\|to-hub&amount=` | what the fund's Across adapter fixes for a send of `amount` now (`quoteSend`: amount to arrive, fee, rate) and the route's fee state; `signed: false` until signed quotes (R-162-B, WP-11) |
 | `GET /share-price/history?fromBlock=&toBlock=` | the Share Price, Share Assets and shares at every hub block where the Core Vault emitted an event, with the event names |
 | `POST /tx/deposit`, `/tx/request`, `/tx/claim`, `/tx/swap` | unsigned transactions (approval first when needed); `/tx/deposit` answers 409 while mints are closed |
-| `POST /report/after-deposit {txHash}` | DEC-159: checks the transaction is a deposit into the fund, publishes `report()` on every spoke with the API signer and waits for the keeper to deliver it (or, with no keeper running, delivers it with the harness guardian) |
+| `POST /report/after-deposit {txHash}` | DEC-159: checks the transaction is a deposit into the fund, publishes `report()` on every spoke with the API signer and waits for the keeper to deliver it (or, with no keeper running, delivers it with the harness guardian); once per deposit: a replayed hash gets the first answer, and a spoke whose report accepted on the Hub is already later than the deposit gets no new one (`published: false`) |
 | `GET /events?fromBlock=` | the Core Vault's events, decoded |
 
 `pnpm api:probe` drives those routes on an unused fund (the deployed one, or a fresh one) and checks: the deposit quote
@@ -376,7 +376,9 @@ a run report keeps the host of a URL only.
   publishes one from the Core Vault's address and the keeper only logs it.
 - **The API signer.** Its key is a public anvil key held by the local API; in production it is the API's own key, the
   ManagerRegistry owner and the route and quote signer wired at deployment (reading D-01). The harness's swap adapters
-  name the manager's wallet as their vault until the factory deploys each fund's own adapter (WP-07).
+  name the manager's wallet as their vault until the factory deploys each fund's own adapter (WP-07). The local API also
+  pays the reports after deposits with it; production sends those from a separate gas key, never from the
+  registry-owner and route-signer key, and keeps the deposits it answered in its store rather than in memory.
 - **Across.** Real SpokePools, but one keeper fills every deposit to a fund vault at whatever fee the quote left, within
   seconds. Production relayers fill only profitable deposits, quotes come from the Across API, and an unfilled deposit
   is refunded to its TransitEscrow after the fill deadline by the dataworker's bundle, which does not exist locally.
