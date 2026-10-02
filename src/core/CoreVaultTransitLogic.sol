@@ -18,6 +18,7 @@ import {SpokeVaultTypes} from "../spoke/SpokeVaultTypes.sol";
 import {CoreVaultLogic} from "./CoreVaultLogic.sol";
 import {CoreVaultIncomeLogic} from "./CoreVaultIncomeLogic.sol";
 import {CoreVaultPayoutLogic} from "./CoreVaultPayoutLogic.sol";
+import {CoreVaultClosureLogic} from "./CoreVaultClosureLogic.sol";
 
 /// @title CoreVaultTransitLogic
 /// @notice Report application, spoke-to-hub arrivals, sends to spokes and the transit outcomes of the Core Vault (the
@@ -59,6 +60,7 @@ library CoreVaultTransitLogic {
         emit ICoreVault.ReportAccepted(spokeIndex, r.sequence, r.blockNumber, r.timestamp, arrived);
         CoreVaultIncomeLogic.onReportAccepted(s, w, spokeIndex, r);
         CoreVaultPayoutLogic.onReportAccepted(s, w, spokeIndex, r);
+        CoreVaultClosureLogic.onReportAccepted(s, w, spokeIndex, r);
     }
 
     /// @notice DEC-066, DEC-090: Sent or ExpiryAttested becomes ArrivalConfirmed when a report of the destination spoke

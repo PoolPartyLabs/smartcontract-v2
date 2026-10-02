@@ -17,6 +17,7 @@ import {ShareToken} from "./ShareToken.sol";
 import {ShareMath} from "../libraries/ShareMath.sol";
 import {OrderCodec} from "../libraries/OrderCodec.sol";
 import {ReportCodec} from "../libraries/ReportCodec.sol";
+import {SpokeUnwindTypes} from "../spoke/SpokeUnwindTypes.sol";
 
 /// @notice Linked Core Vault closure implementation (DEC-114/147/149/150/163/167, ruling 2026-10-02).
 library CoreVaultClosureLogic {
@@ -29,6 +30,28 @@ library CoreVaultClosureLogic {
         uint256 flowFee;
         uint256 deducted;
         uint256 paid;
+    }
+
+    function onReportAccepted(
+        CoreVaultState storage state,
+        CoreVaultWiring memory wiring,
+        uint256 spokeIndex,
+        ReportCodec.Report memory report
+    ) public {
+        if (state.fundState != ICoreVaultLifecycle.FundState.Closing || report.unwindResults.length == 0) return;
+        SpokeUnwindTypes.OrderResult[] memory results =
+            abi.decode(report.unwindResults, (SpokeUnwindTypes.OrderResult[]));
+        bytes32 closureId = requestId(state, wiring.fundId);
+        for (uint256 index; index < results.length; ++index) {
+            SpokeUnwindTypes.OrderResult memory result = results[index];
+            if (result.requestId != closureId || result.amountToArrive == 0) continue;
+            bytes32 key = CoreVaultLogic.hubBoundKey(state.mandate.spokes[spokeIndex].chainId, result.transitId);
+            if (state.closureExpected[key] == 0) {
+                state.closureTransits[spokeIndex].push(result.transitId);
+                state.closureExpected[key] = result.amountToArrive;
+            }
+            if (result.refunded) state.closureRefunded[key] = true;
+        }
     }
 
     function requestId(CoreVaultState storage state, bytes32 fundId) public view returns (bytes32) {
@@ -70,6 +93,7 @@ library CoreVaultClosureLogic {
         order.fracNum = 1;
         order.fracDen = 1;
         order.payoutMode = uint8(ICoreVaultPayouts.PayoutMode.Standard);
+        order.closingStartedAt = state.closingStartedAt;
         uint64 sequence = OrderCodec.publish(wiring.wormholeCore, order, messageFee);
         emit ICoreVault.OrderPublished(order.kind, OrderCodec.orderId(order), closureId, order.attempt, sequence);
     }
@@ -78,7 +102,7 @@ library CoreVaultClosureLogic {
         _requireClosing(state);
         ReportCodec.Report memory hub = ISpokeVault(wiring.hubSpokeVault).buildReport();
         _requireEmpty(hub);
-        uint256 excess = state.closureExcessCost;
+        uint256 excess = state.closureExcessCost + ISpokeVaultUnwind(wiring.hubSpokeVault).closureCost();
         IValueReportReceiver receiver = IValueReportReceiver(wiring.reportReceiver);
         for (uint256 index; index < state.mandate.spokes.length; ++index) {
             if (!receiver.isReportFresh(index)) revert ICoreVaultLifecycle.ClosureNotReady();
@@ -88,7 +112,7 @@ library CoreVaultClosureLogic {
             if (state.spokeBooks[index].inFlightSent != 0 || state.spokeBooks[index].inFlightToArrive != 0) {
                 revert ICoreVaultLifecycle.ClosureNotReady();
             }
-            excess += _spokeExcess(state, wiring.fundId, report.unwindResults);
+            excess += _spokeExcess(state, wiring, index, report.unwindResults);
         }
         CoreVaultIncomeLogic.onValuation(state, wiring, hub, true, false);
         if (!CoreVaultIncomeLogic.finalCollectionDone(state, wiring) || state.unmatchedArrivals != 0) {
@@ -186,20 +210,43 @@ library CoreVaultClosureLogic {
         }
     }
 
-    function _spokeExcess(CoreVaultState storage state, bytes32 fundId, bytes memory blob)
-        private
-        view
-        returns (uint256)
-    {
+    function _spokeExcess(
+        CoreVaultState storage state,
+        CoreVaultWiring memory wiring,
+        uint256 spokeIndex,
+        bytes memory blob
+    ) private view returns (uint256) {
         if (blob.length == 0) revert ICoreVaultLifecycle.ClosureNotReady();
-        ICoreVaultLifecycle.ClosureResult[] memory results = abi.decode(blob, (ICoreVaultLifecycle.ClosureResult[]));
-        bytes32 closureId = requestId(state, fundId);
-        for (uint256 index; index < results.length; ++index) {
-            ICoreVaultLifecycle.ClosureResult memory result = results[index];
+        SpokeUnwindTypes.OrderResult[] memory results = abi.decode(blob, (SpokeUnwindTypes.OrderResult[]));
+        bytes32 closureId = requestId(state, wiring.fundId);
+        bytes32[] storage transits = state.closureTransits[spokeIndex];
+        for (uint256 index; index < transits.length; ++index) {
+            bytes32 key = CoreVaultLogic.hubBoundKey(state.mandate.spokes[spokeIndex].chainId, transits[index]);
+            if (!state.closureRefunded[key] && state.hubBound[key].credited < state.closureExpected[key]) {
+                revert ICoreVaultLifecycle.ClosureNotReady();
+            }
+        }
+        for (uint256 index = results.length; index != 0; --index) {
+            SpokeUnwindTypes.OrderResult memory result = results[index - 1];
             if (
-                result.requestId == closureId && result.complete && result.attempt != 0
+                result.requestId == closureId && result.excluded == 0 && !result.refunded && result.attempt != 0
                     && result.attempt <= state.closureAttempt
-            ) return result.excessCost;
+                    && result.orderId
+                        == keccak256(abi.encode(OrderCodec.CLOSE, wiring.fundId, closureId, result.attempt))
+            ) {
+                for (uint256 sendIndex; sendIndex < results.length; ++sendIndex) {
+                    SpokeUnwindTypes.OrderResult memory sent = results[sendIndex];
+                    if (sent.requestId != closureId || sent.refunded || sent.amountToArrive == 0) continue;
+                    if (
+                        state.hubBound[CoreVaultLogic.hubBoundKey(
+                                    state.mandate.spokes[spokeIndex].chainId, sent.transitId
+                                )].credited < sent.amountToArrive
+                    ) {
+                        revert ICoreVaultLifecycle.ClosureNotReady();
+                    }
+                }
+                return result.closureExcessCost;
+            }
         }
         revert ICoreVaultLifecycle.ClosureNotReady();
     }

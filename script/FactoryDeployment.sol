@@ -250,10 +250,10 @@ abstract contract FactoryDeployment is CommonBase {
         d.coreVaultIncomeLogic = _library(_linkedToCoreVaultLibraries(CORE_VAULT_INCOME_LOGIC_ARTIFACT, d), deploy);
         d.coreVaultLogic = _library(_linkedToCoreVaultLibraries(CORE_VAULT_LOGIC_ARTIFACT, d), deploy);
         d.coreVaultPayoutLogic = _library(_linkedToCoreVaultLibraries(CORE_VAULT_PAYOUT_LOGIC_ARTIFACT, d), deploy);
-        d.coreVaultTransitLogic = _library(_linkedToCoreVaultLibraries(CORE_VAULT_TRANSIT_LOGIC_ARTIFACT, d), deploy);
         d.coreVaultClosureLogic = _library(
             _linkedToCoreVaultLibraries("out/CoreVaultClosureLogic.sol/CoreVaultClosureLogic.json", d), deploy
         );
+        d.coreVaultTransitLogic = _library(_linkedToCoreVaultLibraries(CORE_VAULT_TRANSIT_LOGIC_ARTIFACT, d), deploy);
     }
 
     /// @notice A library's address under `LIBRARY_SALT`, deployed there first when `deploy` is set.

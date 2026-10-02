@@ -8,11 +8,79 @@ import {OrderCodec} from "../../../src/libraries/OrderCodec.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {TransferKind, Transit} from "../../../src/interfaces/FundTypes.sol";
 import {MockOrderCore} from "../../mocks/wormhole/MockOrderCore.sol";
+import {ICoreVaultLifecycle} from "../../../src/interfaces/ICoreVaultLifecycle.sol";
 
 contract SpokeUnwindOrdersTest is SpokeVaultTestBase {
+    uint64 internal closureStartedAt;
     MockOrderCore internal orderCore;
     bytes32 internal constant REQUEST = keccak256("spoke payout");
     bytes32 internal position;
+
+    function test_REGRESSION_manualAndAutomaticClosureCostsSurviveRefundRetriesAndHistoryEviction() public {
+        _position();
+        spokeSwap.setHaircutBps(300);
+        vm.prank(manager);
+        vault.closePosition(address(spokeUni), position, "");
+        uint256 wethBefore = vault.unallocatedBalance(address(weth));
+        vm.prank(manager);
+        vault.swap(address(spokeSwap), address(weth), address(usdg), wethBefore / 2, 0, "");
+        vm.warp(block.timestamp + 1);
+        closureStartedAt = uint64(block.timestamp);
+        vm.prank(manager);
+        vault.swap(address(spokeSwap), address(weth), address(usdg), wethBefore / 4, 0, "");
+        SpokeUnwindTypes.OrderResult memory first = _execute(OrderCodec.CLOSE, 1, 0, false);
+        assertEq(first.closureExcessCost, 4e6);
+        Transit memory transit = vault.hubBoundTransit(first.transitId);
+        vm.warp(uint256(transit.fillDeadline) + 1);
+        usdg.mint(transit.escrow, transit.amountSent);
+        vault.recognizeRefund(first.transitId);
+        SpokeUnwindTypes.OrderResult memory retry = _execute(OrderCodec.CLOSE, 2, 0, false);
+        assertEq(retry.closureExcessCost, first.closureExcessCost);
+        assertEq(retry.amountSent, first.amountSent);
+        for (uint32 attempt = 3; attempt <= 19; ++attempt) {
+            retry = _execute(OrderCodec.CLOSE, attempt, 0, false);
+        }
+        assertEq(retry.closureExcessCost, 4e6);
+        SpokeUnwindTypes.OrderResult[] memory records =
+            abi.decode(vault.buildReport().unwindResults, (SpokeUnwindTypes.OrderResult[]));
+        assertEq(records.length, 16);
+        assertEq(records[0].attempt, 4);
+        assertEq(records[15].closureExcessCost, 4e6);
+    }
+
+    function test_REGRESSION_hubManualClosureSalesMeasureEachPoolSpotAndIgnoreOpenSales() public {
+        vault = _deployHub();
+        usdc.mint(address(core), 1000e6);
+        core.allocate(vault, 1000e6);
+        vm.prank(manager);
+        uint256 obtained = vault.swap(address(hubSwap), address(usdc), address(weth), 1000e6, 0, "");
+        hubSwap.setHaircutBps(300);
+        vm.prank(manager);
+        vault.swap(address(hubSwap), address(weth), address(usdc), obtained / 4, 0, "");
+        assertEq(vault.closureCost(), 0);
+        core.setFundState(ICoreVaultLifecycle.FundState.Closing);
+        vm.prank(manager);
+        vault.swap(address(hubSwap), address(weth), address(usdc), obtained / 4, 0, "");
+        assertEq(vault.closureCost(), 5e6);
+        hubSwap.setHaircutBps(50);
+        vm.prank(manager);
+        vault.swap(address(hubSwap), address(weth), address(usdc), obtained / 4, 0, "");
+        assertEq(vault.closureCost(), 5e6);
+        hubSwap.setHaircutBps(500);
+        vm.prank(manager);
+        vault.swap(address(hubSwap), address(weth), address(usdc), obtained / 4, 0, "");
+        assertEq(vault.closureCost(), 15e6);
+    }
+
+    function test_REGRESSION_closeRetrySendsLatePrincipalWithoutReselling() public {
+        SpokeUnwindTypes.OrderResult memory first = _execute(OrderCodec.CLOSE, 1, 0, false);
+        _arrive(100e6, keccak256("late principal"), TransferKind.Principal);
+        SpokeUnwindTypes.OrderResult memory retry = _execute(OrderCodec.CLOSE, 2, 0, false);
+        assertEq(first.amountSent, 1000e6);
+        assertEq(retry.amountSent, 100e6);
+        assertEq(vault.unallocatedBalance(address(usdg)), 0);
+        assertEq(retry.closureExcessCost, first.closureExcessCost);
+    }
 
     function setUp() public {
         _setUpMocks();
@@ -48,6 +116,10 @@ contract SpokeUnwindOrdersTest is SpokeVaultTestBase {
     {
         OrderCodec.Order memory order;
         order.kind = kind;
+        if (kind == OrderCodec.CLOSE) {
+            if (closureStartedAt == 0) closureStartedAt = uint64(block.timestamp);
+            order.closingStartedAt = closureStartedAt;
+        }
         order.fundId = FUND_ID;
         order.requestId = REQUEST;
         order.attempt = attempt;

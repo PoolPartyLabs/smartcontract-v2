@@ -6,19 +6,98 @@ import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ISpokeVaultUnwind} from "../../../src/interfaces/ISpokeVaultUnwind.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {OrderCodec} from "../../../src/libraries/OrderCodec.sol";
+import {SpokeUnwindTypes} from "../../../src/spoke/SpokeUnwindTypes.sol";
 import {Mandate} from "../../../src/mandate/Mandate.sol";
 import {MockHubSpokeVault} from "../../mocks/core/MockHubSpokeVault.sol";
 import {CoreVaultFixture} from "./CoreVaultFixture.sol";
 
 contract CoreVaultClosureTest is CoreVaultFixture {
+    function test_REGRESSION_realOrderResultFinalizesClosure() public {
+        _ready();
+        (ReportCodec.Report memory report,,) = receiver.latestReport(0);
+        SpokeUnwindTypes.OrderResult[] memory results = new SpokeUnwindTypes.OrderResult[](1);
+        results[0].requestId = vault.closureRequestId();
+        results[0].attempt = 1;
+        results[0].orderId = keccak256(abi.encode(OrderCodec.CLOSE, FUND_ID, results[0].requestId, uint32(1)));
+        report.unwindResults = abi.encode(results);
+        receiver.store(0, report);
+        vault.finalizeClosure();
+        assertEq(uint8(vault.fundState()), uint8(ICoreVaultLifecycle.FundState.Closed));
+    }
+
+    function test_REGRESSION_evictedUncreditedClosureSendStillBlocksFinalization() public {
+        _ready();
+        (ReportCodec.Report memory report,,) = receiver.latestReport(0);
+        SpokeUnwindTypes.OrderResult[] memory results = abi.decode(_result(0), (SpokeUnwindTypes.OrderResult[]));
+        results[0].transitId = keccak256("undelivered closure send");
+        results[0].amountSent = 100e6;
+        results[0].amountToArrive = 99e6;
+        report.unwindResults = abi.encode(results);
+        report.sequence = ++reportSequence;
+        receiver.deliver(0, report);
+        _emptyReport(0);
+        vm.expectRevert(ICoreVaultLifecycle.ClosureNotReady.selector);
+        vault.finalizeClosure();
+    }
+
+    function test_REGRESSION_manualThreePercentSaleChargesManagerExcess() public {
+        _deploy(_mandate(2000), _config(0));
+        _deposit(manager, 999e6);
+        _deposit(alice, 1000e6);
+        vm.prank(manager);
+        vault.allocateToHubSpokeVault(1000e6);
+        _start();
+        vm.mockCall(address(hubVault), abi.encodeWithSignature("closureCost()"), abi.encode(uint256(20e6)));
+        deal(address(usdc), address(hubVault), 970e6);
+        usdc.mint(address(vault), 970e6);
+        vm.prank(address(hubVault));
+        vault.returnToIdle(970e6);
+        hubVault.setPosition(address(usdc), 0);
+        vm.mockCall(
+            address(hubVault),
+            abi.encodeWithSignature("buildReport()"),
+            abi.encode(
+                ReportCodec.Report({
+                    fundId: bytes32(0),
+                    mandateHash: bytes32(0),
+                    sequence: 0,
+                    spokeChainId: 0,
+                    blockNumber: 0,
+                    timestamp: uint64(block.timestamp),
+                    unallocated: new ReportCodec.TokenAmount[](0),
+                    positions: new ReportCodec.PositionReport[](0),
+                    cumulativeIncome: new ReportCodec.TokenAmount[](0),
+                    collectedIncome: new ReportCodec.TokenAmount[](0),
+                    operatingCash: 0,
+                    cumulativeReceived: 0,
+                    cumulativeSentHome: 0,
+                    arrivedTransits: new ReportCodec.TransitAmount[](0),
+                    inFlightToHub: new ReportCodec.HubBoundAmount[](0),
+                    unwindResults: "",
+                    collectionResults: ""
+                })
+            )
+        );
+        _emptyReport(0);
+        vm.prank(manager);
+        vault.unwindAllAfterDeadline();
+        uint256 before = usdc.balanceOf(manager);
+        vault.finalizeClosure();
+        assertEq(usdc.balanceOf(manager) - before, 975e6);
+        assertEq(vault.exitClosedFund(alice), 995e6);
+    }
+
     function _start() internal {
         vm.prank(manager);
         vault.closeFund();
     }
 
     function _result(uint256 cost) internal view returns (bytes memory) {
-        ICoreVaultLifecycle.ClosureResult[] memory results = new ICoreVaultLifecycle.ClosureResult[](1);
-        results[0] = ICoreVaultLifecycle.ClosureResult(vault.closureRequestId(), 1, cost, true);
+        SpokeUnwindTypes.OrderResult[] memory results = new SpokeUnwindTypes.OrderResult[](1);
+        results[0].requestId = vault.closureRequestId();
+        results[0].attempt = 1;
+        results[0].orderId = keccak256(abi.encode(OrderCodec.CLOSE, FUND_ID, results[0].requestId, uint32(1)));
+        results[0].closureExcessCost = cost;
         return abi.encode(results);
     }
 
@@ -139,13 +218,13 @@ contract CoreVaultClosureTest is CoreVaultFixture {
     function test_DEC163_wrongOrIncompleteClosureProofBlocksFinalization() public {
         _ready();
         (ReportCodec.Report memory report,,) = receiver.latestReport(0);
-        ICoreVaultLifecycle.ClosureResult[] memory results = new ICoreVaultLifecycle.ClosureResult[](1);
-        results[0] = ICoreVaultLifecycle.ClosureResult(vault.closureRequestId(), 1, 0, false);
+        SpokeUnwindTypes.OrderResult[] memory results = abi.decode(_result(0), (SpokeUnwindTypes.OrderResult[]));
+        results[0].excluded = 1;
         report.unwindResults = abi.encode(results);
         receiver.store(0, report);
         vm.expectRevert(ICoreVaultLifecycle.ClosureNotReady.selector);
         vault.finalizeClosure();
-        results[0].complete = true;
+        results[0].excluded = 0;
         results[0].requestId = keccak256("wrong closure");
         report.unwindResults = abi.encode(results);
         receiver.store(0, report);

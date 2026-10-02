@@ -182,4 +182,7 @@ struct CoreVaultState {
     uint256 closedIdle;
     uint256 closureExcessCost;
     uint32 closureAttempt;
+    mapping(uint256 spokeIndex => bytes32[]) closureTransits;
+    mapping(bytes32 key => uint256) closureExpected;
+    mapping(bytes32 key => bool) closureRefunded;
 }

@@ -7,6 +7,14 @@ pragma solidity 0.8.28;
 /// @dev WP-07 D1: the unwind work (the proportional unwind and the spoke unwind orders, DEC-120, DEC-137, DEC-139)
 ///      adds fields only to `Book` and edits only this types file, never `SpokeVaultTypes`.
 library SpokeUnwindTypes {
+    struct ManualSale {
+        address adapter;
+        address tokenIn;
+        address tokenOut;
+        uint256 amountIn;
+        uint16 maxLossBps;
+        bytes route;
+    }
     /// @notice DEC-120: bounded post-unwind history carried by report v4.
     uint256 internal constant REPORTED_RESULTS = 16;
 
@@ -24,6 +32,7 @@ library SpokeUnwindTypes {
         uint256 delivered;
         uint256 excluded;
         bool refunded;
+        uint256 closureExcessCost;
     }
 
     /// @notice DEC-151/156: sales retained across bridge refusal, plus costs restored if the send is refunded.
@@ -53,6 +62,10 @@ library SpokeUnwindTypes {
         mapping(bytes32 requestId => Pending) pending;
         bool closed;
         uint256 reservedBase;
+        uint256 closureExcessCost;
+        uint64 closureStartedAt;
+        uint64[] saleTimes;
+        uint256[] saleCosts;
     }
 
     /// @notice One atomic step of an automatic unwind (`ISpokeVaultUnwind.unwindStep`).

@@ -19,6 +19,14 @@ import {SpokeVaultTestBase} from "./SpokeVaultTestBase.sol";
 
 /// @notice A swap adapter that calls back into the vault while it swaps.
 contract ReenteringSwapAdapter {
+    function bestDirectFee(address, address, uint256) external pure returns (uint24, uint256) {
+        return (500, 1e18);
+    }
+
+    function spotValue(address, address, uint256, uint24) external pure returns (uint256) {
+        return 1e18;
+    }
+
     function swap(address tokenIn, address, uint256, uint16, bytes calldata)
         external
         returns (uint256, uint256, uint256)

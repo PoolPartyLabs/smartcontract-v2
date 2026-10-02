@@ -56,6 +56,7 @@ contract ExecuteOrderTest is SpokeVaultTestBase {
     /// @dev A live order of `kind` (the deadline `OrderCodec.publish` would write now).
     function _order(uint8 kind, uint32 attempt) internal view returns (OrderCodec.Order memory o) {
         o.kind = kind;
+        if (kind == OrderCodec.CLOSE) o.closingStartedAt = uint64(block.timestamp);
         o.fundId = FUND_ID;
         o.requestId = keccak256(abi.encode(stranger, uint256(1)));
         o.attempt = attempt;

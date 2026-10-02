@@ -80,6 +80,7 @@ library OrderCodec {
         uint256 fracDen;
         uint16 maxLossBps;
         uint8 payoutMode;
+        uint64 closingStartedAt;
     }
 
     /// @notice The payload carries a version this code does not know.

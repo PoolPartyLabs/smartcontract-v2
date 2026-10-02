@@ -394,7 +394,7 @@ library CoreVaultPayoutLogic {
             offset := mload(add(blob, 32))
             count := mload(add(blob, 64))
         }
-        if (offset != 32 || count > SpokeUnwindTypes.REPORTED_RESULTS || blob.length != 64 + count * 384) return false;
+        if (offset != 32 || count > SpokeUnwindTypes.REPORTED_RESULTS || blob.length != 64 + count * 416) return false;
         for (uint256 index; index < count; ++index) {
             uint256 attempt;
             uint256 refunded;

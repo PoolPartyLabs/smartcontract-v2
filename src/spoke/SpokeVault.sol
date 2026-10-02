@@ -193,8 +193,9 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
         _topUpOperatingCash();
         uint256 spotOut;
         uint256 minOut;
-        (amountOut, spotOut, minOut) =
-            _s.swapThrough(swapAdapter, tokenIn, tokenOut, amountIn, maxLossBps, route, false);
+        (amountOut, spotOut, minOut) = SpokeUnwindLib.manualSwap(
+            _s, _config(), SpokeUnwindTypes.ManualSale(swapAdapter, tokenIn, tokenOut, amountIn, maxLossBps, route)
+        );
         emit Swapped(swapAdapter, tokenIn, tokenOut, amountIn, amountOut, spotOut, maxLossBps, minOut);
     }
 

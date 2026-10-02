@@ -5,6 +5,8 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ICoreVaultLifecycle} from "../../../src/interfaces/ICoreVaultLifecycle.sol";
 import {IValueReportReceiver} from "../../../src/interfaces/IValueReportReceiver.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
+import {SpokeUnwindTypes} from "../../../src/spoke/SpokeUnwindTypes.sol";
+import {OrderCodec} from "../../../src/libraries/OrderCodec.sol";
 import {EndToEndScenario} from "../e2e/EndToEnd.t.sol";
 
 contract FundClosureForkTest is EndToEndScenario {
@@ -30,8 +32,10 @@ contract FundClosureForkTest is EndToEndScenario {
         ReportCodec.Report memory emptySpoke;
         emptySpoke.timestamp = uint64(block.timestamp);
         assertEq(emptySpoke.positions.length, 0);
-        ICoreVaultLifecycle.ClosureResult[] memory results = new ICoreVaultLifecycle.ClosureResult[](1);
-        results[0] = ICoreVaultLifecycle.ClosureResult(core.closureRequestId(), 1, 0, true);
+        SpokeUnwindTypes.OrderResult[] memory results = new SpokeUnwindTypes.OrderResult[](1);
+        results[0].requestId = core.closureRequestId();
+        results[0].attempt = 1;
+        results[0].orderId = keccak256(abi.encode(OrderCodec.CLOSE, fundId, results[0].requestId, uint32(1)));
         emptySpoke.unwindResults = abi.encode(results);
         vm.mockCall(
             address(receiver),

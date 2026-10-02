@@ -58,6 +58,7 @@ contract FactoryDeploymentLinkingTest is Test, FactoryDeployment {
         assertTrue(vm.contains(transit, _bareHex(d.coreVaultLogic)), "transit -> CoreVaultLogic");
         assertTrue(vm.contains(transit, _bareHex(d.coreVaultIncomeLogic)), "transit -> CoreVaultIncomeLogic");
         assertTrue(vm.contains(transit, _bareHex(d.coreVaultPayoutLogic)), "transit -> CoreVaultPayoutLogic");
+        assertTrue(vm.contains(transit, _bareHex(d.coreVaultClosureLogic)), "transit -> CoreVaultClosureLogic");
         string memory payout = vm.toString(d.coreVaultPayoutLogic.code);
         assertTrue(vm.contains(payout, _bareHex(d.coreVaultLogic)), "payout -> CoreVaultLogic");
         assertTrue(vm.contains(payout, _bareHex(d.coreVaultIncomeLogic)), "payout -> CoreVaultIncomeLogic");

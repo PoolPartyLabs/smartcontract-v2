@@ -13,6 +13,7 @@ interface ISpokeVaultUnwind {
     event UnwindBridgeExcluded(bytes32 indexed requestId, uint256 amount, uint256 amountToArrive, uint16 maxLossBps);
 
     function spokeClosed() external view returns (bool);
+    function closureCost() external view returns (uint256);
 
     function unwindSend(uint256 amount) external returns (bytes32 transitId);
 

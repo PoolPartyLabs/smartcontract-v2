@@ -72,6 +72,10 @@ abstract contract SpokeVaultUnwind is SpokeVaultBase {
         return _s.unwind.closed;
     }
 
+    function closureCost() external view returns (uint256) {
+        return _s.unwind.closureExcessCost;
+    }
+
     function unwindSend(uint256 amount) external returns (bytes32 transitId) {
         if (msg.sender != address(this)) revert SpokeUnwindTypes.UnwindStepNotSelf(msg.sender);
         return SpokeCrossChainLib.sendHome(_s, _config(), amount, TransferKind.Principal, 0, "");

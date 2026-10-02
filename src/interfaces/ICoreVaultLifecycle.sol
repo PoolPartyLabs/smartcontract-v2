@@ -20,15 +20,7 @@ pragma solidity 0.8.28;
 ///      (DEC-117 item 4) and the manager keeps every unwind verb. The Closed state (DEC-150) is reached by the
 ///      closure's finalization.
 interface ICoreVaultLifecycle {
-    /// @notice CLOSE completion proof in the accepted spoke report's unwindResults (DEC-149, DEC-163).
-    /// @dev The WP-12 executor must report cumulative excess Market Cost for this closure, not just the last attempt.
-    struct ClosureResult {
-        bytes32 requestId;
-        uint32 attempt;
-        uint256 excessCost;
-        bool complete;
-    }
-
+    /// @notice Frozen closure split and the manager's final settlement (DEC-147/163/167).
     event FundClosed(
         uint64 closedAt,
         uint256 closedSupply,
