@@ -62,6 +62,7 @@ import { DEFAULT_KEEPER_OPTIONS, runningKeeperPid, startKeeper, type Keeper } fr
 import { bold, dim, green, logger, red, units, type Logger } from "./log.ts";
 import { ORDER_CONSISTENCY, ORDER_KIND, ORDER_LIFETIME, encodeOrder, hasExecuteOrder, orderId, type Order } from "./orders.ts";
 import { ensureFeedFresh } from "./price-feed.ts";
+import { linkedArrival, type DepositEvent, type LinkedArrival } from "./arrivals.ts";
 import { RunReport } from "./report.ts";
 import { readState, type DeploymentState, type FundRecord } from "./state.ts";
 import { FEE_TIERS } from "./swap-route.ts";
@@ -217,10 +218,36 @@ async function deadline(side: Side): Promise<bigint> {
 const mulDiv = (a: bigint, b: bigint, d: bigint) => (a * b) / d;
 const ceilDiv = (a: bigint, d: bigint) => (a + d - 1n) / d;
 
-/** The Core Vault's `eventName` events since `fromBlock`, with their blocks. */
+/** The Core Vault's `eventName` events since `fromBlock`, with their blocks and transactions. */
 async function coreEvents(core: Address, eventName: string, fromBlock: bigint) {
   const logs = await nodes.arbitrum.client.getContractEvents({ address: core, abi: coreVaultAbi, eventName, fromBlock } as never);
-  return logs as unknown as { blockNumber: bigint; args: Record<string, any> }[];
+  return logs as unknown as { blockNumber: bigint; transactionHash: Hex; args: Record<string, any> }[];
+}
+
+/** Waits for the fill of `deposit` (made on `origin`) and the vault's arrival event in it, linked through `FilledRelay`
+ *  (src/arrivals.ts). `arrived` only tells a transfer that landed without one (the keeper's simulated fill, which
+ *  impersonates the pool) from one still on its way: such a transfer cannot be linked, so it fails the run. */
+async function waitForArrival(
+  what: string,
+  origin: Side,
+  deposit: DepositEvent,
+  vault: Address,
+  abi: Abi,
+  eventName: string,
+  fromBlock: bigint,
+  arrived: () => Promise<boolean>,
+): Promise<LinkedArrival> {
+  return waitFor(what, async () => {
+    const linked = await linkedArrival(origin, deposit, vault, abi, eventName, fromBlock);
+    if (linked || !(await arrived())) return linked;
+    // The fill and the arrival share a transaction: a fill mined between the two reads is found now.
+    const again = await linkedArrival(origin, deposit, vault, abi, eventName, fromBlock);
+    if (again) return again;
+    throw new AssertionFailed(
+      `${what}: the transfer arrived but no FilledRelay fills deposit ${deposit.depositId}; an arrival is linked to its deposit only ` +
+        "through FilledRelay, never by its transit id (was the keeper's fill simulated? use --fill-mode auto or real)",
+    );
+  });
 }
 
 // ShareMath (src/libraries/ShareMath.sol)
@@ -356,7 +383,6 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
   const seedIdle = usdcFor(seedShares, INITIAL_SHARE_PRICE);
 
   let realFills = 0;
-  let simulatedFills = 0;
   try {
     // ------------------------------------------------------------------------------------------------------------
     // Phase 1: the fund as created (DEC-053, DEC-054, FF-OQ-1)
@@ -656,24 +682,32 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     // Phase 5: the keeper fills on Robinhood; a WETH/USDG position; fees (DEC-090, DEC-096, OQ-09)
     // ------------------------------------------------------------------------------------------------------------
     await run.phase("Phase 5: Across fill on Robinhood, spoke position, fees (DEC-079, DEC-090, DEC-096, OQ-09)");
-    await waitFor("the Across fill on Robinhood", () => view<boolean>("robinhood", spokeVault, spokeVaultAbi, "hasArrived", [transitId]));
-    const fills = await nodes.robinhood.client.getLogs({
-      address: ROBINHOOD.acrossSpokePool,
-      event: acrossSpokePoolAbi.find((e) => e.type === "event" && e.name === "FilledRelay") as never,
-      args: { originChainId: BigInt(ARBITRUM_CHAIN_ID), depositId: BigInt(depositIdBefore) } as never,
-      fromBlock: BigInt(fund.spoke.createdInBlock),
-    });
-    if (fills.length === 1) {
-      const filled = (fills[0] as unknown as { args: Record<string, any> }).args;
-      run.eq(filled.recipient, universal(spokeVault), "FilledRelay recipient");
-      run.eq(filled.outputAmount, amountToArrive, "FilledRelay output amount");
-      run.eq(filled.relayer, universal(A.keeper.address), "the keeper relayed");
-      realFills++;
-      run.ok(`the keeper filled deposit ${depositIdBefore} through the Robinhood SpokePool's fillRelay (FilledRelay, relayer ${A.keeper.address})`);
-    } else {
-      simulatedFills++;
-      run.note("no FilledRelay: the keeper used the simulated fill path (see the keeper log)");
-    }
+    // Plan amendments (WP-15): the arrival is the Spoke Vault's TransitArrived in the transaction of the FilledRelay that
+    // fills this send's deposit, never any arrival under its transit id.
+    const spokeFill = await waitForArrival(
+      "the Across fill on Robinhood",
+      "arbitrum",
+      deposited as DepositEvent,
+      spokeVault,
+      spokeVaultAbi,
+      "TransitArrived",
+      BigInt(fund.spoke.createdInBlock),
+      () => view<boolean>("robinhood", spokeVault, spokeVaultAbi, "hasArrived", [transitId]),
+    );
+    realFills++;
+    run.eq(spokeFill.fill.relayer, universal(A.keeper.address), "the keeper relayed");
+    run.eq(spokeFill.fill.recipient, universal(spokeVault), "FilledRelay recipient");
+    run.eq(spokeFill.fill.outputAmount, amountToArrive, "FilledRelay output amount");
+    run.eq(spokeFill.arrival.transitId, transitId, "DEC-090: the fill of the send's deposit carries its transit id");
+    run.eq(spokeFill.arrival.originChainId, BigInt(ARBITRUM_CHAIN_ID), "from the Hub Chain");
+    run.eq(spokeFill.arrival.token, ROBINHOOD.usdg, "in the base token");
+    run.eq(spokeFill.arrival.amount, amountToArrive, "the amount to arrive");
+    run.eq(Number(spokeFill.arrival.kind), PRINCIPAL, "as Principal");
+    run.eq(await view("robinhood", spokeVault, spokeVaultAbi, "hasArrived", [transitId]), true, "the Spoke Vault shows the transit arrived");
+    run.ok(
+      `the keeper filled deposit ${depositIdBefore} through the Robinhood SpokePool's fillRelay; its FilledRelay links the Spoke Vault's ` +
+        `TransitArrived in the same transaction (tx ${spokeFill.receipt.transactionHash.slice(0, 10)}) to transit ${transitId.slice(0, 10)}...`,
+    );
     run.eq(await view("robinhood", spokeVault, spokeVaultAbi, "arrivals", [transitId]), amountToArrive, "OQ-09: credited total per transit id");
     run.eq(await view("robinhood", spokeVault, spokeVaultAbi, "cumulativeReceived"), amountToArrive, "cumulative received");
     const arrivedUsdg = spokeUnallocatedBefore + amountToArrive;
@@ -830,39 +864,40 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
         `${units(returnToArrive)} USDC to arrive (fee ${units(returnFee)}, fixed by the spoke adapter)`,
     );
 
-    const received = await waitFor("the Across fill on Arbitrum", async () => {
-      const logs = await nodes.arbitrum.client.getLogs({
-        address: core,
-        event: coreVaultAbi.find((e) => e.type === "event" && e.name === "TransitReceived") as never,
-        args: { transitId: returnId } as never,
-        fromBlock: BigInt(fund.hub.createdInBlock),
-      });
-      return logs.length > 0 ? (logs as unknown as { args: Record<string, any> }[]) : undefined;
-    });
-    const hubFills = await nodes.arbitrum.client.getLogs({
-      address: ARBITRUM.acrossSpokePool,
-      event: acrossSpokePoolAbi.find((e) => e.type === "event" && e.name === "FilledRelay") as never,
-      args: { originChainId: BigInt(ROBINHOOD_CHAIN_ID), depositId: returnDeposit.depositId } as never,
-      fromBlock: BigInt(fund.hub.createdInBlock),
-    });
-    if (hubFills.length === 1) {
-      realFills++;
-      run.ok(`the keeper filled it through the Arbitrum SpokePool's fillRelay; the Core Vault got ${units(received[0].args.amount)} USDC (matched: ${received[0].args.matched})`);
-    } else {
-      simulatedFills++;
-      run.note("no FilledRelay on Arbitrum: the keeper used the simulated fill path");
-    }
+    // The Core Vault's TransitReceived in the transaction of the FilledRelay that fills this deposit (plan amendments,
+    // WP-15); the transit id the hub then credits under is the one that fill carried. `arrived` only detects an
+    // unlinkable (simulated) fill.
+    const hubFill = await waitForArrival(
+      "the Across fill on Arbitrum",
+      "robinhood",
+      returnDeposit as DepositEvent,
+      core,
+      coreVaultAbi,
+      "TransitReceived",
+      BigInt(fund.hub.createdInBlock),
+      async () => (await coreEvents(core, "TransitReceived", BigInt(fund.hub.createdInBlock))).some((e) => e.args.transitId === returnId),
+    );
+    realFills++;
+    run.eq(hubFill.fill.relayer, universal(A.keeper.address), "the keeper relayed on Arbitrum");
+    run.eq(hubFill.fill.recipient, universal(core), "FilledRelay recipient: the Core Vault");
+    run.eq(hubFill.arrival.transitId, returnId, "DEC-090: the fill of the send's deposit carries its transit id");
+    run.eq(hubFill.arrival.originChainId, BigInt(ROBINHOOD_CHAIN_ID), "from Robinhood");
+    run.eq(hubFill.arrival.amount, returnToArrive, "the amount to arrive");
+    run.eq(hubFill.arrival.matched, false, "OQ-01: held until a report lists it");
+    run.ok(
+      `the keeper filled it through the Arbitrum SpokePool's fillRelay; its FilledRelay links the Core Vault's TransitReceived ` +
+        `(${units(hubFill.arrival.amount)} USDC, held until a report lists it) to transit ${returnId.slice(0, 10)}...`,
+    );
     const returnReport = await tx<readonly [bigint, bigint]>("robinhood", "stranger", spokeVault, spokeVaultAbi, "report");
     await waitForDelivery(spokeRef, returnReport.result[1], WAIT_SECONDS);
-    const credited = await nodes.arbitrum.client.getLogs({
-      address: core,
-      event: coreVaultAbi.find((e) => e.type === "event" && e.name === "TransitReceived") as never,
-      args: { transitId: returnId } as never,
-      fromBlock: BigInt(fund.hub.createdInBlock),
-    });
-    const matchedTotal = (credited as unknown as { args: Record<string, any> }[])
-      .filter((l) => l.args.matched)
-      .reduce((sum, l) => sum + (l.args.amount as bigint), 0n);
+    // The credit happens when the hub accepts the report that lists the transfer: the matched TransitReceived of the
+    // linked transit id in that delivery's transaction.
+    const [acceptedReturn] = (await coreEvents(core, "ReportAccepted", sendTx.receipt.blockNumber)).filter((e) => e.args.reportSequence === returnReport.result[0]);
+    run.true(acceptedReturn !== undefined, "the hub accepted the report that lists the transfer");
+    const delivery = await nodes.arbitrum.client.getTransactionReceipt({ hash: acceptedReturn.transactionHash });
+    const matchedTotal = events(delivery, core, coreVaultAbi, "TransitReceived")
+      .filter((e) => e.transitId === returnId && e.matched)
+      .reduce((sum, e) => sum + (e.amount as bigint), 0n);
     run.eq(matchedTotal, returnToArrive, "OQ-01: credited up to what the report listed");
     run.eq(await idle(), idleBeforeReturn + returnToArrive, "Principal reached Idle");
     run.eq(await view("arbitrum", core, coreVaultAbi, "unmatchedArrivals"), 0n, "nothing held apart");
@@ -1316,7 +1351,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
       assertions: run.assertions,
       fund,
       keeper: external ? "external" : "inprocess",
-      fills: { real: realFills, simulated: simulatedFills },
+      fills: { real: realFills, simulated: keeper?.stats.simulatedFills ?? 0 },
     };
     if (run.report) {
       run.report.assertions = run.assertions;
@@ -1325,7 +1360,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     if (!options.quiet) {
       console.log(
         `\n${green(bold("PASS"))} ${run.step} steps, ${run.assertions} assertions; Across fills: ${realFills} through SpokePool.fillRelay, ` +
-          `${simulatedFills} simulated; keeper ${result.keeper}; fund ${fund.shareSymbol} ${fund.hub.coreVault}`,
+          `each linked to its deposit by FilledRelay; keeper ${result.keeper}; fund ${fund.shareSymbol} ${fund.hub.coreVault}`,
       );
       if (result.report) console.log(`run report: local-e2e/${result.report.md} (and .json)`);
     }
