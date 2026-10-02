@@ -25,8 +25,9 @@ contract MandateValidator {
 ///         linked library (DEC-131 pattern): 49,854 bytes at 66, the wall back at 63 extra pools. The test now solves
 ///         the wall from the build instead of pinning it (Mandate v2, WP-07 B). Gas on main: 20.52M,
 ///         23.76M, 27.17M, 31.49M and 36.42M for 0, 10, 20, 30 and 40 extra hub pools (review: 20.7M to 37.0M).
-///         Mandate v2 dropped the unwind order (DEC-137): 96 bytes per extra pool instead of 192, the init-code wall
-///         at 143 extra pools, and 20.90M, 24.64M, 30.69M and 32.83M of gas for 0, 20, 50 and 60.
+///         Mandate v2 (WP-07 B) dropped the unwind order (DEC-137): 96 bytes per extra pool instead of 192; with the
+///         swap adapter deployed on the hub and every Mandate token priced at creation, 24.12M, 27.81M and 35.91M of
+///         gas for 0, 20 and 60 extra pools (the gas wall near 43), and the init-code wall at 103 extra pools.
 ///         Original note: neither `MandateLib.validate` nor the factory bounds the Mandate's lists, while the cost of creating
 ///         a fund grows with them: every fund contract validates the Mandate (O(n^2) duplicate scans), the hub Spoke
 ///         Vault and the Core Vault copy it into storage, and each contract's init code carries the ABI-encoded Mandate.
