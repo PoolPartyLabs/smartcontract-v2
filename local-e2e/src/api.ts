@@ -10,7 +10,7 @@
 //   GET  /quote/deposit?from=&amount=    exact deposit outcome by eth_call (shares, USDC charged) or the decoded revert
 //   GET  /quote/claim?from=              exact claim outcome by eth_call (the receipt) or the decoded revert
 //   GET  /quote/swap?amountIn=&tokenIn=  hub swap minimum from the oracle less the API's slippage (security review S-8)
-//   GET  /quote/swap-route?chain=&tokenIn=&tokenOut=&amountIn=&slippageBps=&adapter=
+//   GET  /quote/swap-route?chain=&tokenIn=&tokenOut=&amountIn=&slippageBps=&adapter=&hops=
 //                                        the best V3 path by QuoterV2, signed for a swap adapter (DEC-136, DEC-153)
 //   GET  /quote/bridge?direction=to-spoke|to-hub&amount=
 //                                        what the fund's Across adapter fixes for a send (DEC-158, DEC-162)
@@ -89,6 +89,12 @@ function addressParam(value: string | undefined, name: string): Address {
 function amountParam(value: string | undefined, name: string): bigint {
   if (!value || !/^[0-9]+$/.test(value)) throw new HttpError(400, `${name} must be an integer in base units`);
   return BigInt(value);
+}
+
+function hopsParam(value: string | undefined): 1 | 2 | undefined {
+  if (value === undefined) return undefined;
+  if (value === "1" || value === "2") return Number(value) as 1 | 2;
+  throw new HttpError(400, "hops must be 1 or 2");
 }
 
 function sideParam(value: string | undefined): Side {
@@ -390,8 +396,9 @@ function swapAdapterOf(state: DeploymentState, side: Side, adapter?: string): Ad
 }
 
 /** The best single V3 path for the swap, direct or through another Mandate token of the adapter (D-52: the API never
- *  signs a hop the adapter would refuse), quoted by QuoterV2 on the fork and signed by the API signer. The minimum is
- *  the quote less `slippageBps`; the adapter scales it to the amount it actually sells. */
+ *  signs a hop the adapter would refuse), quoted by QuoterV2 on the fork and signed by the API signer; `hops` (1 or 2)
+ *  restricts it to direct or two-hop paths. The minimum is the quote less `slippageBps`; the adapter scales it to the
+ *  amount it actually sells. */
 export async function quoteSwapRoute(
   state: DeploymentState,
   side: Side,
@@ -400,6 +407,7 @@ export async function quoteSwapRoute(
   amountIn: bigint,
   slippageBps: bigint,
   adapterParam?: string,
+  hops?: 1 | 2,
 ) {
   if (amountIn === 0n) throw new HttpError(400, "amountIn must be above zero");
   if (slippageBps > MAX_ROUTE_SLIPPAGE_BPS) throw new HttpError(400, `slippageBps must be at most ${MAX_ROUTE_SLIPPAGE_BPS}`);
@@ -412,8 +420,8 @@ export async function quoteSwapRoute(
   const mandateTokens: Address[] = [];
   for (const token of SWAP_ADAPTER_TOKENS[side]) if (await isMandateToken(token)) mandateTokens.push(token);
   const quotes = await quotePaths(side, tokenIn, tokenOut, amountIn, mandateTokens);
-  if (quotes.length === 0) throw new HttpError(422, "no Uniswap V3 path quotes this swap");
-  const best = quotes[0];
+  const best = quotes.find((q) => hops === undefined || q.fees.length === hops);
+  if (!best) throw new HttpError(422, `no Uniswap V3 path${hops ? ` of ${hops} hop(s)` : ""} quotes this swap`);
   const unsigned = {
     paths: [best.path],
     weightsBps: [10_000],
@@ -615,6 +623,7 @@ const routes: { method: string; pattern: RegExp; handler: Handler }[] = [
         amountParam(u.searchParams.get("amountIn") ?? undefined, "amountIn"),
         u.searchParams.has("slippageBps") ? amountParam(u.searchParams.get("slippageBps") ?? undefined, "slippageBps") : API_SLIPPAGE_BPS,
         u.searchParams.get("adapter") ?? undefined,
+        hopsParam(u.searchParams.get("hops") ?? undefined),
       ),
   },
   {
