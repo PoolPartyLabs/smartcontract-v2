@@ -100,7 +100,7 @@ fork fixture change. Destination fills and guardian signing retain the documente
 | CoreVaultTransitLogic | 14,448 / 10,128 | 14,448 / 10,128 |
 | SpokeVault | 23,444 / 1,132 | 23,572 / 1,004 |
 | SpokeUnwindLib | 21,446 / 3,130 | 23,175 / 1,401 |
-| SpokeCrossChainLib | 11,933 / 12,643 | 11,991 / 12,585 |
+| SpokeCrossChainLib | Not recorded | 11,991 / 12,585 |
 | SpokeVaultOrderHarness (test only) | 24,556 / 20 | 24,320 / 256 |
 
 Every production contract and linked library fits EIP-170; none has a margin below 1,000 bytes. SpokeVault's
