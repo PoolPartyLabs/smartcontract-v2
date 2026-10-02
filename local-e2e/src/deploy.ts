@@ -4,8 +4,8 @@
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { decodeEventLog, getAddress, type Address, type Hex, type Log } from "viem";
-import { coreVaultAbi, fundFactoryAbi, shareTokenAbi, valueReportReceiverAbi } from "./abis.ts";
+import { decodeEventLog, getAddress, type AbiFunction, type Address, type Hex, type Log } from "viem";
+import { coreVaultAbi, forgeArtifact, fundFactoryAbi, shareTokenAbi, valueReportReceiverAbi } from "./abis.ts";
 import { PRUNED_STATE_HINT, isPrunedStateError, nodes, read, recordTransaction, type Side } from "./chain.ts";
 import {
   ACTOR_KEYS,
@@ -23,7 +23,7 @@ import {
 } from "./config.ts";
 import { TARGETS, layoutOf, topUpToken } from "./fund-accounts.ts";
 import { redactUrls, type Logger } from "./log.ts";
-import type { DeploymentState, FundRecord } from "./state.ts";
+import type { DeployedContracts, DeploymentState, FundRecord } from "./state.ts";
 
 const BROADCAST_DIR = join(STATE_DIR, "broadcast");
 
@@ -117,15 +117,39 @@ async function forgeScript(
   return result;
 }
 
-export interface FactoryDeployment {
-  create3Deployer: Address;
-  coreVaultLogic: Address;
-  spokeCrossChainLib: Address;
-  spokeUnwindLib: Address;
-  managerRegistry: Address;
-  priceSource: Address;
-  fundFactory: Address;
-  transitEscrowImplementation: Address;
+/** The fields of the struct a script's `run()` returns, by name: forge prints the struct in the broadcast's `returns`
+ *  as a tuple of values, and the script's ABI (out/<script>.s.sol/<script>.json) names and types its components. */
+function namedReturn(script: string, returns: ForgeRun["broadcast"]["returns"]): { name: string; type: string; value: string }[] {
+  const { abi } = forgeArtifact(`${script}.s.sol`, script);
+  const output = abi.find((item): item is AbiFunction => item.type === "function" && item.name === "run")?.outputs[0];
+  const components = output && "components" in output ? output.components : undefined;
+  // forge keys an unnamed return value by its position.
+  const tuple = output ? returns[output.name || "0"]?.value : undefined;
+  if (!components || !tuple) throw new Error(`${script}.run() returned no struct: ${JSON.stringify(returns)}`);
+  const values = tupleValues(tuple);
+  if (values.length !== components.length) {
+    throw new Error(`${script}.run() returned ${values.length} values for the ${components.length} fields of ${output?.internalType}: ${tuple}`);
+  }
+  return components.map((component, i) => ({ name: component.name ?? String(i), type: component.type, value: values[i] }));
+}
+
+/** The top-level values of a tuple as forge prints it: `(a, (b, c), [d, e])` gives `a`, `(b, c)` and `[d, e]`. */
+function tupleValues(tuple: string): string[] {
+  const values: string[] = [];
+  let depth = 0;
+  let current = "";
+  for (const char of tuple.trim().slice(1, -1)) {
+    if (char === "," && depth === 0) {
+      values.push(current.trim());
+      current = "";
+      continue;
+    }
+    if (char === "(" || char === "[") depth++;
+    if (char === ")" || char === "]") depth--;
+    current += char;
+  }
+  values.push(current.trim());
+  return values;
 }
 
 /** Protocol wiring handed to script/DeployFactory.s.sol: the fee wallet is its own actor; the operator guards the
@@ -140,8 +164,10 @@ export function protocolRoles() {
   };
 }
 
-/** script/DeployFactory.s.sol on one node with the operator's key. */
-export async function deployFactory(side: Side, log: Logger): Promise<FactoryDeployment> {
+/** script/DeployFactory.s.sol on one node with the operator's key. Returns each address field of `run()`'s return
+ *  struct (FactoryDeployment.Deployment) that is set on this chain, under its field name: an address field the script
+ *  adds reaches deployment.json with no change here. A non-address field is skipped with a warning. */
+export async function deployFactory(side: Side, log: Logger): Promise<DeployedContracts> {
   const roles = protocolRoles();
   const { broadcast } = await forgeScript(
     "DeployFactory",
@@ -155,31 +181,33 @@ export async function deployFactory(side: Side, log: Logger): Promise<FactoryDep
     },
     log,
   );
-  // `run()` returns FactoryDeployment.Deployment: (create3Deployer, coreVaultLogic, spokeCrossChainLib,
-  // spokeUnwindLib, managerRegistry, priceSource, factory), printed by forge as a tuple.
-  const tuple = broadcast.returns.d?.value ?? "";
-  const addresses = tuple.match(/0x[0-9a-fA-F]{40}/g)?.map((a) => getAddress(a)) ?? [];
-  if (addresses.length !== 7) throw new Error(`unexpected DeployFactory return value: ${tuple}`);
-  const [create3Deployer, coreVaultLogic, spokeCrossChainLib, spokeUnwindLib, managerRegistry, priceSource, fundFactory] =
-    addresses;
-  const code = await nodes[side].client.getCode({ address: fundFactory });
-  if (!code || code === "0x") throw new Error(`no FundFactory code at ${fundFactory} on ${nodes[side].label}`);
+  // A role the script echoes back (the API signer, the fee wallet) is a wallet the harness passed in, not a deployment.
+  const roleAddresses = new Set(Object.values(roles).map((address) => getAddress(address)));
+  const deployed: Record<string, Address> = {};
+  for (const { name, type, value } of namedReturn("DeployFactory", broadcast.returns)) {
+    if (type !== "address") {
+      log.warn("DeployFactory field skipped: deployment.json keeps address fields only", { chain: nodes[side].chain.id, field: name, type });
+      continue;
+    }
+    // The zero address is a contract this chain does not get (the Core Vault libraries, ManagerRegistry and price
+    // source on Robinhood).
+    if (BigInt(value) === 0n) continue;
+    const address = getAddress(value);
+    if (!roleAddresses.has(address)) {
+      const code = await nodes[side].client.getCode({ address });
+      if (!code || code === "0x") throw new Error(`DeployFactory returned ${name} ${address}, which has no code on ${nodes[side].label}`);
+    }
+    deployed[name === "factory" ? "fundFactory" : name] = address;
+  }
+  const fundFactory = deployed.fundFactory;
+  if (!fundFactory) throw new Error(`DeployFactory returned no factory on ${nodes[side].label}`);
   const transitEscrowImplementation = await read<Address>(side, {
     address: fundFactory,
     abi: fundFactoryAbi,
     functionName: "transitEscrowImplementation",
   });
-  log.info("FundFactory deployed", { chain: nodes[side].chain.id, fundFactory });
-  return {
-    create3Deployer,
-    coreVaultLogic,
-    spokeCrossChainLib,
-    spokeUnwindLib,
-    managerRegistry,
-    priceSource,
-    fundFactory,
-    transitEscrowImplementation,
-  };
+  log.info("FundFactory deployed", { chain: nodes[side].chain.id, ...deployed });
+  return { ...deployed, fundFactory, transitEscrowImplementation };
 }
 
 function eventFrom(run: ForgeRun, eventName: "FundCreated" | "SpokeCreated") {

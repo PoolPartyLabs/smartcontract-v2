@@ -108,6 +108,9 @@ export async function up(warmUp: "scenario" | "none"): Promise<DeploymentState> 
   if (robinhood.fundFactory !== arbitrum.fundFactory) {
     throw new Error(`DEC-054: the factory landed at ${arbitrum.fundFactory} on Arbitrum but ${robinhood.fundFactory} on Robinhood`);
   }
+  // The hub contracts the harness reads by name besides the factory (the scenario and the API).
+  const { managerRegistry, priceSource } = arbitrum;
+  if (!managerRegistry || !priceSource) throw new Error("DeployFactory returned no managerRegistry or priceSource on Arbitrum One");
 
   const guardianSetIndexes = await overrideBothCores(log.child("guardian"));
   await selfTest(guardianSetIndexes, log.child("guardian"));
@@ -144,28 +147,8 @@ export async function up(warmUp: "scenario" | "none"): Promise<DeploymentState> 
       robinhood: { coreBridge: CORES.robinhood, guardianSetIndex: guardianSetIndexes.robinhood },
     },
     protocol: {
-      arbitrum: {
-        fundFactory: arbitrum.fundFactory,
-        create3Deployer: arbitrum.create3Deployer,
-        coreVaultLogic: arbitrum.coreVaultLogic,
-        spokeCrossChainLib: arbitrum.spokeCrossChainLib,
-        spokeUnwindLib: arbitrum.spokeUnwindLib,
-        managerRegistry: arbitrum.managerRegistry,
-        priceSource: arbitrum.priceSource,
-        transitEscrowImplementation: arbitrum.transitEscrowImplementation,
-        protocolRecipient: roles.protocolRecipient,
-        adapterGuardian: roles.adapterGuardian,
-        registryOwner: roles.registryOwner,
-        apiSigner: roles.apiSigner,
-      },
-      robinhood: {
-        fundFactory: robinhood.fundFactory,
-        create3Deployer: robinhood.create3Deployer,
-        spokeCrossChainLib: robinhood.spokeCrossChainLib,
-        spokeUnwindLib: robinhood.spokeUnwindLib,
-        transitEscrowImplementation: robinhood.transitEscrowImplementation,
-        apiSigner: roles.apiSigner,
-      },
+      arbitrum: { ...arbitrum, managerRegistry, priceSource, ...roles },
+      robinhood: { ...robinhood, apiSigner: roles.apiSigner },
     },
     external: { arbitrum: { ...ARBITRUM }, robinhood: { ...ROBINHOOD } },
     fund,
