@@ -18,7 +18,7 @@ import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
 import {IAdapter} from "../../../src/interfaces/IAdapter.sol";
-import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
+import {SpokeUnwindTypes} from "../../../src/spoke/SpokeUnwindTypes.sol";
 import {IntegrationPriceBase, PoolActor} from "./IntegrationPriceBase.sol";
 
 /// @notice Part 1.1 of the integration-price review: report 04 C-01 (the automatic unwind is sized and executed at the
@@ -502,17 +502,17 @@ contract UnwindAttackFork is IntegrationPriceBase {
         uint256 value = v.principal1 + IAdapter(hubUniswap).spotQuote(hubPoolId, ARB_WETH, v.principal0);
         uint256 target = shortfall + shortfall * 200 / 10_000;
         uint256 wethOut = value <= target ? v.principal0 : Math.mulDiv(v.principal0, target, value);
-        SpokeVaultTypes.UnwindSwap[] memory swaps = new SpokeVaultTypes.UnwindSwap[](1);
-        swaps[0] = SpokeVaultTypes.UnwindSwap({
+        SpokeUnwindTypes.UnwindSwap[] memory swaps = new SpokeUnwindTypes.UnwindSwap[](1);
+        swaps[0] = SpokeUnwindTypes.UnwindSwap({
             adapter: hubUniswap,
             poolKey: hubPoolId,
             tokenIn: ARB_WETH,
             minAmountOut: Math.mulDiv(wethOut, _oracle(), 1e18) * 97 / 100,
             params: _swapParams()
         });
-        SpokeVaultTypes.UnwindHint[] memory hints = new SpokeVaultTypes.UnwindHint[](2);
-        hints[0] = SpokeVaultTypes.UnwindHint({swaps: swaps});
-        hints[1] = SpokeVaultTypes.UnwindHint({swaps: new SpokeVaultTypes.UnwindSwap[](0)});
+        SpokeUnwindTypes.UnwindHint[] memory hints = new SpokeUnwindTypes.UnwindHint[](2);
+        hints[0] = SpokeUnwindTypes.UnwindHint({swaps: swaps});
+        hints[1] = SpokeUnwindTypes.UnwindHint({swaps: new SpokeUnwindTypes.UnwindSwap[](0)});
         return abi.encode(hints);
     }
 

@@ -10,6 +10,7 @@ import {ICoreVault} from "../interfaces/ICoreVault.sol";
 import {IPriceSource} from "../interfaces/IPriceSource.sol";
 import {MandateLib} from "../mandate/Mandate.sol";
 import {SpokeVaultTypes} from "./SpokeVaultTypes.sol";
+import {SpokeUnwindTypes} from "./SpokeUnwindTypes.sol";
 import {SpokeLedger} from "./SpokeLedger.sol";
 
 /// @title SpokeUnwindLib
@@ -19,7 +20,7 @@ import {SpokeLedger} from "./SpokeLedger.sol";
 /// @dev DEC-131 (alternative C, b1, b2): moved out of the vault unchanged, before the fix batch, so the vault keeps room
 ///      under the smallest code limit across the chains (24,576 bytes, Arbitrum One; b3, b4). The vault keeps the
 ///      access control (hub only, Core Vault only), the reentrancy guard and the public `MAX_UNWIND_SLIPPAGE_BPS`.
-///      Events and errors are the vault's (ISpokeVault and SpokeVaultTypes), emitted from the vault's address. The
+///      Events and errors are the vault's (ISpokeVault, SpokeVaultTypes, SpokeUnwindTypes), emitted from the vault's address. The
 ///      library is part of the vault's creation code and trust surface, like `SpokeCrossChainLib`.
 library SpokeUnwindLib {
     /// @notice Largest shortfall below the pool's current price, in bps, that an automatic unwind swap accepts: the
@@ -49,7 +50,7 @@ library SpokeUnwindLib {
     ///      margin; DEC-097: its Market Costs are the fund's). The claimant's hints can only raise that minimum or
     ///      restrict the swap; they never size an exit. Income from the exits goes to the collected income bucket,
     ///      never to the proceeds (DEC-092).
-    /// @param unwindHints `abi.encode(SpokeVaultTypes.UnwindHint[])`, optional, one per position in registry order.
+    /// @param unwindHints `abi.encode(SpokeUnwindTypes.UnwindHint[])`, optional, one per position in registry order.
     function unwindForPayout(
         SpokeVaultTypes.State storage s,
         SpokeVaultTypes.Config memory c,
@@ -57,16 +58,16 @@ library SpokeUnwindLib {
         bytes calldata unwindHints
     ) external returns (uint256 usdcProceeds) {
         if (usdcTarget == 0) revert ISpokeVault.ZeroAmount();
-        SpokeVaultTypes.UnwindHint[] memory hints = unwindHints.length == 0
-            ? new SpokeVaultTypes.UnwindHint[](0)
-            : abi.decode(unwindHints, (SpokeVaultTypes.UnwindHint[]));
+        SpokeUnwindTypes.UnwindHint[] memory hints = unwindHints.length == 0
+            ? new SpokeUnwindTypes.UnwindHint[](0)
+            : abi.decode(unwindHints, (SpokeUnwindTypes.UnwindHint[]));
 
         address usdc = c.baseToken;
         ISpokeVault.PositionRef[] memory refs = s.positions;
         for (uint256 i; i < refs.length; ++i) {
             uint256 held = s.unallocated[usdc];
             if (held >= usdcTarget) break;
-            SpokeVaultTypes.UnwindSwap[] memory swaps;
+            SpokeUnwindTypes.UnwindSwap[] memory swaps;
             if (i < hints.length) swaps = hints[i].swaps;
             _unwindPosition(s, c, refs[i], usdcTarget - held, swaps);
         }
@@ -87,13 +88,13 @@ library SpokeUnwindLib {
         SpokeVaultTypes.Config memory c,
         ISpokeVault.PositionRef memory ref,
         uint256 shortfall,
-        SpokeVaultTypes.UnwindSwap[] memory swaps
+        SpokeUnwindTypes.UnwindSwap[] memory swaps
     ) private {
         IAdapter a = SpokeLedger.positionAdapter(s, ref.adapter);
         SpokeVaultTypes.PoolTokens memory p = SpokeLedger.pool(s, ref.adapter, ref.poolKey);
-        SpokeVaultTypes.UnwindSwap memory r0 =
+        SpokeUnwindTypes.UnwindSwap memory r0 =
             _unwindRoute(s, c.baseToken, ref.adapter, ref.poolKey, p, p.token0, swaps);
-        SpokeVaultTypes.UnwindSwap memory r1 =
+        SpokeUnwindTypes.UnwindSwap memory r1 =
             _unwindRoute(s, c.baseToken, ref.adapter, ref.poolKey, p, p.token1, swaps);
         uint256 value;
         {
@@ -128,28 +129,28 @@ library SpokeUnwindLib {
         bytes32 poolKey,
         SpokeVaultTypes.PoolTokens memory p,
         address token,
-        SpokeVaultTypes.UnwindSwap[] memory swaps
-    ) private view returns (SpokeVaultTypes.UnwindSwap memory r) {
+        SpokeUnwindTypes.UnwindSwap[] memory swaps
+    ) private view returns (SpokeUnwindTypes.UnwindSwap memory r) {
         if (token == usdc || token == address(0)) return r;
         for (uint256 i; i < swaps.length; ++i) {
             if (swaps[i].tokenIn == token) r = swaps[i];
         }
         if (p.token1 != address(0) && SpokeLedger.otherToken(p, token) == usdc) {
             if (r.adapter != address(0) && (r.adapter != adapter || r.poolKey != poolKey)) {
-                revert SpokeVaultTypes.InvalidUnwindSwap(r.adapter, r.poolKey, token);
+                revert SpokeUnwindTypes.InvalidUnwindSwap(r.adapter, r.poolKey, token);
             }
             (r.adapter, r.poolKey, r.tokenIn) = (adapter, poolKey, token);
         } else {
-            if (r.adapter == address(0)) revert SpokeVaultTypes.MissingUnwindSwap(token);
+            if (r.adapter == address(0)) revert SpokeUnwindTypes.MissingUnwindSwap(token);
             SpokeLedger.positionAdapter(s, r.adapter);
             if (SpokeLedger.otherToken(SpokeLedger.pool(s, r.adapter, r.poolKey), token) != usdc) {
-                revert SpokeVaultTypes.InvalidUnwindSwap(r.adapter, r.poolKey, token);
+                revert SpokeUnwindTypes.InvalidUnwindSwap(r.adapter, r.poolKey, token);
             }
         }
     }
 
     /// @dev USDC value of `amount` of a route's token at the route's spot price; USDC itself (no route) at par.
-    function _unwindValue(SpokeVaultTypes.UnwindSwap memory r, uint256 amount) private view returns (uint256) {
+    function _unwindValue(SpokeUnwindTypes.UnwindSwap memory r, uint256 amount) private view returns (uint256) {
         if (amount == 0 || r.adapter == address(0)) return amount;
         return IAdapter(r.adapter).spotQuote(r.poolKey, r.tokenIn, amount);
     }
@@ -166,7 +167,7 @@ library SpokeUnwindLib {
     function _unwindSwap(
         SpokeVaultTypes.State storage s,
         SpokeVaultTypes.Config memory c,
-        SpokeVaultTypes.UnwindSwap memory r,
+        SpokeUnwindTypes.UnwindSwap memory r,
         uint256 amountIn
     ) private {
         if (amountIn == 0 || r.adapter == address(0)) return;

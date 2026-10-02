@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {AaveV3Adapter} from "../../../src/adapters/AaveV3Adapter.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
-import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
+import {SpokeUnwindTypes} from "../../../src/spoke/SpokeUnwindTypes.sol";
 import {TransitEscrow} from "../../../src/core/TransitEscrow.sol";
 import {
     Mandate,
@@ -131,18 +131,18 @@ contract AaveNonUsdcReserveUnwindTest is Test {
         assertEq(vault.positions().length, 1);
 
         // A claim needs 500 USDC of unwind. Without a hint the Aave WETH step is refused by name.
-        vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.MissingUnwindSwap.selector, address(weth)));
+        vm.expectRevert(abi.encodeWithSelector(SpokeUnwindTypes.MissingUnwindSwap.selector, address(weth)));
         core.unwind(ISpokeVault(address(vault)), 500e6, "");
 
         // A hint naming a pool that does not pair WETH with USDC is refused (re-attack: the route stays closed).
-        SpokeVaultTypes.UnwindHint[] memory hints = new SpokeVaultTypes.UnwindHint[](1);
-        hints[0].swaps = new SpokeVaultTypes.UnwindSwap[](1);
-        hints[0].swaps[0] = SpokeVaultTypes.UnwindSwap(address(aave), aaveWeth, address(weth), 0, "");
+        SpokeUnwindTypes.UnwindHint[] memory hints = new SpokeUnwindTypes.UnwindHint[](1);
+        hints[0].swaps = new SpokeUnwindTypes.UnwindSwap[](1);
+        hints[0].swaps[0] = SpokeUnwindTypes.UnwindSwap(address(aave), aaveWeth, address(weth), 0, "");
         vm.expectRevert(abi.encodeWithSelector(ISpokeVault.UnexpectedToken.selector, address(weth)));
         core.unwind(ISpokeVault(address(vault)), 500e6, abi.encode(hints));
 
         // With the hint naming the Mandate WETH/USDC route the step unwinds and reaches the target.
-        hints[0].swaps[0] = SpokeVaultTypes.UnwindSwap(address(hubUni), HUB_POOL, address(weth), 0, "");
+        hints[0].swaps[0] = SpokeUnwindTypes.UnwindSwap(address(hubUni), HUB_POOL, address(weth), 0, "");
         uint256 held = core.unwind(ISpokeVault(address(vault)), 500e6, abi.encode(hints));
         assertGe(held, 500e6, "the unwind reached its target through the hinted route");
         assertGe(core.idleReturned(), 500e6, "and paid it to the Core Vault");
