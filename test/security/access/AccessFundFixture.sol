@@ -91,6 +91,7 @@ abstract contract AccessFundFixture is Test, FactoryDeployment, FundMandate, Fun
         prices = new MockPriceSource();
         prices.setPrice(address(weth), 1e18);
         prices.setPrice(address(usdg), 1e18);
+        prices.setPrice(address(spokeWeth), 1e18); // DEC-123 level 1: every Mandate token is priced at creation
         registry = new ManagerRegistry(registryOwner);
         v4.initialize(_hubPool(), TickMath.getSqrtPriceAtTick(0));
         // Reserves that back swap outputs inside the mock Uniswap V4.

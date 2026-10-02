@@ -96,7 +96,7 @@ interface ICoreVaultIncome {
     // Attributed Income and fees (DEC-014, DEC-092, DEC-106..110)
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @notice Income tokens of the fund (closed list from the Mandate pools).
+    /// @notice Income tokens of the fund: USDC, then the Mandate's other hub tokens (closed list, WP-07 B2).
     function incomeTokens() external view returns (address[] memory);
 
     /// @notice Attributed Income of `shareholder` in `token`, pending part included.

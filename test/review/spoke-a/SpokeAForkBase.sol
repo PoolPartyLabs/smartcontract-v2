@@ -222,8 +222,6 @@ abstract contract SpokeAForkBase is Test, FundSeed {
         c.escrowImplementation = escrowImpl;
         c.flowFeeBps = 25;
         c.factory = address(this);
-        c.incomeTokens = new address[](1);
-        c.incomeTokens[0] = WETH;
         c.shareName = "Pool Party Fund 1";
         c.shareSymbol = "PP-1";
     }

@@ -275,8 +275,6 @@ abstract contract AccountingPocFixture is Test, FundSeed {
         c.escrowImplementation = address(escrowImpl);
         c.flowFeeBps = flowFeeBps;
         c.factory = address(this);
-        c.incomeTokens = new address[](1);
-        c.incomeTokens[0] = address(weth);
         c.shareName = "Pool Party Fund 1";
         c.shareSymbol = "PP-1";
     }

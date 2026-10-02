@@ -93,7 +93,6 @@ contract CoreVaultAcrossForkTest is Test, FundSeed {
         c.escrowImplementation = address(new TransitEscrow());
         c.flowFeeBps = 25;
         c.factory = address(this);
-        c.incomeTokens = new address[](0);
         c.shareName = "Pool Party Fund 1";
         c.shareSymbol = "PP-1";
         vault = new CoreVault(m, c);

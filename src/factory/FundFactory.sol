@@ -8,7 +8,6 @@ import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {IFundFactory} from "../interfaces/IFundFactory.sol";
-import {IAdapter} from "../interfaces/IAdapter.sol";
 import {ICoreVaultLifecycle} from "../interfaces/ICoreVaultLifecycle.sol";
 import {IManagerRegistry} from "../interfaces/IManagerRegistry.sol";
 import {Mandate, MandateLib, SpokeConfig, PoolConfig} from "../mandate/Mandate.sol";
@@ -525,10 +524,10 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
         );
     }
 
-    /// @dev Q59 stance: name `Pool Party Fund {n}`, symbol `PP-{n}`, never manager text. CV-OQ-3: the hub income tokens
-    ///      are read from the hub adapters' `poolTokens`, because a Mandate pool key is a hash and the Core Vault never
-    ///      calls an adapter (DEC-054). DEC-106: flow fee and Protocol Recipient are protocol wiring. DEC-127: this
-    ///      factory is the Core Vault's only seeder. DEC-125 item 3: the minimum manager fee read at creation.
+    /// @dev Q59 stance: name `Pool Party Fund {n}`, symbol `PP-{n}`, never manager text. The hub income tokens are the
+    ///      Mandate's hub tokens, read by the Core Vault itself (WP-07 B2; was CV-OQ-3's `poolTokens` read here).
+    ///      DEC-106: flow fee and Protocol Recipient are protocol wiring. DEC-127: this factory is the Core Vault's
+    ///      only seeder. DEC-125 item 3: the minimum manager fee read at creation.
     function _deployCoreVault(
         Mandate memory m,
         FundAddresses memory a,
@@ -550,7 +549,6 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
         c.flowFeeBps = _flowFeeBps;
         c.factory = address(this);
         c.minPerformanceFeeBps = minPerformanceFeeBps;
-        c.incomeTokens = _hubIncomeTokens(m, chainId);
         string memory number = Strings.toString(a.creationNumber);
         c.shareName = string.concat("Pool Party Fund ", number);
         c.shareSymbol = string.concat("PP-", number);
@@ -568,31 +566,6 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
         IERC20(_baseToken).safeTransferFrom(msg.sender, address(this), cost);
         IERC20(_baseToken).forceApprove(coreVault, cost);
         ICoreVaultLifecycle(coreVault).seed(seedAmount);
-    }
-
-    /// @dev The distinct tokens of the Mandate's hub pools, in Mandate order (the Core Vault registers USDC first).
-    function _hubIncomeTokens(Mandate memory m, uint256 chainId) private view returns (address[] memory tokens) {
-        tokens = new address[](m.pools.length * 2);
-        uint256 count;
-        for (uint256 i; i < m.pools.length; ++i) {
-            PoolConfig memory pc = m.pools[i];
-            if (pc.chainId != chainId) continue;
-            (address token0, address token1) = IAdapter(pc.adapter).poolTokens(pc.poolKey);
-            count = _appendDistinct(tokens, count, token0);
-            count = _appendDistinct(tokens, count, token1);
-        }
-        assembly ("memory-safe") {
-            mstore(tokens, count)
-        }
-    }
-
-    function _appendDistinct(address[] memory tokens, uint256 count, address token) private pure returns (uint256) {
-        if (token == address(0)) return count;
-        for (uint256 i; i < count; ++i) {
-            if (tokens[i] == token) return count;
-        }
-        tokens[count] = token;
-        return count + 1;
     }
 
     /// @dev CREATE3 at the fund's predicted address for `role` on `chainId`, from the stored creation code.

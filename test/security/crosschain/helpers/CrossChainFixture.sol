@@ -225,8 +225,6 @@ abstract contract CrossChainFixture is Test, FundSeed {
         c.escrowImplementation = address(escrowImpl);
         c.flowFeeBps = 25;
         c.factory = address(this);
-        c.incomeTokens = new address[](1);
-        c.incomeTokens[0] = address(weth);
         c.shareName = "Pool Party Fund 1";
         c.shareSymbol = "PP-1";
     }

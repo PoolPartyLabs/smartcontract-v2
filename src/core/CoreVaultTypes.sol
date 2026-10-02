@@ -25,9 +25,7 @@ import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 ///        so the constructor's `msg.sender` is the one-use proxy.
 /// @param minPerformanceFeeBps The ManagerRegistry's minimum manager fee when the fund was created; floor of
 ///        `decreaseManagerFee` (DEC-115, DEC-125 item 3, D-36).
-/// @param incomeTokens Hub income tokens besides USDC: the tokens of the Mandate's hub pools, which the factory reads
-///        from the hub adapters (`IAdapter.poolTokens`) because a Mandate pool key is a hash and the Core Vault never
-///        calls an adapter (DEC-054).
+/// @dev The hub income tokens are the Mandate's hub tokens (WP-07 B2), no longer a factory input.
 /// @param shareName Share token name (Q59 OPEN: factory-chosen, never manager text).
 /// @param shareSymbol Share token symbol (Q59 OPEN).
 struct CoreVaultConfig {
@@ -44,7 +42,6 @@ struct CoreVaultConfig {
     uint16 flowFeeBps;
     address factory;
     uint16 minPerformanceFeeBps;
-    address[] incomeTokens;
     string shareName;
     string shareSymbol;
 }

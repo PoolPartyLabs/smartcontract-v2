@@ -20,6 +20,9 @@ import {SpokeBFixture} from "./SpokeBFixture.sol";
 ///      protocol's ChainlinkPriceSource has no entry for (the mock reverts `UnsupportedToken`, as
 ///      `ChainlinkPriceSource.priceInUsdc` does for an unconfigured token). The Core Vault never priced it before,
 ///      because the spoke never held any (a zero amount is valued without a price read).
+/// @dev Mandate v2 (DEC-123 level 1, WP-07 B3) closes the creation half: every Mandate token of every chain must have
+///      a price when the Core Vault is created (`TokenNotPriced`), so the fixture prices `spokeWeth` at creation and
+///      the PoC turns the source off afterwards. What remains is a source that stops answering after creation.
 contract M01_UnpriceableSpokeToken is SpokeBFixture {
     uint256 internal constant SWAPPED = 60_000e6; // USDG the manager turns into the unpriceable token
     uint256 internal constant TOKENS = 24e18; // what the swap returns (2,500 USDG per token)

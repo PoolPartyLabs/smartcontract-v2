@@ -164,6 +164,8 @@ interface ICoreVault is IAcrossMessageHandler, ICoreVaultLifecycle, ICoreVaultPa
     error NotOnHubChain(uint256 chainId, uint256 hubChainId);
     error FlowFeeAboveCap(uint16 bps);
     error BridgeTargetUnset(address bridgeAdapter);
+    /// @notice A Mandate token has no price from the price source at creation (DEC-123 level 1, WP-07 B3).
+    error TokenNotPriced(uint256 chainId, address token);
 
     /// @notice DEC-080: a credit call is not backed by tokens above the ledger.
     error UnbackedCredit(address token, uint256 amount, uint256 unledgered);

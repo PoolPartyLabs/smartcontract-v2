@@ -227,8 +227,6 @@ abstract contract FundSystemFixture is Test, FundSeed {
         c.escrowImplementation = address(escrowImplementation);
         c.flowFeeBps = FLOW_FEE_BPS;
         c.factory = address(this);
-        c.incomeTokens = new address[](1);
-        c.incomeTokens[0] = address(sys.weth);
         c.shareName = "Pool Party Fund 1";
         c.shareSymbol = "PP-1";
     }

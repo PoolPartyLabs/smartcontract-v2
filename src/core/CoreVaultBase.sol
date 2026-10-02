@@ -9,7 +9,7 @@ import {ICoreVaultLifecycle} from "../interfaces/ICoreVaultLifecycle.sol";
 import {IBridgeAdapter} from "../interfaces/IBridgeAdapter.sol";
 import {IPriceSource} from "../interfaces/IPriceSource.sol";
 import {Transit, ExpensePayer} from "../interfaces/FundTypes.sol";
-import {Mandate, MandateLib, SpokeConfig, BridgeAdapterConfig} from "../mandate/Mandate.sol";
+import {Mandate, MandateLib, SpokeConfig, BridgeAdapterConfig, TokenConfig} from "../mandate/Mandate.sol";
 import {ShareMath} from "../libraries/ShareMath.sol";
 import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 import {ShareToken} from "./ShareToken.sol";
@@ -112,16 +112,14 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
         _copyMandate(m);
         _pinBridgeAdapters(m);
 
-        // Q60: closed list of income tokens; USDC always, then the hub pool tokens the factory derived.
-        // Independent review M-03 (plan R-12, hub half): every hub pool token must be priced by the price source, or
-        // once the fund holds it every mint reverts and every payout values it at 0; the read reverts here instead
-        // (`UnsupportedToken`). Spoke pool tokens are not visible on the hub (founder question, DEC-089).
+        // Q60: closed list of income tokens; USDC always, then the Mandate's other hub tokens (WP-07 B2).
         _s.income.registerToken(c.usdc);
-        for (uint256 i; i < c.incomeTokens.length; ++i) {
-            address token = c.incomeTokens[i];
-            if (token == c.usdc) continue;
-            IPriceSource(c.priceSource).priceInUsdc(token);
-            _s.income.registerToken(token);
+        for (uint256 i; i < m.tokens.length; ++i) {
+            TokenConfig memory t = m.tokens[i];
+            bool hubToken = t.chainId == m.hubChainId;
+            if (hubToken && t.token == c.usdc) continue;
+            _requirePriced(c.priceSource, t);
+            if (hubToken) _s.income.registerToken(t.token);
         }
 
         // Q59 OPEN: name and symbol are factory strings; the Core Vault deploys and owns its Share token.
@@ -162,6 +160,18 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
         stored.minFirstDeposit = m.minFirstDeposit;
         stored.performanceFeeBps = m.performanceFeeBps;
         stored.managementFeeBps = m.managementFeeBps;
+    }
+
+    /// @dev DEC-123 level 1 (WP-07 B3; independent review M-03, plan R-12): every Mandate token of every chain must have
+    ///      a non-zero price from the price source when the fund is created, or once the fund holds it every mint
+    ///      reverts and every payout values it at 0; a token with no reliable source is not admitted (DEC-123 item
+    ///      1.3). Spoke tokens keep their spoke addresses in the price source (ruling 2026-09-29, Q57 b). Hub USDC is
+    ///      the unit and is never read.
+    function _requirePriced(address source, TokenConfig memory t) private view {
+        try IPriceSource(source).priceInUsdc(t.token) returns (uint256 price, uint256) {
+            if (price != 0) return;
+        } catch {}
+        revert TokenNotPriced(t.chainId, t.token);
     }
 
     /// @dev IBridgeAdapter custody rule 2: pin each hub-side bridge adapter's protocol target (and its codehash, Q17-4

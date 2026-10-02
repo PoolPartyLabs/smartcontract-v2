@@ -135,9 +135,6 @@ contract L01_MandateSizeInitcodeCliff is FactoryReviewFixture {
         c.excessRecipient = recipient;
         c.escrowImplementation = address(1);
         c.flowFeeBps = 25;
-        c.incomeTokens = new address[](2);
-        c.incomeTokens[0] = address(weth);
-        c.incomeTokens[1] = address(usdc);
         c.shareName = "Pool Party Fund 1";
         c.shareSymbol = "PP-1";
     }
