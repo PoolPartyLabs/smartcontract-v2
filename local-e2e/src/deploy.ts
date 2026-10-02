@@ -163,9 +163,9 @@ export function protocolRoles() {
   };
 }
 
-/** script/DeployFactory.s.sol on one node with the operator's key. Returns every contract it deployed there under its
- *  field name in `run()`'s return struct (FactoryDeployment.Deployment): a field the script adds reaches
- *  deployment.json with no change here. */
+/** script/DeployFactory.s.sol on one node with the operator's key. Returns each address field of `run()`'s return
+ *  struct (FactoryDeployment.Deployment) that is set on this chain, under its field name: an address field the script
+ *  adds reaches deployment.json with no change here. A non-address field is skipped with a warning. */
 export async function deployFactory(side: Side, log: Logger): Promise<DeployedContracts> {
   const roles = protocolRoles();
   const { broadcast } = await forgeScript(
@@ -184,9 +184,13 @@ export async function deployFactory(side: Side, log: Logger): Promise<DeployedCo
   const roleAddresses = new Set(Object.values(roles).map((address) => getAddress(address)));
   const deployed: Record<string, Address> = {};
   for (const { name, type, value } of namedReturn("DeployFactory", broadcast.returns)) {
+    if (type !== "address") {
+      log.warn("DeployFactory field skipped: deployment.json keeps address fields only", { chain: nodes[side].chain.id, field: name, type });
+      continue;
+    }
     // The zero address is a contract this chain does not get (the Core Vault libraries, ManagerRegistry and price
     // source on Robinhood).
-    if (type !== "address" || BigInt(value) === 0n) continue;
+    if (BigInt(value) === 0n) continue;
     const address = getAddress(value);
     if (!roleAddresses.has(address)) {
       const code = await nodes[side].client.getCode({ address });

@@ -158,12 +158,13 @@ factories create.
 }
 ```
 
-`protocol.<chain>` holds each field of the struct `script/DeployFactory.s.sol`'s `run()` returns
+`protocol.<chain>` holds each address field of the struct `script/DeployFactory.s.sol`'s `run()` returns
 (`FactoryDeployment.Deployment`) under the field's own name, read from the script's ABI, with `factory` written as
 `fundFactory`. A field that is the zero address on a chain is left out (the Core Vault libraries, `managerRegistry` and
 `priceSource` on Robinhood). Every address left in is checked for code, except the role addresses the harness hands the
-script (an echoed API signer or fee wallet is a wallet, not a deployment). A field the script adds appears here with
-no change to the harness.
+script (an echoed API signer or fee wallet is a wallet, not a deployment). An address field the script adds appears
+here with no change to the harness; a non-address field (a hash, a number, an array) is left out, and `up` logs a
+warning naming it.
 
 The fund's addresses are the CREATE3 predictions, so they are the same after every `up` with the same operator and
 manager keys: an app can hard-code them for local development, and the factory address matches on both chains.

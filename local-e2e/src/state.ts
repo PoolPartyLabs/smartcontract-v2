@@ -43,11 +43,11 @@ export interface FundRecord {
   poolIds: { hub: Hex[]; spoke: Hex[]; aave: Hex };
 }
 
-/** What script/DeployFactory.s.sol deployed on one chain: each field of `run()`'s return struct
+/** What script/DeployFactory.s.sol deployed on one chain: each address field of `run()`'s return struct
  *  (FactoryDeployment.Deployment: create3Deployer, the Core Vault libraries, spokeCrossChainLib, spokeUnwindLib,
  *  managerRegistry, priceSource, ...) under its own name, `factory` as `fundFactory`, and the factory's TransitEscrow
  *  implementation. A field that is the zero address on a chain (the Core Vault libraries, ManagerRegistry and price
- *  source on Robinhood) is left out. */
+ *  source on Robinhood) is left out, and so is a non-address field (`up` warns about it). */
 export interface DeployedContracts {
   /** Present only where the chain deploys it: read a field the harness does not name below with a check. */
   [field: string]: Address | undefined;
