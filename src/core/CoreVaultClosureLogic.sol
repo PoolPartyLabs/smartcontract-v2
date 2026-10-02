@@ -38,7 +38,10 @@ library CoreVaultClosureLogic {
         uint256 spokeIndex,
         ReportCodec.Report memory report
     ) public {
-        if (state.fundState != ICoreVaultLifecycle.FundState.Closing || report.unwindResults.length == 0) return;
+        if (
+            state.fundState != ICoreVaultLifecycle.FundState.Closing
+                || !SpokeUnwindTypes.validResults(report.unwindResults)
+        ) return;
         SpokeUnwindTypes.OrderResult[] memory results =
             abi.decode(report.unwindResults, (SpokeUnwindTypes.OrderResult[]));
         bytes32 closureId = requestId(state, wiring.fundId);
@@ -216,7 +219,7 @@ library CoreVaultClosureLogic {
         uint256 spokeIndex,
         bytes memory blob
     ) private view returns (uint256) {
-        if (blob.length == 0) revert ICoreVaultLifecycle.ClosureNotReady();
+        if (!SpokeUnwindTypes.validResults(blob)) revert ICoreVaultLifecycle.ClosureNotReady();
         SpokeUnwindTypes.OrderResult[] memory results = abi.decode(blob, (SpokeUnwindTypes.OrderResult[]));
         bytes32 closureId = requestId(state, wiring.fundId);
         bytes32[] storage transits = state.closureTransits[spokeIndex];

@@ -13,6 +13,43 @@ import {MockOrderCore} from "../../mocks/wormhole/MockOrderCore.sol";
 import {ShareMath} from "../../../src/libraries/ShareMath.sol";
 
 contract CoreVaultSpokeSettlementTest is CoreVaultFixture {
+    function test_REGRESSION_fullHistoryReportSettlesCurrentPayout() public {
+        ICoreVaultPayouts.PayoutRequest memory request = _start();
+        _multiReport(request);
+        assertEq(vault.payoutRequest(alice).reportedSpokes, 1);
+        _fill(3990e6);
+        vault.settlePayout(alice);
+        assertFalse(vault.payoutRequest(alice).open);
+    }
+
+    function test_REGRESSION_retryAcceptsCurrentResultAfterOlderHistory() public {
+        ICoreVaultPayouts.PayoutRequest memory request = _start();
+        vm.warp(uint256(request.orderDeadline) + 1);
+        _deliver(_spokeReport(8000e6, 8000e6));
+        vm.prank(alice);
+        vault.claimPayout(200);
+        request = vault.payoutRequest(alice);
+        _multiReport(request);
+        assertEq(vault.payoutRequest(alice).reportedSpokes, 1);
+        _fill(3990e6);
+        vault.settlePayout(alice);
+        assertFalse(vault.payoutRequest(alice).open);
+    }
+
+    function _multiReport(ICoreVaultPayouts.PayoutRequest memory request) internal {
+        SpokeUnwindTypes.OrderResult[] memory results =
+            new SpokeUnwindTypes.OrderResult[](SpokeUnwindTypes.REPORTED_RESULTS);
+        for (uint256 index; index + 1 < results.length; ++index) {
+            results[index].requestId = keccak256(abi.encode("older payout", index));
+            results[index].attempt = 1;
+        }
+        results[results.length - 1] = _result(request, 0, 10e6);
+        ReportCodec.Report memory report = _inFlightToHub(_spokeReport(4000e6, 8000e6), HOME, 3990e6);
+        report.cumulativeSentHome = 4000e6;
+        report.unwindResults = SpokeUnwindTypes.encodeResults(results);
+        _deliver(report);
+    }
+
     address internal stranger = address(0xBEEF);
     MockOrderCore internal orderCore;
     bytes32 internal constant HOME = keccak256("unwind home");

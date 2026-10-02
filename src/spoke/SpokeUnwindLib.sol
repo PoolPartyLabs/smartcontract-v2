@@ -284,7 +284,7 @@ library SpokeUnwindLib {
             records[index] = previous[index + offset];
         }
         records[count - 1] = record;
-        s.unwind.reportBlob = abi.encode(records);
+        s.unwind.reportBlob = SpokeUnwindTypes.encodeResults(records);
     }
 
     /// @notice DEC-068: a confirmed refund is reported as proof that this Principal send did not arrive.
@@ -320,16 +320,7 @@ library SpokeUnwindLib {
     function _markRefunds(SpokeVaultTypes.State storage s, bytes32 transitId) private returns (bool changed) {
         if (s.unwind.reportBlob.length == 0) return false;
         bytes memory blob = s.unwind.reportBlob;
-        uint256 offset;
-        uint256 count;
-        assembly ("memory-safe") {
-            offset := mload(add(blob, 32))
-            count := mload(add(blob, 64))
-        }
-        if (
-            blob.length < 64 || offset != 32 || count > SpokeUnwindTypes.REPORTED_RESULTS
-                || blob.length != 64 + count * 416
-        ) return false;
+        if (!SpokeUnwindTypes.validResults(blob)) return false;
         SpokeUnwindTypes.OrderResult[] memory records = abi.decode(blob, (SpokeUnwindTypes.OrderResult[]));
         for (uint256 index; index < records.length; ++index) {
             if (
@@ -341,7 +332,7 @@ library SpokeUnwindLib {
                 changed = true;
             }
         }
-        if (changed) s.unwind.reportBlob = abi.encode(records);
+        if (changed) s.unwind.reportBlob = SpokeUnwindTypes.encodeResults(records);
     }
 
     /// @notice The checks of `SpokeVault.executeOrder` (DEC-111, DEC-120 item 2, DEC-139, DEC-093):

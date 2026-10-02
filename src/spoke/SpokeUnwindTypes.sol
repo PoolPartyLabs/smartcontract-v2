@@ -17,6 +17,35 @@ library SpokeUnwindTypes {
     }
     /// @notice DEC-120: bounded post-unwind history carried by report v4.
     uint256 internal constant REPORTED_RESULTS = 16;
+    uint256 internal constant ENCODED_RESULT_SIZE = 13 * 32;
+
+    function encodeResults(OrderResult[] memory results) internal pure returns (bytes memory blob) {
+        blob = abi.encode(results);
+        assert(blob.length == 64 + results.length * ENCODED_RESULT_SIZE);
+    }
+
+    function validResults(bytes memory blob) internal pure returns (bool) {
+        if (blob.length < 64) return false;
+        uint256 offset;
+        uint256 count;
+        uint256 stride = ENCODED_RESULT_SIZE;
+        assembly ("memory-safe") {
+            offset := mload(add(blob, 32))
+            count := mload(add(blob, 64))
+        }
+        if (offset != 32 || count > REPORTED_RESULTS || blob.length != 64 + count * stride) return false;
+        for (uint256 index; index < count; ++index) {
+            uint256 attempt;
+            uint256 refunded;
+            assembly ("memory-safe") {
+                let entry := add(add(blob, 96), mul(index, stride))
+                attempt := mload(add(entry, 64))
+                refunded := mload(add(entry, 352))
+            }
+            if (attempt > type(uint32).max || refunded > 1) return false;
+        }
+        return true;
+    }
 
     /// @notice DEC-105/139: Principal send and Market Costs for one attempt, in spoke base-token units.
     struct OrderResult {

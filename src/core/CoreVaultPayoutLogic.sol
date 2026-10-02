@@ -373,7 +373,7 @@ library CoreVaultPayoutLogic {
         uint256 spokeIndex,
         ReportCodec.Report memory report
     ) public {
-        if (!_validResults(report.unwindResults)) return;
+        if (!SpokeUnwindTypes.validResults(report.unwindResults)) return;
         SpokeUnwindTypes.OrderResult[] memory results =
             abi.decode(report.unwindResults, (SpokeUnwindTypes.OrderResult[]));
         if (results.length > SpokeUnwindTypes.REPORTED_RESULTS) return;
@@ -430,28 +430,6 @@ library CoreVaultPayoutLogic {
         s.payouts.reservedCredit[key] = credited;
         req.reserved += credited - reserved;
         s.payoutReserve += credited - reserved;
-    }
-
-    function _validResults(bytes memory blob) private pure returns (bool) {
-        if (blob.length < 64) return false;
-        uint256 offset;
-        uint256 count;
-        assembly ("memory-safe") {
-            offset := mload(add(blob, 32))
-            count := mload(add(blob, 64))
-        }
-        if (offset != 32 || count > SpokeUnwindTypes.REPORTED_RESULTS || blob.length != 64 + count * 416) return false;
-        for (uint256 index; index < count; ++index) {
-            uint256 attempt;
-            uint256 refunded;
-            assembly ("memory-safe") {
-                let entry := add(add(blob, 96), mul(index, 384))
-                attempt := mload(add(entry, 64))
-                refunded := mload(add(entry, 352))
-            }
-            if (attempt > type(uint32).max || refunded > 1) return false;
-        }
-        return true;
     }
 
     function _spokesToUnwind(
