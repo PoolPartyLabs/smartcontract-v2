@@ -13,6 +13,10 @@ import {ISpokeVaultUnwind} from "../interfaces/ISpokeVaultUnwind.sol";
 import {IValueReportReceiver} from "../interfaces/IValueReportReceiver.sol";
 import {ShareMath} from "../libraries/ShareMath.sol";
 import {ReportCodec} from "../libraries/ReportCodec.sol";
+import {OrderCodec} from "../libraries/OrderCodec.sol";
+import {SpokeUnwindTypes} from "../spoke/SpokeUnwindTypes.sol";
+import {TransferKind} from "../interfaces/FundTypes.sol";
+import {IPriceSource} from "../interfaces/IPriceSource.sol";
 import {ShareToken} from "./ShareToken.sol";
 import {CoreVaultState, CoreVaultWiring, CORE_VAULT_UNWINDING_SLOT, STANDARD_PAYOUT_TERM} from "./CoreVaultTypes.sol";
 import {CoreVaultLogic} from "./CoreVaultLogic.sol";
@@ -55,6 +59,7 @@ library CoreVaultPayoutLogic {
         uint256 leaverCost;
         uint256 excluded;
         uint256 served;
+        address holder;
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -72,7 +77,8 @@ library CoreVaultPayoutLogic {
         CoreVaultWiring memory w,
         uint256 usdcAmount,
         ICoreVaultPayouts.PayoutMode mode,
-        uint16 maxLossBps
+        uint16 maxLossBps,
+        uint256 messageFee
     ) public returns (ICoreVaultPayouts.PayoutReceipt memory receipt) {
         ICoreVaultPayouts.PayoutRequest storage req = s.payouts.requests[msg.sender];
         // DEC-024, DEC-046: one open request per address, never cancellable.
@@ -104,7 +110,8 @@ library CoreVaultPayoutLogic {
         emit ICoreVaultPayouts.PayoutRequested(
             msg.sender, mode, req.requestId, usdcAmount, req.reserved, req.termEndsAt, maxLossBps
         );
-        if (mode == ICoreVaultPayouts.PayoutMode.Instant) receipt = _claim(s, w, req, balance);
+        if (mode == ICoreVaultPayouts.PayoutMode.Instant) receipt = _claim(s, w, req, balance, messageFee);
+        else if (messageFee != 0) revert ICoreVaultPayouts.PayoutMessageFeeNotUsed(messageFee);
     }
 
     /// @notice The Share Price a request is checked at: a claim's (payout liveness), with the one-share floor and the
@@ -156,12 +163,15 @@ library CoreVaultPayoutLogic {
 
     /// @notice ICoreVaultPayouts.claimPayout after the guard, the open-fund check and the Operating Cash top-up.
     /// @dev See `CoreVaultPayout.claimPayout` for the rules (OQ-07, DEC-105, DEC-146, DEC-147, DEC-154, D-26, D-27).
-    function claimPayout(CoreVaultState storage s, CoreVaultWiring memory w, uint16 maxLossBps)
+    function claimPayout(CoreVaultState storage s, CoreVaultWiring memory w, uint16 maxLossBps, uint256 messageFee)
         public
         returns (ICoreVaultPayouts.PayoutReceipt memory receipt)
     {
         ICoreVaultPayouts.PayoutRequest storage req = s.payouts.requests[msg.sender];
         if (!req.open) revert ICoreVaultPayouts.NoOpenPayoutRequest(msg.sender);
+        if (req.awaitingSettlement && block.timestamp <= req.orderDeadline) {
+            revert ICoreVaultPayouts.PayoutAwaitingSettlement(msg.sender);
+        }
         if (req.mode == ICoreVaultPayouts.PayoutMode.Standard && block.timestamp < req.termEndsAt) {
             revert ICoreVaultPayouts.PayoutTermNotEnded(req.termEndsAt);
         }
@@ -169,7 +179,7 @@ library CoreVaultPayoutLogic {
         if (balance == 0) revert ICoreVaultPayouts.NoShares(msg.sender);
         // DEC-140 item 2, DEC-148: each attempt may come with its own maximum.
         req.maxLossBps = maxLossBps;
-        receipt = _claim(s, w, req, balance);
+        receipt = _claim(s, w, req, balance, messageFee);
     }
 
     /// @notice The claim of `msg.sender`'s open request `req`; `balance` is the claimant's share balance, non-zero.
@@ -177,23 +187,39 @@ library CoreVaultPayoutLogic {
         CoreVaultState storage s,
         CoreVaultWiring memory w,
         ICoreVaultPayouts.PayoutRequest storage req,
-        uint256 balance
+        uint256 balance,
+        uint256 messageFee
     ) private returns (ICoreVaultPayouts.PayoutReceipt memory receipt) {
         // DEC-160: no share is burned on a stale report, whether Idle pays or not (D-28).
         _requireFreshReports(s, w);
         Claim memory c;
+        c.holder = msg.sender;
         c.balance = balance;
         c.burnable = msg.sender == w.manager ? _managerBurnable(s, c.balance) : c.balance;
 
         ICoreVaultPayouts.NavConsolidation memory consolidation = _priceClaim(s, w, c, req);
         // DEC-067, DEC-095, DEC-151 item 3: Idle first (Instant: Free Idle only; Standard: its reserve, then Free Idle).
-        if (c.wanted > c.available) {
+        if (c.wanted > c.available || req.awaitingSettlement) {
             c.served = _sharesFor(c, req.usdcOutstanding);
+            uint256 previousMask = req.awaitingSettlement ? req.expectedSpokes : 0;
+            uint256 previousReported = req.reportedSpokes;
             _unwindForPayout(s, w, c, req);
+            if (req.awaitingSettlement) {
+                c.marketCost += s.payouts.marketCost[req.requestId];
+                c.leaverCost += s.payouts.leaverCost[req.requestId];
+                c.proceeds += s.payouts.proceeds[req.requestId];
+            }
+            uint256 mask = _spokesToUnwind(s, w, req);
+            mask |= previousMask & ~previousReported;
+            if (mask != 0) {
+                _publishUnwind(s, w, req, c, mask, messageFee);
+                return receipt;
+            }
             _requireFreshReports(s, w);
             // DEC-105, D-17: one Share Price for the whole request, read after the unwind, on NAV + leaverCost.
             consolidation = _priceClaim(s, w, c, req);
         }
+        if (messageFee != 0) revert ICoreVaultPayouts.PayoutMessageFeeNotUsed(messageFee);
         // DEC-077: an outstanding amount below one share's price (after a Partial Payout, or a Share Price that rose
         // since the request) closes the request with nothing burned; the receipt says so (`closedBelowOneShare`).
         c.shares = _sharesFor(c, req.usdcOutstanding);
@@ -241,7 +267,7 @@ library CoreVaultPayoutLogic {
         // DEC-077, DEC-020: floor(outstanding / price) whole shares, capped at the balance (the manager: at the base).
         c.wanted = ShareMath.usdcFor(_sharesFor(c, req.usdcOutstanding), c.price);
         c.available = s.idle - s.payoutReserve;
-        if (req.mode == ICoreVaultPayouts.PayoutMode.Standard) c.available += req.reserved;
+        c.available += req.reserved;
     }
 
     /// @dev Security review S-18 (DEC-021, DEC-056, FV-OQ-2): at a zero Share Price with shares outstanding (a total
@@ -331,9 +357,178 @@ library CoreVaultPayoutLogic {
     /// @dev The payout work reads the report's `unwindResults` here: DEC-105 and DEC-120 item 3, the settlement waits
     ///      for every reached spoke's post-unwind report. It runs inside the report delivery, so it must not revert (a
     ///      revert would refuse the report) and must stay bounded in gas.
-    function onReportAccepted(CoreVaultState storage, CoreVaultWiring memory, uint256, ReportCodec.Report memory)
+    function onReportAccepted(
+        CoreVaultState storage s,
+        CoreVaultWiring memory w,
+        uint256 spokeIndex,
+        ReportCodec.Report memory report
+    ) public {
+        if (!_validResults(report.unwindResults)) return;
+        SpokeUnwindTypes.OrderResult[] memory results =
+            abi.decode(report.unwindResults, (SpokeUnwindTypes.OrderResult[]));
+        if (results.length > SpokeUnwindTypes.REPORTED_RESULTS) return;
+        for (uint256 index; index < results.length; ++index) {
+            SpokeUnwindTypes.OrderResult memory result = results[index];
+            address holder = address(uint160(uint256(result.requestId) >> 96));
+            ICoreVaultPayouts.PayoutRequest storage req = s.payouts.requests[holder];
+            if (
+                !req.open || !req.awaitingSettlement || req.requestId != result.requestId
+                    || req.attempt != result.attempt || req.expectedSpokes & (uint256(1) << spokeIndex) == 0
+            ) continue;
+            OrderCodec.Order memory order;
+            order.kind = OrderCodec.UNWIND;
+            order.fundId = w.fundId;
+            order.requestId = result.requestId;
+            order.attempt = result.attempt;
+            if (result.orderId != OrderCodec.orderId(order)) continue;
+            s.payouts.legs[result.requestId][spokeIndex] = result;
+            req.reportedSpokes |= uint256(1) << spokeIndex;
+        }
+    }
+
+    function _validResults(bytes memory blob) private pure returns (bool) {
+        if (blob.length < 64) return false;
+        uint256 offset;
+        uint256 count;
+        assembly ("memory-safe") {
+            offset := mload(add(blob, 32))
+            count := mload(add(blob, 64))
+        }
+        if (offset != 32 || count > SpokeUnwindTypes.REPORTED_RESULTS || blob.length != 64 + count * 384) return false;
+        for (uint256 index; index < count; ++index) {
+            uint256 attempt;
+            uint256 refunded;
+            assembly ("memory-safe") {
+                let entry := add(add(blob, 96), mul(index, 384))
+                attempt := mload(add(entry, 64))
+                refunded := mload(add(entry, 352))
+            }
+            if (attempt > type(uint32).max || refunded > 1) return false;
+        }
+        return true;
+    }
+
+    function _spokesToUnwind(
+        CoreVaultState storage s,
+        CoreVaultWiring memory w,
+        ICoreVaultPayouts.PayoutRequest storage req
+    ) private view returns (uint256 mask) {
+        IValueReportReceiver receiver = IValueReportReceiver(w.reportReceiver);
+        for (uint256 index; index < s.mandate.spokes.length; ++index) {
+            if (
+                req.attempt > 1 && !s.payouts.legs[req.requestId][index].refunded
+                    && (req.awaitingSettlement || s.payouts.legs[req.requestId][index].excluded == 0)
+                    && req.reportedSpokes & (uint256(1) << index) != 0
+            ) continue;
+            if (!receiver.hasReport(index)) continue;
+            (ReportCodec.Report memory report,,) = receiver.latestReport(index);
+            bool value = report.positions.length != 0;
+            for (uint256 tokenIndex; tokenIndex < report.unallocated.length; ++tokenIndex) {
+                if (report.unallocated[tokenIndex].amount != 0) value = true;
+            }
+            if (value || s.payouts.legs[req.requestId][index].refunded) mask |= uint256(1) << index;
+        }
+    }
+
+    function _publishUnwind(
+        CoreVaultState storage s,
+        CoreVaultWiring memory w,
+        ICoreVaultPayouts.PayoutRequest storage req,
+        Claim memory claim,
+        uint256 mask,
+        uint256 messageFee
+    ) private {
+        uint256 available = s.idle - s.payoutReserve + req.reserved;
+        uint256 earmark = Math.min(available, claim.wanted);
+        s.payoutReserve = s.payoutReserve - req.reserved + earmark;
+        req.reserved = earmark;
+        if (req.awaitingSettlement) {
+            req.expectedSpokes |= mask;
+            req.reportedSpokes &= ~mask;
+        } else {
+            req.expectedSpokes = mask;
+            req.reportedSpokes = 0;
+        }
+        req.awaitingSettlement = true;
+        s.payouts.marketCost[req.requestId] = claim.marketCost;
+        s.payouts.leaverCost[req.requestId] = claim.leaverCost;
+        s.payouts.proceeds[req.requestId] = claim.proceeds;
+        OrderCodec.Order memory order;
+        order.kind = OrderCodec.UNWIND;
+        order.fundId = w.fundId;
+        order.requestId = req.requestId;
+        order.attempt = req.attempt;
+        order.fracNum = req.fracNum;
+        order.fracDen = req.fracDen;
+        order.maxLossBps = req.maxLossBps;
+        order.payoutMode = uint8(req.mode);
+        req.orderSequence = OrderCodec.publish(w.wormholeCore, order, messageFee);
+        req.orderDeadline = order.deadline;
+        emit ICoreVault.OrderPublished(
+            order.kind, OrderCodec.orderId(order), order.requestId, order.attempt, req.orderSequence
+        );
+    }
+
+    /// @notice DEC-105/047: one post-unwind Share Price, after every reached spoke reported and its Principal arrived.
+    function settlePayout(CoreVaultState storage s, CoreVaultWiring memory w, address holder, uint256 messageFee)
         public
-        pure {}
+        returns (ICoreVaultPayouts.PayoutReceipt memory receipt)
+    {
+        if (messageFee != 0) revert ICoreVaultPayouts.PayoutMessageFeeNotUsed(messageFee);
+        ICoreVaultPayouts.PayoutRequest storage req = s.payouts.requests[holder];
+        if (!req.open || !req.awaitingSettlement) revert ICoreVaultPayouts.NoOpenPayoutRequest(holder);
+        _requireFreshReports(s, w);
+        Claim memory claim;
+        claim.holder = holder;
+        claim.balance = IERC20(w.shareToken).balanceOf(holder);
+        claim.burnable = holder == w.manager ? _managerBurnable(s, claim.balance) : claim.balance;
+        claim.marketCost = s.payouts.marketCost[req.requestId];
+        claim.leaverCost = s.payouts.leaverCost[req.requestId];
+        claim.proceeds = s.payouts.proceeds[req.requestId];
+        _settlementLegs(s, w, req, claim);
+        ICoreVaultPayouts.NavConsolidation memory consolidation = _priceClaim(s, w, claim, req);
+        claim.shares = _sharesFor(claim, Math.min(req.usdcOutstanding, claim.available));
+        claim.complete = claim.wanted <= claim.available;
+        claim.cappedByManagerBase = claim.price != 0 && claim.burnable < claim.balance
+            && ShareMath.sharesToBurn(req.usdcOutstanding, claim.price) > claim.burnable;
+        req.awaitingSettlement = false;
+        receipt = _executePayout(s, w, claim, req);
+        if (claim.complete) emit ICoreVaultPayouts.PayoutExecuted(holder, receipt, consolidation);
+        else emit ICoreVaultPayouts.PartialPayoutExecuted(holder, receipt, consolidation);
+    }
+
+    function _settlementLegs(
+        CoreVaultState storage s,
+        CoreVaultWiring memory w,
+        ICoreVaultPayouts.PayoutRequest storage req,
+        Claim memory claim
+    ) private view {
+        for (uint256 index; index < s.mandate.spokes.length; ++index) {
+            uint256 bit = uint256(1) << index;
+            if (req.expectedSpokes & bit == 0) continue;
+            if (req.reportedSpokes & bit == 0) revert ICoreVaultPayouts.SpokeUnwindNotReported(index);
+            SpokeUnwindTypes.OrderResult storage leg = s.payouts.legs[req.requestId][index];
+            if (leg.transitId != bytes32(0) && !leg.refunded) {
+                bytes32 key = CoreVaultLogic.hubBoundKey(s.mandate.spokes[index].chainId, leg.transitId);
+                if (s.hubBound[key].kind != TransferKind.Principal || s.hubBound[key].credited < leg.amountToArrive) {
+                    revert ICoreVaultPayouts.SpokeUnwindNotCredited(index, leg.transitId);
+                }
+            }
+            if (leg.refunded || leg.transitId == bytes32(0)) continue;
+            uint256 rate;
+            try IPriceSource(w.priceSource).priceInUsdc(s.mandate.spokes[index].spokeToken) returns (
+                uint256 price, uint256
+            ) {
+                rate = price;
+            } catch {
+                rate = s.lastPrice[s.mandate.spokes[index].spokeToken];
+            }
+            claim.marketCost += Math.mulDiv(leg.marketCost, rate, 1e18);
+            claim.leaverCost += Math.mulDiv(leg.leaverCost, rate, 1e18);
+            claim.proceeds += Math.mulDiv(leg.amountToArrive, rate, 1e18);
+            claim.excluded += leg.excluded;
+        }
+    }
 
     /// @notice Burn and pay atomically (DEC-047), fees, reserve release and the full-burn income payment (DEC-045).
     function _executePayout(
@@ -357,7 +552,7 @@ library CoreVaultPayoutLogic {
         // what the payout cannot carry is the fund's.
         r.leaverCost = Math.min(c.leaverCost, r.usdcGross - r.payoutFee - r.flowFee);
         r.marketCost = c.marketCost;
-        r.marketCostAbsorbed = c.marketCost - r.leaverCost;
+        r.marketCostAbsorbed = c.marketCost > r.leaverCost ? c.marketCost - r.leaverCost : 0;
         r.usdcPaid = r.usdcGross - r.payoutFee - r.flowFee - r.leaverCost;
         r.excludedPositions = c.excluded;
         r.fracNum = req.fracNum;
@@ -375,7 +570,7 @@ library CoreVaultPayoutLogic {
         }
 
         // Effects. DEC-014: the income hook checkpoints with the balance before the burn.
-        CoreVaultIncomeLogic.beforeBalanceChange(s, w, msg.sender, c.balance);
+        CoreVaultIncomeLogic.beforeBalanceChange(s, w, c.holder, c.balance);
         // DEC-144: the Payout Fee never leaves Idle, so it raises the Share Price of those who stay (R-144-A); nor
         // does the requester's Market Cost (DEC-118, DEC-141).
         s.idle -= r.usdcGross - r.payoutFee - r.leaverCost;
@@ -396,11 +591,11 @@ library CoreVaultPayoutLogic {
         }
 
         // Interactions.
-        if (c.shares != 0) ShareToken(w.shareToken).burn(msg.sender, c.shares);
+        if (c.shares != 0) ShareToken(w.shareToken).burn(c.holder, c.shares);
         // Security review S-12: a failed flow-fee transfer is owed to the protocol, never a reason to refuse the claim.
         CoreVaultLogic.payFee(s, w.usdc, w.protocolRecipient, r.flowFee);
-        if (r.usdcPaid != 0) IERC20(w.usdc).safeTransfer(msg.sender, r.usdcPaid);
+        if (r.usdcPaid != 0) IERC20(w.usdc).safeTransfer(c.holder, r.usdcPaid);
         // DEC-045, DEC-047: after a full burn the hook pays all Attributed Income.
-        if (c.shares != 0) CoreVaultIncomeLogic.afterBurn(s, w, msg.sender, c.shares, c.balance - c.shares);
+        if (c.shares != 0) CoreVaultIncomeLogic.afterBurn(s, w, c.holder, c.shares, c.balance - c.shares);
     }
 }

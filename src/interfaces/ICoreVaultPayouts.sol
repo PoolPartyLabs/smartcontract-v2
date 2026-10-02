@@ -22,7 +22,8 @@ interface ICoreVaultPayouts {
     /// @param termEndsAt Standard: `requestedAt + standardPayoutTerm` (DEC-060, DEC-154); Instant: `requestedAt`.
     /// @param usdcRequested Gross USDC amount requested (DEC-020, DEC-023).
     /// @param usdcOutstanding USDC still to pay after Partial Payouts (DEC-068).
-    /// @param reserved USDC held in the Payout Reserve for this request; Standard only (DEC-072, DEC-077, DEC-095).
+    /// @param reserved USDC held in the Payout Reserve: a Standard reservation, or the Idle and Hub proceeds earmarked
+    ///        while a cross-chain claim awaits settlement (DEC-105, DEC-139).
     /// @param requestId The request's id: the requester's address in the high 160 bits and the Core Vault's request
     ///        counter in the low 96 (`OrderCodec.Order.requestId`). The hub Spoke Vault remembers per id which
     ///        positions already delivered (DEC-151).
@@ -45,6 +46,11 @@ interface ICoreVaultPayouts {
         uint32 attempt;
         uint256 fracNum;
         uint256 fracDen;
+        uint256 expectedSpokes;
+        uint256 reportedSpokes;
+        uint64 orderSequence;
+        uint64 orderDeadline;
+        bool awaitingSettlement;
     }
 
     /// @notice How Share Assets were consolidated for a mint or burn (DEC-083). Carried by every mint and burn event.
@@ -158,6 +164,10 @@ interface ICoreVaultPayouts {
     error NoOpenPayoutRequest(address shareholder);
     error PayoutTermNotEnded(uint64 termEndsAt);
     error NoShares(address shareholder);
+    error PayoutAwaitingSettlement(address shareholder);
+    error SpokeUnwindNotReported(uint256 spokeIndex);
+    error SpokeUnwindNotCredited(uint256 spokeIndex, bytes32 transitId);
+    error PayoutMessageFeeNotUsed(uint256 amount);
 
     /// @notice A Payout Request below one share's price at the current Share Price, which could never burn a share
     ///         (DEC-035 spirit, DEC-077; final verification).
@@ -185,6 +195,7 @@ interface ICoreVaultPayouts {
     ///        Kept in the request; a later claim may replace it.
     function requestPayout(uint256 usdcAmount, PayoutMode mode, uint16 maxLossBps)
         external
+        payable
         returns (PayoutReceipt memory receipt);
 
     /// @notice Executes the caller's open Payout Request: burn and pay atomically (DEC-047, DEC-065, DEC-074). Only the
@@ -211,7 +222,9 @@ interface ICoreVaultPayouts {
     ///      the Hub's unwind order, DEC-120, DEC-139).
     /// @param maxLossBps The requester's maximum loss per sale for this attempt, replacing the one kept in the request
     ///        (DEC-140 item 2, DEC-148: the next attempt may come with another maximum); 0 or >= 10,000 for none.
-    function claimPayout(uint16 maxLossBps) external returns (PayoutReceipt memory receipt);
+    function claimPayout(uint16 maxLossBps) external payable returns (PayoutReceipt memory receipt);
+
+    function settlePayout(address holder) external payable returns (PayoutReceipt memory receipt);
 
     // ---------------------------------------------------------------------------------------------------------------
     // Views
