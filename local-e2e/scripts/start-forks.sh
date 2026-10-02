@@ -8,8 +8,7 @@
 #   ARBITRUM_RPC_URL, ROBINHOOD_RPC_URL  upstream RPCs (process environment, then the repo .env, then the public
 #                                        endpoints of .env.example); an archive endpoint is best, and one Alchemy key
 #                                        serves both chains. This script prints the host only, the log tails it shows
-#                                        on a failure included; anvil's own log (.state/<chain>.log) holds the full
-#                                        URL, key included: never share it.
+#                                        on a failure included; anvil's log is redacted before it reaches disk.
 #   ARBITRUM_FORK_BLOCK, ROBINHOOD_FORK_BLOCK
 #                                        fork blocks, read from the process environment only (default: latest). The
 #                                        repo .env pins old blocks for the forge fork suites; a public RPC no longer
@@ -119,7 +118,7 @@ start_fork() {
   if [[ -n "$block" ]]; then args+=(--fork-block-number "$block"); fi
 
   echo "starting the $name fork: chain $chain_id, port $port, upstream $(redact "$url"), block ${block:-latest}"
-  nohup anvil "${args[@]}" >"$log_file" 2>&1 &
+  nohup anvil "${args[@]}" > >(redact_urls >"$log_file") 2>&1 &
   echo $! >"$pid_file"
   STARTED+=("$name")
 }
