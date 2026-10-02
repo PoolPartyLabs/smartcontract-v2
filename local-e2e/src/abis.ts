@@ -17,6 +17,7 @@ export const fundFactoryAbi = load("FundFactory");
 export const uniswapV4AdapterAbi = load("UniswapV4Adapter");
 export const aaveV3AdapterAbi = load("AaveV3Adapter");
 export const acrossBridgeAdapterAbi = load("AcrossBridgeAdapter");
+export const uniswapV3SwapAdapterAbi = load("UniswapV3SwapAdapter");
 export const managerFeeVaultAbi = load("ManagerFeeVault");
 export const managerRegistryAbi = load("ManagerRegistry");
 export const chainlinkPriceSourceAbi = load("ChainlinkPriceSource");
@@ -109,6 +110,7 @@ export const allErrorsAbi: Abi = (() => {
     uniswapV4AdapterAbi,
     aaveV3AdapterAbi,
     acrossBridgeAdapterAbi,
+    uniswapV3SwapAdapterAbi,
     managerFeeVaultAbi,
     managerRegistryAbi,
     chainlinkPriceSourceAbi,
