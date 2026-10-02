@@ -311,6 +311,10 @@ library SpokeCrossChainLib {
             mstore(inFlight, found)
         }
         r.inFlightToHub = inFlight;
+
+        // WP-07 D3 (report version 4): the order results the unwind and income books hold for the Hub, as they are.
+        r.unwindResults = s.unwind.reportBlob;
+        r.collectionResults = s.income.reportBlob;
     }
 
     /// @dev `ReportCodec.PositionReport` is `IAdapter.PositionValue` prefixed by the adapter address, word for word, so

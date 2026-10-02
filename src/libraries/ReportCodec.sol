@@ -13,11 +13,12 @@ import {TransferKind} from "../interfaces/FundTypes.sol";
 /// @dev Versions: 1, the module build; 2, the consolidation of 2026-09-29: `inFlightToHub` entries carry their
 ///      `TransferKind` (CV-OQ-1, DEC-085, DEC-092), and the spoke's collected income bucket and Operating Cash travel
 ///      for Gross Assets (DEC-098); 3, the security review of 2026-09-30: the report carries the Spoke Vault's
-///      `mandateHash` so the hub accepts reports only from a spoke running its own Mandate (S-6, FF-OQ-1). Nothing was
-///      ever deployed with versions 1 or 2.
+///      `mandateHash` so the hub accepts reports only from a spoke running its own Mandate (S-6, FF-OQ-1); 4, WP-07 D3:
+///      the report carries the results of the Hub's orders the spoke executed, `unwindResults` (DEC-105, DEC-120 item
+///      2) and `collectionResults` (DEC-122, DEC-161), opaque here. Nothing was ever deployed with versions 1 to 3.
 library ReportCodec {
     /// @notice Current payload version.
-    uint256 internal constant VERSION = 3;
+    uint256 internal constant VERSION = 4;
 
     /// @notice Most arrivals a report lists in `arrivedTransits` (OQ-09 stance; Spoke Vault verifier finding).
     /// @dev Shared by the Spoke Vault, which keeps a ring of this size, and the Core Vault, which accepts a report's
@@ -98,6 +99,12 @@ library ReportCodec {
     /// @param inFlightToHub Spoke-to-hub transits the spoke sent whose outcome it does not yet know, with the amount
     ///        that will arrive (DEC-085) and the kind (Principal or Income, DEC-092). A list rather than a scalar so the
     ///        hub can reconcile by transfer id and never count an arrival twice (DEC-104).
+    /// @param unwindResults What the Spoke Vault's unwind book holds for the Hub (`SpokeUnwindTypes.Book.reportBlob`):
+    ///        the results of the unwind and closure orders it executed, which the Hub's settlement waits for (DEC-105,
+    ///        DEC-120 items 2-3). Opaque here: the unwind work owns the encoding; empty until it exists.
+    /// @param collectionResults What the Spoke Vault's income book holds for the Hub
+    ///        (`SpokeIncomeTypes.Book.reportBlob`): the results of the collection orders it executed (DEC-122 item 5,
+    ///        DEC-161). Opaque here: the income work owns the encoding; empty until it exists.
     struct Report {
         bytes32 fundId;
         bytes32 mandateHash;
@@ -114,6 +121,8 @@ library ReportCodec {
         uint256 cumulativeSentHome;
         TransitAmount[] arrivedTransits;
         HubBoundAmount[] inFlightToHub;
+        bytes unwindResults;
+        bytes collectionResults;
     }
 
     /// @notice The payload carries a version this code does not know.
