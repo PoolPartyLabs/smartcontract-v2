@@ -14,7 +14,8 @@ import {ICoreBridge} from "wormhole-sdk/interfaces/ICoreBridge.sol";
 /// @dev DEC-111: an order never names a destination. It only authorises the receiving Spoke Vault to unwind its own
 ///      positions (or collect its own income) and send the proceeds to the Core Vault through the Mandate's bridge
 ///      adapter, so a valid order cannot move value out of the fund.
-/// @dev Layout: `abi.encode(uint256 version, Order order)`. A reader checks the first word before decoding.
+/// @dev Layout: `abi.encode(uint256 version, Order order)`, ten static words. A reader checks the first word before
+///      decoding. A field a later order kind needs is added with a new `VERSION`.
 library OrderCodec {
     /// @notice Current payload version.
     uint256 internal constant VERSION = 1;
@@ -67,7 +68,6 @@ library OrderCodec {
     ///        Not interpreted here; the executor reads 0 and values from 10,000 up as "no maximum" (DEC-140: optional).
     /// @param payoutMode `ICoreVault.PayoutMode` of the request, which decides who bears the Market Costs (DEC-118,
     ///        DEC-141). 0 for orders that serve no payout.
-    /// @param data Extension field the order kinds may use; empty unless an order kind defines it.
     struct Order {
         uint8 kind;
         bytes32 fundId;
@@ -78,7 +78,6 @@ library OrderCodec {
         uint256 fracDen;
         uint16 maxLossBps;
         uint8 payoutMode;
-        bytes data;
     }
 
     /// @notice The payload carries a version this code does not know.

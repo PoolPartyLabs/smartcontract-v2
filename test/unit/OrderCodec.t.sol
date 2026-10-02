@@ -34,7 +34,6 @@ contract OrderCodecTest is Test {
         o.fracDen = 10_000;
         o.maxLossBps = 150;
         o.payoutMode = uint8(ICoreVault.PayoutMode.Instant);
-        o.data = "";
     }
 
     function _same(OrderCodec.Order memory a, OrderCodec.Order memory b) internal pure {
@@ -58,16 +57,16 @@ contract OrderCodecTest is Test {
         assertEq(d.payoutMode, uint8(ICoreVault.PayoutMode.Instant), "DEC-118, DEC-141: the mode travels");
     }
 
-    function test_DEC161_roundTripOfACollectOrderWithData() public view {
+    function test_DEC161_roundTripOfACollectOrder() public view {
         OrderCodec.Order memory o;
         o.kind = OrderCodec.COLLECT;
         o.fundId = FUND;
         o.requestId = bytes32(uint256(7));
-        o.data = abi.encode(uint256(7), address(0xC0FFEE));
-        OrderCodec.Order memory d = h.decode(h.encode(o));
+        bytes memory payload = h.encode(o);
+        assertEq(payload.length, 10 * 32, "ten static words: the version and the nine fields");
+        OrderCodec.Order memory d = h.decode(payload);
         _same(o, d);
         assertEq(d.fracDen, 0, "the fraction of a collection is not read");
-        assertEq(d.data, abi.encode(uint256(7), address(0xC0FFEE)), "the extension field travels");
     }
 
     function test_DEC147_closeOrderIsAlwaysOneOverOne() public view {
@@ -102,7 +101,6 @@ contract OrderCodecTest is Test {
         same.fracNum = 1;
         same.deadline = 1;
         same.maxLossBps = 0;
-        same.data = hex"01";
         assertEq(h.orderId(same), id, "the terms of an order do not change its id");
 
         OrderCodec.Order memory retry = _unwind();
@@ -149,7 +147,7 @@ contract OrderCodecTest is Test {
         // a kind word above uint8
         bytes memory payload = abi.encode(OrderCodec.VERSION, _unwind());
         assembly {
-            mstore(add(payload, 0x60), 0x101) // version, offset, then the kind word
+            mstore(add(payload, 0x40), 0x101) // length, version, then the kind word
         }
         vm.expectRevert();
         h.decode(payload);
@@ -268,8 +266,7 @@ contract OrderCodecTest is Test {
         uint256 fracNum,
         uint256 fracDen,
         uint16 maxLossBps,
-        bool standard,
-        bytes calldata data
+        bool standard
     ) public view {
         fracDen = bound(fracDen, 1, type(uint256).max);
         fracNum = bound(fracNum, 0, fracDen);
@@ -282,8 +279,7 @@ contract OrderCodecTest is Test {
             fracNum: fracNum,
             fracDen: fracDen,
             maxLossBps: maxLossBps,
-            payoutMode: standard ? 1 : 0,
-            data: data
+            payoutMode: standard ? 1 : 0
         });
         _same(o, h.decode(h.encode(o)));
     }
