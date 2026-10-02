@@ -1,0 +1,66 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.28;
+
+import {ICoreBridge, CoreBridgeVM} from "wormhole-sdk/interfaces/ICoreBridge.sol";
+import {OrderCodec} from "./OrderCodec.sol";
+
+/// @title OrderVerifier
+/// @notice What a Spoke Vault checks before it executes an order VAA from the Hub.
+/// @dev DEC-111, DEC-120 item 2, DEC-139: any address delivers the order; the Spoke Vault accepts it only if
+///      1. the spoke chain's Wormhole Core verifies the guardian quorum (`InvalidOrderVaa`), DEC-086;
+///      2. the emitter chain is the Hub's Wormhole chain id, 23 for Arbitrum One (`OrderEmitterChainMismatch`);
+///      3. the emitter is the fund's Core Vault (`OrderEmitterMismatch`);
+///      4. the sequence is at least `minSequence` (`OrderSequenceTooLow`): the DEC-093 rule, strictly greater than
+///         the last accepted order, which rejects a replay and an older order delivered after a newer one;
+///      5. the payload decodes with the current `OrderCodec` version (`OrderCodec.decode`);
+///      6. the payload's fund id is the fund's own (`OrderFundMismatch`).
+/// @dev The consistency level is not checked: the Core Vault is the only accepted emitter and always publishes with
+///      `OrderCodec.CONSISTENCY_INSTANT` (DEC-120 item 1).
+/// @dev The caller keeps `minSequence`: 0 before any order and the returned `sequence + 1` after each accepted one.
+///      "Strictly greater than the last accepted" is stored as "at least the last accepted plus one" because a
+///      Wormhole emitter's first sequence is 0: a stored "last accepted" of 0 would refuse the Core Vault's first
+///      order unless a separate flag said none was accepted yet.
+/// @dev Gaps are accepted: an order this spoke never received does not block a later one.
+library OrderVerifier {
+    /// @notice The Wormhole Core refused the VAA (guardian quorum, guardian set or encoding).
+    error InvalidOrderVaa(string reason);
+
+    /// @notice The VAA was not emitted on the Hub's Wormhole chain.
+    error OrderEmitterChainMismatch(uint16 emitterChainId);
+
+    /// @notice The VAA was not emitted by the fund's Core Vault.
+    error OrderEmitterMismatch(bytes32 emitterAddress);
+
+    /// @notice The VAA's sequence is below the lowest still acceptable (a replay or an older order).
+    error OrderSequenceTooLow(uint64 minSequence, uint64 sequence);
+
+    /// @notice The order belongs to another fund.
+    error OrderFundMismatch(bytes32 fundId);
+
+    /// @notice Verifies an order VAA and returns the order and its Wormhole sequence.
+    /// @param core The spoke chain's Wormhole Core.
+    /// @param vaa The signed VAA, as delivered by anyone.
+    /// @param hubWormholeChainId The Hub's Wormhole chain id (Arbitrum One: 23).
+    /// @param coreVault The fund's Core Vault (the same address on every chain, DEC-054).
+    /// @param minSequence Lowest acceptable sequence: 0 before any order, else the last accepted sequence plus one.
+    /// @param fundId The fund's id.
+    /// @return o The decoded and checked order (`OrderCodec.check`).
+    /// @return sequence The VAA's Wormhole sequence; the caller stores `sequence + 1` as its next `minSequence`.
+    function verify(
+        address core,
+        bytes calldata vaa,
+        uint16 hubWormholeChainId,
+        address coreVault,
+        uint64 minSequence,
+        bytes32 fundId
+    ) internal view returns (OrderCodec.Order memory o, uint64 sequence) {
+        (CoreBridgeVM memory vm, bool valid, string memory reason) = ICoreBridge(core).parseAndVerifyVM(vaa);
+        if (!valid) revert InvalidOrderVaa(reason);
+        if (vm.emitterChainId != hubWormholeChainId) revert OrderEmitterChainMismatch(vm.emitterChainId);
+        if (vm.emitterAddress != bytes32(uint256(uint160(coreVault)))) revert OrderEmitterMismatch(vm.emitterAddress);
+        sequence = vm.sequence;
+        if (sequence < minSequence) revert OrderSequenceTooLow(minSequence, sequence);
+        o = OrderCodec.decode(vm.payload);
+        if (o.fundId != fundId) revert OrderFundMismatch(o.fundId);
+    }
+}
