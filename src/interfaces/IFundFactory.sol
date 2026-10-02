@@ -37,9 +37,10 @@ interface IFundFactory {
     ///        not swap, which no fund chain allows (every Mandate lists a swap adapter on each of its chains).
     /// @param uniswapV3SwapRouter02 SwapRouter02 wired to `uniswapV3Factory`.
     /// @param uniswapV3QuoterV2 QuoterV2 wired to `uniswapV3Factory`.
-    /// @param apiSigner The Pool Party API key of this chain (reading D-01): the swap adapters' route signer and the
-    ///        Across adapters' quoter (WP-11); zero for a chain without API (every contract works without it, DEC-052).
-    ///        Rotation needs a new factory (LC-16).
+    /// @param apiSigner The Pool Party API key of this chain (reading D-01, DEC-170): the swap adapters' route signer;
+    ///        zero for a chain without API (every contract works without it, DEC-052). The deployment also makes it the
+    ///        hub ManagerRegistry's owner (DEC-170 item 3). No bridge quote signer in the MVP (DEC-176). Rotation needs
+    ///        a new factory (LC-16, DEC-170 item 4).
     /// @param managerRegistry Per-manager protocol slice registry; hub only (DEC-106, DEC-110).
     /// @param priceSource Prices non-USDC quantities into USDC; hub only (docs/ARCHITECTURE.md §5, OPEN).
     /// @param protocolRecipient Recipient of the flow fee and the protocol slice (DEC-106) and of swept excess
@@ -158,9 +159,6 @@ interface IFundFactory {
     /// @notice The flow fee is above the DEC-110 cap.
     error FlowFeeAboveCap(uint16 bps);
 
-    /// @notice The Mandate's performance fee is below the registry's minimum manager fee (DEC-115, DEC-125 item 3).
-    error ManagerFeeBelowMinimum(uint16 bps, uint16 minBps);
-
     /// @notice A linked library address has no code.
     error LibraryHasNoCode(address library_);
 
@@ -229,10 +227,10 @@ interface IFundFactory {
     ///      `ICoreVaultLifecycle.seed`, which pays the flow fee and mints the first shares to the manager at 1.00. A
     ///      seed below `m.minFirstDeposit` reverts (`BelowMinFirstDeposit`), so no fund exists without its seed.
     /// @dev Reverts unless `msg.sender == m.manager` (DEC-001), `m.hubChainId == block.chainid`, `m.usdc` is this
-    ///      chain's base token, `m.performanceFeeBps` is at least the ManagerRegistry's `minManagerFeeBps` (DEC-115,
-    ///      DEC-125 item 3; the Core Vault keeps that minimum as the floor of `decreaseManagerFee`), `p.creationNumber`
-    ///      is the next fund number, the Core Vault code hashes to the pinned hash, and every address in the Mandate
-    ///      (adapters, swap adapters, bridge adapters and Spoke Vaults on every chain) is the fund's predicted one.
+    ///      chain's base token, `p.creationNumber` is the next fund number, the Core Vault code hashes to the pinned
+    ///      hash, and every address in the Mandate (adapters, swap adapters, bridge adapters and Spoke Vaults on every
+    ///      chain) is the fund's predicted one. The fee bounds (DEC-182, DEC-184, DEC-186) are the Mandate's own,
+    ///      checked by `MandateLib.validate` in the vaults' constructors.
     function createFund(Mandate memory m, HubParams memory p) external returns (FundAddresses memory addresses);
 
     /// @notice Creates the Spoke Vault and adapters of fund number `creationNumber` of the Mandate's Hub Chain on this

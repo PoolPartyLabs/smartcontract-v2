@@ -134,7 +134,7 @@ export async function discoverLayouts(): Promise<DeploymentState["storage"]["bal
   };
 }
 
-export function layoutOf(state: DeploymentState, side: Side, token: Address): BalanceLayout {
+export function layoutOf(state: Pick<DeploymentState, "storage">, side: Side, token: Address): BalanceLayout {
   const layout = state.storage.balances[side].find((l) => l.token.toLowerCase() === token.toLowerCase());
   if (!layout) throw new Error(`no balance layout for ${token} on ${side}`);
   return layout;
@@ -149,7 +149,9 @@ export async function clearDelegation(side: Side, holder: Address): Promise<Hex 
   return code;
 }
 
-export async function fundAccounts(state: DeploymentState, log: Logger): Promise<void> {
+/** Funds every actor. Runs before the first fund exists (`up` needs the manager's USDC for the seed, DEC-127), so it
+ *  only reads the storage layouts and the trader's routers. */
+export async function fundAccounts(state: Pick<DeploymentState, "storage" | "helpers">, log: Logger): Promise<void> {
   for (const side of ["arbitrum", "robinhood"] as Side[]) {
     const cleared = new Map<string, Hex>();
     for (const [name, account] of Object.entries(actors) as [ActorName, (typeof actors)[ActorName]][]) {

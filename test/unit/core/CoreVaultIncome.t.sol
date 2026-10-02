@@ -7,6 +7,7 @@ import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {IManagerFeeVault} from "../../../src/interfaces/IManagerFeeVault.sol";
 import {ManagerFeeVault} from "../../../src/core/ManagerFeeVault.sol";
 import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
+import {MandateLib} from "../../../src/mandate/Mandate.sol";
 import {IncomeAccumulator} from "../../../src/libraries/IncomeAccumulator.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
@@ -180,10 +181,11 @@ contract CoreVaultIncomeTest is CoreVaultFixture {
 
     /// @dev A supply-0 fund exists only before the seed (inside `createFund`) or after closure (DEC-121, DEC-127).
     function test_LC32_incomeWithNoSharesIsOwnerless() public {
-        _deployUnseeded(_mandate(0), _config(0));
+        _deployUnseeded(_mandate(MandateLib.MIN_PERFORMANCE_FEE_BPS), _config(0));
         hubVault.forwardIncome(address(usdc), 5e6);
-        assertEq(vault.ownerlessIncome(address(usdc)), 5e6);
-        assertEq(vault.collectedIncome(address(usdc)), 5e6);
+        // Net of the 10% performance fee (DEC-184), which is charged at collection whoever holds the shares.
+        assertEq(vault.ownerlessIncome(address(usdc)), 4.5e6);
+        assertEq(vault.collectedIncome(address(usdc)), 4.5e6);
     }
 
     function test_DEC080_unbackedCollectedIncomeRefused() public {

@@ -53,7 +53,7 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
     }
 
     function test_DEC066_entrantCapturesValueThroughDustRefundWindow() public {
-        _deployFeeless();
+        _deployAtMinimumFees();
         _deposit(alice, 10_000e6); // 10,000 shares, Idle 10,000
         bytes32 id = _send(SENT, ARRIVES);
         vm.warp(uint256(vault.transit(id).fillDeadline) + 1);
@@ -137,18 +137,18 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
     // ---------------------------------------------------------------------------------------------------------------
 
     function test_DEC014_OPEN_incomeGeneratedBeforeEntryIsSharedWhenCollectedAfterIt() public {
-        _deployFeeless();
+        _deployAtMinimumFees();
         // 10,000 shares; the manager's seed share takes 0.10 of every 1,000.10 below (DEC-127).
         _deposit(ana, 10_000e6);
         hubVault.forwardIncome(address(usdc), 1000.1e6); // collected before Bruno: Ana's (and the seed share's)
         hubVault.setCumulativeIncome(address(usdc), 1000.1e6 + 2100.1e6); // generated, not yet collected
         _deposit(bruno, 11_000e6); // 11,000 shares
         assertEq(vault.attributedIncome(bruno, address(usdc)), 0, "nothing collected since Bruno entered");
-        assertApproxEqAbs(vault.attributedIncome(ana, address(usdc)), 1000e6, 1, "all of it is Ana's");
+        assertApproxEqAbs(vault.attributedIncome(ana, address(usdc)), _netOfMinimumFee(1000e6), 1, "all Ana's");
         // The 2,100 generated before Bruno's entry is collected after it: shared pro rata (10,000 / 11,000).
         hubVault.forwardIncome(address(usdc), 2100.1e6);
-        assertApproxEqAbs(vault.attributedIncome(ana, address(usdc)), 2000e6, 2);
-        assertApproxEqAbs(vault.attributedIncome(bruno, address(usdc)), 1100e6, 2);
+        assertApproxEqAbs(vault.attributedIncome(ana, address(usdc)), _netOfMinimumFee(2000e6), 2);
+        assertApproxEqAbs(vault.attributedIncome(bruno, address(usdc)), _netOfMinimumFee(1100e6), 2);
     }
 
     // ---------------------------------------------------------------------------------------------------------------

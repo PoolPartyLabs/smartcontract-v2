@@ -48,8 +48,7 @@ contract SwapAdapterVaultFork is EndToEndScenario {
     function test_arbitrum_managerSwapsWethToUsdcThroughTheFactoryAdapter() public {
         uint256 weth = _hubFundHoldingWeth();
         uint256 usdcBefore = hubSpoke.unallocatedBalance(ARB_USDC);
-        (uint24 fee, uint256 quoted) =
-            UniswapV3SwapAdapter(hubSwapAdapter).bestDirectFee(ARB_WETH, ARB_USDC, weth, MAX_LOSS_BPS);
+        (uint24 fee, uint256 quoted) = UniswapV3SwapAdapter(hubSwapAdapter).bestDirectFee(ARB_WETH, ARB_USDC, weth);
 
         Swap memory s = _swap(hubSpoke, hubSwapAdapter, ARB_WETH, ARB_USDC, weth, MAX_LOSS_BPS, "");
         console2.log("Arbitrum, no API: WETH in / USDC out", s.amountIn, s.amountOut);
@@ -97,8 +96,7 @@ contract SwapAdapterVaultFork is EndToEndScenario {
     function test_robinhood_managerSwapsWethToUsdgThroughTheFactoryAdapter() public {
         uint256 weth = _spokeHoldingWeth();
         uint256 usdgBefore = spokeVault.unallocatedBalance(RH_USDG);
-        (uint24 fee, uint256 quoted) =
-            UniswapV3SwapAdapter(spokeSwapAdapter).bestDirectFee(RH_WETH, RH_USDG, weth, MAX_LOSS_BPS);
+        (uint24 fee, uint256 quoted) = UniswapV3SwapAdapter(spokeSwapAdapter).bestDirectFee(RH_WETH, RH_USDG, weth);
 
         Swap memory s = _swap(spokeVault, spokeSwapAdapter, RH_WETH, RH_USDG, weth, MAX_LOSS_BPS, "");
         console2.log("Robinhood, no API: WETH in / USDG out", s.amountIn, s.amountOut);
@@ -114,7 +112,7 @@ contract SwapAdapterVaultFork is EndToEndScenario {
     function test_robinhood_managerSwapsWethToUsdgWithASignedApiRoute() public {
         uint256 weth = _spokeHoldingWeth();
         uint256 usdgBefore = spokeVault.unallocatedBalance(RH_USDG);
-        (uint24 fee,) = UniswapV3SwapAdapter(spokeSwapAdapter).bestDirectFee(RH_WETH, RH_USDG, weth, 0);
+        (uint24 fee,) = UniswapV3SwapAdapter(spokeSwapAdapter).bestDirectFee(RH_WETH, RH_USDG, weth);
         bytes[] memory paths = new bytes[](1);
         paths[0] = abi.encodePacked(RH_WETH, fee, RH_USDG);
         uint16[] memory weights = new uint16[](1);

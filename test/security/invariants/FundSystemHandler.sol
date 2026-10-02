@@ -13,6 +13,7 @@ import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {ShareMath} from "../../../src/libraries/ShareMath.sol";
 import {IncomeAccumulator} from "../../../src/libraries/IncomeAccumulator.sol";
+import {MandateLib} from "../../../src/mandate/Mandate.sol";
 import {CoreMockToken} from "../../mocks/core/CoreMockTokens.sol";
 import {MockAcrossSpokePool} from "../../mocks/core/MockAcrossSpokePool.sol";
 import {MockPositionAdapter} from "../../mocks/spoke/MockPositionAdapter.sol";
@@ -334,12 +335,13 @@ contract FundSystemHandler is Test {
         _observe();
     }
 
+    /// @dev DEC-110, DEC-184: the performance fee only falls, and never below the 10% floor.
     function decreaseManagerFee(uint256 bps) external {
         uint16 current = s.core.performanceFeeBps();
-        if (current == 0) return;
+        if (current <= MandateLib.MIN_PERFORMANCE_FEE_BPS) return;
         vm.prank(s.manager);
         // forge-lint: disable-next-line(unsafe-typecast)
-        s.core.decreaseManagerFee(uint16(bound(bps, 0, current - 1)), 0);
+        s.core.decreaseManagerFee(uint16(bound(bps, MandateLib.MIN_PERFORMANCE_FEE_BPS, current - 1)), 0);
         ++done["decreaseManagerFee"];
         _observe();
     }

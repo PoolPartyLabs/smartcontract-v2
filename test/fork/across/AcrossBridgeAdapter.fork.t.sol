@@ -62,7 +62,7 @@ contract AcrossBridgeAdapterForkTest is Test {
 
     function _deploy(address spokePool, address inputToken) internal {
         harness = new AcrossHarnessVault();
-        adapter = new AcrossBridgeAdapter(address(harness), guardian, spokePool, address(0));
+        adapter = new AcrossBridgeAdapter(address(harness), guardian, spokePool);
         harness.pin(adapter);
         deal(inputToken, address(harness), 10 * INPUT_AMOUNT);
     }

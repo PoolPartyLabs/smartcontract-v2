@@ -1,7 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {Mandate, AdapterConfig, PoolConfig, SpokeConfig, BridgeAdapterConfig} from "../../../src/mandate/Mandate.sol";
+import {
+    Mandate,
+    MandateLib,
+    AdapterConfig,
+    PoolConfig,
+    SpokeConfig,
+    BridgeAdapterConfig
+} from "../../../src/mandate/Mandate.sol";
 import {MandateFixture} from "../../utils/MandateFixture.sol";
 import {SpokeVaultTestBase} from "./SpokeVaultTestBase.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
@@ -227,6 +234,7 @@ contract SpokeVaultAdversarialAdapterTest is SpokeVaultTestBase {
         m.bridgeAdapters[1] = BridgeAdapterConfig(SPOKE, SPOKE, address(spokeBridge));
         m.payoutFeeBps = 200;
         m.minFirstDeposit = 100e6;
+        m.performanceFeeBps = MandateLib.MIN_PERFORMANCE_FEE_BPS;
     }
 }
 

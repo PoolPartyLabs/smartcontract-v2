@@ -9,7 +9,6 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {IFundFactory} from "../interfaces/IFundFactory.sol";
 import {ICoreVaultLifecycle} from "../interfaces/ICoreVaultLifecycle.sol";
-import {IManagerRegistry} from "../interfaces/IManagerRegistry.sol";
 import {Mandate, MandateLib, SpokeConfig, PoolConfig} from "../mandate/Mandate.sol";
 import {CoreVaultConfig} from "../core/CoreVaultTypes.sol";
 import {TransitEscrow} from "../core/TransitEscrow.sol";
@@ -168,12 +167,6 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
         // DEC-001, DEC-002: permissionless; whoever creates the fund is its Manager.
         if (msg.sender != m.manager) revert NotManager(msg.sender, m.manager);
         if (m.usdc != _baseToken) revert BaseTokenMismatch(m.usdc, _baseToken);
-        // DEC-115, DEC-125 item 3 (D-36): the performance fee is at least the registry's minimum at creation; the Core
-        // Vault keeps that minimum as the floor of `decreaseManagerFee`. A later change never binds a live fund.
-        uint16 minManagerFeeBps = IManagerRegistry(_managerRegistry).minManagerFeeBps();
-        if (m.performanceFeeBps < minManagerFeeBps) {
-            revert ManagerFeeBelowMinimum(m.performanceFeeBps, minManagerFeeBps);
-        }
         uint256 creationNumber = _nextCreationNumber();
         if (p.creationNumber != creationNumber) revert CreationNumberTaken(p.creationNumber, creationNumber);
         bytes32 codeHash = keccak256(p.coreVaultCreationCode);
@@ -200,7 +193,7 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
             chainId,
             abi.encode(_wormholeCore, addresses.coreVault, fundId, m.spokes, VARIATION_BAND_BPS)
         );
-        _deployCoreVault(m, addresses, p.coreVaultCreationCode, minManagerFeeBps);
+        _deployCoreVault(m, addresses, p.coreVaultCreationCode);
         _seed(addresses.coreVault, p.seedAmount);
 
         emit FundCreated(creationNumber, fundId, m.manager, m.hash(), addresses);
@@ -407,13 +400,8 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
         }
         if (m.isBridgeAdapter(chainId, c.acrossBridgeAdapter)) {
             // DEC-066: the adapter constructor reverts FillDeadlineBufferTooShort on a SpokePool below 6 h; Create3
-            // bubbles it as this call's revert reason. Reading D-01: the API key is the adapter's quoter (WP-11).
-            _deploy(
-                fundId,
-                ROLE_ACROSS_BRIDGE_ADAPTER,
-                chainId,
-                abi.encode(bridgeVault, _guardian, _acrossSpokePool, _apiSigner)
-            );
+            // bubbles it as this call's revert reason.
+            _deploy(fundId, ROLE_ACROSS_BRIDGE_ADAPTER, chainId, abi.encode(bridgeVault, _guardian, _acrossSpokePool));
         } else {
             c.acrossBridgeAdapter = address(0);
         }
@@ -532,13 +520,8 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
     /// @dev Q59 stance: name `Pool Party Fund {n}`, symbol `PP-{n}`, never manager text. The hub income tokens are the
     ///      Mandate's hub tokens, read by the Core Vault itself (WP-07 B2; was CV-OQ-3's `poolTokens` read here).
     ///      DEC-106: flow fee and Protocol Recipient are protocol wiring. DEC-127: this factory is the Core Vault's
-    ///      only seeder. DEC-125 item 3: the minimum manager fee read at creation.
-    function _deployCoreVault(
-        Mandate memory m,
-        FundAddresses memory a,
-        bytes memory creationCode,
-        uint16 minPerformanceFeeBps
-    ) private {
+    ///      only seeder. The fee bounds are the Mandate's own (DEC-182, DEC-184), checked by the Core Vault.
+    function _deployCoreVault(Mandate memory m, FundAddresses memory a, bytes memory creationCode) private {
         uint256 chainId = block.chainid;
         CoreVaultConfig memory c;
         c.fundId = a.fundId;
@@ -554,7 +537,6 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
         c.escrowImplementation = transitEscrowImplementation;
         c.flowFeeBps = _flowFeeBps;
         c.factory = address(this);
-        c.minPerformanceFeeBps = minPerformanceFeeBps;
         string memory number = Strings.toString(a.creationNumber);
         c.shareName = string.concat("Pool Party Fund ", number);
         c.shareSymbol = string.concat("PP-", number);

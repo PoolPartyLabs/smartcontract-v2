@@ -39,6 +39,8 @@ jobs:
     env:
       ARBITRUM_RPC_URL: ${{ secrets.ARBITRUM_RPC_URL || 'https://arb1.arbitrum.io/rpc' }}
       ROBINHOOD_RPC_URL: ${{ secrets.ROBINHOOD_RPC_URL || 'https://rpc.mainnet.chain.robinhood.com' }}
+      # Shard 3: the test files that call _createForks() (see the comment above the shards).
+      SCENARIO_SUITES: "test/{fork/e2e/**,fork/security/**,review/integration-xchain/**/*Fork*,review/integration-price/DeprecatedAdapterFork.t.sol,review/integration-price/SpokeReportSpotFork.t.sol}"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -47,12 +49,74 @@ jobs:
       - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
-      # The fork suites read ARBITRUM_FORK_BLOCK and ROBINHOOD_FORK_BLOCK; unset, every fork setUp reverted. Public
-      # RPCs serve recent state only, so the pins are taken from the latest block at run time (an archive RPC in the
-      # secrets lets them be fixed instead).
-      - name: Pin fork blocks
+      # Compiled before any pin is taken, so the compile does not spend the RPCs' state window.
+      - name: Build
+        id: build
+        run: forge build
+      # The fork suites read ARBITRUM_FORK_BLOCK and ROBINHOOD_FORK_BLOCK. Public RPCs serve recent state only: the
+      # Robinhood Chain node about 10 minutes of it (6,000 to 8,000 blocks, measured 2026-10-02), arb1.arbitrum.io about
+      # 30. The fork suite as one run takes about 10 minutes and outlasted the Robinhood window, so it runs in shards,
+      # each pinned at latest - 300 right before it starts. The shard paths are complementary, their union is
+      # test/{fork/**,review/**/*Fork*}, so a new fork suite cannot fall outside them; the two longest suites
+      # (UniswapV3SwapAdapter, DepthProbe, about 5 minutes each) get a shard of their own. Every shard runs even when an
+      # earlier one failed. An archive RPC in the secrets serves any pin, so fresh pins work there too.
+      # The scenario suites, the test files that call _createForks() (EndToEndBase's scenario clock: they warp a fork,
+      # then switch to the other), run in a process of their own. In one forge test process, a later createFork of a
+      # url and block starts from the block env last left on the first fork created for that pair, so when a scenario
+      # suite creates it first, its warps reach the forks other suites create later (with -j 1, UnwindAttackFork
+      # reads a stale ETH / USD price after DeprecatedAdapterFork). Shard 3 (SCENARIO_SUITES) runs exactly those
+      # files; single-fork suites on EndToEndBase (IntegrationPriceBase's _arbitrumOnly) stay out of it, as they are
+      # the ones the leak harms. The next step fails when the two sets differ.
+      - name: "Shard 3 runs exactly the test files that call _createForks()"
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
-          echo "ARBITRUM_FORK_BLOCK=$(( $(cast block-number --rpc-url "$ARBITRUM_RPC_URL") - 300 ))" >> "$GITHUB_ENV"
-          echo "ROBINHOOD_FORK_BLOCK=$(( $(cast block-number --rpc-url "$ROBINHOOD_RPC_URL") - 300 ))" >> "$GITHUB_ENV"
-      - name: Fork suites
-        run: forge test --match-path "test/{fork/**,review/**/*Fork*}" -j 2 -vvv
+          callers=$(grep -rl --include='*.t.sol' '_createForks()' test | sort)
+          shard3=$(forge test --list --json --match-path "$SCENARIO_SUITES" | jq -r 'keys[]' | sort)
+          if [ "$callers" != "$shard3" ]; then
+            echo "::error::SCENARIO_SUITES must match exactly the test files that call _createForks()"
+            diff <(echo "$callers") <(echo "$shard3") || true # <: calls it, not in shard 3; >: in shard 3, does not
+            exit 1
+          fi
+          echo "shard 3 runs the $(echo "$callers" | wc -l) test files that call _createForks()"
+      - name: "Fork shard 1/5: test/fork, except swap and the scenario suites"
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          arbitrum=$(cast block-number --rpc-url "$ARBITRUM_RPC_URL")
+          robinhood=$(cast block-number --rpc-url "$ROBINHOOD_RPC_URL")
+          export ARBITRUM_FORK_BLOCK=$((arbitrum - 300)) ROBINHOOD_FORK_BLOCK=$((robinhood - 300))
+          echo "fork pins: ARBITRUM_FORK_BLOCK=$ARBITRUM_FORK_BLOCK ROBINHOOD_FORK_BLOCK=$ROBINHOOD_FORK_BLOCK"
+          forge test --match-path "test/fork/**" --no-match-path "test/fork/{swap,e2e,security}/**" -j 2 -vvv
+      - name: "Fork shard 2/5: test/fork/swap"
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          arbitrum=$(cast block-number --rpc-url "$ARBITRUM_RPC_URL")
+          robinhood=$(cast block-number --rpc-url "$ROBINHOOD_RPC_URL")
+          export ARBITRUM_FORK_BLOCK=$((arbitrum - 300)) ROBINHOOD_FORK_BLOCK=$((robinhood - 300))
+          echo "fork pins: ARBITRUM_FORK_BLOCK=$ARBITRUM_FORK_BLOCK ROBINHOOD_FORK_BLOCK=$ROBINHOOD_FORK_BLOCK"
+          forge test --match-path "test/fork/swap/**" -j 2 -vvv
+      - name: "Fork shard 3/5: scenario suites"
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          arbitrum=$(cast block-number --rpc-url "$ARBITRUM_RPC_URL")
+          robinhood=$(cast block-number --rpc-url "$ROBINHOOD_RPC_URL")
+          export ARBITRUM_FORK_BLOCK=$((arbitrum - 300)) ROBINHOOD_FORK_BLOCK=$((robinhood - 300))
+          echo "fork pins: ARBITRUM_FORK_BLOCK=$ARBITRUM_FORK_BLOCK ROBINHOOD_FORK_BLOCK=$ROBINHOOD_FORK_BLOCK"
+          forge test --match-path "$SCENARIO_SUITES" -j 2 -vvv
+      - name: "Fork shard 4/5: review integration-price, except the scenario suites"
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          arbitrum=$(cast block-number --rpc-url "$ARBITRUM_RPC_URL")
+          robinhood=$(cast block-number --rpc-url "$ROBINHOOD_RPC_URL")
+          export ARBITRUM_FORK_BLOCK=$((arbitrum - 300)) ROBINHOOD_FORK_BLOCK=$((robinhood - 300))
+          echo "fork pins: ARBITRUM_FORK_BLOCK=$ARBITRUM_FORK_BLOCK ROBINHOOD_FORK_BLOCK=$ROBINHOOD_FORK_BLOCK"
+          forge test -j 2 -vvv --match-path "test/review/integration-price/**/*Fork*" \
+            --no-match-path "test/review/integration-price/{DeprecatedAdapterFork,SpokeReportSpotFork}.t.sol"
+      - name: "Fork shard 5/5: review, except integration-price and integration-xchain"
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          arbitrum=$(cast block-number --rpc-url "$ARBITRUM_RPC_URL")
+          robinhood=$(cast block-number --rpc-url "$ROBINHOOD_RPC_URL")
+          export ARBITRUM_FORK_BLOCK=$((arbitrum - 300)) ROBINHOOD_FORK_BLOCK=$((robinhood - 300))
+          echo "fork pins: ARBITRUM_FORK_BLOCK=$ARBITRUM_FORK_BLOCK ROBINHOOD_FORK_BLOCK=$ROBINHOOD_FORK_BLOCK"
+          forge test -j 2 -vvv --match-path "test/review/**/*Fork*" \
+            --no-match-path "test/review/{integration-price,integration-xchain}/**"

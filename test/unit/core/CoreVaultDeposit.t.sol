@@ -22,7 +22,7 @@ contract CoreVaultDepositTest is CoreVaultFixture {
     }
 
     function test_DEC035_workedExample200At109Mints183For19947() public {
-        _deployFeeless();
+        _deployAtMinimumFees();
         _deposit(alice, 1000e6);
         // Share Assets 1,091.09 over 1,001 shares (the manager's seed share included).
         hubVault.setPosition(address(usdc), 90.09e6);
@@ -48,7 +48,7 @@ contract CoreVaultDepositTest is CoreVaultFixture {
     /// shares, a deposit of one base unit priced 333,333 whole shares for a charge of zero, and repeated deposits took
     /// over the supply for nothing. Below one base unit per whole share the fund now takes no deposit; exits still work.
     function test_REVIEW_MM3_noDepositBelowOneBaseUnitPerShare() public {
-        _deployFeeless();
+        _deployAtMinimumFees();
         _deposit(alice, 1_000_000e6);
         uint256 idle = vault.idle(); // the seed's 1 USDC included
         vm.prank(manager);
@@ -158,7 +158,7 @@ contract CoreVaultDepositTest is CoreVaultFixture {
     }
 
     function test_DEC014_anaBrunoWorkedExampleEntrantGetsNoPriorIncome() public {
-        _deployFeeless();
+        _deployAtMinimumFees();
         _deposit(ana, 10_000e6);
         assertEq(shares.balanceOf(ana), 10_000e18);
         // 1,000 USDC of income generated and collected before Bruno enters (ruling 2026-09-29: attributed at
@@ -169,9 +169,10 @@ contract CoreVaultDepositTest is CoreVaultFixture {
         assertEq(charged, 11_000e6);
         // Q60: the Q128 index rounds down; at most one base unit of dust stays in the bucket. The holders of the moment
         // are Ana's 10,000 shares and the manager's seed share.
-        uint256 anaPart = uint256(1000e6) * 10_000 / 10_001;
+        // Net of the 10% performance fee (DEC-184), 900 is the holders'.
+        uint256 anaPart = _netOfMinimumFee(1000e6) * 10_000 / 10_001;
         assertApproxEqAbs(vault.attributedIncome(ana, address(usdc)), anaPart, 1);
-        assertApproxEqAbs(vault.attributedIncome(manager, address(usdc)), 1000e6 - anaPart, 1);
+        assertApproxEqAbs(vault.attributedIncome(manager, address(usdc)), _netOfMinimumFee(1000e6) - anaPart, 1);
         assertEq(vault.attributedIncome(bruno, address(usdc)), 0);
         // Ana takes her part, Bruno nothing.
         vm.prank(ana);
@@ -181,14 +182,14 @@ contract CoreVaultDepositTest is CoreVaultFixture {
     }
 
     function test_DEC014_incomeAfterEntryIsSharedProRata() public {
-        _deployFeeless();
+        _deployAtMinimumFees();
         _deposit(ana, 10_000e6);
         _deposit(bruno, 11_000e6);
-        // 0.10 per share over 21,001 shares (the manager's seed share included).
+        // 0.10 per share over 21,001 shares (the manager's seed share included), 0.09 net of the 10% performance fee.
         hubVault.forwardIncome(address(usdc), 2100.1e6);
-        assertApproxEqAbs(vault.attributedIncome(ana, address(usdc)), 1000e6, 1);
-        assertApproxEqAbs(vault.attributedIncome(bruno, address(usdc)), 1100e6, 1);
-        assertApproxEqAbs(vault.attributedIncome(manager, address(usdc)), 0.1e6, 1);
+        assertApproxEqAbs(vault.attributedIncome(ana, address(usdc)), _netOfMinimumFee(1000e6), 1);
+        assertApproxEqAbs(vault.attributedIncome(bruno, address(usdc)), _netOfMinimumFee(1100e6), 1);
+        assertApproxEqAbs(vault.attributedIncome(manager, address(usdc)), _netOfMinimumFee(0.1e6), 1);
     }
 
     function test_DEC091_supplyAlwaysWholeShares() public {

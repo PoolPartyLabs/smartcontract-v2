@@ -56,8 +56,6 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
     uint16 public immutable flowFeeBps;
     /// @inheritdoc ICoreVaultLifecycle
     address public immutable factory;
-    /// @inheritdoc ICoreVaultLifecycle
-    uint16 public immutable minPerformanceFeeBps;
     uint16 public immutable payoutFeeBps;
     /// @dev DEC-011: the Hub Chain of the Mandate; the constructor requires `block.chainid` to equal it.
     uint256 internal immutable _hubChainId;
@@ -89,10 +87,6 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
         if (coreChainId != m.hubWormholeChainId) revert HubWormholeChainIdMismatch(coreChainId, m.hubWormholeChainId);
         // DEC-106, DEC-110: flow fee capped at 1% as a core constant.
         if (c.flowFeeBps > ShareMath.MAX_FLOW_FEE_BPS) revert FlowFeeAboveCap(c.flowFeeBps);
-        // DEC-115, DEC-125 item 3: the fund starts at or above the minimum manager fee it was created under.
-        if (m.performanceFeeBps < c.minPerformanceFeeBps) {
-            revert ManagerFeeBelowMinimum(m.performanceFeeBps, c.minPerformanceFeeBps);
-        }
 
         fundId = c.fundId;
         mandateHash = MandateLib.hash(m);
@@ -109,7 +103,6 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
         escrowImplementation = c.escrowImplementation;
         flowFeeBps = c.flowFeeBps;
         factory = c.factory;
-        minPerformanceFeeBps = c.minPerformanceFeeBps;
         payoutFeeBps = m.payoutFeeBps;
         _hubChainId = m.hubChainId;
         _minFirstDeposit = m.minFirstDeposit;

@@ -1,6 +1,8 @@
-// A minimal read-and-build API over the two forks: what the product API needs from the contracts, in one file, so
-// its concepts can be exercised against the real protocols before the product API is written. It only reads chain
-// state and builds unsigned transactions; it never holds a key. Run: `pnpm api` (after `pnpm run up`).
+// A minimal API over the two forks: what the product API needs from the contracts, in one file, so its concepts can
+// be exercised against the real protocols before the product API is written. It reads chain state and builds
+// unsigned transactions for the user to sign. It holds one key, the API signer's (reading D-01, DEC-170), with which
+// it signs swap routes (EIP-712, founder chat 1 of 2026-10-02) and publishes the report after each deposit (DEC-159).
+// Run: `pnpm api` (after `pnpm run up`).
 //
 //   GET  /health                         nodes, clocks, report and price freshness, whether mints are open
 //   GET  /fund                           identity, value bases, Share Price, Spoke Cap usage, latest spoke report
@@ -8,24 +10,47 @@
 //   GET  /quote/deposit?from=&amount=    exact deposit outcome by eth_call (shares, USDC charged) or the decoded revert
 //   GET  /quote/claim?from=              exact claim outcome by eth_call (the receipt) or the decoded revert
 //   GET  /quote/swap?amountIn=&tokenIn=  hub swap minimum from the oracle less the API's slippage (security review S-8)
+//   GET  /quote/swap-route?chain=&tokenIn=&tokenOut=&amountIn=&slippageBps=&adapter=&hops=
+//                                        the best V3 path by QuoterV2, signed for a swap adapter (DEC-136, DEC-153)
+//   GET  /quote/bridge?direction=to-spoke|to-hub&amount=
+//                                        what the fund's Across adapter fixes for a send (DEC-158, DEC-162)
+//   GET  /share-price/history?fromBlock=&toBlock=
+//                                        the Share Price at every hub block with a Core Vault event (DEC-084, DEC-103)
 //   POST /tx/deposit      {from, amount, minShares?}      approve + deposit, unsigned
 //   POST /tx/request      {from, amount, mode}            requestPayout, unsigned
 //   POST /tx/claim        {from}                          claimPayout with the unwind route hints the API computes
 //   POST /tx/swap         {amountIn, tokenIn, slippageBps?} manager swap on the hub Spoke Vault with an oracle minimum
+//   POST /report/after-deposit {txHash}                  DEC-159: a report published on every spoke and delivered
 //   GET  /events?fromBlock=                 Core Vault events, decoded (the indexer a server would run)
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { decodeErrorResult, encodeAbiParameters, encodeFunctionData, type Abi, type Address, type Hex } from "viem";
 import {
+  decodeErrorResult,
+  decodeEventLog,
+  encodeAbiParameters,
+  encodeFunctionData,
+  type Abi,
+  type Address,
+  type Hex,
+  type TransactionReceipt,
+} from "viem";
+import {
+  acrossBridgeAdapterAbi,
   allErrorsAbi,
   chainlinkPriceSourceAbi,
   coreVaultAbi,
   erc20Abi,
   spokeVaultAbi,
+  uniswapV3SwapAdapterAbi,
   valueReportReceiverAbi,
 } from "./abis.ts";
-import { nodes, nodesUp, read, type Side } from "./chain.ts";
-import { ARBITRUM, HUB_POOL_ID, isMain } from "./config.ts";
-import { readState, type DeploymentState } from "./state.ts";
+import { latestTimestamp, nodes, nodesUp, read, type Side } from "./chain.ts";
+import { ARBITRUM, HUB_POOL_ID, ROBINHOOD, SWAP_ADAPTER_TOKENS, actors, isMain } from "./config.ts";
+import { sharePriceHistory } from "./history.ts";
+import { runningKeeperPid } from "./keeper.ts";
+import { redactUrls } from "./log.ts";
+import { readState, type DeploymentState, type FundRecord } from "./state.ts";
+import { encodeRoute, legsHash, quotePaths, signRoute } from "./swap-route.ts";
+import { deliverDirectly, publishReport, waitForDelivery, type SpokeRef } from "./warp.ts";
 
 export const API_PORT = Number(process.env.LOCAL_E2E_API_PORT ?? 8787);
 
@@ -64,6 +89,17 @@ function addressParam(value: string | undefined, name: string): Address {
 function amountParam(value: string | undefined, name: string): bigint {
   if (!value || !/^[0-9]+$/.test(value)) throw new HttpError(400, `${name} must be an integer in base units`);
   return BigInt(value);
+}
+
+function hopsParam(value: string | undefined): 1 | 2 | undefined {
+  if (value === undefined) return undefined;
+  if (value === "1" || value === "2") return Number(value) as 1 | 2;
+  throw new HttpError(400, "hops must be 1 or 2");
+}
+
+function sideParam(value: string | undefined): Side {
+  if (value === "arbitrum" || value === "robinhood") return value;
+  throw new HttpError(400, "chain must be arbitrum or robinhood");
 }
 
 /** USDC base units as a decimal string, for humans; every value is also returned in base units. */
@@ -337,10 +373,238 @@ export async function coreEvents(state: DeploymentState, fromBlock: bigint) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+// Signed swap routes (founder chat 1 of 2026-10-02; DEC-136, DEC-142, DEC-143, DEC-153; readings D-01, D-02, D-52)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** How long a signed route stays valid: long enough for the manager or an executor to send it. */
+const ROUTE_LIFETIME_SECONDS = 600n;
+
+/** The loosest minimum the API signs: the Spoke Vault's own unwind floor (`MAX_UNWIND_SLIPPAGE_BPS`, 5%). The API's
+ *  minimum is one of the two the adapter applies (DEC-142: the stricter wins), so it never signs a near-zero one for
+ *  whoever asks. */
+export const MAX_ROUTE_SLIPPAGE_BPS = 500n;
+
+/** The swap adapter routes are signed for: by default the harness's instance on that chain (its vault is the manager's
+ *  wallet, so a signed route can be executed from a wallet); `adapter` may name it or the fund's own swap adapter on
+ *  that chain, which the factory deployed from the Mandate (Mandate v2, DEC-136). The API never signs for any other
+ *  address, since every production adapter accepts the API signer's routes (D-01). */
+function swapAdapterOf(state: DeploymentState, side: Side, adapter?: string): Address {
+  const helper = state.helpers.swapAdapters[side];
+  if (adapter === undefined) return helper;
+  const fundAdapter = side === "arbitrum" ? hub(state).hub.uniswapV3SwapAdapter : hub(state).spoke.uniswapV3SwapAdapter;
+  const served = [helper, fundAdapter].filter((a): a is Address => a !== undefined);
+  const named = addressParam(adapter, "adapter");
+  const match = served.find((a) => a.toLowerCase() === named.toLowerCase());
+  if (!match) throw new HttpError(422, `the API signs routes only for the swap adapters it serves on ${side} (${served.join(", ")})`);
+  return match;
+}
+
+/** The best single V3 path for the swap, direct or through another Mandate token of the adapter (D-52: the API never
+ *  signs a hop the adapter would refuse), quoted by QuoterV2 on the fork and signed by the API signer; `hops` (1 or 2)
+ *  restricts it to direct or two-hop paths. The minimum is the quote less `slippageBps`; the adapter scales it to the
+ *  amount it actually sells. */
+export async function quoteSwapRoute(
+  state: DeploymentState,
+  side: Side,
+  tokenIn: Address,
+  tokenOut: Address,
+  amountIn: bigint,
+  slippageBps: bigint,
+  adapterParam?: string,
+  hops?: 1 | 2,
+) {
+  if (amountIn === 0n) throw new HttpError(400, "amountIn must be above zero");
+  if (slippageBps > MAX_ROUTE_SLIPPAGE_BPS) throw new HttpError(400, `slippageBps must be at most ${MAX_ROUTE_SLIPPAGE_BPS}`);
+  const adapter = swapAdapterOf(state, side, adapterParam);
+  const isMandateToken = (token: Address) =>
+    read<boolean>(side, { address: adapter, abi: uniswapV3SwapAdapterAbi, functionName: "isMandateToken", args: [token] });
+  if (!(await isMandateToken(tokenIn)) || !(await isMandateToken(tokenOut))) {
+    throw new HttpError(422, "tokenIn and tokenOut must be Mandate tokens of the swap adapter (DEC-136 item 2)");
+  }
+  const mandateTokens: Address[] = [];
+  for (const token of SWAP_ADAPTER_TOKENS[side]) if (await isMandateToken(token)) mandateTokens.push(token);
+  const quotes = await quotePaths(side, tokenIn, tokenOut, amountIn, mandateTokens);
+  const best = quotes.find((q) => hops === undefined || q.fees.length === hops);
+  if (!best) throw new HttpError(422, `no Uniswap V3 path${hops ? ` of ${hops} hop(s)` : ""} quotes this swap`);
+  const unsigned = {
+    paths: [best.path],
+    weightsBps: [10_000],
+    quotedAmountIn: amountIn,
+    minAmountOut: (best.amountOut * (10_000n - slippageBps)) / 10_000n,
+    deadline: (await latestTimestamp(side)) + ROUTE_LIFETIME_SECONDS,
+  };
+  const chainId = nodes[side].chain.id;
+  const route = { ...unsigned, signature: await signRoute(adapter, chainId, tokenIn, tokenOut, unsigned) };
+  return {
+    chainId,
+    adapter,
+    signer: actors.apiSigner.address,
+    tokenIn,
+    tokenOut,
+    amountIn,
+    quotedAmountOut: best.amountOut,
+    path: { tokens: best.tokens, fees: best.fees, packed: best.path },
+    legsHash: legsHash(route.paths, route.weightsBps),
+    slippageBps,
+    candidates: quotes.map((q) => ({ tokens: q.tokens, fees: q.fees, amountOut: q.amountOut, gasEstimate: q.gasEstimate })),
+    route,
+    /** `abi.encode(ApiRoute)`: the `route` argument of the adapter's `swap`. */
+    encodedRoute: encodeRoute(route),
+  };
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Bridge quote (DEC-156, DEC-158, DEC-162)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** What the fund's Across adapter would fix for a send of `amount` now: the amount to arrive and the rate of its fee
+ *  rule (the same rule `buildSend` applies), with the route's fee state. Nobody passes these to the vault (DEC-158);
+ *  the API shows them before the manager sends, or before a payout or a collection reaches a spoke. */
+export async function quoteBridge(state: DeploymentState, direction: "to-spoke" | "to-hub", amount: bigint) {
+  const fund = hub(state);
+  const toSpoke = direction === "to-spoke";
+  const side: Side = toSpoke ? "arbitrum" : "robinhood";
+  const adapter = toSpoke ? fund.hub.acrossBridgeAdapter : fund.spoke.acrossBridgeAdapter;
+  const inputToken = toSpoke ? ARBITRUM.usdc : ROBINHOOD.usdg;
+  const destinationChainId = BigInt(toSpoke ? fund.spoke.chainId : fund.hub.chainId);
+  const call = <T>(functionName: string, args: unknown[]) => read<T>(side, { address: adapter, abi: acrossBridgeAdapterAbi, functionName, args });
+  let quote: readonly [bigint, bigint];
+  try {
+    quote = await call<readonly [bigint, bigint]>("quoteSend", [inputToken, destinationChainId, amount, "0x"]);
+  } catch (err) {
+    throw new HttpError(422, "the bridge adapter refuses this amount", decodeRevert(err));
+  }
+  const [amountToArrive, rateWad] = quote;
+  const [nextRateWad, referenceRateWad, expiredRateWad] = await call<readonly [bigint, bigint, bigint]>("feeState", [destinationChainId]);
+  return {
+    direction,
+    chainId: nodes[side].chain.id,
+    adapter,
+    inputToken,
+    destinationChainId,
+    amountSent: amount,
+    amountToArrive,
+    fee: amount - amountToArrive,
+    rateWad,
+    feeState: { nextRateWad, referenceRateWad, expiredRateWad },
+    // R-162-B (WP-11): a quote the API signs and anyone relays; the Across adapter refuses one today.
+    signed: false,
+  };
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The report after each deposit (DEC-159)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** Deposits this API process has answered (or is answering), by block and transaction hash (a fork started again can
+ *  mine the same transaction hash): a replay gets the first answer, never another report paid by the API signer. A
+ *  failed attempt is forgotten, so it can be retried. */
+const answeredDeposits = new Map<string, ReturnType<typeof publishReportsAfter>>();
+
+/** DEC-159: after a deposit a report is published on every spoke of the fund and delivered on the Hub, so the new
+ *  shares start earning spoke income from the next report (DEC-145). The API publishes with its own key; the VAA is
+ *  delivered by the keeper (the guardians and relayer of production) or, when none runs, by the API with the harness's
+ *  guardian. Anyone may do both; a depositor who skips it only delays his own income. Once per deposit: a replayed
+ *  hash gets the first answer, and a spoke whose report accepted on the Hub is already later than the deposit gets no
+ *  new one (an API restart, the keeper's cadence or another publisher already covered it). */
+export async function reportAfterDeposit(state: DeploymentState, txHash: Hex, deliverer: "keeper" | "api") {
+  const receipt = await nodes.arbitrum.client.getTransactionReceipt({ hash: txHash }).catch(() => undefined);
+  if (!receipt) throw new HttpError(404, `no transaction ${txHash} on the hub`);
+  const key = `${receipt.blockHash}:${receipt.transactionHash}`.toLowerCase();
+  let answer = answeredDeposits.get(key);
+  if (!answer) {
+    answer = publishReportsAfter(state, receipt, deliverer);
+    answeredDeposits.set(key, answer);
+    answer.catch(() => answeredDeposits.delete(key));
+  }
+  return answer;
+}
+
+async function publishReportsAfter(state: DeploymentState, receipt: TransactionReceipt, deliverer: "keeper" | "api") {
+  const fund = hub(state);
+  const deposits = receipt.logs
+    .filter((l) => l.address.toLowerCase() === fund.hub.coreVault.toLowerCase())
+    .map((l) => {
+      try {
+        return decodeEventLog({ abi: coreVaultAbi, data: l.data, topics: l.topics }) as unknown as { eventName: string; args: Record<string, any> };
+      } catch {
+        return undefined;
+      }
+    })
+    .filter((e) => e?.eventName === "Deposited");
+  if (deposits.length === 0) throw new HttpError(422, "the transaction is not a deposit into this fund");
+  const depositTime = (await nodes.arbitrum.client.getBlock({ blockNumber: receipt.blockNumber })).timestamp;
+  const spokes: SpokeRef[] = [
+    { fundId: fund.fundId, spokeVault: fund.spoke.spokeVault, receiver: fund.hub.valueReportReceiver, spokeIndex: fund.spoke.spokeIndex },
+  ];
+  const reports = [];
+  for (const spoke of spokes) {
+    const accepted = async () => {
+      const args = [BigInt(spoke.spokeIndex)];
+      if (!(await read<boolean>("arbitrum", { address: spoke.receiver, abi: valueReportReceiverAbi, functionName: "hasReport", args }))) return undefined;
+      const [latest] = await read<readonly [{ sequence: bigint; timestamp: bigint }, bigint, bigint]>("arbitrum", {
+        address: spoke.receiver,
+        abi: valueReportReceiverAbi,
+        functionName: "latestReport",
+        args,
+      });
+      return latest;
+    };
+    const covering = await accepted();
+    if (covering && covering.timestamp > depositTime) {
+      reports.push({
+        chainId: nodes.robinhood.chain.id,
+        spokeVault: spoke.spokeVault,
+        published: false,
+        reportSequence: covering.sequence,
+        reportTimestamp: covering.timestamp,
+        deliveredBy: "nobody: the Hub had already accepted a report later than the deposit",
+        hubReportSequence: covering.sequence,
+      });
+      continue;
+    }
+    const published = await publishReport(spoke, "apiSigner");
+    let deliveredBy: string;
+    if (deliverer === "keeper") {
+      await waitForDelivery(spoke, published.wormholeSequence, 120);
+      deliveredBy = "keeper";
+    } else {
+      await deliverDirectly(spoke, published.message, "apiSigner");
+      deliveredBy = "api (no keeper running: VAA signed by the harness guardian)";
+    }
+    reports.push({
+      chainId: nodes.robinhood.chain.id,
+      spokeVault: spoke.spokeVault,
+      published: true,
+      reportSequence: published.reportSequence,
+      wormholeSequence: published.wormholeSequence,
+      publishTx: published.tx,
+      reportTimestamp: published.message.timestamp,
+      deliveredBy,
+      hubReportSequence: (await accepted())!.sequence,
+    });
+  }
+  const d = deposits[0]!.args;
+  return {
+    deposit: { tx: receipt.transactionHash, block: receipt.blockNumber, shareholder: d.shareholder, shares: d.shares, sharePrice: d.sharePrice },
+    reports,
+  };
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 // HTTP
 // ---------------------------------------------------------------------------------------------------------------------
 
-const routes: { method: string; pattern: RegExp; handler: (state: DeploymentState, m: RegExpMatchArray, url: URL, body: Record<string, string>) => Promise<unknown> }[] = [
+export interface ApiOptions {
+  /** Serve this fund instead of the state file's default fund. */
+  fund?: FundRecord;
+  /** A keeper runs in this process (the probe's), so reports are left to it to deliver. */
+  keeperInProcess?: boolean;
+}
+
+type Handler = (state: DeploymentState, m: RegExpMatchArray, url: URL, body: Record<string, string>, options: ApiOptions) => Promise<unknown>;
+
+const routes: { method: string; pattern: RegExp; handler: Handler }[] = [
   { method: "GET", pattern: /^\/health$/, handler: (s) => health(s) },
   { method: "GET", pattern: /^\/fund$/, handler: (s) => fundState(s) },
   { method: "GET", pattern: /^\/holders\/(0x[0-9a-fA-F]{40})$/, handler: (s, m) => holderState(s, m[1] as Address) },
@@ -351,6 +615,48 @@ const routes: { method: string; pattern: RegExp; handler: (state: DeploymentStat
   { method: "POST", pattern: /^\/tx\/request$/, handler: async (s, _m, _u, b) => buildRequest(s, amountParam(b.amount, "amount"), b.mode === "standard" ? "standard" : "instant") },
   { method: "POST", pattern: /^\/tx\/claim$/, handler: (s) => buildClaim(s) },
   { method: "POST", pattern: /^\/tx\/swap$/, handler: (s, _m, _u, b) => buildSwap(s, addressParam(b.tokenIn, "tokenIn"), amountParam(b.amountIn, "amountIn"), b.slippageBps ? amountParam(b.slippageBps, "slippageBps") : API_SLIPPAGE_BPS) },
+  {
+    method: "GET",
+    pattern: /^\/quote\/swap-route$/,
+    handler: (s, _m, u) =>
+      quoteSwapRoute(
+        s,
+        sideParam(u.searchParams.get("chain") ?? undefined),
+        addressParam(u.searchParams.get("tokenIn") ?? undefined, "tokenIn"),
+        addressParam(u.searchParams.get("tokenOut") ?? undefined, "tokenOut"),
+        amountParam(u.searchParams.get("amountIn") ?? undefined, "amountIn"),
+        u.searchParams.has("slippageBps") ? amountParam(u.searchParams.get("slippageBps") ?? undefined, "slippageBps") : API_SLIPPAGE_BPS,
+        u.searchParams.get("adapter") ?? undefined,
+        hopsParam(u.searchParams.get("hops") ?? undefined),
+      ),
+  },
+  {
+    method: "GET",
+    pattern: /^\/quote\/bridge$/,
+    handler: (s, _m, u) => {
+      const direction = u.searchParams.get("direction");
+      if (direction !== "to-spoke" && direction !== "to-hub") throw new HttpError(400, "direction must be to-spoke or to-hub");
+      return quoteBridge(s, direction, amountParam(u.searchParams.get("amount") ?? undefined, "amount"));
+    },
+  },
+  {
+    method: "GET",
+    pattern: /^\/share-price\/history$/,
+    handler: (s, _m, u) =>
+      sharePriceHistory(
+        hub(s),
+        u.searchParams.has("fromBlock") ? amountParam(u.searchParams.get("fromBlock") ?? undefined, "fromBlock") : undefined,
+        u.searchParams.has("toBlock") ? amountParam(u.searchParams.get("toBlock") ?? undefined, "toBlock") : undefined,
+      ),
+  },
+  {
+    method: "POST",
+    pattern: /^\/report\/after-deposit$/,
+    handler: (s, _m, _u, b, o) => {
+      if (!b.txHash || !/^0x[0-9a-fA-F]{64}$/.test(b.txHash)) throw new HttpError(400, "txHash must be a transaction hash");
+      return reportAfterDeposit(s, b.txHash as Hex, o.keeperInProcess || runningKeeperPid() ? "keeper" : "api");
+    },
+  },
   { method: "GET", pattern: /^\/events$/, handler: (s, _m, u) => coreEvents(s, BigInt(u.searchParams.get("fromBlock") ?? hub(s).hub.createdInBlock)) },
 ];
 
@@ -370,18 +676,18 @@ async function readBody(req: IncomingMessage): Promise<Record<string, string>> {
   }
 }
 
-export function startApi(port = API_PORT) {
+export function startApi(port = API_PORT, options: ApiOptions = {}) {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://127.0.0.1:${port}`);
     const route = routes.find((r) => r.method === req.method && r.pattern.test(url.pathname));
     if (!route) return json(res, 404, { error: "not found" });
     try {
-      const state = readState();
+      const state = options.fund ? { ...readState(), fund: options.fund } : readState();
       const body = req.method === "POST" ? await readBody(req) : {};
-      json(res, 200, await route.handler(state, url.pathname.match(route.pattern)!, url, body));
+      json(res, 200, await route.handler(state, url.pathname.match(route.pattern)!, url, body, options));
     } catch (err) {
       if (err instanceof HttpError) return json(res, err.status, { error: err.message, detail: err.detail });
-      json(res, 500, { error: (err as Error).message, revert: decodeRevert(err) });
+      json(res, 500, { error: redactUrls((err as Error).message), revert: decodeRevert(err) });
     }
   });
   return new Promise<typeof server>((resolve) => server.listen(port, "127.0.0.1", () => resolve(server)));

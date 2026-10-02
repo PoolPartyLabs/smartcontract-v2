@@ -49,6 +49,23 @@ contract ManagerRegistryTest is Test {
         assertFalse(registry.hasEntry(MANAGER));
     }
 
+    /// @dev DEC-112: 0 and 499 revert; 500 and 5,000 pass (from the removed ManagerRegistryMin test).
+    function test_DEC112_sliceBelowFivePercentReverts() public {
+        assertEq(registry.MIN_PROTOCOL_SLICE_BPS(), 500);
+        vm.startPrank(ADMIN);
+        vm.expectRevert(abi.encodeWithSelector(IManagerRegistry.ProtocolSliceBelowMin.selector, 0, 500));
+        registry.setProtocolSliceBps(MANAGER, 0);
+        vm.expectRevert(abi.encodeWithSelector(IManagerRegistry.ProtocolSliceBelowMin.selector, 499, 500));
+        registry.setProtocolSliceBps(MANAGER, 499);
+        assertFalse(registry.hasEntry(MANAGER), "a refused write leaves no entry");
+
+        registry.setProtocolSliceBps(MANAGER, 500);
+        assertEq(registry.protocolSliceBps(MANAGER), 500);
+        registry.setProtocolSliceBps(MANAGER, 5000);
+        assertEq(registry.protocolSliceBps(MANAGER), 5000);
+        vm.stopPrank();
+    }
+
     function test_LC142_sliceAboveCapReverts() public {
         vm.expectRevert(abi.encodeWithSelector(IManagerRegistry.ProtocolSliceAboveMax.selector, 5001, 5000));
         vm.prank(ADMIN);
