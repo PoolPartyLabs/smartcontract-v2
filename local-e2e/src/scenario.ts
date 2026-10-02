@@ -1,8 +1,8 @@
 // The end-to-end scenario over JSON-RPC: the phases of test/fork/e2e/EndToEnd.t.sol with real signed transactions from
 // the actors on the two local forks, the keeper filling Across deposits and delivering VAAs, an extra phase that
-// brings Principal home through Across so the hub-side fill is exercised too, and the Hub-to-spoke order channel.
-// Every step asserts; the first failed assertion stops the run with a non-zero exit code. Each run writes a run report
-// to local-e2e/reports/ (src/report.ts).
+// brings Principal home through Across so the hub-side fill is exercised too, the Hub-to-spoke order channel and the
+// fund's closure. Every step asserts; the first failed assertion stops the run with a non-zero exit code. Each run
+// writes a run report to local-e2e/reports/ (src/report.ts).
 //
 // Usage: pnpm scenario [--keeper auto|inprocess|external] [--new-fund]
 //   --keeper auto (default): use a running `pnpm keeper` if there is one, else start the keeper in-process.
@@ -99,6 +99,7 @@ const INSTANT = 0;
 const STANDARD = 1;
 // FundState (src/interfaces/ICoreVaultLifecycle.sol, DEC-121, DEC-147).
 const OPEN = 0;
+const CLOSING = 1;
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Assertions and the numbered step log
@@ -1151,6 +1152,66 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
       );
       run.ok(`the VAA signed for the Robinhood Core passes OrderVerifier (emitter chain 23, the Core Vault, the fund, the sequence); a replay reverts`);
     }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // Phase 15: the manager's base and the fund's closure (DEC-146, DEC-147, DEC-149, D-26, D-27)
+    // ------------------------------------------------------------------------------------------------------------
+    await run.phase("Phase 15: the manager's base and the fund's closure (DEC-117, DEC-146, DEC-147, DEC-149)");
+    const managerShares = await balance("arbitrum", share, fund.manager);
+    const peak = await view<bigint>("arbitrum", core, coreVaultAbi, "managerPeakShares");
+    const base = peak - peak / 2n;
+    run.eq(managerShares, peak, "DEC-146: the manager holds his peak");
+    const closePrice = await sharePrice();
+    const overBase = usdcFor(managerShares - base + WHOLE, closePrice); // leaves less than half of the peak
+    const withinBase = usdcFor(((managerShares - base) / WHOLE) * WHOLE, closePrice);
+    run.eq(
+      await simulateRevert("arbitrum", "manager", { address: core, abi: coreVaultAbi, functionName: "requestPayout", args: [overBase, INSTANT] }),
+      "ManagerMustCloseFund",
+      "DEC-146, DEC-147 item 1: below half of the peak the manager must close the fund",
+    );
+    run.eq(
+      await simulateRevert("arbitrum", "manager", { address: core, abi: coreVaultAbi, functionName: "requestPayout", args: [withinBase, INSTANT] }),
+      undefined,
+      "DEC-146: down to half of the peak the manager may request",
+    );
+    run.ok(`a manager request of ${units(overBase)} USDC would leave him under half of his ${units(peak, 18, 0)}-share peak: ManagerMustCloseFund; ${units(withinBase)} USDC is allowed`);
+
+    const closing = await tx("arbitrum", "manager", core, coreVaultAbi, "closeFund");
+    const closedAt = (await nodes.arbitrum.client.getBlock({ blockNumber: closing.receipt.blockNumber })).timestamp;
+    const [closingEvent] = events(closing.receipt, core, coreVaultAbi, "FundClosing");
+    run.eq(closingEvent.closingStartedAt, closedAt, "DEC-147: FundClosing at the block time");
+    run.eq(Number(await view("arbitrum", core, coreVaultAbi, "fundState")), CLOSING, "DEC-147: Closing");
+    run.eq(await view("arbitrum", core, coreVaultAbi, "closingStartedAt"), closedAt, "closingStartedAt");
+    run.ok(`the manager calls closeFund: the fund is Closing since ${new Date(Number(closedAt) * 1000).toISOString()}`);
+
+    await tx("arbitrum", "bruno", ARBITRUM.usdc, erc20Abi, "approve", [core, 1_000n * USD]);
+    run.eq(
+      await simulateRevert("arbitrum", "bruno", { address: core, abi: coreVaultAbi, functionName: "deposit", args: [1_000n * USD, 0n] }),
+      "FundNotOpen",
+      "DEC-147 item 2: no deposit while Closing",
+    );
+    run.eq(
+      await simulateRevert("arbitrum", "ana", { address: core, abi: coreVaultAbi, functionName: "requestPayout", args: [100n * USD, STANDARD] }),
+      "FundNotOpen",
+      "DEC-147 item 2: no new Payout Request while Closing",
+    );
+    run.eq(
+      await simulateRevert("arbitrum", "ana", { address: core, abi: coreVaultAbi, functionName: "claimPayout", args: ["0x"] }),
+      "FundNotOpen",
+      "D-26: no claim while Closing",
+    );
+    run.eq(
+      await simulateRevert("arbitrum", "manager", { address: core, abi: coreVaultAbi, functionName: "closeFund" }),
+      "FundNotOpen",
+      "DEC-149: closing is irreversible and happens once",
+    );
+    const managerIncome = await view<bigint>("arbitrum", core, coreVaultAbi, "attributedIncome", [fund.manager, ARBITRUM.usdc]);
+    const withdrawn = await tx<bigint>("arbitrum", "manager", core, coreVaultAbi, "withdrawIncome", [ARBITRUM.usdc]);
+    run.eq(withdrawn.result, managerIncome, "DEC-117 item 4: Income Withdrawal stays open while Closing");
+    run.ok(
+      `while Closing: deposits, new requests, claims and a second closeFund revert FundNotOpen; ` +
+        `the manager still withdraws ${units(managerIncome)} USDC of his seed's income`,
+    );
 
     const result: ScenarioResult = {
       steps: run.step,
