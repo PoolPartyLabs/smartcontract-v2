@@ -60,6 +60,7 @@ library CoreVaultPayoutLogic {
         uint256 excluded;
         uint256 served;
         address holder;
+        uint256 marketCostAbsorbed;
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -203,11 +204,12 @@ library CoreVaultPayoutLogic {
         c.holder = msg.sender;
         c.balance = balance;
         c.burnable = msg.sender == w.manager ? _managerBurnable(s, c.balance) : c.balance;
+        c.leaverCost = req.pendingLeaverCost;
 
         ICoreVaultPayouts.NavConsolidation memory consolidation = _priceClaim(s, w, c, req);
         // DEC-067, DEC-095, DEC-151 item 3: Idle first (Instant: Free Idle only; Standard: its reserve, then Free Idle).
-        if (c.wanted > c.available || req.awaitingSettlement) {
-            c.served = _sharesFor(c, req.usdcOutstanding);
+        if (_cashRequired(c.wanted, c.leaverCost, req.mode, w) > c.available || req.awaitingSettlement) {
+            c.served = _sharesFor(c, Math.max(req.usdcOutstanding, c.leaverCost));
             uint256 previousMask = req.awaitingSettlement ? req.expectedSpokes : 0;
             uint256 previousReported = req.reportedSpokes;
             uint32 previousAttempt = req.attempt;
@@ -232,21 +234,49 @@ library CoreVaultPayoutLogic {
         if (messageFee != 0) revert ICoreVaultPayouts.PayoutMessageFeeNotUsed(messageFee);
         // DEC-077: an outstanding amount below one share's price (after a Partial Payout, or a Share Price that rose
         // since the request) closes the request with nothing burned; the receipt says so (`closedBelowOneShare`).
-        c.shares = _sharesFor(c, req.usdcOutstanding);
+        c.shares = _sharesFor(c, Math.max(req.usdcOutstanding, c.leaverCost));
         c.complete = true;
         // DEC-146, DEC-183 item 1: the manager's burn stopped at the base; the request still closes.
         if (c.burnable < c.balance && c.price != 0) {
             c.cappedByManagerBase = ShareMath.sharesToBurn(req.usdcOutstanding, c.price) > c.burnable;
         }
-        if (c.wanted > c.available) {
+        if (_cashRequired(c.wanted, c.leaverCost, req.mode, w) > c.available) {
             // DEC-068: Partial Payout, burn only what Idle can pay and keep the rest of the request open.
-            c.shares = _sharesFor(c, c.available);
+            c.shares = _cashSizedShares(c, req.mode, w);
             c.complete = false;
             c.cappedByManagerBase = false;
         }
         receipt = _executePayout(s, w, c, req);
         if (c.complete) emit ICoreVaultPayouts.PayoutExecuted(msg.sender, receipt, consolidation);
         else emit ICoreVaultPayouts.PartialPayoutExecuted(msg.sender, receipt, consolidation);
+    }
+
+    /// @notice DEC-033, DEC-118, DEC-141: Idle funds net cash plus the flow fee, not retained requester deductions.
+    function _cashRequired(uint256 gross, uint256 cost, ICoreVaultPayouts.PayoutMode mode, CoreVaultWiring memory w)
+        private
+        pure
+        returns (uint256)
+    {
+        uint256 afterFee = gross;
+        if (mode == ICoreVaultPayouts.PayoutMode.Instant) afterFee -= ShareMath.bpsOf(gross, w.payoutFeeBps);
+        return Math.max(afterFee - Math.min(cost, afterFee), ShareMath.flowFee(gross, w.flowFeeBps));
+    }
+
+    /// @notice Largest whole-share burn whose cash outflow fits Idle, retaining the served and manager caps.
+    function _cashSizedShares(Claim memory c, ICoreVaultPayouts.PayoutMode mode, CoreVaultWiring memory w)
+        private
+        pure
+        returns (uint256)
+    {
+        uint256 lower;
+        uint256 upper = c.shares / ShareMath.WHOLE_SHARE;
+        while (lower < upper) {
+            uint256 middle = lower + (upper - lower + 1) / 2;
+            uint256 gross = ShareMath.usdcFor(middle * ShareMath.WHOLE_SHARE, c.price);
+            if (_cashRequired(gross, c.leaverCost, mode, w) <= c.available) lower = middle;
+            else upper = middle - 1;
+        }
+        return lower * ShareMath.WHOLE_SHARE;
     }
 
     /// @notice DEC-160: every spoke with an accepted report must have a fresh one (within its lifetime, DEC-099) before
@@ -275,7 +305,7 @@ library CoreVaultPayoutLogic {
         // requester pays it once, from the gross (0 before an unwind).
         c.price = ShareMath.sharePrice(c.shareAssets + c.leaverCost, c.totalShares);
         // DEC-077, DEC-020: floor(outstanding / price) whole shares, capped at the balance (the manager: at the base).
-        c.wanted = ShareMath.usdcFor(_sharesFor(c, req.usdcOutstanding), c.price);
+        c.wanted = ShareMath.usdcFor(_sharesFor(c, Math.max(req.usdcOutstanding, c.leaverCost)), c.price);
         c.available = s.idle - s.payoutReserve;
         c.available += req.reserved;
     }
@@ -289,6 +319,7 @@ library CoreVaultPayoutLogic {
     function _sharesFor(Claim memory c, uint256 usdcAmount) private pure returns (uint256 shares) {
         if (c.price == 0) return 0;
         shares = ShareMath.sharesToBurn(usdcAmount, c.price);
+        if (shares == 0 && c.leaverCost != 0) shares = ShareMath.WHOLE_SHARE;
         if (shares > c.burnable) shares = c.burnable;
         if (c.served != 0 && shares > c.served) shares = c.served;
     }
@@ -322,7 +353,7 @@ library CoreVaultPayoutLogic {
         uint256 available = c.available + ISpokeVault(w.hubSpokeVault).unallocatedBalance(w.usdc);
         bool positions = available < c.wanted;
         if (positions && req.fracDen == 0) {
-            (req.fracNum, req.fracDen) = _fraction(c, available, req.usdcOutstanding);
+            (req.fracNum, req.fracDen) = _fraction(c, available, Math.max(req.usdcOutstanding, c.leaverCost));
         }
         ISpokeVaultUnwind.UnwindRequest memory u;
         u.requestId = req.requestId;
@@ -335,7 +366,10 @@ library CoreVaultPayoutLogic {
         uint256 idleBefore = s.idle;
         CORE_VAULT_UNWINDING_SLOT.asBoolean().tstore(true);
         try ISpokeVault(w.hubSpokeVault).unwindForPayout(u) returns (ISpokeVaultUnwind.UnwindResult memory r) {
-            (c.marketCost, c.leaverCost, c.excluded) = (r.marketCost, r.leaverCost, r.excluded);
+            c.marketCost = r.marketCost;
+            c.marketCostAbsorbed = r.marketCost - r.leaverCost;
+            c.leaverCost += r.leaverCost;
+            c.excluded = r.excluded;
         } catch (bytes memory reason) {
             emit ICoreVaultPayouts.UnwindForPayoutFailed(req.requestId, reason);
         }
@@ -615,11 +649,17 @@ library CoreVaultPayoutLogic {
         }
         // DEC-106, DEC-113: flow fee on the amount paid out, deducted from what the shareholder receives.
         r.flowFee = ShareMath.flowFee(r.usdcGross, w.flowFeeBps);
-        // DEC-118, DEC-141, D-17: the requester's Market Cost is deducted once and stays in Idle for those who stay;
-        // what the payout cannot carry is the fund's.
         r.leaverCost = Math.min(c.leaverCost, r.usdcGross - r.payoutFee - r.flowFee);
+        req.pendingLeaverCost = c.leaverCost - r.leaverCost;
+        if (
+            c.complete && c.shares == ShareMath.WHOLE_SHARE && req.usdcOutstanding < r.usdcGross && c.leaverCost != 0
+                && req.pendingLeaverCost == 0
+        ) {
+            r.leaverCost = r.usdcGross - r.payoutFee - r.flowFee;
+        }
+        if (req.pendingLeaverCost != 0) c.complete = false;
         r.marketCost = c.marketCost;
-        r.marketCostAbsorbed = c.marketCost > r.leaverCost ? c.marketCost - r.leaverCost : 0;
+        r.marketCostAbsorbed = c.marketCostAbsorbed;
         r.usdcPaid = r.usdcGross - r.payoutFee - r.flowFee - r.leaverCost;
         r.excludedPositions = c.excluded;
         r.fracNum = req.fracNum;
@@ -651,7 +691,7 @@ library CoreVaultPayoutLogic {
             req.reserved = 0;
             s.payoutReserve -= used + reserved;
         } else {
-            req.usdcOutstanding -= r.usdcGross;
+            req.usdcOutstanding -= Math.min(req.usdcOutstanding, r.usdcGross);
             r.usdcOutstanding = req.usdcOutstanding;
             req.reserved = reserved;
             s.payoutReserve -= used;

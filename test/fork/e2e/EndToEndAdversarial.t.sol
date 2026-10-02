@@ -69,7 +69,9 @@ contract EndToEndAdversarialForkTest is EndToEndScenario {
             "DEC-080: Idle moved by the proceeds and the payout only"
         );
         assertLe(
-            receipt.usdcGross, idleBefore - reserve + u.proceeds + spokeProceeds, "DEC-095: never from the reserve"
+            receipt.usdcPaid + receipt.flowFee,
+            idleBefore - reserve + u.proceeds + spokeProceeds,
+            "DEC-095: never from the reserve"
         );
         assertEq(receipt.payoutFee, ShareMath.bpsOf(receipt.usdcGross, 200), "DEC-075: Payout Fee");
 

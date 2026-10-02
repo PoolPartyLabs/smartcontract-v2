@@ -1,5 +1,9 @@
 # Threat model
 
+Current scope: **`main` `1db9a9d`, 2026-10-02**, through PR #15, DEC-001..DEC-187.
+Historic attack measurements retain their original subjects. Current residuals and unfinished requirements:
+[KNOWN-LIMITATIONS](KNOWN-LIMITATIONS.md). WP-09/10/12/13 are **in progress**, not complete recovery flows.
+
 What the contracts protect, from whom, and which assumptions the protection rests on. Decision ids are the
 specification repository's (`DEC-nnn`); finding ids are the register's ([`FINDINGS.md`](FINDINGS.md)).
 
@@ -17,9 +21,10 @@ specification repository's (`DEC-nnn`); finding ids are the register's ([`FINDIN
 | Actor | Trust | Verbs | Notes |
 |---|---|---|---|
 | Shareholder | Untrusted | `deposit`, `requestPayout`, `claimPayout`, `withdrawIncome` | May be a contract; may sandwich its own claim (S-1, S-2), enter just in time (S-15) |
-| Manager (human or AI agent) | Trusted within the Mandate, key may be compromised or buggy | `allocateToHubSpokeVault`, `sendToSpoke`, `setOperatingCashParameters`, `decreaseManagerFee`; on every Spoke Vault `openPosition`, `increasePosition`, `decreasePosition`, `closePosition`, `collectIncome`, `swapExactInput`, `swapCollectedIncome`, `sendToHub` | The Mandate fixes where the manager may trade (pools, adapters, chains, bridges, Spoke Cap), never at what price (S-8, open). Nothing lets the manager withdraw to itself; the destination of every transfer is a fund contract |
+| Manager (human or AI agent) | Trusted within the Mandate, key may be compromised or buggy | `allocateToHubSpokeVault`, `sendToSpoke`, `setOperatingCashParameters`, `decreaseManagerFee`, `closeFund`; on Spoke Vault `openPosition`, `increasePosition`, `decreasePosition`, `closePosition`, `collectIncome`, `swap`, `swapCollectedIncome`, `sendToHub` | Mandate fixes venues/endpoints, not mandatory oracle price (S-8 accepted DEC-129); fund transfers follow fixed destinations, fees and manager's shareholder payouts follow their separate rules |
 | Adapter guardian | Trusted; one immutable address per factory, so one key acts on every adapter of every fund the factory created | `setPaused`, `deprecate` (irreversible) | Blocks entries only; exits and swaps into the base token always work (DEC-056, DEC-058, S-10). A lost or compromised key deprecates every fund's adapters at once; a rotatable, two-step holder with a delay on `deprecate` is the independent review's recommendation (q8; ruled "ok for now" on 2026-09-29) |
-| Manager Registry owner (protocol) | Trusted, `Ownable2Step` | Protocol slice per manager (cap 5,000 bps), protocol recipient | Cannot touch a live fund's Mandate or value |
+| Manager Registry owner (protocol) | Trusted, `Ownable2Step`; defaults to API signer at deployment | Protocol slice per manager, 500–5,000 bps; ownership transfer | Cannot change Mandate; live slice changes affect manager/protocol fee split; no mutable performance minimum |
+| API route signer | Trusted for optional execution minima/routes; immutable per factory/adapter | EIP-712 V3 route signatures, replayable until deadline | Endpoint-only Mandate checks; intermediate hop tokens may be untrusted (DEC-173). Compromise persists for that version |
 | Fund Factory deployer | Trusted at deployment | Deploys the factory and its wiring once | Wiring is immutable per factory; a fund is created by anyone as manager |
 | Stranger | Untrusted | `deliver` (report VAA), `report`, `attestExpiry`, `recognizeRefund`, `recoverUnlistedArrival`, `claimOwedFees`, `forwardIncomeToCoreVault`, `returnToCoreVault`, `sweepExcess`, Across `handleV3AcrossMessage` through the SpokePool | Every permissionless verb must be safe to call at any time by anyone: it may only move value along a path the ledger already fixed |
 | Keeper (off-chain) | Untrusted, needed for liveness | Delivers reports, calls `report()`, relays Across fills | A missing keeper degrades liveness, never safety: mints stop on stale reports (DEC-099), payouts continue (OQ-10) |
@@ -32,22 +37,26 @@ now, add a per-verb band when API co-signing exists, DEC-002).
 
 **The Mandate prevents:** calling any adapter, pool or token outside its closed lists (adapter codehashes pinned);
 sending tokens anywhere but the fund's own vaults (bridge recipients fixed); mixing principal and income; entering
-through a paused or deprecated adapter; a Payout Fee above 99% (S-17), a bridge fee above 1% (S-9), an exclusive
+through a paused or deprecated adapter; a Payout Fee above 10% (DEC-155), an exclusive
 relayer (S-9), a pool LP fee above 1% (M-02), a report lifetime above one day (M-04), more than 16 open positions or
 64 listed sends home per Spoke Vault (S-11, H-04).
+
+The Across adapter, not Mandate, caps the variable bridge rate at 1% and adds 0.03 input-token units (DEC-169/177).
+Caller quote data is refused. The total fee can exceed 1%; this is not a Mandate total-gap invariant. API route
+intermediate tokens are not Mandate-listed; guarded `buildReport` prevents mid-swap NAV minting (PR #13 M-1).
 
 **The Mandate does not prevent** (DEC-027 and DEC-030: no loss limit), measured on `main` by the review's proofs of
 concept as ported on 2026-10-01:
 
 | Channel | What a hostile manager, or a leaked manager key, can do | Status |
 |---|---|---|
-| Execution price | Swap at any price with a minimum of zero; with an accomplice who moves the pool, 100,000 USDC became 0.3686 WETH (989 USDC) on the live Arbitrum pool | Open (S-8): the API must compute minimums from the oracle (`local-e2e/src/api.ts`) until the founder rules |
+| Execution price | Manager can choose no maximum or collude at manipulated spot; historical attack converted 100,000 USDC into 989-USDC value | Accepted DEC-129, S-8; optional signed API minimum is not a mandatory oracle floor |
 | Own-range fees | Wash-trade principal through the fund's own range so it becomes income that pays the performance fee | Bounded by the 1% pool-fee cap; gross versus net is a founder question |
-| Bridge fee | Over-quote up to 1% per send; the fastest relayer, not the manager, earns it | Bounded by S-9 |
-| Operating Cash | Move free capital into Operating Cash, outside Share Assets, for good | Open (S-5): one-way since the interim release was removed (S-63, it let a manager and an ally extract the fund); a cap is a founder question |
+| Bridge fee | Repeated sends or expiry-induced steps consume fund value; caller cannot over-quote | Rule fixed PR #2/#12/#13; rate cap plus fixed fee, not a per-period budget |
+| Operating Cash | Move Free Idle into uncapped base-token Operating Cash, outside Share Assets | DEC-130/144 cap answered but native implementation deferred; zero defaults PR #12 are not enforcement |
 | Spoke rules | Create the spoke from other rules | Closed: such a spoke is never accepted nor funded (S-6, S-14) |
-| Reporting | Freeze the hub's view of a spoke with dust | Closed: the worst report under the caps delivers in 26.87M gas through the real Wormhole Cores (H-04) |
-| Unpriceable token | Close mints and underpay leavers | Hub tokens refused at creation; spoke tokens are a founder question (M-03) |
+| Reporting | Freeze the Hub view or delay fresh valuation | Structural caps retained; old v3 26.87M gas is historical, v4 needs remeasurement; stale fallback remains |
+| Unpriceable token | Source outage closes mints and can underpay leavers | PR #12 creation nonzero check, no complete reliable-source hierarchy or creation-price cache |
 
 ## External dependencies and the trust placed in each
 
@@ -57,7 +66,8 @@ concept as ported on 2026-10-01:
 | Across SpokePool | Executing `depositV3` and calling `handleV3AcrossMessage` only for a real fill | The message content (any depositor may write any message, OQ-01) | Arrivals credited only up to what an accepted report of the origin spoke listed, never the message's claim; a backing check on the hub callback (S-20); exclusivity refused (S-9) |
 | Across relayers | Nothing | Filling at all, filling in time | Every send has a 6 h fill window and a keyless per-send escrow as depositor for the refund (DEC-066); refund recognized permissionlessly |
 | Chainlink ETH / USD | The price within its staleness bound for mints | Availability during a sequencer outage; payout price age (S-26, S-28, accepted OQ-10 stance) | `ChainlinkPriceSource` reverts on a zero or negative answer and never on age; it returns `updatedAt` and the consumer decides: the Core Vault reverts a mint on a price older than `maxPriceAge`, and a payout uses the answer as is or falls back to the last known valuation |
-| Uniswap V4 PoolManager | Executing swaps and liquidity operations correctly | The spot price or the pool's composition (anyone moves it within a transaction) | Range positions valued from liquidity and ticks at the price-source price, never at spot composition (S-1); unwind swap floor `max(spot, oracle) - 5%` (S-2) |
+| Uniswap V4 PoolManager | Executing liquidity operations correctly | Spot composition/price | Price-source valuation for positions; swaps now through V3 adapter; legacy Hub unwind retains oracle/spot 5% floor pending WP-09 |
+| V3 factory/QuoterV2/SwapRouter02 | Route execution and quotes | Honest market reference on every tier | Full-fill tier quote/gas bounds, optional maximum/API minimum; third-party manipulated reference residual PR #7 |
 | Aave V3 Pool | Principal and interest of a supply position | Liquidity for a withdrawal at any moment (DEC-069 rule, S-27) | Principal and income split by scaled balance and index; an illiquid step makes the unwind revert and the claim is paid from Idle (DEC-068) |
 | USDC / USDG issuer | Transfers succeeding for the fund's contracts | A blocklisted fee recipient (S-12) | Failed fee transfers booked as owed and paid later by `claimOwedFees` |
 
@@ -83,9 +93,9 @@ concept as ported on 2026-10-01:
 
 | Surface | Attacks considered | Outcome |
 |---|---|---|
-| Share Price at a claim or a deposit | Spot manipulation of V4 pools (composition and swap price), just-in-time entry before income collection, zero and near-zero Share Assets, rounding | S-1 fixed, S-2 fixed with a residual (5% floor), S-15 open, S-18 fixed, S-41 dust |
+| Share Price at a claim or a deposit | Spot manipulation, just-in-time income entry, near-zero assets, intermediate swap ledger | S-1 fixed, legacy S-2 floor retained, S-15 answered but unfinished, PR #13 M-1 fixed, S-41 dust |
 | Transit state machine | Unfilled or late-filled sends, arrivals no report lists, predictable transit ids, evidence-free expiry, refund vs donation, dust sends that bloat reports | S-3, S-4, S-11, S-13, S-20 fixed; residual: a refund later than 3 days reopens the S-3 gap |
-| Manager key | Trades against the fund at a self-set price, bridge fee churn through an exclusive relayer, Operating Cash as a sink, deprecation traps, worthless spoke tokens, rogue spoke Mandates, dust positions that freeze reporting, a 100% pool fee, an unbounded report lifetime | S-6, S-7, S-9, S-10 fixed; position cap, pool-fee cap and lifetime bound added by the 2026-10-01 cross-check; S-5 open (one-way since S-63); S-8 open |
+| Manager key | Colluding swaps, bridge churn, Operating Cash sink, stranded capital, rogue spoke rules | S-6/S-7/S-9/S-10 fixes retained; S-5 cap deferred, S-8 accepted DEC-129; orders currently revert |
 | Fee flow | Blocklisted recipients, fee caps above 100%, transfer failures | S-12, S-17 fixed |
 | Liveness | Gas limits on `report()` and VAA delivery, unclaimed reserves, Aave illiquidity, sequencer outage, report lifetime equal to worst-case finality | S-11 fixed; S-19, S-27, S-30, S-31, S-38 accepted rules |
 | Deployment | CREATE3 address prediction, factory wiring, spoke creation without the hub's knowledge | S-6, S-14 fixed; S-24, S-25, S-37 acknowledged pending the DEC-089 registry |

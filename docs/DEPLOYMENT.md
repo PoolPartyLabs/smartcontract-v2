@@ -1,5 +1,11 @@
 # Deployment
 
+Current scope: **`main` `1db9a9d`, 2026-10-02**, through PR #15, DEC-001..DEC-187. This is deployment guidance,
+not a record that contracts are deployed. Mandate v2 requires per-chain tokens/swap adapters and Hub Wormhole id;
+the creation script defaults Operating Cash floor/top-up to 0. Native Operating Cash/refunds/gas top-up are deferred
+by ruling 2026-10-02. WP-09/10/12/13 remain **in progress**; do not promise complete alpha Payout/income/closure flows.
+Review [PRE-MAINNET-CHECKLIST](security/PRE-MAINNET-CHECKLIST.md) before broadcast.
+
 How the protocol operator deploys the Fund Factory on each chain and how a manager creates a fund. Scripts:
 `script/DeployFactory.s.sol`, `script/CreateFund.s.sol` (both built on `script/FactoryDeployment.sol` and
 `script/FundMandate.sol`, which the fork tests in `test/fork/factory/` run too). Addresses: `docs/INTEGRATIONS.md`.
@@ -17,13 +23,14 @@ Always rehearse on a fork first (anvil or `--fork-url`), then broadcast with the
 - A fund id is always derived by the factory, never taken from a caller: `createFund` derives it with this chain as
   hub, `createSpoke` with `Mandate.hubChainId`, which must not be the chain it runs on (`SpokeOnHubChain`). No spoke
   can therefore consume the salts of a fund the local factory would create as hub (DEC-054).
-- Roles: `CoreVault`, `SpokeVault`, `UniswapV4Adapter`, `AaveV3Adapter`, `AcrossBridgeAdapter`,
+- Roles: `CoreVault`, `SpokeVault`, `UniswapV4Adapter`, `AaveV3Adapter`, `UniswapV3SwapAdapter`, `AcrossBridgeAdapter`,
   `ValueReportReceiver`. The Core Vault creates its `ShareToken` (CREATE nonce 1) and `ManagerFeeVault` (nonce 2)
   itself (ruling 2026-09-29), so they have no salt; `predictAddresses` returns them too.
 
 ## One factory address on every chain
 
-The factory's protocol wiring (USDC or USDG, Across SpokePool, Wormhole Core, Uniswap V4, Aave, ManagerRegistry, price
+The factory's protocol wiring (USDC or USDG, Across SpokePool, Wormhole Core, Uniswap V3 factory/QuoterV2/router,
+API signer, Uniswap V4, Aave, ManagerRegistry, price
 source, Protocol Recipient, adapter guardian, flow fee, linked libraries) is immutable and differs per chain, so its
 creation code differs per chain and a plain CREATE2 through the deterministic deployer
 (`0x4e59b44847b379578588920cA78FbF26c0B4956C`, present on Arbitrum One and Robinhood Chain) would give a different
@@ -45,9 +52,10 @@ The factory address is what every fund prediction is a function of: deploy the f
 | `SpokeCrossChainLib` via the deterministic deployer (chain-independent address) | yes | yes |
 | `SpokeUnwindLib` via the deterministic deployer (chain-independent address; DEC-131) | yes | yes |
 | `SpokeCloseLib` linked to `SpokeUnwindLib`, via the deterministic deployer (DEC-131/147/149) | yes | yes |
-| `CoreVaultLogic` via the deterministic deployer | yes | no |
+| `SpokeIncomeLib` linked to `SpokeCrossChainLib`, via the deterministic deployer | yes | yes |
+| `CoreVaultIncomeCollectionLogic`, then linked `CoreVaultIncomeLogic`, `CoreVaultLogic`, `CoreVaultPayoutLogic`, `CoreVaultClosureLogic`, `CoreVaultTransitLogic` | yes | no |
 | `ManagerRegistry(owner)`, `ChainlinkPriceSource` (WETH on ETH / USD, USDC and USDG at 1:1) | yes | no |
-| Creation code stores (`CodeStore`): Spoke Vault (linked, 2 chunks), Uniswap V4, Across | yes | yes |
+| Creation code stores (`CodeStore`): linked Spoke Vault, Uniswap V4, Uniswap V3 swap adapter, Across | yes | yes |
 | Creation code stores: Aave V3, ValueReportReceiver | yes | no |
 | `FundFactory` via `Create3Deployer` with `FACTORY_SALT` | yes | yes |
 
@@ -64,8 +72,10 @@ forge script script/DeployFactory.s.sol --rpc-url $ROBINHOOD_RPC_URL --account <
 
 `API_SIGNER` is the Pool Party API key: the route signer of every fund's swap adapters and, on the hub, the owner of
 the `ManagerRegistry` (DEC-170 item 3), so `REGISTRY_OWNER` defaults to it; set `REGISTRY_OWNER` only to choose another
-owner (required when `API_SIGNER` is zero). In the MVP the key is never rotated: a new key needs a new factory (DEC-170
-item 4). The Across adapters take no API key (DEC-176).
+owner (required when `API_SIGNER` is zero). The swap route signer cannot rotate: a new signer needs a new factory
+(DEC-170 item 4). **Registry ownership is separately transferable by `Ownable2Step`**; do not imply immutable
+same-key ownership. The Across adapters take no API key (DEC-176). Publish all seven linked-library addresses and
+verify their links on both chains (ARCHITECTURE section 1).
 
 Check that both runs print the same `FundFactory` address and the same Spoke Vault code hash. The factory records
 `creationCodeHash(role)` for every stored role and `coreVaultCreationCodeHash`, the hash of the Core Vault creation
@@ -104,7 +114,10 @@ ids in order; Core Vault creation code other than the pinned one; a Mandate on t
 one passed in; a second `createSpoke` for the same fund and chain; `createSpoke` on the Mandate's own Hub Chain. Constructor reverts of the fund contracts surface
 unchanged (for example `FillDeadlineBufferTooShort` when an Across SpokePool's buffer drops below 6 h, DEC-066).
 
-## Measured (anvil forks at the .env pinned blocks, 2026-09-29)
+## Historical measurements (2026-09-29, pre-Mandate-v2)
+
+These are not current deployment gas or creation-code sizes; PR #12's Mandate/library changes require remeasurement
+on the final release SHA. Current runtime sizes are in [BASELINE-2026-10-02](security/BASELINE-2026-10-02.md).
 
 | Call | Gas | Calldata |
 |---|---:|---:|

@@ -56,6 +56,10 @@ interface ISpokeVaultIncome {
     /// @notice Income goes home only through a collection order (DEC-122, DEC-124, DEC-161): an Income send outside one
     ///         would reach the Hub without the sale record its conversion needs.
     error IncomeSentOnlyByCollection();
+    error TooManyIncomeResults();
+    error UnknownIncomeResult(uint64 resultId);
+
+    function refreshIncomeResults(uint64[] calldata resultIds) external;
 
     // ---------------------------------------------------------------------------------------------------------------
     // Hub collection (DEC-122 item 1, DEC-161, DEC-172)

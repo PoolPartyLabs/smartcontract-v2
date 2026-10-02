@@ -240,8 +240,11 @@ interface ICoreVault is IAcrossMessageHandler, ICoreVaultLifecycle, ICoreVaultPa
     ///      report's principal no longer counts it, so crediting Idle counts it once (cross-check of the independent
     ///      review: a delay counted from the first arrival could be started early with dust, and a report outage left
     ///      the transfer counted on the spoke and in Idle at once). The amount is added to the transit's credited
-    ///      total, so a later listing of the same id nets it out; an Income transfer recovered this way reaches holders
-    ///      as Principal (no fee split). Reverts `UnknownSpoke`, `NothingToRecover` or `RecoveryNotReady`.
+    ///      total, so a later listing of the same id nets it out. DEC-092, DEC-161: while Income remains unresolved,
+    ///      recovery reserves the amount outside Share Assets until authenticated Principal or collection metadata
+    ///      classifies it. A permissionless retry releases a remaining reservation to Idle only once every recognized
+    ///      income token and fee unit, pending spoke and open result is settled; it never credits the transit twice.
+    ///      Reverts `UnknownSpoke`, `NothingToRecover` or `RecoveryNotReady`.
     function recoverUnlistedArrival(uint256 spokeIndex, bytes32 transitId) external returns (uint256 amount);
 
     /// @notice Sends `balanceOf(token)` minus every ledger amount of `token` to the excess recipient. Permissionless.

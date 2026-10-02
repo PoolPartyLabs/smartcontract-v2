@@ -9,7 +9,7 @@ import {ISpokeVaultIncome} from "../interfaces/ISpokeVaultIncome.sol";
 import {IAdapter} from "../interfaces/IAdapter.sol";
 import {IBridgeAdapter} from "../interfaces/IBridgeAdapter.sol";
 import {ISwapAdapter} from "../interfaces/ISwapAdapter.sol";
-import {TransitState, TransferKind} from "../interfaces/FundTypes.sol";
+import {TransferKind} from "../interfaces/FundTypes.sol";
 import {OrderCodec} from "../libraries/OrderCodec.sol";
 import {SpokeVaultTypes} from "./SpokeVaultTypes.sol";
 import {SpokeIncomeTypes} from "./SpokeIncomeTypes.sol";
@@ -60,7 +60,6 @@ library SpokeIncomeLib {
     ) external {
         SpokeIncomeTypes.Book storage b = s.income;
         address base = c.baseToken;
-        _noteRefunds(s, b);
         _collectPositions(s, base);
         uint256 held = b.unsentBase + b.resendBase;
         uint256 bucket = s.collectedIncome[base];
@@ -74,9 +73,10 @@ library SpokeIncomeLib {
             added += obtained[i];
         }
         b.unsentBase += added;
-        _resend(s, c, b);
+        uint64[] memory resent = _resend(s, c, b);
         _sendResult(s, c, b, uint64(uint256(o.requestId)), tokens);
         _writeBlob(b);
+        if (resent.length != 0) _includeResent(b, resent);
     }
 
     /// @notice Body of `SpokeVaultIncome.collectIncomeAll` on the hub Spoke Vault: collects every position, sells every
@@ -194,36 +194,32 @@ library SpokeIncomeLib {
     /// @dev DEC-066: a send home whose fill deadline passed is refunded to the vault, and its refund recognized puts
     ///      the dollars back into the collected income bucket. Each reported result whose send came back that way is
     ///      noted, so those dollars are sent again under the same result instead of being counted as new income.
-    function _noteRefunds(SpokeVaultTypes.State storage s, SpokeIncomeTypes.Book storage b) private {
-        (uint64 first, uint64 last) = _window(b);
-        for (uint64 id = first; id <= last; ++id) {
-            SpokeIncomeTypes.CollectionResult storage r = b.results[id];
-            bytes32 transitId = r.transitId;
-            if (transitId == bytes32(0) || b.awaitingResend[id]) continue;
-            if (s.hubBoundTransits[transitId].state != TransitState.RefundRecognized) continue;
-            b.awaitingResend[id] = true;
-            b.resendBase += r.amountSent;
-        }
-    }
-
     /// @dev Sends again the dollars of each result whose send was refunded, under the same result (the Hub converts it
     ///      when the new send is credited). A send the bridge would refuse waits for the next execution.
     function _resend(SpokeVaultTypes.State storage s, SpokeVaultTypes.Config memory c, SpokeIncomeTypes.Book storage b)
         private
+        returns (uint64[] memory resent)
     {
-        if (b.resendBase == 0) return;
-        (uint64 first, uint64 last) = _window(b);
-        for (uint64 id = first; id <= last; ++id) {
-            if (!b.awaitingResend[id]) continue;
+        resent = new uint64[](SpokeIncomeTypes.REPORTED_RESULTS);
+        uint256 count;
+        uint256 pending = b.refundQueue.length;
+        while (pending != 0 && count < SpokeIncomeTypes.REPORTED_RESULTS) {
+            uint64 id = b.refundQueue[pending - 1];
             SpokeIncomeTypes.CollectionResult storage r = b.results[id];
             uint256 amount = r.amountSent;
-            if (!_bridgeable(s, c, amount)) continue;
+            if (!_bridgeable(s, c, amount)) break;
             bytes32 transitId = SpokeCrossChainLib.sendHome(s, c, amount, TransferKind.Income, 0, "");
             r.transitId = transitId;
+            r.amountToArrive = s.hubBoundTransits[transitId].amountToArrive;
+            b.resultOf[transitId] = id;
             b.awaitingResend[id] = false;
             b.resendBase -= amount;
+            b.refundQueue.pop();
+            --pending;
+            resent[count++] = id;
             emit ISpokeVaultIncome.IncomeResent(id, transitId, amount);
         }
+        assembly ("memory-safe") { mstore(resent, count) }
     }
 
     /// @dev Writes this execution's result: when the unsent dollars can be bridged they go home in one Income send and
@@ -248,6 +244,8 @@ library SpokeIncomeLib {
         bytes32 transitId = SpokeCrossChainLib.sendHome(s, c, amount, TransferKind.Income, 0, "");
         r.transitId = transitId;
         r.amountSent = amount;
+        r.amountToArrive = s.hubBoundTransits[transitId].amountToArrive;
+        b.resultOf[transitId] = id;
         b.unsentBase = 0;
         for (uint256 i; i < tokens.length; ++i) {
             address token = tokens[i];
@@ -290,6 +288,38 @@ library SpokeIncomeLib {
             list[id - first] = b.results[id];
         }
         b.reportBlob = abi.encode(list);
+    }
+
+    function refreshResults(SpokeIncomeTypes.Book storage book, uint64[] calldata ids) external {
+        if (ids.length > SpokeIncomeTypes.REPORTED_RESULTS) revert ISpokeVaultIncome.TooManyIncomeResults();
+        SpokeIncomeTypes.CollectionResult[] memory results = new SpokeIncomeTypes.CollectionResult[](ids.length);
+        for (uint256 index; index < ids.length; ++index) {
+            if (ids[index] == 0 || ids[index] > book.resultCount) {
+                revert ISpokeVaultIncome.UnknownIncomeResult(ids[index]);
+            }
+            results[index] = book.results[ids[index]];
+        }
+        book.reportBlob = abi.encode(results);
+    }
+
+    function _includeResent(SpokeIncomeTypes.Book storage book, uint64[] memory resent) private {
+        SpokeIncomeTypes.CollectionResult[] memory latest =
+            abi.decode(book.reportBlob, (SpokeIncomeTypes.CollectionResult[]));
+        SpokeIncomeTypes.CollectionResult[] memory results =
+            new SpokeIncomeTypes.CollectionResult[](SpokeIncomeTypes.REPORTED_RESULTS);
+        uint256 count;
+        for (uint256 index; index < resent.length; ++index) {
+            results[count++] = book.results[resent[index]];
+        }
+        for (uint256 index; index < latest.length && count < results.length; ++index) {
+            bool duplicate;
+            for (uint256 seen; seen < count; ++seen) {
+                if (results[seen].resultId == latest[index].resultId) duplicate = true;
+            }
+            if (!duplicate) results[count++] = latest[index];
+        }
+        assembly ("memory-safe") { mstore(results, count) }
+        book.reportBlob = abi.encode(results);
     }
 
     /// @dev Ids of the results the report carries, `first` to `last` inclusive (`first > last` when there is none).

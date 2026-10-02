@@ -1,7 +1,107 @@
 # Wave-3 integration: WP-09 and WP-10
 
 Validated October 2, 2026 on `chore/pp-sc-chore-wave3-integration`.
-This is an integration base for WP-12 and WP-13, not a release or a merge into main. No PR is opened.
+This branch lands approved WP-09 and WP-10 into main through an unmerged landing PR. WP-12 #22 and WP-13 #21
+remain open and stacked on this branch. The initial integration evidence below is historical; the refresh is current.
+
+## Approved-head refresh and landing validation
+
+Refreshed main `bc5592f`, PR #19 `f8ed837`, and PR #18 `2c01e37` with three merge commits, preserving pushed
+history and the stacked PR bases. All three refresh merges are conflict-free with no manual resolutions.
+The six original WP-10 conflict resolutions below remain unchanged.
+
+- `8cadebc`: merge main deployment/docs (DEC-134/186/187), no conflicts.
+- `5bca19b`: merge approved WP-09 requester-debt and terminal rounding fixes (DEC-118/141/061/077), no conflicts.
+- `30b90c7`: merge approved WP-10 delayed ownership, refund retention, and recovery fixes (DEC-152/161), no conflicts.
+- `3af5f94`: resolve PR #19 round-3 L-1; distinguish debt reduction from the authorized one-share terminal surplus
+  in the fuzz NAV identity; preserve no-repeat-sale and no-fund-absorption checks.
+- `000eb59`: reduce the inherited order test harness from 24,907 to 24,476 bytes without production/compiler edits;
+  retain exact reentry-revert verification by hash and trigger reentry with an empty payload before decoding.
+- `2434a7d`: regenerate combined vault ABIs for retained income-result recovery and republication.
+- `97b90ca`: include CoreVaultIncomeCollectionLogic in alpha verification records and the regression fixture.
+- The landing evidence commit records this refresh and its two new harness reports.
+
+Validation at `97b90ca` (October 2, 2026):
+
+| Check | Result |
+| --- | --- |
+| `forge build --sizes`, default and CI profiles | PASS |
+| `forge fmt --check`, `git diff --check` | PASS |
+| Size suite | 3 tests / 1 suite, no failures or skips |
+| Non-fork suite | 1,289 tests / 175 suites, no failures or skips |
+| Whole fork suite, `-j 4` | 219 tests / 53 suites, no failures or skips |
+| Loss-accounting file, 4,096 fuzz runs | 6 tests / 1 suite, both fuzz properties pass |
+| Loss-accounting + terminal-dust files, 4,096 fuzz runs | 13 tests / 2 suites, four fuzz properties pass |
+| `pnpm exec tsc --noEmit` | PASS; main now supplies Node types |
+| URL redaction checks | 8 synthetic cases pass |
+| Alpha relay / alpha verification regressions | 6 / 1 tests pass |
+| `pnpm run up --warm-up none`, `pnpm status` | PASS |
+| `pnpm scenario --keeper inprocess` | 46 steps / 294 assertions, no keeper errors |
+| `pnpm api:probe` | 19 concepts / 19 assertions, no keeper errors |
+| `pnpm down` and listener check | PASS; ports 38645 / 38646 / 38787 have no listeners |
+
+Extended fuzz uses reviewer seed `0xa14295ab4ef25754a525c645b15ba27e9db4943d47411035898178955ccc4192`.
+Archive environment was sourced in the same command before every fork invocation and harness start; pins remain
+511007613 / 78293056. An early concurrent run encountered upstream HTTP 429s and an Anvil crash. A clean harness
+run with 30 compute units/second, 30 retries, and 5,000 ms initial backoff passed; the final whole fork suite ran
+separately at the prescribed concurrency without special overrides and passed. No RPC URLs or keys are recorded.
+CI's existing SCENARIO_SUITES still exactly covers the two-fork callers; the merged main alpha fork test does not
+call `_createForks()` and requires no new entry.
+
+Evidence: `local-e2e/reports/2026-10-02T22-15-39Z-scenario.{md,json}` and
+`local-e2e/reports/2026-10-02T22-18-01Z-api-probe.{md,json}`. Both record clean code at `97b90ca`.
+
+### Refreshed runtime sizes
+
+All 22 production contracts and linked libraries fit EIP-170 (24,576 bytes). Values are main baseline / previous
+integration / approved refresh; margins are for the approved refresh. Compiler settings are unchanged.
+
+| Contract or linked library | Main | Previous integration | Refresh | Margin |
+| --- | ---: | ---: | ---: | ---: |
+| CoreVault | 20,996 | 22,240 | 22,293 | 2,283 |
+| SpokeVault | 22,304 | 23,149 | 23,542 | 1,034 |
+| CoreVaultLogic | 13,739 | 13,684 | 13,683 | 10,893 |
+| CoreVaultTransitLogic | 14,227 | 14,227 | 15,069 | 9,507 |
+| CoreVaultIncomeLogic | 5,929 | 10,517 | 12,101 | 12,475 |
+| CoreVaultIncomeCollectionLogic | New | 13,627 | 16,530 | 8,046 |
+| CoreVaultPayoutLogic | 9,098 | 11,085 | 11,758 | 12,818 |
+| SpokeCrossChainLib | 11,904 | 11,904 | 12,112 | 12,464 |
+| SpokeUnwindLib | 10,985 | 11,530 | 11,530 | 13,046 |
+| SpokeIncomeLib | 698 | 8,709 | 11,577 | 12,999 |
+| FundFactory | 18,347 | 18,347 | 18,347 | 6,229 |
+| AaveV3Adapter | 10,158 | 9,893 | 9,893 | 14,683 |
+| AcrossBridgeAdapter | 6,713 | 6,713 | 6,713 | 17,863 |
+| UniswapV3SwapAdapter | 10,586 | 10,586 | 10,586 | 13,990 |
+| UniswapV4Adapter | 18,079 | 14,369 | 14,369 | 10,207 |
+| ManagerFeeVault | 1,077 | 1,077 | 1,077 | 23,499 |
+| ManagerRegistry | 1,603 | 1,603 | 1,603 | 22,973 |
+| ShareToken | 1,822 | 1,822 | 1,822 | 22,754 |
+| TransitEscrow | 894 | 894 | 894 | 23,682 |
+| Create3Deployer | 1,342 | 1,342 | 1,342 | 23,234 |
+| ChainlinkPriceSource | 1,709 | 1,709 | 1,709 | 22,867 |
+| ValueReportReceiver | 8,080 | 8,080 | 8,080 | 16,496 |
+
+No production margin is below 1,000 bytes; Spoke Vault has only 34 bytes beyond that warning threshold.
+The test-only SpokeVaultOrderHarness is 24,476 bytes / 100-byte margin: explicitly flagged below 1,000.
+
+### Current deviations and divergences
+
+- The authorized DEC-061/077 terminal-cost exception is retained: burn one share, clear pending debt, retain the
+  surplus for remaining holders, pay zero, close the request. Ordinary cost-free payout floors are unchanged.
+- Preserve typed unwind requests, per-spoke indices, Core-only Hub collection, and guarded Hub valuation fallback.
+- WP-10 now permanently retains financial sale metadata, refreshes at most eight result ids per report, and releases
+  reserved expired Principal only after all recognized Income settles. This resolves the historical outage limitation
+  described below; keepers must retry recovery and republish aged results in bounded batches.
+- Selected-tier mid-price Market Cost ambiguity and position-pool NAV manipulation remain documented spec-owner
+  questions before third-party access, not new integration findings.
+- WP-12 #22 spoke UNWIND settlement and WP-13 #21 finalized closure/frozen exits remain unlanded. Unsupported
+  UNWIND/CLOSE warnings in the harness are intentional at this wave boundary. A never-answering spoke remains a
+  DEC-157/160 exit-liveness limitation for WP-12 to report, not an inactivity override implemented here.
+- DEC-145 entry-time eligibility, Operating Cash spending, gas refunds, and DEC-185 remain deferred; DEC-175 permits
+  caller-paid gas/Wormhole fees in the MVP and DEC-187 keeps manager gas self-funded.
+- No production integration edits were needed after the approved merges. Shared `lib/` and `.env` were never staged.
+
+## Historical initial integration
 
 ## Integrated sources
 

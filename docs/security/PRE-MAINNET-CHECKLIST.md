@@ -1,108 +1,74 @@
-# Pre-mainnet checklist
+# Pre-mainnet checklist: internal alpha versus public release
 
-The gate between the buildathon MVP and any deployment that holds real value. Every box is a hard requirement
-unless marked "recommended". The state on 2026-09-30 is noted where it is known.
+Status at **2026-10-02**, `main` **`1db9a9d`**, through PR #15, DEC-001..DEC-187.
+Checked items mean baseline evidence exists, not that deployment happened. Historical reports are not release certificates.
+DEC-134 permits a small Pool Party-capital internal alpha; public/customer use requires the remaining gates.
 
-## A. Decisions
+## A. Decisions and scope
 
-- [ ] S-8 ruled and implemented: manager swaps bounded against a price the manager does not control
-      ([`KNOWN-LIMITATIONS.md`](KNOWN-LIMITATIONS.md) §1). **Blocking**: a compromised or buggy manager key can move
-      the Unallocated Balance out today.
-- [ ] S-15 ruled (CS-OQ-1): income attribution across an entry, either a contract rule or a written operational rule
-      with the keeper cadence that enforces it.
-- [ ] S-5 ruled: a protocol cap on the Operating Cash floor and top-up (and, only with it, a verb that returns cash
-      above the floor; the interim release was removed as S-63), or an explicit acceptance of the one-way sink.
-- [ ] S-13 reading of DEC-066 A2 confirmed (a time-attested expiry keeps the Spoke Cap held until the refund or
-      the confirmation).
-- [ ] The OPEN parameters introduced by the sweep and its cross-check given values by ruling and recorded as DEC
-      entries ([`KNOWN-LIMITATIONS.md`](KNOWN-LIMITATIONS.md) §3, OPEN-QUESTIONS SEC-OQ-5): `HUB_BOUND_RETENTION`,
-      `MAX_HUB_BOUND_IN_FLIGHT`, `MAX_OPEN_POSITIONS`, `MAX_BRIDGE_FEE_BPS`, `MAX_PAYOUT_FEE_BPS`,
-      `MAX_UNWIND_SLIPPAGE_BPS` (SEC-OQ-12), `MAX_POOL_FEE`, `MandateLib.MAX_REPORT_AGE`, `MAX_PRICE`.
-- [ ] The independent review's open questions ruled (OPEN-QUESTIONS SEC-OQ-7 to SEC-OQ-14): performance fee net of the
-      fund's own swap fees, the guardian's holder, spoke pool tokens in the Mandate, price bands, Mandate exit bounds,
-      the unwind band, the ETH / USD price age, a second bridge route.
-- [ ] S-26 / S-28 accepted explicitly against Q57 (b) / OQ-10 (payouts without a price-age or sequencer check), or
-      a sequencer-uptime feed added to the price source.
-- [ ] Pricing of every token a Mandate may hold decided (ARCHITECTURE §5 is OPEN): only WETH (Chainlink) and USDG
-      (1:1) are priced today; a token without a price stops mints (S-16).
-- [ ] The DEC-089 supported-chain registry designed (spoke token, Wormhole chain id, `maxReportAge` bound per
-      chain; S-7, S-16, S-24, S-25).
-- [ ] The report lifetime (1,588 s, ruling 2026-09-29) re-checked against observed Arbitrum finality (S-31).
+- [x] Register synced to DEC-187 with code statuses and PR evidence; Slack DEC-186 management cap is **500 bps**,
+      DEC-187 manager pays own gas. Performance range **1000–9000 bps** applies at creation (PR #12).
+- [x] S-8/F-13 answered by DEC-129: no mandatory manager oracle floor, **accepted residual**, not fixed.
+- [x] S-5 cap question answered by DEC-130/144 (0.5 ETH floor + top-up per chain); native implementation deferred,
+      current base-token sink remains; script/harness defaults 0.
+- [x] S-15 attribution question answered DEC-117/138/145/152/161; implementation not complete.
+- [x] DEC-169/176/177/183 bridge rule: own last-3-send reference, unsigned MVP, 1% rate plus fixed token component.
+- [x] Record ruling 2026-10-02: native Operating Cash, gas refunds and DEC-185 top-up deferred; DEC-165 caps confirmed.
+- [x] Record DEC-167 closure-event/frozen-split ruling, not per-holder snapshot; implementation in progress.
+- [ ] **WP-09 proportional unwind — in progress.**
+- [ ] **WP-10 income dollar index — in progress.**
+- [ ] **WP-12 spoke orders — in progress.**
+- [ ] **WP-13 closure — in progress.**
+- [ ] Resolve deferred entry-time rule DEC-145 and pricing hierarchy/report fallback before public use.
+- [ ] Resolve empty-route spot-reference Market Cost attribution (PR #7), creation-price caching and registry-owner
+      versus immutable-signer discrepancy; disposition in OPEN-QUESTIONS.
 
-## B. Independent review
+## B. Verification and review gates
 
-- [ ] An external audit of `src/` at the release commit by a firm with Uniswap V4, Across and Wormhole
-      experience, scoped with [`THREAT-MODEL.md`](THREAT-MODEL.md) and [`FINDINGS.md`](FINDINGS.md) as input. The
-      independent model-driven review of 2026-09-30 ([`independent-review-2026-09-30/`](independent-review-2026-09-30/))
-      does not replace it.
-- [ ] The verification plan's scope decided (F-1, F-2, F-14 in [`VERIFICATION-PLAN.md`](VERIFICATION-PLAN.md)):
-      the plan's own lean order is rulings, one fix batch, an external audit, then formal phases on the audited code.
-- [ ] Every audit finding fixed or accepted in writing, with regression tests in the `test_SEC_*` pattern.
-- [ ] Recommended: a public bug bounty with a defined disclosure contact ([`SECURITY.md`](../../SECURITY.md)
-      still has a placeholder).
+- [x] Internal sweep and independent model reviews recorded; merged PRs reviewed, fixes carry regression evidence.
+- [x] DEC-131 completeness/size suite: **3/3**, every production contract/linked library <=24,576 bytes;
+      SpokeVault **22,304 / 2,272 margin**; no margin below 1,000. Full unchanged-before/after table in BASELINE-2026-10-02.
+- [x] Baseline build and `forge fmt --check` pass; non-fork result in BASELINE-2026-10-02.
+- [x] PR #15 records green full fork baseline (216 tests across 5 CI shards); docs-only change affects no fork fixture.
+- [ ] Re-run applicable fork/harness suites at the final release SHA; PR #15's harness startup/status/API probe is not
+      evidence of the unfinished new Payout/income/closure scenario.
+- [ ] Unit tests -> invariants -> formal verification -> independent external audit in DEC-133 order. Internal
+      alpha acceptance is not a replacement for public audit or post-change rebaseline.
+- [ ] Re-measure v4 worst-case report delivery gas and creation gas on both chains; old v3 26.87M report gas is historical.
+- [ ] Re-run deep fuzz campaigns, coverage, static-analysis triage/ratchets, symbolic checks and mutations on release
+      code, including new codecs/libraries. Do not treat old percentages as current coverage.
+- [ ] Public deployment must close or explicitly gate above-low exploitable PoCs, including accepted internal-alpha
+      risks; accepted economics must be disclosed, never relabeled fixed.
+- [ ] External audit findings fixed with regression tests and reviewed; public security contact/bounty defined.
 
-## C. Code and tests
+## C. Deployment gates (internal alpha included)
 
-- [x] Contract sizes under EIP-170 with margin recorded (`SpokeVault` 559 bytes to spare; any change to it must
-      re-check).
-- [x] Non-fork suite, fork suite, the ported review proofs of concept, the local two-fork harness and the API probe
-      green on the cross-check branch (2026-10-01; numbers in [`CROSS-CHECK-2026-10-01.md`](CROSS-CHECK-2026-10-01.md)).
-- [x] CI green on `main` (it had never passed before 2026-10-01: an unpinned forge and unset fork blocks).
-- [ ] Coverage measured on the release commit and a per-file ratchet in CI (the review measured 97.31% lines and
-      83.67% branches at `e5c778a`; the verification plan lists 81 zero-hit branches).
-- [ ] Static-analysis ratchets in CI (Slither, Aderyn, Solhint against the committed triage), per the verification
-      plan section 7.
-- [ ] Deep campaign re-run on the release commit ([`TOOLING.md`](TOOLING.md): 5,000 fuzz runs x 3 seeds,
-      invariants 256 x 64, both liveness switches).
-- [ ] Slither diff against `reports/raw/slither.json` triaged; Aderyn, Semgrep, Solhint counts compared.
-- [ ] Halmos re-run if `ShareMath`, `IncomeAccumulator`, `ReportCodec` or `TransitMessage` changed; mutation
-      re-run for the two libraries.
-- [ ] No `test_POC_*` left passing for a finding above low severity.
-- [ ] `forge fmt --check` clean, no compiler warnings in `src/`.
+- [ ] Fork rehearsal of `DeployFactory.s.sol` and `CreateFund.s.sol` on both chains; predicted addresses matched.
+- [ ] Verify Wormhole Core/chain ids, Across SpokePool/buffers, V3 factory/QuoterV2/router, V4 managers, Aave Pool,
+      token/feed configuration, Protocol Recipient, guardian, API signer and ManagerRegistry owner.
+- [ ] Explicitly configure Operating Cash floor/top-up **0** for the alpha; confirm no manager changes reintroduce sink.
+- [ ] Publish linked addresses: **CoreVaultLogic, CoreVaultTransitLogic, CoreVaultIncomeLogic, CoreVaultPayoutLogic,
+      SpokeCrossChainLib, SpokeUnwindLib, SpokeIncomeLib**. Verify library dependency links and stored vault creation code.
+- [x] Factory deployment checks code/wiring and required library links; final deployed addresses still need verification.
+- [ ] Verify source on both explorers; record deployment SHA, salts, addresses, Mandate hashes, fee rates and fund seed.
+- [ ] Hardware/multisig custody, guardian deprecation runbook and immutable API-signer compromise plan; registry owner
+      `Ownable2Step` transfer/override behavior disclosed. No silent claim of signer rotation.
+- [ ] Security contact reachable; alpha risk acceptance approved and recorded. No customer funds/marketing as audited.
 
-## D. Deployment
+## D. Operations and disclosure
 
-- [ ] The factory deployed through `script/DeployFactory.s.sol` on a fork of each target chain first, addresses
-      predicted and matched (`predictAddresses`), then on mainnet with the same salts
-      ([`../DEPLOYMENT.md`](../DEPLOYMENT.md)).
-- [ ] Protocol wiring verified on chain: Wormhole Core, Across SpokePool, Aave Pool, V4 PoolManager and
-      PositionManager, Chainlink aggregator, protocol recipient, price source, per chain
-      ([`../INTEGRATIONS.md`](../INTEGRATIONS.md)).
-- [ ] Across `fillDeadlineBuffer` and `depositQuoteTimeBuffer` read on both chains and recorded (S-23).
-- [ ] Wormhole chain ids and emitter addresses of every spoke recorded and cross-checked with the Mandate
-      (S-24).
-- [ ] Keys: the adapter guardian, the Manager Registry owner and the factory deployer on hardware or a multisig,
-      with a written procedure for `setPaused`, `deprecate` and the registry's `Ownable2Step` transfer. The guardian is
-      one immutable address for every adapter of every fund of a factory (SEC-OQ-8).
-- [x] The deployment script refuses a wiring with a codeless address or Uniswap V4 contracts of different
-      deployments (`FactoryDeployment._checkWiring`, plan F-12).
-- [ ] Source verified on the block explorers of both chains; linked library addresses published.
-- [ ] Linked libraries (`CoreVaultLogic`, `SpokeCrossChainLib`) deployed once per chain and their addresses
-      pinned in the factory wiring (ARCHITECTURE §1.1).
-
-## E. Operations
-
-- [ ] A production keeper (not `local-e2e/`) that: calls `report()` on every spoke within the report lifetime and
-      delivers the VAA; delivers a new spoke's first report before the first `sendToSpoke` (S-14); calls
-      `recognizeRefund`, `attestExpiry`, `recoverUnlistedArrival`, `claimOwedFees`, `forwardIncomeToCoreVault`
-      when their conditions hold (`recoverUnlistedArrival` right after delivering the first report built after an
-      unlisted arrival, so no entrant prices in between); collects and forwards income on the cadence the S-15 rule
-      requires; quotes Across without exclusivity (S-9); computes every manager swap minimum from the oracle (S-8
-      open; `local-e2e/src/api.ts` shows how).
-- [ ] Monitoring and alerts on: report age per spoke, transits past their fill deadline, `unmatchedArrivals`,
-      `owedFees`, Operating Cash above its floor, Share Price moves above a threshold within one block,
-      Chainlink staleness and sequencer status.
-- [ ] A manager runbook with the S-11 rate limit (64 sends home per about 3.25 days), the deprecation semantics
-      (S-10), and the Payout Fee and bridge fee bounds.
-- [ ] An incident procedure: who pauses which adapter, how Shareholders exit when an adapter is deprecated
-      (exits and swaps into the base token keep working), how a stuck transit is recovered.
-- [ ] Recommended: a canary fund with protocol-owned capital run for several report lifetimes, several sends in
-      each direction, one Instant Payout with an unwind and one deprecation drill before customer funds.
-
-## F. Disclosure
-
-- [ ] `SECURITY.md` contact defined and reachable.
-- [ ] Shareholder-facing disclosure of the Mandate's immutable fees and of the accepted rules (S-17, S-19, S-26,
-      S-35).
-- [ ] This directory updated to the release commit: [`README.md`](README.md) numbers, [`FINDINGS.md`](FINDINGS.md)
-      statuses, [`TOOLING.md`](TOOLING.md) results.
+- [ ] Funded keeper/API for alpha, manager funded for own gas (DEC-187); reports after deposits/burns where required,
+      prompt finalized VAA delivery, first accepted report before first send, monitored reports and transits.
+- [ ] Only attempt executable orders; on this baseline all kinds revert. Keeper readiness does not complete WP-12.
+- [ ] Recognize refunds and recover unlisted arrivals immediately after enabling reports; retry owed fee transfers;
+      match Across arrivals by full relay/event evidence, not `transitId` alone.
+- [ ] Monitor expiry causes and route limits before fee retries; disclose **rate cap plus fixed fee** and no signed
+      bridge quotes. Reverify service addresses/API route availability before release.
+- [ ] Monitor source staleness/sequencer status, report age, unmatched arrivals, owed fees, Share Price and Operating Cash.
+- [ ] Read Mandate immutable Payout Fee <=10%, performance 10–90%, management 0–5%, flow fee <=1%, Spoke Caps,
+      zero-transfer shares and accepted manager price discretion with shareholders.
+- [ ] Pool Party wallets/capital only, small seeded canary fund; fund discovery does not prevent external deposits.
+- [ ] Publish fresh full-flow Payout/income/closure and Share Price evidence after relevant WPs merge; cleanly stop
+      local keeper/API/anvil processes after rehearsal.
+- [x] Current docs distinguish partial foundations, accepted risks, deferred requirements and historical snapshots.
+- [ ] Resolve public gates in KNOWN-LIMITATIONS and record final release test/size/gas evidence, not just this docs sync.

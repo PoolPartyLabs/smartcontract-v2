@@ -8,7 +8,32 @@ verifier). Where verifiers disagreed the entry keeps the highest verified severi
 Status values: **Fixed** (regression tests assert the attack fails), **Open, founder decision** (the PoC still
 passes as a pin; the question is stated), **Acknowledged** (the behaviour stays, with the reason), **Refuted**.
 
-## Summary
+## Current disposition (2026-10-02, main 1db9a9d, through PR #15)
+
+Register range: **DEC-001..DEC-187**. The original severity/count tables and cross-check below remain historical
+snapshots, not a new audit of all merged work. Decision closure does not imply a vulnerability was fixed.
+
+| Entry | Current disposition / evidence |
+|---|---|
+| S-2 / C-01 | Legacy oracle/spot 5% unwind floor remains; replacement **WP-09 in progress**. DEC-132 removes fixed floor in target spec; DEC-119 forbids flow-fee credit as protection. Pre-sale manipulation residual accepted only for internal alpha DEC-134 |
+| S-5 | Question answered DEC-130/144, **implementation deferred**, not fixed; uncapped base-token sink remains. PR #12 zero defaults are mitigation, not enforcement |
+| S-8 / F-13 | **Acknowledged, accepted DEC-129**. PR #4/#7/#13 moves swaps to adapter and adds optional limits/signed routes, not a mandatory oracle floor |
+| S-9 | **Superseded mitigation, fixed caller-quote vector**: PR #2/#12/#13 moves fee rule to vault-only adapter and rejects quote data/exclusive relayers. DEC-169/176/177 confirm rule. Total gap can exceed 1% due to fixed fee; repetitive bridge costs remain |
+| S-15 | Question answered DEC-117/138/145/161, **implementation incomplete**, not fixed; dollar attribution **WP-10 in progress**, entry-time filter deferred |
+| S-17 | Fixed arithmetic and narrowed economics: PR #3 cap is now 1000 bps (10%), not 9900; DEC-155 |
+| S-36 | Still unresolved: `executeOrder` exists but all kind executors revert (PR #15). **WP-12 in progress**; channel foundation is not live permissionless recovery |
+| S-53 | PR #12 extends nonzero-price creation validation to Mandate tokens; reliable fallback hierarchy/creation-price caching still absent. Do not mark source-failure zero fallback fixed |
+| PR #13 M-1 | **Fixed**, guarded `buildReport` reverts during intermediate ledger states; mint/view valuation reverts, PAYOUT fallback remains `lastHubValue`; regression `test/review/wp07c/HopTokenReentrantMintFork.t.sol`, integration PR #15 |
+| PR #7 route-reference residual | Third-party V3 tier can skew the chosen spot reference; bounded quote gas does not make it honest. Interim no-Market-Cost charge against empty-route spot is a carry-over, not a completed unwind guarantee |
+| PR #12 L-2 | Accrual dust bound documented in ARCHITECTURE/KNOWN-LIMITATIONS; code/NatSpec untouched by docs-only WP-19a |
+
+**New residual disclosures:** the adapter cap is on the variable **rate**, with 0.03 input-token units additional;
+future WETH fixed fee and destination-only windows need token/value-aware design; API routes replay until deadline;
+immutable swap signer does not imply immutable registry ownership (`Ownable2Step`); report v4 growth requires fresh
+gas measurement. See [KNOWN-LIMITATIONS](KNOWN-LIMITATIONS.md), [OPEN-QUESTIONS](../OPEN-QUESTIONS.md) and
+[BASELINE-2026-10-02](BASELINE-2026-10-02.md) for current scope, sizes and test evidence.
+
+## Historical sweep summary (2026-09-30)
 
 | Severity | Total | Fixed | Open | Acknowledged |
 |---|---|---|---|---|
@@ -29,17 +54,17 @@ Plus one refuted report (`IN-6`, at the end).
 | [S-2](#s-2) | high | Fixed | Automatic unwind sized and floored its swap at a spot the claimant moves first |
 | [S-3](#s-3) | high | Fixed | Unfilled send home left every value base between fillDeadline+maxReportAge and its refund |
 | [S-4](#s-4) | high | Fixed | Filled send home that no accepted report listed was frozen in unmatchedArrivals |
-| [S-5](#s-5) | high | Open, founder decision | Unbounded Operating Cash floor and top-up move principal into a bucket with no exit |
+| [S-5](#s-5) | high | Decision answered; implementation deferred | Unbounded Operating Cash floor and top-up move principal into a bucket with no exit |
 | [S-6](#s-6) | high | Fixed | Spoke created from a Mandate the hub never saw could drain what the hub sends (FF-OQ-1) |
 | [S-7](#s-7) | high | Fixed | Hub factory accepted any Mandate spoke token and could bridge Idle into a worthless one |
-| [S-8](#s-8) | high | Open, founder decision | Manager swaps have no price anchor (manager trades the fund against itself) |
+| [S-8](#s-8) | high | Acknowledged, DEC-129 | Manager swaps have no price anchor (manager trades the fund against itself) |
 | [S-9](#s-9) | high | Fixed | Manager self-relayed exclusively at the max bridge fee, send after send; maxBridgeFeeBps capped only at 100% |
 | [S-10](#s-10) | high | Fixed | Deprecating the V4 adapter trapped non-base principal and broke the automatic unwind |
 | [S-11](#s-11) | high | Fixed | Dust sends home made report() and its VAA delivery exceed the 32M block gas limit |
 | [S-12](#s-12) | medium | Fixed | USDC blocklist of the Protocol Recipient or ManagerFeeVault froze deposits, payouts and income |
 | [S-13](#s-13) | medium | Fixed | Evidence-free (time-path) expiry released the Spoke Cap of a transit that arrived; pre-listed ids never re-listed |
 | [S-14](#s-14) | medium | Fixed | sendToSpoke worked before the fund's Spoke Vault existed (principal lost, kept in Share Assets) |
-| [S-15](#s-15) | medium | Open, founder decision | Income earned before an entrant's deposit captured just in time (permissionless forward, unwind, delivery) |
+| [S-15](#s-15) | medium | Decision answered; implementation incomplete | Income earned before an entrant's deposit captured just in time (permissionless forward, unwind, delivery) |
 | [S-16](#s-16) | low | Acknowledged | Mints revert while the fund holds a token the immutable price source cannot price; factory accepts any hookless pool |
 | [S-17](#s-17) | low | Fixed | Payout Fee plus flow fee above 100% made every Instant Payout underflow |
 | [S-18](#s-18) | low | Fixed | At zero Share Assets with shares outstanding every payout verb reverted ZeroSharePrice |
@@ -127,11 +152,13 @@ Severity: high. Status: Fixed. Commit: `cd31c1f`.
 
 **Unbounded Operating Cash floor and top-up move principal into a bucket with no exit**
 
-Severity: high. Status: Open, founder decision. Interim commit: `23c317a`.
+Severity: high. Status: Decision answered (DEC-130/144); implementation deferred. Interim commit: `23c317a`.
 
 **Sources:** DYN-03 (high, unverified), SA-03 (medium, unverified), XC-3 (downgraded to medium), AC-5 (low), AX-5 (high, confirmed), LV-4 (low).
 
-**Question:** should the floor and top-up get a protocol cap (DEC-100 says none on the floor), and which verb returns or spends Operating Cash before fund close (DEC-096)?
+**Answer:** DEC-130/144 requires native Operating Cash with floor + top-up <=0.5 ETH per chain. Ruling 2026-10-02
+defers native implementation and refunds; PR #12 sets script/harness defaults to 0. Current base-token sink/setters
+remain uncapped and nothing spends it; this finding is not fixed.
 
 **Interim mitigation:** releaseOperatingCash(amount), manager only, returned Operating Cash above the floor to Idle or Unallocated Balance. **Removed on 2026-10-01 (S-63):** a reversible sink with no cap is a price lever for a manager and an ally.
 
@@ -163,11 +190,13 @@ Severity: high. Status: Fixed. Commit: `d602e73`.
 
 **Manager swaps have no price anchor (manager trades the fund against itself)**
 
-Severity: high. Status: Open, founder decision.
+Severity: high. Status: Acknowledged, accepted by DEC-129.
 
 **Sources:** AX-3 (high), LV-8 (low), IN-9 (info).
 
-**Question:** should manager swaps be bounded against a price the manager does not control (price source on the hub, TWAP or accepted risk per pool on a spoke), or does DEC-030 (no loss limit) cover a self-set price (OQ-04, DEC-027)? No interim mitigation: a spot floor would not stop the manager, who moves the spot itself. PoC ManagerSwapNoPriceGuard still passes.
+**Answer:** DEC-129 explicitly declines a mandatory oracle floor. Optional maximum and signed API routes (PR #4/#7/#13)
+do not protect against a colluding manager setting no maximum or moving spot. The accepted risk remains; use small
+protocol-owned alpha capital and secure keys. This is not a fixed finding.
 
 ### S-9
 
@@ -177,9 +206,12 @@ Severity: high. Status: Fixed. Commit: `46eef9e`.
 
 **Sources:** AX-4 (high), XC-8 (low), AX-N1 (medium).
 
-**Fix:** both vaults revert ExclusiveRelayerNotAllowed, and MAX_BRIDGE_FEE_BPS = 100 (OPEN).
+**Current fix:** PR #2/#12/#13 supersedes the Mandate bound with the Across adapter's stateful, vault-only rule.
+Caller quote data is refused; recipient/token route/deadline and zero exclusivity are fixed. DEC-169/176/177 confirms
+the rule; there is no `MAX_BRIDGE_FEE_BPS` Mandate field/constant anymore.
 
-**Residual:** a manager who over-quotes up to the bound still pays the fastest relayer; a per-period fee budget is a founder decision.
+**Residual:** repeated sends still incur fees; the 1% variable-rate cap adds a fixed fee, so it is not a 1% total-gap
+bound. Expiry-induced step-up can reflect relayer downtime rather than fee shortage; no per-period bridge budget.
 
 **Regression tests:** test_SEC_S9_* in BridgeFeeChurn, UncappedBridgeFee, RogueSpokeMandate and Mandate.t.sol.
 
@@ -249,9 +281,12 @@ Severity: medium. Status: Fixed. Commit: `d602e73`.
 
 **Income earned before an entrant's deposit captured just in time (permissionless forward, unwind, delivery)**
 
-Severity: medium. Status: Open, founder decision.
+Severity: medium. Status: Decision answered; implementation incomplete.
 
-**Sources:** AC-4 (medium), AX-18 (info), LV-11 (low). Question (CS-OQ-1): is income generated before an entry but collected after it shared with the entrant, or must attribution be time-weighted or snapshotted at collection? No interim mitigation without trading liveness. PoC JitIncomeCapture still passes.
+**Sources:** AC-4 (medium), AX-18 (info), LV-11 (low). DEC-117/138/152/161 requires recognition-time attribution and
+collection-specific dollar conversion, DEC-145 entry-time eligibility. `DollarIncomeIndex` is standalone (PR #6),
+live Core income remains collection-time `IncomeAccumulator` (PR #15). **WP-10 in progress; WP-14 deferred.**
+No claim that the collection-time capture risk is fixed.
 
 ### S-16
 
@@ -267,7 +302,8 @@ Severity: low. Status: Acknowledged.
 
 Severity: low. Status: Fixed. Commit: `f6fa36e`.
 
-**Sources:** AC-6, AX-14, LV-12. MAX_PAYOUT_FEE_BPS = 10,000 - MAX_FLOW_FEE_BPS.
+**Sources:** AC-6, AX-14, LV-12. Original arithmetic fix used 10,000 - MAX_FLOW_FEE_BPS; PR #3/DEC-155 lowers
+`MAX_PAYOUT_FEE_BPS` to **1000**. The immutable Payout Fee now has a 10% ceiling, not 99%.
 
 **Regression test:** Mandate.t.sol test_SEC_S17_payoutFeePlusTheFlowFeeCapStaysWithinOneHundredPercent.
 
@@ -427,7 +463,8 @@ Severity: info. Status: Acknowledged.
 
 Severity: info. Status: Acknowledged.
 
-**Sources:** AX-17, LV-15. MVP scope (feedback q2).
+**Sources:** AX-17, LV-15. DEC-139 requires spoke unwind in MVP. PR #5/#15 implements verification and
+`executeOrder` foundation, but all executors still revert; **WP-12 in progress**, not fixed or a scope exclusion.
 
 ### S-37
 
@@ -555,4 +592,3 @@ Status updates of earlier entries: S-5's interim mitigation is removed (S-63), s
 superseded by S-53 (hub) and SEC-OQ-9 (spoke); S-25 is closed by S-54 for the upper bound; S-27's single-asset case
 is closed by S-49 (the roll-back of a failing step stays, DEC-069); S-34's exit blocking is closed by S-50; L-04's gas
 starvation of the wrapped hub read needs a `buildReport` above about 9.6M gas, which the 16-position cap rules out.
-
