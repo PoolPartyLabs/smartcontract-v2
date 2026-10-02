@@ -41,6 +41,7 @@ Each merge message records its resolutions.
   (DEC-105, DEC-118, DEC-120, DEC-137, DEC-140, DEC-141, DEC-160, DEC-161, DEC-172).
 - `a32604e`: read dollar collection events in the fee report instead of removed in-kind forwarding events.
 - This report and the two deliberately staged harness reports are the final evidence commit.
+- A documentation-only follow-up trims the generated Markdown reports' extra EOF blank lines.
 
 ## Runtime sizes
 
