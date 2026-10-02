@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
+import {ICoreVaultLifecycle} from "../interfaces/ICoreVaultLifecycle.sol";
 import {Transit, TransferKind} from "../interfaces/FundTypes.sol";
 import {Mandate} from "../mandate/Mandate.sol";
 import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
@@ -123,6 +124,8 @@ struct HubBoundTransfer {
 /// @param spokeCapHeld An ExpiryAttested transit whose expiry was proven by time alone keeps its Spoke Cap until its
 ///        arrival is confirmed or its refund recognized (security review S-13).
 /// @param managerPeakShares ICoreVaultLifecycle.managerPeakShares (DEC-146); non-zero once the fund is seeded.
+/// @param fundState ICoreVaultLifecycle.fundState (DEC-147).
+/// @param closingStartedAt ICoreVaultLifecycle.closingStartedAt (DEC-147, DEC-149).
 struct CoreVaultState {
     Mandate mandate;
     uint256 idle;
@@ -149,4 +152,6 @@ struct CoreVaultState {
     mapping(address token => uint256) owedFeesTotal;
     mapping(bytes32 transitId => bool) spokeCapHeld;
     uint256 managerPeakShares;
+    ICoreVaultLifecycle.FundState fundState;
+    uint64 closingStartedAt;
 }

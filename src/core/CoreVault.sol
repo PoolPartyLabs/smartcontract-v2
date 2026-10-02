@@ -16,8 +16,9 @@ import {CoreVaultTransit} from "./CoreVaultTransit.sol";
 import {CoreVaultLogic} from "./CoreVaultLogic.sol";
 
 /// @title CoreVault
-/// @notice Hub Chain contract of a fund: custody of Idle USDC, the Share ledger, the manager's seed, Payout Requests and
-///         Payouts, the Attributed Income bucket and Income Withdrawal, sends to spokes and the transit state machine.
+/// @notice Hub Chain contract of a fund: custody of Idle USDC, the Share ledger, the manager's seed and the fund states,
+///         Payout Requests and Payouts, the Attributed Income bucket and Income Withdrawal, sends to spokes and the
+///         transit state machine.
 /// @dev See ICoreVault and ICoreVaultLifecycle for the rules of every verb. DEC-022, DEC-058: no proxy, no upgrade path, no selfdestruct.
 ///      The value bases, report application, sends and transit outcomes live in the linked external library
 ///      `CoreVaultLogic`, called by DELEGATECALL over this vault's storage: its address is part of the creation code
@@ -54,14 +55,16 @@ contract CoreVault is CoreVaultTransit {
     // ---------------------------------------------------------------------------------------------------------------
 
     /// @inheritdoc ICoreVault
-    /// @dev DEC-121, DEC-127: only a seeded fund takes deposits; the first-deposit minimum (DEC-061, DEC-095) applies to
-    ///      the seed, the only mint at supply 0, so a fund whose shares were all burned never re-opens at 1.00.
+    /// @dev DEC-121, DEC-127, DEC-147: only an Open fund that was seeded takes deposits; the first-deposit minimum
+    ///      (DEC-061, DEC-095) applies to the seed, the only mint at supply 0, so a fund whose shares were all burned
+    ///      never re-opens at 1.00.
     function deposit(uint256 usdcAmount, uint256 minShares)
         external
         nonReentrant
         returns (uint256 shares, uint256 usdcCharged)
     {
         if (usdcAmount == 0) revert ZeroAmount();
+        _requireOpen();
         uint256 supply = _totalShares();
         if (supply == 0) revert FundNotSeeded();
         // DEC-096: Operating Cash top-up first, so the depositor enters at the post-expense price.
@@ -97,7 +100,7 @@ contract CoreVault is CoreVaultTransit {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // Seed (DEC-061, DEC-113, DEC-121, DEC-127)
+    // Lifecycle (DEC-061, DEC-113, DEC-121, DEC-127, DEC-146, DEC-147, DEC-149)
     // ---------------------------------------------------------------------------------------------------------------
 
     /// @inheritdoc ICoreVaultLifecycle
@@ -127,8 +130,33 @@ contract CoreVault is CoreVaultTransit {
     }
 
     /// @inheritdoc ICoreVaultLifecycle
+    /// @dev DEC-147 items 2-3: from here the manager unwinds with the existing verbs; deposits, new Payout Requests and
+    ///      claims are refused (D-26) and Income Withdrawal stays open (DEC-117 item 4). DEC-149 reading: irreversible.
+    function closeFund() external onlyManager nonReentrant {
+        _requireOpen();
+        _s.fundState = FundState.Closing;
+        _s.closingStartedAt = uint64(block.timestamp);
+        emit FundClosing(uint64(block.timestamp));
+    }
+
+    /// @inheritdoc ICoreVaultLifecycle
+    function fundState() external view returns (FundState) {
+        return _s.fundState;
+    }
+
+    /// @inheritdoc ICoreVaultLifecycle
+    function closingStartedAt() external view returns (uint64) {
+        return _s.closingStartedAt;
+    }
+
+    /// @inheritdoc ICoreVaultLifecycle
     function managerPeakShares() external view returns (uint256) {
         return _s.managerPeakShares;
+    }
+
+    function _requireOpen() private view {
+        FundState state = _s.fundState;
+        if (state != FundState.Open) revert FundNotOpen(state);
     }
 
     function _recordManagerPeak() private {
@@ -157,9 +185,10 @@ contract CoreVault is CoreVaultTransit {
     /// @dev Priced like a claim (payout liveness, DEC-021, DEC-056: a failing valuation dependency falls back to the
     ///      last known value, never a revert on age, OQ-10), so the reserve bound and the one-share floor use the Share
     ///      Price the holder would be paid at if the claim ran now.
-    /// @dev DEC-146, DEC-147 item 1: the manager's request may not cross the manager base.
+    /// @dev DEC-147: refused unless the fund is Open; the manager's request may not cross the base (DEC-146).
     function requestPayout(uint256 usdcAmount, PayoutMode mode) external nonReentrant {
         if (usdcAmount == 0) revert ZeroAmount();
+        _requireOpen();
         PayoutRequest storage req = _s.requests[msg.sender];
         // DEC-024, DEC-046: one open request per address, never cancellable.
         if (req.open) revert PayoutRequestAlreadyOpen(msg.sender);
@@ -204,8 +233,10 @@ contract CoreVault is CoreVaultTransit {
     ///      spoke report (erratum 11 reading). Q57 reading: an Idle-paid payout never reverts on a stale report or
     ///      price. Payout liveness (DEC-021, DEC-056): nor when the hub report read or a price read fails; the last
     ///      known value is used with an event (CoreVaultLogic.recordValuation). LC-45 / LC-141: the fund bears the market cost of the unwind (flagged). LC-45 / LC-47: no Network
-    ///      Costs are charged to the requester (flagged).
+    ///      Costs are charged to the requester (flagged). DEC-147, D-26: refused unless the fund is Open; a request opened
+    ///      before closure is paid as a closed-fund exit (DEC-150 item 4).
     function claimPayout(bytes calldata unwindHints) external nonReentrant returns (PayoutReceipt memory receipt) {
+        _requireOpen();
         PayoutRequest storage req = _s.requests[msg.sender];
         if (!req.open) revert NoOpenPayoutRequest(msg.sender);
         if (req.mode == PayoutMode.Standard && block.timestamp < req.termEndsAt) {

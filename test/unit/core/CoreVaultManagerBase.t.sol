@@ -38,6 +38,9 @@ contract CoreVaultManagerBaseTest is CoreVaultFixture {
 
         _managerRequest(90_000e6, INSTANT);
         assertTrue(vault.payoutRequest(manager).open);
+        assertEq(
+            uint8(vault.fundState()), uint8(ICoreVaultLifecycle.FundState.Open), "DEC-147: nothing closes on its own"
+        );
     }
 
     /// @dev The base is reached exactly: a request leaving half the peak passes; one share more is refused.

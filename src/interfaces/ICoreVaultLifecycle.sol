@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 /// @title ICoreVaultLifecycle
-/// @notice Lifecycle of a fund on its Hub Chain: the manager's seed at creation and the manager base.
+/// @notice Lifecycle of a fund on its Hub Chain: the manager's seed at creation, the fund states and the manager base.
 /// @dev DEC-127, DEC-135, DEC-061: the manager seeds the fund with their own capital in the creation transaction
 ///      (`FundFactory.createFund`), so a fund is born with shares and its first shares are the manager's; the seed is
 ///      at least the Mandate's `minFirstDeposit`, pays the flow fee (DEC-113, D-34) and mints at the initial Share Price
@@ -12,10 +12,28 @@ pragma solidity 0.8.28;
 ///      (`managerPeakShares`, updated on every mint to the manager); a manager Payout Request that would leave the
 ///      balance below it reverts `ManagerMustCloseFund` at the request's Share Price (D-27); nothing closes the fund
 ///      automatically. Capital in another wallet is not the manager's (DEC-046).
+/// @dev DEC-147 items 2-3, DEC-149 (reading: irreversible): `closeFund` is a manager call that moves the fund from
+///      Open to Closing. While Closing no deposit, no new Payout Request and no claim are accepted (D-26: requests
+///      opened before closure are paid as closed-fund exits, DEC-150 item 4); Income Withdrawal works in every state
+///      (DEC-117 item 4) and the manager keeps every unwind verb. The Closed state (DEC-150) is reached by the
+///      closure's finalization.
 interface ICoreVaultLifecycle {
+    /// @notice Open -> Closing -> Closed (DEC-147, DEC-149, DEC-150); never backwards.
+    enum FundState {
+        Open,
+        Closing,
+        Closed
+    }
+
     /// @notice The fund was seeded by its manager at creation (DEC-127).
     /// @param usdcAmount USDC that bought the shares (credited to Idle), the flow fee excluded.
     event FundSeeded(address indexed manager, uint256 usdcAmount, uint256 flowFee, uint256 shares);
+
+    /// @notice The manager called `closeFund` (DEC-147).
+    event FundClosing(uint64 closingStartedAt);
+
+    /// @notice The verb needs an Open fund.
+    error FundNotOpen(FundState state);
 
     /// @notice A deposit reached a fund with no shares (DEC-121, DEC-127).
     error FundNotSeeded();
@@ -37,8 +55,17 @@ interface ICoreVaultLifecycle {
     /// @return shares Whole shares minted to the manager.
     function seed(uint256 usdcAmount) external returns (uint256 shares);
 
+    /// @notice Starts the closure: Open -> Closing, irreversible (DEC-147, DEC-149). Manager only.
+    function closeFund() external;
+
     /// @notice The factory that created this Core Vault, the only caller of `seed`.
     function factory() external view returns (address);
+
+    /// @notice The fund's state.
+    function fundState() external view returns (FundState);
+
+    /// @notice When `closeFund` was called; 0 while Open. The closing deadline (DEC-149) counts from here.
+    function closingStartedAt() external view returns (uint64);
 
     /// @notice The highest share balance the manager address ever held (DEC-146); non-zero once seeded.
     function managerPeakShares() external view returns (uint256);
