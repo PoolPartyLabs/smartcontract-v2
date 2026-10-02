@@ -201,8 +201,8 @@ abstract contract CoreVaultFixture is Test, FundSeed {
         return _deploy(_mandate(MandateLib.MIN_PERFORMANCE_FEE_BPS), _config(0));
     }
 
-    /// @dev What enters the shareholders' index out of `income` collected by a `_deployAtMinimumFees` vault: the income less
-    ///      its 10% performance fee (DEC-107, DEC-184; `CoreVaultIncomeLogic.collectIncome` rounds the fee down).
+    /// @dev What enters the shareholders' index out of `income` collected by a `_deployAtMinimumFees` vault: the income
+    ///      less its 10% performance fee (DEC-107, DEC-184; `CoreVaultIncomeLogic.collectIncome` rounds the fee down).
     function _netOfMinimumFee(uint256 income) internal pure returns (uint256) {
         return income - income * MandateLib.MIN_PERFORMANCE_FEE_BPS / 10_000;
     }

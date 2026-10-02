@@ -144,7 +144,7 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         hubVault.setCumulativeIncome(address(usdc), 1000.1e6 + 2100.1e6); // generated, not yet collected
         _deposit(bruno, 11_000e6); // 11,000 shares
         assertEq(vault.attributedIncome(bruno, address(usdc)), 0, "nothing collected since Bruno entered");
-        assertApproxEqAbs(vault.attributedIncome(ana, address(usdc)), _netOfMinimumFee(1000e6), 1, "all of it is Ana's");
+        assertApproxEqAbs(vault.attributedIncome(ana, address(usdc)), _netOfMinimumFee(1000e6), 1, "all Ana's");
         // The 2,100 generated before Bruno's entry is collected after it: shared pro rata (10,000 / 11,000).
         hubVault.forwardIncome(address(usdc), 2100.1e6);
         assertApproxEqAbs(vault.attributedIncome(ana, address(usdc)), _netOfMinimumFee(2000e6), 2);

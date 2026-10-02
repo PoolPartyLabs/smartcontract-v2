@@ -200,8 +200,8 @@ library MandateLib {
     ///        is supported only through a live bridge adapter); no address listed twice as an adapter on one chain;
     ///      - Operating Cash entries on known chains, one per chain (DEC-096);
     ///      - fees: Payout Fee at most `MAX_PAYOUT_FEE_BPS` (DEC-155); performance fee within
-    ///        [`MIN_PERFORMANCE_FEE_BPS`, `MAX_PERFORMANCE_FEE_BPS`] (DEC-115, DEC-182, DEC-184); management fee at most
-    ///        `MAX_MANAGEMENT_FEE_BPS` (DEC-114, DEC-184, DEC-186).
+    ///        [`MIN_PERFORMANCE_FEE_BPS`, `MAX_PERFORMANCE_FEE_BPS`] (DEC-115, DEC-182, DEC-184); management fee at
+    ///        most `MAX_MANAGEMENT_FEE_BPS` (DEC-114, DEC-184, DEC-186).
     ///      A Mandate without spokes (hub-only fund) is accepted: no decision requires a spoke.
     function validate(Mandate memory m) internal pure {
         if (m.manager == address(0)) revert ZeroManager();
