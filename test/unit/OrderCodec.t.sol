@@ -197,7 +197,22 @@ contract OrderCodecTest is Test {
         vm.expectRevert(abi.encodeWithSelector(OrderCodec.InvalidPayoutMode.selector, 2));
         h.encode(o);
         o.payoutMode = uint8(ICoreVault.PayoutMode.Standard);
-        assertEq(h.decode(h.encode(o)).payoutMode, OrderCodec.MAX_PAYOUT_MODE, "Standard is the highest mode");
+        assertEq(h.decode(h.encode(o)).payoutMode, uint8(ICoreVault.PayoutMode.Standard));
+    }
+
+    /// @dev Every `ICoreVault.PayoutMode` travels and the next value is refused, read from the enum itself, so this
+    ///      test follows the enum when a mode is added.
+    function test_everyPayoutModeTravelsAndNoOther() public {
+        uint8 last = uint8(type(ICoreVault.PayoutMode).max);
+        assertEq(OrderCodec.MAX_PAYOUT_MODE, last, "the codec's bound is the enum's last value");
+        OrderCodec.Order memory o = _unwind();
+        for (uint8 mode; mode <= last; ++mode) {
+            o.payoutMode = mode;
+            assertEq(h.decode(h.encode(o)).payoutMode, mode);
+        }
+        o.payoutMode = last + 1;
+        vm.expectRevert(abi.encodeWithSelector(OrderCodec.InvalidPayoutMode.selector, last + 1));
+        h.encode(o);
     }
 
     // -----------------------------------------------------------------------------------------------------------------

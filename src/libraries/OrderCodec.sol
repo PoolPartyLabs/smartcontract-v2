@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {ICoreBridge} from "wormhole-sdk/interfaces/ICoreBridge.sol";
+import {ICoreVault} from "../interfaces/ICoreVault.sol";
 
 /// @title OrderCodec
 /// @notice Versioned encoding of the orders the Core Vault publishes through Wormhole for the fund's Spoke Vaults, and
@@ -51,8 +52,9 @@ library OrderCodec {
     ///      order never blocks a later one (gaps are accepted); the request's retry republishes it (DEC-151).
     uint64 internal constant ORDER_LIFETIME = 1 hours;
 
-    /// @notice Highest payout mode value; mirrors `ICoreVault.PayoutMode` (Instant = 0, Standard = 1, DEC-075).
-    uint8 internal constant MAX_PAYOUT_MODE = 1;
+    /// @notice Highest payout mode value: the last `ICoreVault.PayoutMode` (Instant = 0, Standard = 1, DEC-075), read
+    ///         from the enum so a mode added there is accepted at both ends without a change here.
+    uint8 internal constant MAX_PAYOUT_MODE = uint8(type(ICoreVault.PayoutMode).max);
 
     /// @notice An order from the Core Vault to every Spoke Vault of the fund.
     /// @param kind `UNWIND`, `CLOSE` or `COLLECT`.
