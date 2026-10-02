@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {console2} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
+import {IQuoterV2} from "@uniswap/v3-periphery/contracts/interfaces/IQuoterV2.sol";
 import {UniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
 import {AdapterGuard} from "../../../src/adapters/AdapterGuard.sol";
 import {ISwapAdapter} from "../../../src/interfaces/ISwapAdapter.sol";
@@ -139,6 +140,49 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
         (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), AMOUNT);
         assertEq(fee, 3000, "0.3% beats 0.01% with 60 bps of impact");
         assertEq(quoted, _out(AMOUNT, 3000, 0));
+    }
+
+    /// @dev A tier whose in-range liquidity runs out before the whole input quotes only the output of what it took
+    ///      (QuoterV2 drops the amount spent for an exact input) and ends at the price limit. Here that drained quote is
+    ///      the highest, yet the tier is skipped: the swap in it would revert `PartialFill`, and anyone can place such
+    ///      liquidity at the market price to block a sale.
+    function test_DEC153_aTierThatCannotFillTheWholeInputIsSkipped() public {
+        wethBase[0].setImpactBps(0);
+        wethBase[0].setFillableIn(AMOUNT * 99 / 100);
+        for (uint256 i = 1; i < 4; ++i) {
+            wethBase[i].setImpactBps(200);
+        }
+        (uint256 drained, uint160 sqrtPriceX96After,,) = quoter.quoteExactInputSingle(
+            IQuoterV2.QuoteExactInputSingleParams(address(weth), address(base), AMOUNT, 100, 0)
+        );
+        assertGt(drained, _out(AMOUNT, 500, 200), "the drained tier quotes the most");
+        assertEq(sqrtPriceX96After, _limit(address(weth), address(base)), "and stops at the price limit");
+
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), AMOUNT);
+        assertEq(fee, 500, "the best tier that fills");
+        assertEq(quoted, _out(AMOUNT, 500, 200));
+        (uint256 out,) = _swap(address(weth), address(base), AMOUNT, NO_MAX, "");
+        assertEq(out, quoted, "the swap fills in it");
+        _assertNothingKept(address(weth));
+
+        // What choosing the drained tier would have done.
+        _fund(address(weth), AMOUNT);
+        vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.PartialFill.selector, 0, AMOUNT / 100));
+        adapter.swapDirect(address(weth), address(base), AMOUNT, 100, NO_MAX);
+    }
+
+    /// @dev Both directions (the limit is the lowest price when selling token0, the highest when selling token1), and
+    ///      no tier filling the whole input is no route.
+    function test_DEC153_noTierFillingTheWholeInputIsNoRoute() public {
+        for (uint256 i; i < 4; ++i) {
+            wethBase[i].setFillableIn(AMOUNT - 1);
+        }
+        vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.NoRoute.selector, address(weth), address(base)));
+        adapter.bestDirectFee(address(weth), address(base), AMOUNT);
+        vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.NoRoute.selector, address(base), address(weth)));
+        adapter.bestDirectFee(address(base), address(weth), AMOUNT);
+        (uint24 fee,) = adapter.bestDirectFee(address(weth), address(base), AMOUNT - 1);
+        assertEq(fee, 500, "an input the tiers can fill still routes");
     }
 
     /// @dev D-21: a griefed tier (an empty or dust pool whose quote walks the tick bitmap) costs at most the cap, the
@@ -407,5 +451,10 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
     {
         _fund(tokenIn, amountIn);
         return adapter.swapDirect(tokenIn, tokenOut, amountIn, fee, NO_MAX);
+    }
+
+    /// @dev QuoterV2's price limit when it is given none: one past the end the price moves towards.
+    function _limit(address tokenIn, address tokenOut) internal view returns (uint160) {
+        return tokenIn < tokenOut ? quoter.MIN_SQRT_RATIO() + 1 : quoter.MAX_SQRT_RATIO() - 1;
     }
 }

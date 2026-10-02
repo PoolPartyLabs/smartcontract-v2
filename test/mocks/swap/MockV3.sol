@@ -12,6 +12,8 @@ import {MockToken} from "../v4/MockToken.sol";
 /// @dev `out` = mid value less the pool fee, less `impactBps`. After an executed swap the mid price moves `driftBps`
 ///      against the trader, so a test can tell a spot read before the trade from one read after it. `mode` makes the
 ///      quote revert or burn every unit of gas it is given (an empty or dust tier, swap research section 5).
+///      `fillableIn` (0 = unlimited) is the most input the in-range liquidity takes: a larger exact-input swap stops at
+///      the price limit having spent only that much (a drained tier).
 contract MockV3Pool {
     enum Mode {
         Normal,
@@ -26,6 +28,7 @@ contract MockV3Pool {
     uint128 public liquidity;
     uint256 public impactBps;
     uint256 public driftBps;
+    uint256 public fillableIn;
     Mode public mode;
 
     constructor(address tokenA, address tokenB, uint24 fee_, uint160 sqrtPriceX96_, uint128 liquidity_) {
@@ -49,6 +52,15 @@ contract MockV3Pool {
 
     function setMode(Mode mode_) external {
         mode = mode_;
+    }
+
+    function setFillableIn(uint256 fillableIn_) external {
+        fillableIn = fillableIn_;
+    }
+
+    /// @notice The part of `amountIn` an exact-input swap spends before the price reaches the limit.
+    function filled(uint256 amountIn) public view returns (uint256) {
+        return fillableIn != 0 && amountIn > fillableIn ? fillableIn : amountIn;
     }
 
     function slot0() external view returns (uint160, int24, uint16, uint16, uint16, uint8, bool) {
@@ -92,7 +104,13 @@ contract MockV3Factory {
 }
 
 /// @notice QuoterV2 stand-in: quotes a single pool from the shared pricing model and records which pools it quoted.
+/// @dev Like QuoterV2 for an exact input, a quote of a drained tier returns the output of the part the pool took and
+///      the price limit as `sqrtPriceX96After`; it does not report the input left unspent.
 contract MockQuoterV2 {
+    /// @notice V3 TickMath.MIN_SQRT_RATIO and MAX_SQRT_RATIO: QuoterV2 swaps to one past them when given no limit.
+    uint160 public constant MIN_SQRT_RATIO = 4_295_128_739;
+    uint160 public constant MAX_SQRT_RATIO = 1_461_446_703_485_210_103_287_273_052_203_988_822_378_723_970_342;
+
     MockV3Factory public immutable factory;
     mapping(address pool => uint256) public quotes;
     mapping(uint256 => uint256) private _burn;
@@ -103,7 +121,7 @@ contract MockQuoterV2 {
 
     function quoteExactInputSingle(IQuoterV2.QuoteExactInputSingleParams memory params)
         external
-        returns (uint256 amountOut, uint160, uint32, uint256)
+        returns (uint256 amountOut, uint160 sqrtPriceX96After, uint32, uint256)
     {
         MockV3Pool pool = MockV3Pool(factory.getPool(params.tokenIn, params.tokenOut, params.fee));
         quotes[address(pool)]++;
@@ -114,13 +132,17 @@ contract MockQuoterV2 {
                 _burn[i] = i + 1;
             }
         }
-        amountOut = pool.out(params.tokenIn, params.amountIn);
+        uint256 used = pool.filled(params.amountIn);
+        amountOut = pool.out(params.tokenIn, used);
+        if (used == params.amountIn) sqrtPriceX96After = pool.sqrtPriceX96();
+        else sqrtPriceX96After = params.tokenIn < params.tokenOut ? MIN_SQRT_RATIO + 1 : MAX_SQRT_RATIO - 1;
     }
 }
 
-/// @notice SwapRouter02 stand-in: `exactInput` along a packed path through factory pools, pulling the input from the
-///         caller with `transferFrom` and minting the output to the recipient. `partialBps` makes it spend less than
-///         the input (a fill stopped at a price limit).
+/// @notice SwapRouter02 stand-in: `exactInput` along a packed path through factory pools, paying the first pool from
+///         the caller with `transferFrom` and minting the output to the recipient. A hop spends only what its pool
+///         fills (`MockV3Pool.fillableIn`), and `partialBps` makes the first hop spend less than the input (a fill
+///         stopped at a price limit).
 contract MockSwapRouter02 {
     struct ExactInputParams {
         bytes path;
@@ -147,16 +169,17 @@ contract MockSwapRouter02 {
         require(params.amountIn != 0, "AS");
         bytes memory path = params.path;
         address tokenIn = _addr(path, 0);
-        uint256 spent = params.amountIn - params.amountIn * partialBps / 10_000;
-        require(IERC20(tokenIn).transferFrom(msg.sender, address(this), spent), "pull failed");
-        amountOut = spent;
+        amountOut = params.amountIn - params.amountIn * partialBps / 10_000;
         address a = tokenIn;
         for (uint256 off = 20; off < path.length; off += 23) {
             uint24 fee = _fee(path, off);
             address b = _addr(path, off + 3);
             MockV3Pool pool = MockV3Pool(factory.getPool(a, b, fee));
             require(address(pool) != address(0), "no pool");
-            amountOut = pool.out(a, amountOut);
+            uint256 used = pool.filled(amountOut);
+            // The caller pays the first pool what it took, in the pool's callback.
+            if (off == 20) require(IERC20(tokenIn).transferFrom(msg.sender, address(pool), used), "pull failed");
+            amountOut = pool.out(a, used);
             pool.swapped(a);
             a = b;
         }

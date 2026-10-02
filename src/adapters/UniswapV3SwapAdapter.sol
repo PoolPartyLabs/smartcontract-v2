@@ -10,6 +10,7 @@ import {IUniswapV3Factory} from "@uniswap/v3-core/contracts/interfaces/IUniswapV
 import {IUniswapV3Pool} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 import {IQuoterV2} from "@uniswap/v3-periphery/contracts/interfaces/IQuoterV2.sol";
 import {IPeripheryImmutableState} from "@uniswap/v3-periphery/contracts/interfaces/IPeripheryImmutableState.sol";
+import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {AdapterGuard} from "./AdapterGuard.sol";
 import {ISwapAdapter} from "../interfaces/ISwapAdapter.sol";
 import {ISwapRouter02} from "../interfaces/external/ISwapRouter02.sol";
@@ -219,20 +220,27 @@ contract UniswapV3SwapAdapter is AdapterGuard, EIP712, ISwapAdapter {
 
     /// @dev DEC-153: highest QuoterV2 output among the factory pools of the direct pair in the four tiers, skipping
     ///      missing pools and pools without in-range liquidity; each quote capped at `QUOTE_GAS_CAP` (D-21).
+    ///      A quote counts only if it fills the whole input. For an exact input QuoterV2 returns the output and drops
+    ///      the amount the pool took, so a tier whose liquidity runs out quotes what it drained and could outbid a tier
+    ///      that fills, while the swap in it would revert `PartialFill`. A V3 pool stops an exact-input swap only when
+    ///      the input is spent or the price reaches the limit, and the quote uses the widest limit, so a quote whose
+    ///      price ends at that limit is a partial fill and the tier is skipped.
     function _bestDirectFee(address tokenIn, address tokenOut, uint256 amountIn)
         private
         returns (uint24 fee, uint256 best)
     {
         uint24[4] memory tiers = [uint24(100), 500, 3000, 10_000];
+        // QuoterV2's limit for `sqrtPriceLimitX96 == 0` (V4's MIN/MAX_SQRT_PRICE equal V3's MIN/MAX_SQRT_RATIO).
+        uint160 limit = tokenIn < tokenOut ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1;
         for (uint256 i; i < 4; ++i) {
             address pool = v3Factory.getPool(tokenIn, tokenOut, tiers[i]);
             if (pool == address(0) || IUniswapV3Pool(pool).liquidity() == 0) continue;
             try quoterV2.quoteExactInputSingle{gas: QUOTE_GAS_CAP}(
                 IQuoterV2.QuoteExactInputSingleParams(tokenIn, tokenOut, amountIn, tiers[i], 0)
             ) returns (
-                uint256 out, uint160, uint32, uint256
+                uint256 out, uint160 sqrtPriceX96After, uint32, uint256
             ) {
-                if (out > best) (best, fee) = (out, tiers[i]);
+                if (out > best && sqrtPriceX96After != limit) (best, fee) = (out, tiers[i]);
             } catch {}
         }
         if (best == 0) revert NoRoute(tokenIn, tokenOut);
