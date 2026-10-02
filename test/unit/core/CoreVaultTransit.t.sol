@@ -543,6 +543,25 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         assertEq(bridge.expiryNotes(ref), 1, "the refund is");
     }
 
+    /// DEC-162 (review round 1, L-3a): the spoke never lists an arrival below its listing minimum (1 USDG, CS-OQ-6), so
+    /// a report's silence proves nothing for such a send. A filled send of 0.85 USDG attested by a later report does not
+    /// step the adapter's fee; a real expiry of that size is noted when its refund is recognized.
+    function test_DEC162_sendBelowTheListingMinimumIsNotedOnlyAtTheRefund() public {
+        bytes32 filled = _send(0.9e6, 0.85e6);
+        bytes32 expired = _send(0.9e6, 0.85e6);
+        vm.warp(vault.transit(filled).fillDeadline + 1);
+        _deliver(_spokeReport(0.85e6, 0.85e6)); // `filled` arrived, credited but unlisted; `expired` never did
+        vault.attestExpiry(filled);
+        vault.attestExpiry(expired);
+        assertEq(bridge.expiryNotes(vault.transit(filled).bridgeRef), 0, "silence proves nothing below the minimum");
+        assertEq(bridge.expiryNotes(vault.transit(expired).bridgeRef), 0);
+
+        pool.refund(1);
+        vault.recognizeRefund(expired);
+        assertEq(bridge.expiryNotes(vault.transit(expired).bridgeRef), 1, "the refund proves the expiry");
+        assertEq(bridge.expiryNotes(vault.transit(filled).bridgeRef), 0, "the filled send never steps the fee");
+    }
+
     /// DEC-162: an arrival is never reported to the adapter as an expiry, even after a time-path attestation.
     function test_DEC162_arrivalAfterATimeAttestationIsNeverNoted() public {
         bytes32 id = _sendDefault();
