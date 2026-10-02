@@ -245,7 +245,7 @@ library CoreVaultTransitLogic {
         s.unmatchedArrivals -= amount;
         if (s.fundState == ICoreVaultLifecycle.FundState.Closed) {
             emit ICoreVault.UnlistedArrivalRecovered(transitId, originChainId, amount);
-            return;
+            return amount;
         }
         if (_incomeRecoveryPending(s, spokeIndex, transitId)) {
             s.incomeBook.recoveredIncome[spokeIndex][transitId] += amount;

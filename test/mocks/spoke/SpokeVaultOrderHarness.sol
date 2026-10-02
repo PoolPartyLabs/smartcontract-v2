@@ -50,13 +50,8 @@ library OrderHarnessRecorder {
 ///         `executeOrder` from inside an executor and keeps the revert data.
 contract SpokeVaultOrderHarness is SpokeVault {
     uint8[] internal _executed;
-<<<<<<< HEAD
-    bool internal _reenter;
-    bytes32 public reentryRevertHash;
-=======
     bytes internal _reentryVaa;
     mapping(uint256 => bytes) internal _reentryRevert;
->>>>>>> origin/feat/pp-sc-feat-spoke-unwind-orders-settlement
 
     constructor(
         Mandate memory mandate_,
@@ -83,17 +78,12 @@ contract SpokeVaultOrderHarness is SpokeVault {
     {}
 
     /// @notice From now on every executor tries `executeOrder(vaa)` again before returning.
-<<<<<<< HEAD
-    function setReentry(bool enabled) external {
-        _reenter = enabled;
-=======
     function setReentry(bytes calldata vaa) external {
         OrderHarnessRecorder.setReentry(_reentryVaa, vaa);
     }
 
     function reentryRevert() external view returns (bytes memory) {
         return OrderHarnessRecorder.reason(_reentryRevert);
->>>>>>> origin/feat/pp-sc-feat-spoke-unwind-orders-settlement
     }
 
     /// @notice The kinds the executors ran, in order.
@@ -111,11 +101,7 @@ contract SpokeVaultOrderHarness is SpokeVault {
     }
 
     function _executeCloseOrder(OrderCodec.Order memory o) internal override {
-<<<<<<< HEAD
-        _executeUnwindOrder(o);
-=======
         _record(o);
->>>>>>> origin/feat/pp-sc-feat-spoke-unwind-orders-settlement
     }
 
     function _executeCollectOrder(OrderCodec.Order memory o) internal override {

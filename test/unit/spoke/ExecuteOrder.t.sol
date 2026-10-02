@@ -177,10 +177,10 @@ contract ExecuteOrderTest is SpokeVaultTestBase {
     ///      the order it runs (or any other) is refused, and the outer order still completes.
     function test_DEC093_aReenteredDeliveryIsRefused() public {
         bytes memory vaa = _vaa(_order(OrderCodec.UNWIND, 1), 0);
-        harness.setReentry(true);
+        harness.setReentry(vaa);
         _deliver(harness, vaa);
         bytes memory reentrancyRefused = abi.encodeWithSelector(ReentrancyGuard.ReentrancyGuardReentrantCall.selector);
-        assertEq(harness.reentryRevertHash(), keccak256(reentrancyRefused));
+        assertEq(harness.reentryRevert(), reentrancyRefused);
         assertEq(harness.executed().length, 1, "executed once");
         assertEq(harness.reportSequence(), 1);
     }

@@ -617,7 +617,7 @@ library CoreVaultPayoutLogic {
         bytes32 key = CoreVaultLogic.hubBoundKey(s.mandate.spokes[spokeIndex].chainId, transitId);
         bool refunded = s.payouts.transitResults[key].refunded;
         (ReportCodec.Report memory report,,) = IValueReportReceiver(w.reportReceiver).latestReport(spokeIndex);
-        if (_validResults(report.unwindResults)) {
+        if (SpokeUnwindTypes.validResults(report.unwindResults)) {
             SpokeUnwindTypes.OrderResult[] memory results =
                 abi.decode(report.unwindResults, (SpokeUnwindTypes.OrderResult[]));
             for (uint256 index; index < results.length; ++index) {

@@ -135,6 +135,7 @@ contract SpokeUnwindRoundTwoTest is SpokeUnwindOrdersTest {
         _arrive(1000e6, keccak256(abi.encode("fresh deposit", sequence)), TransferKind.Principal);
         OrderCodec.Order memory order;
         order.kind = kind;
+        if (kind == OrderCodec.CLOSE) order.closingStartedAt = uint64(block.timestamp);
         order.fundId = FUND_ID;
         order.requestId = keccak256(abi.encode("distinct request", sequence));
         order.attempt = 1;
