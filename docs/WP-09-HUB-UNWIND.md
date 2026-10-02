@@ -52,6 +52,8 @@ After merging `origin/main` (`1db9a9d`) into the branch:
   excludes V4 while Aave delivers; a relaxed retry sells only undelivered positions.
 - Sixteen positions unwind in 5,180,975 gas, below the 32,000,000 Arbitrum transaction cap.
   This is the unwind call alone, not the test's factory deployment/setup gas.
+  It measures repeated WETH/USDC positions with successful tier caching, not a worst-case bound
+  for sixteen distinct tokens or repeated exclusions that roll back the quote cache.
 
 | Runtime | Main bytes | WP-09 bytes | Remaining margin |
 |---|---:|---:|---:|
@@ -63,6 +65,47 @@ After merging `origin/main` (`1db9a9d`) into the branch:
 | AaveV3Adapter | 10,158 | 9,893 | 14,683 |
 
 No production contract or linked library has a margin below 1,000 bytes. Spoke Vault is tightest.
+
+## PR #19 round-1 correction
+
+H-1's two regression examples failed before the correction: Instant fund absorption was
+9,998.04 USDC; Standard fund absorption was 9,996.104040 USDC against a 102 USDC cap.
+
+Partial burns now use the largest whole-share amount whose actual Idle outflow fits available
+cash: net payment plus the flow fee, excluding the retained Payout Fee and settled requester
+Market Costs. Pre-unwind served-share and manager-base caps still apply. Binary search uses at
+most 256 iterations, independently of the number of positions (DEC-033/105/118/141).
+
+`PayoutRequest.pendingLeaverCost` retains every unsettled requester cost. The next attempt adds
+that balance back to its post-unwind NAV, deducts only costs it can settle, and carries the rest
+again. Receipts report only the new sale costs allocated to the fund; charging a previous
+attempt's debt cannot produce negative or additional fund absorption (DEC-118/141/151).
+An outstanding gross amount of zero does not discard pending costs: a debt-only retry can burn
+remaining shares to settle them. Gross outstanding reduction saturates at zero. If the holder
+has exhausted its shares, or no cash exists to pay the flow fee, debt remains on the open
+request rather than being silently allocated to the fund.
+
+The register overrides the plan's gross-cash partial-burn formula. The ABI adds one field to
+the request getter; there is no upgrade or migration of existing immutable funds. Pending costs
+are request accounting, not a newly introduced Share Assets bucket or a collectible receivable
+for other valuation paths. The existing D-17 NAV add-back is used for the request's settlement.
+
+Validation after the correction: build/sizes, formatting, size inventory (3/3), non-fork tests
+(1,179 in 168 suites), and the entire fork suite (216 in 52 suites) pass. Six new tests include
+two 512-run properties varying fund sizes, requested amounts, losses from 0% through 100%, and
+flow fees from 0 through 100 bps. They check absorption caps, exact net-value reconciliation,
+maximal affordable whole-share burns, delivery memory, pending debt and charge-once retries.
+Existing reserve/callback/fallback tests now exercise actual net cash rather than gross cash.
+
+| Runtime | Before correction | After correction | Remaining margin |
+|---|---:|---:|---:|
+| Core Vault | 21,433 | 21,487 | 3,089 |
+| CoreVaultPayoutLogic | 11,085 | 11,597 | 12,979 |
+| Spoke Vault | 23,096 | 23,096 | 1,480 |
+| SpokeUnwindLib | 11,530 | 11,530 | 13,046 |
+
+All production contracts and linked libraries remain within 24,576 bytes; none is below
+1,000 bytes of headroom. No shared fork fixture or new fork scenario file changes.
 
 ## Deviations and spec divergences
 
