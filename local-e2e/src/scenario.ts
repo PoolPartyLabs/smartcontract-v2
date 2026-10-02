@@ -60,7 +60,7 @@ import { freshFund } from "./deploy.ts";
 import { guardianSetIndexOf, signVaa, universal } from "./guardian.ts";
 import { DEFAULT_KEEPER_OPTIONS, runningKeeperPid, startKeeper, type Keeper } from "./keeper.ts";
 import { bold, dim, green, logger, red, units, type Logger } from "./log.ts";
-import { ORDER_CONSISTENCY, ORDER_KIND, ORDER_LIFETIME, encodeOrder, hasExecuteOrder, orderId, type Order } from "./orders.ts";
+import { ORDER_CONSISTENCY, ORDER_KIND, ORDER_KIND_NAME, ORDER_LIFETIME, encodeOrder, orderId, type Order } from "./orders.ts";
 import { ensureFeedFresh } from "./price-feed.ts";
 import { linkedArrival, type DepositEvent, type LinkedArrival } from "./arrivals.ts";
 import { RunReport } from "./report.ts";
@@ -1207,70 +1207,130 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     run.ok(`a stranger donates 1,234 USDC to the Core Vault: Share Price stays ${price(priceBeforeDonation)}, the donation is swept to the Protocol Recipient`);
 
     // ------------------------------------------------------------------------------------------------------------
-    // Phase 14: the Hub-to-spoke order channel (DEC-111, DEC-120, DEC-139; OrderCodec and OrderVerifier)
+    // Phase 14: the Hub-to-spoke order channel and executeOrder (DEC-093, DEC-111, DEC-120, DEC-139; WP-07 D4)
     // ------------------------------------------------------------------------------------------------------------
-    await run.phase("Phase 14: the Hub-to-spoke order channel (DEC-093, DEC-111, DEC-120, DEC-139)");
-    if (hasExecuteOrder(await nodes.robinhood.client.getCode({ address: spokeVault }))) {
-      run.note("the Spoke Vault executes orders: the channel is the Core Vault's own, exercised by the payouts that reach the spoke");
+    await run.phase("Phase 14: the Hub-to-spoke order channel and executeOrder (DEC-093, DEC-111, DEC-120, DEC-139)");
+    // Until the Core Vault publishes orders itself (WP-09 on), an order is published from its address (impersonated)
+    // on the live Arbitrum Core, so the keeper's relay, the guardian on the Robinhood Core and the Spoke Vault's
+    // `executeOrder` run now. Only a kind the Spoke Vault does not execute yet is published that way: an executed UNWIND
+    // would sell the fund's positions for a request nobody made. Each kind is probed first by simulating `executeOrder`
+    // with a VAA for the Core Vault's next sequence: a stub executor reverts OrderKindNotSupported, and only after every
+    // order check passed. The kinds the Spoke Vault executes are published by the Core Vault itself in the phases of
+    // the payouts, the income collection and the closure.
+    const KINDS = [ORDER_KIND.UNWIND, ORDER_KIND.CLOSE, ORDER_KIND.COLLECT];
+    const kindNames = (kinds: number[]) => kinds.map((k) => ORDER_KIND_NAME[k]).join(", ");
+    const hubFee = await view<bigint>("arbitrum", ARBITRUM.wormholeCore, wormholeCoreAbi, "messageFee");
+    const spokeFee = await view<bigint>("robinhood", ROBINHOOD.wormholeCore, wormholeCoreAbi, "messageFee");
+    const spokeGuardianSet = await guardianSetIndexOf("robinhood");
+    const hubNow = await latestTimestamp("arbitrum");
+    const orderOf = (kind: number): Order => ({
+      kind,
+      fundId: fund.fundId,
+      requestId: keccak256(encodePacked(["string", "uint8", "uint256"], ["local-e2e order channel", kind, hubNow])),
+      attempt: 0,
+      deadline: hubNow + ORDER_LIFETIME,
+      fracNum: kind === ORDER_KIND.UNWIND ? 1n : kind === ORDER_KIND.CLOSE ? 1n : 0n,
+      fracDen: kind === ORDER_KIND.UNWIND ? 10n : kind === ORDER_KIND.CLOSE ? 1n : 0n,
+      maxLossBps: 0,
+      payoutMode: INSTANT,
+    });
+    const orderVaa = (sequence: bigint, timestamp: bigint, payload: Hex, emitter: Address = core) =>
+      signVaa(
+        {
+          timestamp: Number(timestamp),
+          nonce: 0,
+          emitterChainId: WORMHOLE_ARBITRUM,
+          emitterAddress: universal(emitter),
+          sequence,
+          consistencyLevel: ORDER_CONSISTENCY,
+          payload,
+        },
+        spokeGuardianSet,
+      );
+    const executeRevert = (vaa: Hex) =>
+      simulateRevert("robinhood", "keeper", { address: spokeVault, abi: spokeVaultAbi, functionName: "executeOrder", args: [vaa], value: spokeFee });
+
+    const nextSequence = await view<bigint>("arbitrum", ARBITRUM.wormholeCore, wormholeCoreAbi, "nextSequence", [core]);
+    const probed = new Map<number, string | undefined>();
+    for (const kind of KINDS) probed.set(kind, await executeRevert(await orderVaa(nextSequence, hubNow, encodeOrder(orderOf(kind)))));
+    const stubs = KINDS.filter((k) => probed.get(k) === "OrderKindNotSupported");
+    const executes = KINDS.filter((k) => probed.get(k) === undefined);
+    run.eq(
+      stubs.length + executes.length,
+      KINDS.length,
+      `every kind either executes or is not supported yet (${KINDS.map((k) => `${ORDER_KIND_NAME[k]}: ${probed.get(k) ?? "executes"}`).join(", ")})`,
+    );
+    run.ok(
+      `executeOrder probed with one order of each kind for the Core Vault's next sequence ${nextSequence}: ` +
+        (stubs.length ? `${kindNames(stubs)} not supported yet (OrderKindNotSupported, after the order checks)` : "none refused") +
+        (executes.length ? `; ${kindNames(executes)} executed (left to the phases that publish them)` : ""),
+    );
+
+    if (stubs.length === 0) {
+      run.note("every order kind executes on the Spoke Vault: the Core Vault's own orders exercise the channel in the payout, income and closure phases");
     } else {
-      // Until the Core Vault publishes orders itself (WP-09 on), the call OrderCodec.publish makes in its context is
-      // sent from its address, so the keeper's relay and the guardian on the Robinhood Core are exercised now.
-      const relayedBefore = keeper ? keeper.stats.orders + keeper.stats.ordersUnsupported : 0;
-      const hubNow = await latestTimestamp("arbitrum");
-      const order: Order = {
-        kind: ORDER_KIND.UNWIND,
-        fundId: fund.fundId,
-        requestId: keccak256(encodePacked(["string", "uint256"], ["local-e2e order channel", hubNow])),
-        attempt: 0,
-        deadline: hubNow + ORDER_LIFETIME,
-        fracNum: 1n,
-        fracDen: 10n,
-        maxLossBps: 0,
-        payoutMode: INSTANT,
-      };
-      const messageFee = await view<bigint>("arbitrum", ARBITRUM.wormholeCore, wormholeCoreAbi, "messageFee");
-      const published = await sendAs("arbitrum", core, {
-        address: ARBITRUM.wormholeCore,
-        abi: wormholeCoreAbi,
-        functionName: "publishMessage",
-        args: [0, encodeOrder(order), ORDER_CONSISTENCY],
-        value: messageFee,
-      });
-      const [message] = events(published.receipt, ARBITRUM.wormholeCore, wormholeCoreAbi, "LogMessagePublished");
-      run.eq(message.sender, core, "DEC-111: the Core Vault is the emitter");
-      run.eq(Number(message.consistencyLevel), ORDER_CONSISTENCY, "DEC-120 item 1: instant consistency");
-      run.ok(`an UNWIND order (1/10) published from the Core Vault on the live Arbitrum Core: sequence ${message.sequence}, message fee ${messageFee} wei`);
+      const unsupportedBefore = keeper?.stats.ordersUnsupported ?? 0;
+      const published: { kind: number; order: Order; message: Record<string, any>; timestamp: bigint }[] = [];
+      for (const kind of stubs) {
+        const order = orderOf(kind);
+        const sent = await sendAs("arbitrum", core, {
+          address: ARBITRUM.wormholeCore,
+          abi: wormholeCoreAbi,
+          functionName: "publishMessage",
+          args: [0, encodeOrder(order), ORDER_CONSISTENCY],
+          value: hubFee,
+        });
+        const [message] = events(sent.receipt, ARBITRUM.wormholeCore, wormholeCoreAbi, "LogMessagePublished");
+        run.eq(message.sender, core, "DEC-111: the Core Vault is the emitter");
+        run.eq(Number(message.consistencyLevel), ORDER_CONSISTENCY, "DEC-120 item 1: instant consistency");
+        const block = await nodes.arbitrum.client.getBlock({ blockNumber: sent.receipt.blockNumber });
+        published.push({ kind, order, message, timestamp: block.timestamp });
+      }
+      run.ok(
+        `${kindNames(stubs)} order(s) published from the Core Vault on the live Arbitrum Core at instant consistency: ` +
+          `sequence(s) ${published.map((p) => p.message.sequence).join(", ")}, message fee ${hubFee} wei`,
+      );
+
       if (keeper) {
-        await waitFor("the keeper's relay of the order", async () => keeper!.stats.orders + keeper!.stats.ordersUnsupported > relayedBefore);
-        run.ok("the keeper picked the order up; the Spoke Vault has no executeOrder yet (WP-07), so it logged it and skipped it");
+        await waitFor("the keeper's relay of the orders", async () => published.every((p) => keeper!.handledOrder(core, p.message.sequence)));
+        run.eq(keeper.stats.ordersUnsupported - unsupportedBefore, stubs.length, "the keeper counted each order as not yet supported");
+        run.ok(
+          "the keeper signed each order for the Robinhood Core and called executeOrder, paying the report's message fee; the Spoke Vault " +
+            "answered OrderKindNotSupported, which the keeper logs as not yet supported: nothing left waiting, nothing retried",
+        );
         // A restart: a second keeper started after the publication rescans both chains from the fork block, discovers
-        // the fund from the factories' events (as it does every fund) and still relays the order. It runs in the same
+        // the fund from the factories' events (as it does every fund) and relays the orders too. It runs in the same
         // process as the first keeper, so their transactions share one nonce queue.
         const restarted = await startKeeper(state, { ...DEFAULT_KEEPER_OPTIONS, autoReportSeconds: 0, quiet: true }, log.child("restarted"));
         try {
-          await waitFor("a restarted keeper's relay of the order", async () => restarted.handledOrder(core, message.sequence));
+          await waitFor("a restarted keeper's relay of the orders", async () => published.every((p) => restarted.handledOrder(core, p.message.sequence)));
+          run.eq(restarted.stats.ordersUnsupported, stubs.length, "the restarted keeper treats them the same way");
         } finally {
           await restarted.stop();
         }
-        run.ok("a keeper started after the order was published rescans from the fork block and relays it too");
+        run.ok("a keeper started after the orders were published rescans from the fork block and relays them too");
       } else {
-        run.note("external keeper: its log shows the order relayed and skipped until the Spoke Vault has executeOrder");
+        run.note("external keeper: its log shows each order relayed and refused as not yet supported");
       }
-      // The VAA the keeper builds, accepted by OrderVerifier against the live Robinhood Core through the test receiver
-      // that stands in for executeOrder (test/mocks/wormhole/OrderVerifierHarness.sol).
-      const published1 = await nodes.arbitrum.client.getBlock({ blockNumber: published.receipt.blockNumber });
-      const vaa = await signVaa(
-        {
-          timestamp: Number(published1.timestamp),
-          nonce: Number(message.nonce),
-          emitterChainId: WORMHOLE_ARBITRUM,
-          emitterAddress: universal(core),
-          sequence: message.sequence,
-          consistencyLevel: ORDER_CONSISTENCY,
-          payload: message.payload,
-        },
-        await guardianSetIndexOf("robinhood"),
+
+      // The keeper's VAA of the first order, rebuilt: a refused order reverted the whole call, so the order cursor did
+      // not move and the same VAA is refused the same way (not OrderSequenceTooLow); an order from another emitter is
+      // refused by the order checks before any executor runs.
+      const first = published[0];
+      const firstVaa = await orderVaa(first.message.sequence, first.timestamp, first.message.payload);
+      run.eq(await executeRevert(firstVaa), "OrderKindNotSupported", "DEC-093: a refused order leaves the order cursor where it was");
+      run.eq(
+        await executeRevert(await orderVaa(first.message.sequence, first.timestamp, first.message.payload, A.stranger.address)),
+        "OrderEmitterMismatch",
+        "DEC-111: only the fund's Core Vault emits its orders",
       );
+      run.ok(
+        `the ${ORDER_KIND_NAME[first.kind]} order's VAA is still refused as not supported (the cursor did not move); the same order from ` +
+          "another emitter is refused by the order checks (OrderEmitterMismatch)",
+      );
+
+      // Acceptance in full: the same VAA passes OrderVerifier against the live Robinhood Core through the test receiver
+      // (test/mocks/wormhole/OrderVerifierHarness.sol), which has no executor to refuse it, and executes once.
       const receiverArtifact = forgeArtifact("OrderVerifierHarness.sol", "OrderReceiverHarness");
       const orderReceiver = await deploy(
         "robinhood",
@@ -1278,17 +1338,17 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
         encodeDeployData({ abi: receiverArtifact.abi, bytecode: receiverArtifact.bytecode, args: [ROBINHOOD.wormholeCore, WORMHOLE_ARBITRUM, core, fund.fundId] }),
         "deploy OrderReceiverHarness",
       );
-      const executed = await tx("robinhood", "keeper", orderReceiver, receiverArtifact.abi, "execute", [vaa]);
+      const executed = await tx("robinhood", "keeper", orderReceiver, receiverArtifact.abi, "execute", [firstVaa]);
       const [done] = events(executed.receipt, orderReceiver, receiverArtifact.abi, "OrderExecuted");
-      run.eq(Number(done.kind), ORDER_KIND.UNWIND, "the order kind");
-      run.eq(done.orderId, orderId(order), "OrderCodec: one id per (kind, fund, request, attempt)");
-      run.eq(done.wormholeSequence, message.sequence, "the Hub's sequence");
+      run.eq(Number(done.kind), first.kind, "the order kind");
+      run.eq(done.orderId, orderId(first.order), "OrderCodec: one id per (kind, fund, request, attempt)");
+      run.eq(done.wormholeSequence, first.message.sequence, "the Hub's sequence");
       run.eq(
-        await simulateRevert("robinhood", "keeper", { address: orderReceiver, abi: receiverArtifact.abi, functionName: "execute", args: [vaa] }),
+        await simulateRevert("robinhood", "keeper", { address: orderReceiver, abi: receiverArtifact.abi, functionName: "execute", args: [firstVaa] }),
         "OrderSequenceTooLow",
         "DEC-093: an order executes once",
       );
-      run.ok(`the VAA signed for the Robinhood Core passes OrderVerifier (emitter chain 23, the Core Vault, the fund, the sequence); a replay reverts`);
+      run.ok("the same VAA passes OrderVerifier on the live Robinhood Core (emitter chain 23, the Core Vault, the fund, the sequence) and executes once; a replay reverts");
     }
 
     // ------------------------------------------------------------------------------------------------------------
