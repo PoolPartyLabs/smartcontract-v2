@@ -50,9 +50,7 @@ contract New_PreSeededUnlistedArrivalRecovery is CoreBCrossChainFixture {
         _refreshPrices();
         _report();
         vm.prank(manager);
-        bytes32 home = spoke.sendToHub(
-            ARRIVES, TransferKind.Principal, 0, BridgeQuote(HOME_OUT, uint32(block.timestamp), 0, address(0))
-        );
+        bytes32 home = spoke.sendToHub(ARRIVES, TransferKind.Principal, 0, _homeQuote(HOME_OUT));
         assertEq(home, predicted, "the id Bob seeded");
         vm.warp(block.timestamp + 2 minutes);
         _fillOnHub(home, HOME_OUT, TransferKind.Principal);
@@ -90,9 +88,7 @@ contract New_PreSeededUnlistedArrivalRecovery is CoreBCrossChainFixture {
         vault.requestPayout(1_000_000e6, ICoreVault.PayoutMode.Standard);
 
         vm.prank(manager);
-        bytes32 home = spoke.sendToHub(
-            ARRIVES, TransferKind.Principal, 0, BridgeQuote(HOME_OUT, uint32(block.timestamp), 0, address(0))
-        );
+        bytes32 home = spoke.sendToHub(ARRIVES, TransferKind.Principal, 0, _homeQuote(HOME_OUT));
         vm.warp(block.timestamp + 2 minutes);
         _fillOnHub(home, HOME_OUT, TransferKind.Principal);
 
@@ -132,9 +128,7 @@ contract New_PreSeededUnlistedArrivalRecovery is CoreBCrossChainFixture {
         _refreshPrices();
         _report();
         vm.prank(manager);
-        bytes32 home = spoke.sendToHub(
-            10_000e6, TransferKind.Income, 0, BridgeQuote(9995e6, uint32(block.timestamp), 0, address(0))
-        );
+        bytes32 home = spoke.sendToHub(10_000e6, TransferKind.Income, 0, _homeQuote(9995e6));
         assertEq(home, predicted);
         vm.warp(block.timestamp + 2 minutes);
         _fillOnHub(home, 9995e6, TransferKind.Income);

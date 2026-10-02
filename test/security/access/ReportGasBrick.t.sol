@@ -58,14 +58,17 @@ contract ReportGasBrickPoC is AccessFundFixture {
         vm.prank(address(spokeAcross));
         spoke.handleV3AcrossMessage(address(usdg), 500_000e6, stranger, message);
 
-        // The manager tries 3,000 sends home of 2 base units each: the list stops at the bound.
+        // The manager tries 3,000 dust sends home: the list stops at the bound. Since DEC-162 the Across adapter's fee
+        // rule refuses a send that would deliver nothing, so the dust is the smallest send it lets through (0.030026:
+        // 0.08% rounded up plus 0.03, one base unit to arrive).
+        uint256 dust = 30_026;
         uint256 limit = SpokeVaultTypes.MAX_HUB_BOUND_IN_FLIGHT;
         vm.startPrank(manager);
         for (uint256 i; i < limit; ++i) {
-            spoke.sendToHub(2, TransferKind.Principal, 0, _quote(2, address(0)));
+            spoke.sendToHub(dust, TransferKind.Principal, 0, _noQuote());
         }
         vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.HubBoundInFlightLimit.selector, limit));
-        spoke.sendToHub(2, TransferKind.Principal, 0, _quote(2, address(0)));
+        spoke.sendToHub(dust, TransferKind.Principal, 0, _noQuote());
         vm.stopPrank();
         assertEq(spoke.inFlightTransitIds().length, limit, "S-11: bounded");
 
@@ -80,6 +83,6 @@ contract ReportGasBrickPoC is AccessFundFixture {
 
         // The manager can send home again.
         vm.prank(manager);
-        spoke.sendToHub(1000e6, TransferKind.Principal, 0, _quote(999e6, address(0)));
+        spoke.sendToHub(1000e6, TransferKind.Principal, 0, _noQuote());
     }
 }

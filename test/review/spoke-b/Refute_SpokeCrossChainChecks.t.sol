@@ -23,11 +23,9 @@ contract Refute_SpokeCrossChainChecks is SpokeBFixture {
     function test_refute_buildReportAndReportDisagree() public {
         vm.startPrank(manager);
         spoke.openPosition(address(spokeAdapter), SPOKE_POOL, 0, 5000e6, "");
-        bytes32 a = spoke.sendToHub(
-            1000e6, TransferKind.Principal, 0, BridgeQuote(999e6, uint32(block.timestamp), 0, address(0))
-        );
+        bytes32 a = spoke.sendToHub(1000e6, TransferKind.Principal, 0, _homeQuote(999e6));
         vm.warp(block.timestamp + 1 days); // `a` still within retention
-        spoke.sendToHub(2000e6, TransferKind.Principal, 0, BridgeQuote(1998e6, uint32(block.timestamp), 0, address(0)));
+        spoke.sendToHub(2000e6, TransferKind.Principal, 0, _homeQuote(1998e6));
         vm.stopPrank();
         _dustArrivals(3);
         // Past `a`'s retention but within `b`'s, with no send or report since, so the eager sweep has not run: `a` is
@@ -83,9 +81,7 @@ contract Refute_SpokeCrossChainChecks is SpokeBFixture {
     ///         refund has landed in the escrow all revert.
     function test_refute_refundDoubleCreditOrLostAfterPruning() public {
         vm.prank(manager);
-        bytes32 id = spoke.sendToHub(
-            40_000e6, TransferKind.Principal, 0, BridgeQuote(39_980e6, uint32(block.timestamp), 0, address(0))
-        );
+        bytes32 id = spoke.sendToHub(40_000e6, TransferKind.Principal, 0, _homeQuote(39_980e6));
         Transit memory t = spoke.hubBoundTransit(id);
         vm.expectRevert(abi.encodeWithSelector(ISpokeVault.FillDeadlineNotReached.selector, id, t.fillDeadline));
         spoke.recognizeRefund(id);

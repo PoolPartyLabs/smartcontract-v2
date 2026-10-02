@@ -327,12 +327,10 @@ contract Fork_ConservationWalk is XChainBase {
         _step("W11 spoke income collected and swapped to USDG", 0, false, 0);
         _onRobinhood();
         uint256 income = spokeVault.collectedIncome(RH_USDG);
-        uint256 incomeOut = income - income * MAX_BRIDGE_FEE_BPS / 10_000;
-        (bytes32 homeIncome, LiveRelayData memory incomeRelay) =
-            _sendToHub(income, TransferKind.Income, _quote(incomeOut));
+        (bytes32 homeIncome, LiveRelayData memory incomeRelay) = _sendToHub(income, TransferKind.Income);
+        uint256 incomeOut = incomeRelay.outputAmount; // DEC-162: the Across adapter's amount to arrive
         uint256 incomeIndex = _track(false, homeIncome, incomeRelay);
-        (bytes32 homePrincipal, LiveRelayData memory principalRelay) =
-            _sendToHub(500e6, TransferKind.Principal, _quote(500e6 - 0.2e6));
+        (bytes32 homePrincipal, LiveRelayData memory principalRelay) = _sendToHub(500e6, TransferKind.Principal);
         uint256 principalIndex = _track(false, homePrincipal, principalRelay);
         // An Income transfer in flight home is in no base: out of the spoke's collected bucket, out of Share Assets
         // (DEC-092) and in no hub bucket until it arrives (report 02 I-04).
@@ -362,7 +360,7 @@ contract Fork_ConservationWalk is XChainBase {
         _step("W17 fresh report, Carol deposits 5,000", 0, true, 0);
 
         // Refund, hub to spoke: a send nobody fills.
-        (bytes32 lost, LiveRelayData memory lostRelay) = _sendToSpoke(400e6, _quote(400e6 - 0.16e6));
+        (bytes32 lost, LiveRelayData memory lostRelay) = _sendToSpoke(400e6);
         uint256 lostIndex = _track(true, lost, lostRelay);
         _step("W18 send 400 to Robinhood, never filled", 0, true, 0);
         _onRobinhood();
@@ -383,8 +381,7 @@ contract Fork_ConservationWalk is XChainBase {
 
         // Refund, spoke to hub: a send home nobody fills (report 02 H-02 window).
         _onRobinhood();
-        (bytes32 back, LiveRelayData memory backRelay) =
-            _sendToHub(300e6, TransferKind.Principal, _quote(300e6 - 0.12e6));
+        (bytes32 back, LiveRelayData memory backRelay) = _sendToHub(300e6, TransferKind.Principal);
         uint256 backIndex = _track(false, back, backRelay);
         _report();
         _step("W22 send home 300, never filled, listed", 0, true, 0);
@@ -418,8 +415,7 @@ contract Fork_ConservationWalk is XChainBase {
 
         // S-3 residual: a refund that lands after `fillDeadline + HUB_BOUND_RETENTION` (Across measured 53 to 107 min;
         // the 3 days are the margin). The spoke stops listing the send home and its sweep no longer sees the id.
-        (bytes32 late, LiveRelayData memory lateRelay) =
-            _sendToHub(200e6, TransferKind.Principal, _quote(200e6 - 0.08e6));
+        (bytes32 late, LiveRelayData memory lateRelay) = _sendToHub(200e6, TransferKind.Principal);
         uint256 lateIndex = _track(false, late, lateRelay);
         _report();
         _step("W28 send home 200, never filled, listed", 0, true, 0);

@@ -8,6 +8,7 @@ import {ShareMath} from "../../../src/libraries/ShareMath.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {MockAcrossSpokePool} from "../../mocks/core/MockAcrossSpokePool.sol";
 import {MockWormholeCore} from "../../mocks/spoke/MockWormholeCore.sol";
+import {MockBridgeNextArrive} from "../../mocks/across/MockBridgeNextArrive.sol";
 import {FundSystemFixture} from "./FundSystemFixture.sol";
 
 /// @title Proofs of concept for the findings of the dynamic analysis
@@ -252,8 +253,11 @@ contract FundSystemPoCTest is FundSystemFixture {
         vm.stopPrank();
     }
 
-    function _quote(uint256 outputAmount) internal view returns (BridgeQuote memory) {
-        return BridgeQuote(outputAmount, uint32(block.timestamp), 0, address(0));
+    /// @dev The spoke's mock bridge adapter delivers `outputAmount` on the next send home; the returned quote is the
+    ///      Spoke Vault's vestigial argument, which it ignores (DEC-158, DEC-162).
+    function _quote(uint256 outputAmount) internal returns (BridgeQuote memory q) {
+        MockBridgeNextArrive.set(address(spokeBridge), outputAmount);
+        q.outputAmount = outputAmount;
     }
 
     /// @dev Anyone publishes the spoke's report and delivers its VAA to the hub.
@@ -287,7 +291,7 @@ contract FundSystemPoCTest is FundSystemFixture {
         _report(); // S-14: the spoke's first report, before the hub funds it
         uint256 depositIndex = sys.hubPool.numberOfDeposits();
         vm.prank(manager);
-        sys.core.sendToSpoke(0, toSpoke, 0, _quote(toSpoke));
+        sys.core.sendToSpoke(0, toSpoke, 0, abi.encode(toSpoke)); // the mock adapter delivers it all
         MockAcrossSpokePool.Deposit memory d = sys.hubPool.deposit(depositIndex);
         sys.spokePool.fill(address(sys.spokeVault), address(sys.usdg), d.outputAmount, d.message);
         _report();

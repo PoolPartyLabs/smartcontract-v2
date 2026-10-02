@@ -11,7 +11,7 @@ import {CoreVaultFixture} from "./CoreVaultFixture.sol";
 
 contract CoreVaultTransitTest is CoreVaultFixture {
     uint256 internal constant SENT = 1000e6;
-    uint256 internal constant ARRIVES = 999.4e6; // 6 bps route fee, within the 50 bps Mandate maximum
+    uint256 internal constant ARRIVES = 999.4e6; // 6 bps route fee, fixed by the (mock) bridge adapter, DEC-162
 
     function setUp() public override {
         super.setUp();
@@ -110,10 +110,33 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         vault.sendToSpoke(0, SENT, 1, _quote(ARRIVES));
     }
 
-    function test_QA19_quoteFeeAboveMaxRefused() public {
+    /// DEC-156, DEC-162: no bridge fee cap lives in the Core Vault (the Mandate's dead `maxBridgeFeeBps` is 50 bps);
+    /// the adapter's fee rule fixes the amount to arrive, and the vault takes it as given.
+    function test_DEC156_vaultKeepsNoBridgeFeeCap() public {
         vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.BridgeFeeAboveMax.selector, 6e6, 5e6));
-        vault.sendToSpoke(0, SENT, 0, _quote(994e6));
+        bytes32 id = vault.sendToSpoke(0, SENT, 0, _quote(994e6));
+        assertEq(vault.transit(id).amountToArrive, 994e6, "60 bps, above the old Mandate bound");
+        assertEq(vault.inFlightValue(), 994e6);
+    }
+
+    /// DEC-085, DEC-162: the vault requires the adapter's amount to arrive above zero and not above the amount sent.
+    function test_DEC085_amountToArriveZeroOrAboveSentRefused() public {
+        vm.startPrank(manager);
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.BridgeCallMismatch.selector, address(bridge)));
+        vault.sendToSpoke(0, SENT, 0, _quote(0));
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.BridgeCallMismatch.selector, address(bridge)));
+        vault.sendToSpoke(0, SENT, 0, _quote(SENT + 1));
+        vault.sendToSpoke(0, SENT, 0, _quote(SENT)); // a send that pays no fee is a valid one
+        vm.stopPrank();
+    }
+
+    /// DEC-158, DEC-162: the vault passes `bridgeData` to the adapter untouched and never reads it; without it the
+    /// adapter's own rule applies (the mock's flat fee here).
+    function test_DEC162_withoutBridgeDataTheAdapterPrices() public {
+        bridge.setFee(0.83e6);
+        vm.prank(manager);
+        bytes32 id = vault.sendToSpoke(0, SENT, 0, "");
+        assertEq(vault.transit(id).amountToArrive, SENT - 0.83e6);
     }
 
     function test_DEC087_bridgeCallWithOtherTargetRefused() public {
@@ -123,11 +146,12 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         vault.sendToSpoke(0, SENT, 0, _quote(ARRIVES));
     }
 
-    function test_DEC085_bridgeCallWithOtherAmountToArriveRefused() public {
+    /// DEC-085: an adapter that reports more than was sent is refused.
+    function test_DEC085_bridgeCallWithAmountToArriveAboveSentRefused() public {
         bridge.setArriveDelta(1);
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(ICoreVault.BridgeCallMismatch.selector, address(bridge)));
-        vault.sendToSpoke(0, SENT, 0, _quote(ARRIVES));
+        vault.sendToSpoke(0, SENT, 0, _quote(SENT));
     }
 
     function test_DEC087_inexactDebitRefused() public {
@@ -485,5 +509,108 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         // The same arrival, transferred first as the SpokePool does, is held apart as before.
         pool.fill(address(vault), address(usdc), 500e6, message);
         assertEq(vault.unmatchedArrivals(), 500e6);
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // The bridge adapter learns proven expiries (DEC-162, DEC-056)
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// DEC-162: a report's proof of non-arrival tells the bridge adapter at the attestation, once; the refund that
+    /// follows does not tell it again.
+    function test_DEC162_reportProvenExpiryIsNotedOnceAtTheAttestation() public {
+        bytes32 id = _sendDefault();
+        bytes32 ref = vault.transit(id).bridgeRef;
+        vm.warp(vault.transit(id).fillDeadline + 1);
+        _deliver(_spokeReport(0, 0)); // built after the deadline, does not list the id
+        vault.attestExpiry(id);
+        assertEq(bridge.expiryNotes(ref), 1, "noted at the attestation");
+        pool.refund(0);
+        vault.recognizeRefund(id);
+        assertEq(bridge.expiryNotes(ref), 1, "not noted twice");
+    }
+
+    /// DEC-162 with security review S-13: the time path proves nothing about the arrival, so the adapter is told only
+    /// when the refund is recognized. Otherwise anyone could attest a filled send of a quiet fund (DEC-157) and step
+    /// the next send's fee up.
+    function test_DEC162_timePathExpiryIsNotedOnlyAtTheRefund() public {
+        bytes32 id = _sendDefault();
+        bytes32 ref = vault.transit(id).bridgeRef;
+        vm.warp(uint256(vault.transit(id).fillDeadline) + MAX_REPORT_AGE + 1);
+        vault.attestExpiry(id);
+        assertEq(bridge.expiryNotes(ref), 0, "the time path is no proof");
+        pool.refund(0);
+        vault.recognizeRefund(id);
+        assertEq(bridge.expiryNotes(ref), 1, "the refund is");
+    }
+
+    /// DEC-162 (review round 1, L-3a): the spoke never lists an arrival below its listing minimum (1 USDG, CS-OQ-6), so
+    /// a report's silence proves nothing for such a send. A filled send of 0.85 USDG attested by a later report does not
+    /// step the adapter's fee; a real expiry of that size is noted when its refund is recognized.
+    function test_DEC162_sendBelowTheListingMinimumIsNotedOnlyAtTheRefund() public {
+        bytes32 filled = _send(0.9e6, 0.85e6);
+        bytes32 expired = _send(0.9e6, 0.85e6);
+        vm.warp(vault.transit(filled).fillDeadline + 1);
+        _deliver(_spokeReport(0.85e6, 0.85e6)); // `filled` arrived, credited but unlisted; `expired` never did
+        vault.attestExpiry(filled);
+        vault.attestExpiry(expired);
+        assertEq(bridge.expiryNotes(vault.transit(filled).bridgeRef), 0, "silence proves nothing below the minimum");
+        assertEq(bridge.expiryNotes(vault.transit(expired).bridgeRef), 0);
+
+        pool.refund(1);
+        vault.recognizeRefund(expired);
+        assertEq(bridge.expiryNotes(vault.transit(expired).bridgeRef), 1, "the refund proves the expiry");
+        assertEq(bridge.expiryNotes(vault.transit(filled).bridgeRef), 0, "the filled send never steps the fee");
+    }
+
+    /// DEC-162: an arrival is never reported to the adapter as an expiry, even after a time-path attestation.
+    function test_DEC162_arrivalAfterATimeAttestationIsNeverNoted() public {
+        bytes32 id = _sendDefault();
+        bytes32 ref = vault.transit(id).bridgeRef;
+        vm.warp(uint256(vault.transit(id).fillDeadline) + MAX_REPORT_AGE + 1);
+        vault.attestExpiry(id);
+        _deliver(_arrived(_spokeReport(ARRIVES, ARRIVES), id, ARRIVES));
+        assertEq(uint8(vault.transit(id).state), uint8(TransitState.ArrivalConfirmed));
+        assertEq(bridge.expiryNotes(ref), 0);
+    }
+
+    /// DEC-056: an adapter that refuses `noteExpiry` never blocks an outcome; the vault reports the failure.
+    function test_DEC056_failingNoteExpiryNeverBlocksTheOutcome() public {
+        bytes32 id = _sendDefault();
+        bridge.setNoteExpiryReverts(true);
+        vm.warp(vault.transit(id).fillDeadline + 1);
+        _deliver(_spokeReport(0, 0));
+        vm.expectEmit(address(vault));
+        emit ICoreVault.BridgeExpiryNoteFailed(id, address(bridge));
+        vault.attestExpiry(id);
+        assertEq(uint8(vault.transit(id).state), uint8(TransitState.ExpiryAttested));
+
+        bytes32 second = _send(SENT, ARRIVES);
+        vm.warp(uint256(vault.transit(second).fillDeadline) + MAX_REPORT_AGE + 1);
+        vault.attestExpiry(second);
+        pool.refund(1);
+        vm.expectEmit(address(vault));
+        emit ICoreVault.BridgeExpiryNoteFailed(second, address(bridge));
+        assertEq(vault.recognizeRefund(second), SENT);
+        assertEq(uint8(vault.transit(second).state), uint8(TransitState.RefundRecognized));
+    }
+
+    /// DEC-162, DEC-056: a caller cannot starve `noteExpiry` so that the fee rule silently misses an expiry: at any gas
+    /// limit, the attestation either reverts or the adapter has the note.
+    function test_DEC162_starvedAttestationNeverSkipsTheNote() public {
+        bytes32 id = _sendDefault();
+        bytes32 ref = vault.transit(id).bridgeRef;
+        vm.warp(vault.transit(id).fillDeadline + 1);
+        _deliver(_spokeReport(0, 0)); // a report built after the deadline proves non-arrival
+        uint256 succeeded;
+        for (uint256 g = 40_000; g <= 400_000; g += 4000) {
+            uint256 snapshot = vm.snapshotState();
+            (bool ok,) = address(vault).call{gas: g}(abi.encodeCall(ICoreVault.attestExpiry, (id)));
+            if (ok) {
+                ++succeeded;
+                assertEq(bridge.expiryNotes(ref), 1, "every successful attestation reached the adapter");
+            }
+            vm.revertToState(snapshot);
+        }
+        assertGt(succeeded, 0, "enough gas attests");
     }
 }

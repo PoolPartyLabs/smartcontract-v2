@@ -13,6 +13,7 @@ import {MockPositionAdapter} from "../../mocks/spoke/MockPositionAdapter.sol";
 import {MockBridgeAdapter as SpokeMockBridgeAdapter} from "../../mocks/spoke/MockBridgeAdapter.sol";
 import {MockAcrossSpokePool as SpokeMockAcrossSpokePool} from "../../mocks/spoke/MockAcrossSpokePool.sol";
 import {MockWormholeCore} from "../../mocks/spoke/MockWormholeCore.sol";
+import {MockBridgeNextArrive} from "../../mocks/across/MockBridgeNextArrive.sol";
 
 /// @title Regression (security review S-3): an expired send home no longer leaves Share Assets for a window a
 ///        depositor can buy into
@@ -104,8 +105,11 @@ contract POC_ReturnLegValuationGap is CoreVaultFixture {
         _deliverSpokeReport();
         assertEq(vault.inFlightValue(), 0, "arrival confirmed");
 
+        // The spoke's mock bridge adapter fixes the amount to arrive (DEC-162); the quote argument is ignored.
+        MockBridgeNextArrive.set(address(spokeAcrossAdapter), 399_800e6);
+        BridgeQuote memory none;
         vm.prank(manager);
-        bytes32 homebound = spoke.sendToHub(400_000e6, TransferKind.Principal, 0, _quote(399_800e6));
+        bytes32 homebound = spoke.sendToHub(400_000e6, TransferKind.Principal, 0, none);
         Transit memory t = spoke.hubBoundTransit(homebound);
         _deliverSpokeReport();
         uint256 listedAssets = vault.shareAssets();

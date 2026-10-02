@@ -236,41 +236,34 @@ abstract contract CrossChainFixture is Test {
         vm.stopPrank();
     }
 
-    function _quote(uint256 outputAmount) internal view returns (BridgeQuote memory) {
-        return BridgeQuote({
-            outputAmount: outputAmount,
-            quoteTimestamp: uint32(block.timestamp),
-            exclusivityDeadline: 0,
-            exclusiveRelayer: address(0)
-        });
+    /// @dev DEC-162: the Across adapter's fee on a route with no expiry noted: `ceil(amount * 0.08%) + 0.03`.
+    function _ruleFee(uint256 amount) internal pure returns (uint256) {
+        return (amount * 8e14 + 1e18 - 1) / 1e18 + 30_000;
     }
 
-    /// @dev Manager send to the spoke; returns the transit id and the Across deposit id on the hub SpokePool.
-    function _sendToSpoke(uint256 amount, uint256 outputAmount)
-        internal
-        returns (bytes32 transitId, uint256 depositId)
-    {
+    /// @dev Manager send to the spoke; returns the transit id and the Across deposit id on the hub SpokePool. DEC-158,
+    ///      DEC-162: the manager passes no bridge parameter; the Across adapter fixes the amount to arrive.
+    function _sendToSpoke(uint256 amount) internal returns (bytes32 transitId, uint256 depositId) {
         // Security review S-14: the hub funds a spoke only once it accepted a report from it.
         if (!receiver.hasReport(0)) _reportAndDeliver(0);
         vm.chainId(HUB);
         depositId = hubPool.numberOfDeposits();
         vm.prank(manager);
-        transitId = core.sendToSpoke(0, amount, 0, _quote(outputAmount));
+        transitId = core.sendToSpoke(0, amount, 0, "");
     }
 
     // ---------------------------------------------------------------------------------------------------------------
     // Spoke actions
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @dev Manager send home with an explicit quote; returns the transit id and the Across deposit id on the spoke pool.
-    function _sendToHub(uint256 amount, TransferKind kind, BridgeQuote memory quote)
-        internal
-        returns (bytes32 transitId, uint256 depositId)
-    {
+    /// @dev Manager send home; returns the transit id and the Across deposit id on the spoke pool. The quote argument
+    ///      is vestigial (ignored since DEC-158 / DEC-162); the Across adapter fixes the amount to arrive.
+    function _sendToHub(uint256 amount, TransferKind kind) internal returns (bytes32 transitId, uint256 depositId) {
         vm.chainId(SPOKE);
         depositId = spokePool.numberOfDeposits();
+        BridgeQuote memory none;
         vm.prank(manager);
-        transitId = spoke.sendToHub(amount, kind, 0, quote);
+        transitId = spoke.sendToHub(amount, kind, 0, none);
         vm.chainId(HUB);
     }
 

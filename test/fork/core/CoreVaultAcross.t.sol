@@ -7,7 +7,7 @@ import {CoreVault} from "../../../src/core/CoreVault.sol";
 import {CoreVaultConfig} from "../../../src/core/CoreVaultTypes.sol";
 import {TransitEscrow} from "../../../src/core/TransitEscrow.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
-import {BridgeQuote, Transit, TransitState, TransferKind} from "../../../src/interfaces/FundTypes.sol";
+import {Transit, TransitState, TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {IAcrossSpokePool} from "../../../src/interfaces/external/IAcrossSpokePool.sol";
 import {
     Mandate,
@@ -113,14 +113,10 @@ contract CoreVaultAcrossForkTest is Test {
         receiver.deliver(0, first);
         uint32 depositId = IAcrossSpokePool(SPOKE_POOL).numberOfDeposits();
         uint256 poolBefore = IERC20(USDC).balanceOf(SPOKE_POOL);
-        BridgeQuote memory quote = BridgeQuote({
-            outputAmount: 999.4e6,
-            quoteTimestamp: uint32(block.timestamp),
-            exclusivityDeadline: 0,
-            exclusiveRelayer: address(0)
-        });
+        // DEC-162: the bridge adapter fixes the amount to arrive (the mock adapter takes 0.6 here).
+        bridge.setFee(0.6e6);
         vm.prank(manager);
-        bytes32 id = vault.sendToSpoke(0, 1000e6, 0, quote);
+        bytes32 id = vault.sendToSpoke(0, 1000e6, 0, "");
         Transit memory t = vault.transit(id);
         assertEq(uint8(t.state), uint8(TransitState.Sent));
         assertEq(t.bridgeRef, bytes32(uint256(depositId)), "Across deposit id");

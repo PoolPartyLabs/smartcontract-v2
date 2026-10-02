@@ -21,10 +21,11 @@ import {AccessFundFixture} from "./AccessFundFixture.sol";
 ///         `CoreVault.recoverUnlistedArrival` (S-4) credits it (test/security/crosschain/SendHomeStranded.t.sol).
 contract UnmatchedReturnLegPoC is AccessFundFixture {
     uint256 internal constant T0 = 1_800_000_000;
+    /// @dev DEC-162: the Across adapters fix the amounts to arrive at 0.08% plus 0.03 (first sends on each route).
     uint256 internal constant SENT = 300_000e6;
-    uint256 internal constant ARRIVES = 299_700e6;
+    uint256 internal constant ARRIVES = SENT - 240e6 - 30_000; // 299,759.97
     uint256 internal constant SENT_HOME = 299_000e6;
-    uint256 internal constant ARRIVES_HOME = 298_700e6;
+    uint256 internal constant ARRIVES_HOME = SENT_HOME - 239.2e6 - 30_000; // 298,760.77
 
     /// @dev What the spoke chain produced, carried across the chain switch in memory.
     struct SpokeSide {
@@ -48,7 +49,8 @@ contract UnmatchedReturnLegPoC is AccessFundFixture {
         _deposit(core, alice, 500_000e6);
         _deliverReport(a.valueReportReceiver, s.spokeVault, 0, s.reportFirst);
         vm.prank(manager);
-        assertEq(core.sendToSpoke(0, SENT, 0, _quote(ARRIVES, address(0))), _hubTransitId(a.coreVault));
+        assertEq(core.sendToSpoke(0, SENT, 0, ""), _hubTransitId(a.coreVault));
+        assertEq(core.transit(_hubTransitId(a.coreVault)).amountToArrive, ARRIVES);
 
         vm.warp(T0 + 900);
         _deliverReport(a.valueReportReceiver, s.spokeVault, 1, s.reportAfterArrival);
@@ -72,7 +74,9 @@ contract UnmatchedReturnLegPoC is AccessFundFixture {
 
         assertEq(core.unmatchedArrivals(), 0, "S-4: credited on the report after the outage");
         assertEq(core.idle(), 198_750e6 + ARRIVES_HOME, "S-4: in Idle");
-        assertEq(core.shareAssets(), 198_750e6 + 690e6 + ARRIVES_HOME, "S-4: Share Assets whole but for the fees");
+        // The spoke keeps the arrival less its 10 USDG Operating Cash top-up and the send home.
+        uint256 spokeLeft = ARRIVES - 10e6 - SENT_HOME;
+        assertEq(core.shareAssets(), 198_750e6 + spokeLeft + ARRIVES_HOME, "S-4: Share Assets whole but for the fees");
     }
 
     /// @dev Runs the spoke's half on the spoke chain: the hub's send arrives, the manager sends most of it home, and
@@ -99,9 +103,10 @@ contract UnmatchedReturnLegPoC is AccessFundFixture {
         spoke.report();
         s.reportAfterArrival = spokeWormhole.published(1).payload;
 
-        // The manager sends 299,000 USDG home (0.1% fee) and a report lists it while it is in flight.
+        // The manager sends 299,000 USDG home (the Across adapter's fee) and a report lists it while it is in flight.
         vm.prank(manager);
-        s.homeTransitId = spoke.sendToHub(SENT_HOME, TransferKind.Principal, 0, _quote(ARRIVES_HOME, address(0)));
+        s.homeTransitId = spoke.sendToHub(SENT_HOME, TransferKind.Principal, 0, _noQuote());
+        assertEq(spoke.hubBoundTransit(s.homeTransitId).amountToArrive, ARRIVES_HOME);
         spoke.report();
         s.reportInsideWindow = spokeWormhole.published(2).payload;
         assertEq(spoke.buildReport().inFlightToHub.length, 1);

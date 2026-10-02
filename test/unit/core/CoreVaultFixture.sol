@@ -7,7 +7,7 @@ import {CoreVaultConfig} from "../../../src/core/CoreVaultTypes.sol";
 import {ShareToken} from "../../../src/core/ShareToken.sol";
 import {TransitEscrow} from "../../../src/core/TransitEscrow.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
-import {BridgeQuote, TransferKind} from "../../../src/interfaces/FundTypes.sol";
+import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {
     Mandate,
     AdapterConfig,
@@ -23,6 +23,8 @@ import {MockPriceSource} from "../../mocks/core/MockPriceSource.sol";
 import {MockManagerRegistry} from "../../mocks/core/MockManagerRegistry.sol";
 import {MockAcrossSpokePool} from "../../mocks/core/MockAcrossSpokePool.sol";
 import {MockBridgeAdapter} from "../../mocks/core/MockBridgeAdapter.sol";
+import {AcrossBridgeAdapter} from "../../../src/adapters/AcrossBridgeAdapter.sol";
+import {MockAcrossSpokePool as AcrossPoolStandIn} from "../../mocks/across/MockAcrossSpokePool.sol";
 import {MockHubSpokeVault} from "../../mocks/core/MockHubSpokeVault.sol";
 import {MockReportReceiver} from "../../mocks/core/MockReportReceiver.sol";
 
@@ -147,6 +149,24 @@ abstract contract CoreVaultFixture is Test {
         shares = ShareToken(v.shareToken());
     }
 
+    /// @dev The fixture's Core Vault with the real AcrossBridgeAdapter as its hub bridge adapter, over the offline
+    ///      SpokePool stand-in (DEC-162: the adapter fixes the amount to arrive), with Alice's deposit and the spoke's
+    ///      first report (S-14).
+    function _deployWithAcross(uint256 aliceDeposit)
+        internal
+        returns (AcrossBridgeAdapter across, AcrossPoolStandIn acrossPool)
+    {
+        acrossPool = new AcrossPoolStandIn(1);
+        address predictedVault = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1);
+        across = new AcrossBridgeAdapter(predictedVault, makeAddr("guardian"), address(acrossPool));
+        Mandate memory m = _mandate(2000);
+        m.bridgeAdapters[0] = BridgeAdapterConfig(SPOKE, HUB, address(across));
+        _deploy(m, _config(25));
+        assertEq(address(vault), predictedVault, "the adapter's vault");
+        _deposit(alice, aliceDeposit);
+        _ensureSpokeReport();
+    }
+
     /// @dev A vault with no flow fee and no performance fee, for the worked examples that predate DEC-106.
     function _deployFeeless() internal returns (CoreVault) {
         return _deploy(_mandate(0), _config(0));
@@ -174,13 +194,10 @@ abstract contract CoreVaultFixture is Test {
         return vault.claimPayout("");
     }
 
-    function _quote(uint256 outputAmount) internal view returns (BridgeQuote memory) {
-        return BridgeQuote({
-            outputAmount: outputAmount,
-            quoteTimestamp: uint32(block.timestamp),
-            exclusivityDeadline: 0,
-            exclusiveRelayer: address(0)
-        });
+    /// @dev `bridgeData` the mock bridge adapter reads as its amount to arrive (a stand-in for a quote an adapter
+    ///      verifies itself). DEC-158, DEC-162: the Core Vault never reads it; the adapter fixes the amount.
+    function _quote(uint256 outputAmount) internal pure returns (bytes memory) {
+        return abi.encode(outputAmount);
     }
 
     function _send(uint256 amount, uint256 outputAmount) internal returns (bytes32 transitId) {

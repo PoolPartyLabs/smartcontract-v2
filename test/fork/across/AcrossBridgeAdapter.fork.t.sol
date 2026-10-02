@@ -20,7 +20,8 @@ interface IAcrossSpokePoolState {
 }
 
 /// @notice The adapter's built call executed by a vault harness against the real Across SpokePools on Arbitrum One
-///         (Hub Chain) and Robinhood Chain (Spoke Chain), at the pinned fork blocks.
+///         (Hub Chain) and Robinhood Chain (Spoke Chain), at the pinned fork blocks. Every Across term but the
+///         vault's route, recipient, tokens, amount and message is the adapter's (DEC-158, DEC-162).
 contract AcrossBridgeAdapterForkTest is Test {
     // Arbitrum One (Hub Chain)
     uint256 internal constant ARBITRUM_CHAIN_ID = 42_161;
@@ -32,11 +33,10 @@ contract AcrossBridgeAdapterForkTest is Test {
     address internal constant RH_SPOKE_POOL = 0xD29C85F15DF544bA632C9E25829fd29d767d7978;
     address internal constant RH_USDG = 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168;
 
-    /// @dev Live SpokePool error selectors (across-protocol/contracts V3SpokePoolInterface).
-    bytes4 internal constant INVALID_QUOTE_TIMESTAMP = bytes4(keccak256("InvalidQuoteTimestamp()"));
-
     uint256 internal constant INPUT_AMOUNT = 1000e6;
     uint256 internal constant OUTPUT_AMOUNT = 999_400_000; // about 0.06% route fee (DEC-034, DEC-085)
+    /// @dev DEC-162: the adapter's first sends pay 0.08% plus 0.03 (doc 12 §6): 1,000 arrives as 999.17.
+    uint256 internal constant RULE_OUTPUT = INPUT_AMOUNT - 800_000 - 30_000;
 
     address internal guardian = makeAddr("guardian");
     address internal hubCoreVault = makeAddr("hubCoreVault");
@@ -73,12 +73,8 @@ contract AcrossBridgeAdapterForkTest is Test {
             inputToken: ARB_USDC,
             outputToken: RH_USDG,
             inputAmount: INPUT_AMOUNT,
-            outputAmount: OUTPUT_AMOUNT,
             destinationChainId: ROBINHOOD_CHAIN_ID,
             recipient: bytes32(uint256(uint160(spokeVault))),
-            quoteTimestamp: uint32(block.timestamp),
-            exclusivityDeadline: 0,
-            exclusiveRelayer: address(0),
             message: TransitMessage.encode(
                 keccak256("fund"), ARBITRUM_CHAIN_ID, bytes32(uint256(1)), TransferKind.Principal
             )
@@ -91,12 +87,8 @@ contract AcrossBridgeAdapterForkTest is Test {
             inputToken: RH_USDG,
             outputToken: ARB_USDC,
             inputAmount: INPUT_AMOUNT,
-            outputAmount: OUTPUT_AMOUNT,
             destinationChainId: ARBITRUM_CHAIN_ID,
             recipient: bytes32(uint256(uint160(hubCoreVault))),
-            quoteTimestamp: uint32(block.timestamp),
-            exclusivityDeadline: 0,
-            exclusiveRelayer: address(0),
             message: TransitMessage.encode(
                 keccak256("fund"), ROBINHOOD_CHAIN_ID, bytes32(uint256(2)), TransferKind.Income
             )
@@ -113,9 +105,9 @@ contract AcrossBridgeAdapterForkTest is Test {
     }
 
     /// @dev Executes one send and asserts the event, the exact debit, the approval reset and the escrow.
-    /// @param emittedExclusivity The exclusivity deadline the live SpokePool is expected to emit.
-    function _sendAndAssert(IBridgeAdapter.SendRequest memory req, address spokePool, uint32 emittedExclusivity)
+    function _sendAndAssert(IBridgeAdapter.SendRequest memory req, address spokePool)
         internal
+        returns (IBridgeAdapter.BridgeCall memory call)
     {
         IERC20 token = IERC20(req.inputToken);
         uint256 vaultBefore = token.balanceOf(address(harness));
@@ -124,14 +116,14 @@ contract AcrossBridgeAdapterForkTest is Test {
         address expectedEscrow = _nextEscrow();
 
         vm.recordLogs();
-        (IBridgeAdapter.BridgeCall memory call, address escrow) = harness.send(req);
+        address escrow;
+        (call, escrow) = harness.send(req);
 
         assertEq(escrow, expectedEscrow, "escrow is the depositor");
-        _assertDeposited(spokePool, req, depositId, escrow, emittedExclusivity);
+        _assertDeposited(spokePool, req, depositId, escrow, call.amountToArrive);
         assertEq(call.target, spokePool, "target");
         assertEq(uint256(call.transitRef), depositId, "transitRef = deposit id");
         assertEq(IAcrossSpokePool(spokePool).numberOfDeposits(), depositId + 1, "one deposit");
-        assertEq(call.amountToArrive, req.outputAmount, "amountToArrive");
         assertEq(call.fillDeadline, uint32(block.timestamp) + 21_600, "fillDeadline");
         assertEq(token.balanceOf(address(harness)), vaultBefore - req.inputAmount, "exact vault debit");
         assertEq(token.balanceOf(spokePool), poolBefore + req.inputAmount, "pool credit");
@@ -169,7 +161,7 @@ contract AcrossBridgeAdapterForkTest is Test {
         IBridgeAdapter.SendRequest memory req,
         uint256 depositId,
         address escrow,
-        uint32 emittedExclusivity
+        uint256 amountToArrive
     ) internal view {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         uint256 found;
@@ -189,12 +181,12 @@ contract AcrossBridgeAdapterForkTest is Test {
         assertEq(d.inputToken, _word(req.inputToken), "inputToken");
         assertEq(d.outputToken, _word(req.outputToken), "outputToken");
         assertEq(d.inputAmount, req.inputAmount, "inputAmount");
-        assertEq(d.outputAmount, req.outputAmount, "outputAmount");
-        assertEq(d.quoteTimestamp, req.quoteTimestamp, "quoteTimestamp");
+        assertEq(d.outputAmount, amountToArrive, "outputAmount = the adapter's amount to arrive");
+        assertEq(d.quoteTimestamp, block.timestamp, "quoteTimestamp = now");
         assertEq(d.fillDeadline, uint32(block.timestamp) + 21_600, "fillDeadline = now + 6 h");
-        assertEq(d.exclusivityDeadline, emittedExclusivity, "exclusivityDeadline");
+        assertEq(d.exclusivityDeadline, 0, "no exclusivity");
         assertEq(d.recipient, req.recipient, "recipient");
-        assertEq(d.exclusiveRelayer, _word(req.exclusiveRelayer), "exclusiveRelayer");
+        assertEq(d.exclusiveRelayer, bytes32(0), "no exclusive relayer");
         assertEq(d.message, req.message, "message");
     }
 
@@ -219,39 +211,20 @@ contract AcrossBridgeAdapterForkTest is Test {
         _assertRouteOpen(ARB_SPOKE_POOL, ARBITRUM_CHAIN_ID);
     }
 
-    /// DEC-066, DEC-085, DEC-087, DEC-090: USDC to chain 4663 for USDG; every FundsDeposited field as built.
+    /// DEC-066, DEC-085, DEC-087, DEC-090, DEC-162: USDC to chain 4663 for USDG; every FundsDeposited field as built,
+    /// the amount to arrive the adapter's rule (0.08% plus 0.03 on the first send).
     function test_DEC087_arbitrum_sendUsdcToRobinhoodEmitsEveryField() public {
         _forkArbitrum();
-        _sendAndAssert(_hubToSpokeRequest(), ARB_SPOKE_POOL, 0);
+        assertEq(_sendAndAssert(_hubToSpokeRequest(), ARB_SPOKE_POOL).amountToArrive, RULE_OUTPUT);
     }
 
-    /// DEC-087: an absolute exclusivity deadline is emitted as given; an offset is turned into a timestamp by the
-    /// pool (Across `exclusivityParameter`), so the vault must pass the form it means.
-    function test_DEC087_arbitrum_exclusivityEncodedAsReceived() public {
+    /// DEC-158, DEC-162: the live pool accepts every send the adapter builds back to back (quote time = now, no
+    /// exclusivity), and the second send on the route is priced from the first.
+    function test_DEC162_arbitrum_consecutiveSendsAreAccepted() public {
         _forkArbitrum();
-        IBridgeAdapter.SendRequest memory req = _hubToSpokeRequest();
-        req.exclusiveRelayer = relayer;
-        req.exclusivityDeadline = uint32(block.timestamp) + 30;
-        _sendAndAssert(req, ARB_SPOKE_POOL, uint32(block.timestamp) + 30);
-
-        req.exclusivityDeadline = 30;
-        _sendAndAssert(req, ARB_SPOKE_POOL, uint32(block.timestamp) + 30);
-    }
-
-    /// DEC-066: the real pool rejects a quote older than `depositQuoteTimeBuffer`; nothing moves.
-    function test_DEC066_arbitrum_staleQuoteReverts() public {
-        _forkArbitrum();
-        IBridgeAdapter.SendRequest memory req = _hubToSpokeRequest();
-        uint32 buffer = IAcrossSpokePool(ARB_SPOKE_POOL).depositQuoteTimeBuffer();
-        uint256 vaultBefore = IERC20(ARB_USDC).balanceOf(address(harness));
-
-        req.quoteTimestamp = uint32(block.timestamp) - buffer - 1;
-        vm.expectRevert(INVALID_QUOTE_TIMESTAMP);
-        harness.send(req);
-        assertEq(IERC20(ARB_USDC).balanceOf(address(harness)), vaultBefore);
-
-        req.quoteTimestamp = uint32(block.timestamp) - buffer; // oldest accepted
-        _sendAndAssert(req, ARB_SPOKE_POOL, 0);
+        _sendAndAssert(_hubToSpokeRequest(), ARB_SPOKE_POOL);
+        vm.warp(block.timestamp + 60);
+        assertEq(_sendAndAssert(_hubToSpokeRequest(), ARB_SPOKE_POOL).amountToArrive, RULE_OUTPUT);
     }
 
     /// DEC-090: a spoke-to-hub fill arriving on Arbitrum reaches a contract recipient from the SpokePool.
@@ -267,26 +240,10 @@ contract AcrossBridgeAdapterForkTest is Test {
         _assertRouteOpen(RH_SPOKE_POOL, ROBINHOOD_CHAIN_ID);
     }
 
-    /// DEC-066, DEC-085, DEC-087, DEC-090: USDG to chain 42161 for USDC; every FundsDeposited field as built.
+    /// DEC-066, DEC-085, DEC-087, DEC-090, DEC-162: USDG to chain 42161 for USDC; every FundsDeposited field as built.
     function test_DEC087_robinhood_sendUsdgToArbitrumEmitsEveryField() public {
         _forkRobinhood();
-        _sendAndAssert(_spokeToHubRequest(), RH_SPOKE_POOL, 0);
-    }
-
-    /// DEC-066: the real pool rejects a quote older than `depositQuoteTimeBuffer`; nothing moves.
-    function test_DEC066_robinhood_staleQuoteReverts() public {
-        _forkRobinhood();
-        IBridgeAdapter.SendRequest memory req = _spokeToHubRequest();
-        uint32 buffer = IAcrossSpokePool(RH_SPOKE_POOL).depositQuoteTimeBuffer();
-        uint256 vaultBefore = IERC20(RH_USDG).balanceOf(address(harness));
-
-        req.quoteTimestamp = uint32(block.timestamp) - buffer - 1;
-        vm.expectRevert(INVALID_QUOTE_TIMESTAMP);
-        harness.send(req);
-        assertEq(IERC20(RH_USDG).balanceOf(address(harness)), vaultBefore);
-
-        req.quoteTimestamp = uint32(block.timestamp) - buffer;
-        _sendAndAssert(req, RH_SPOKE_POOL, 0);
+        assertEq(_sendAndAssert(_spokeToHubRequest(), RH_SPOKE_POOL).amountToArrive, RULE_OUTPUT);
     }
 
     /// DEC-090: a hub-to-spoke fill arriving on Robinhood Chain reaches a contract recipient from the SpokePool.

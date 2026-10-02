@@ -86,7 +86,7 @@ contract SpotManipulatedReportPoC is CrossChainFixture {
         uint256 aliceShares = shares.balanceOf(alice);
 
         // The manager allocates 900,000 USDC to Robinhood and opens a WETH/USDG position around the price.
-        (, uint256 depositId) = _sendToSpoke(900_000e6, 899_550e6);
+        (, uint256 depositId) = _sendToSpoke(900_000e6);
         _fillOnSpoke(depositId);
         _openSpokePosition();
         _reportAndDeliver(900);

@@ -197,13 +197,13 @@ abstract contract AccessFundFixture is Test, FactoryDeployment, FundMandate {
         vm.stopPrank();
     }
 
-    function _quote(uint256 outputAmount, address exclusiveRelayer) internal view returns (BridgeQuote memory) {
-        return BridgeQuote({
-            outputAmount: outputAmount,
-            quoteTimestamp: uint32(block.timestamp),
-            exclusivityDeadline: exclusiveRelayer == address(0) ? 0 : 3600,
-            exclusiveRelayer: exclusiveRelayer
-        });
+    /// @dev The Spoke Vault's vestigial quote argument, ignored since DEC-158 / DEC-162 (the Across adapter fixes the
+    ///      amount to arrive).
+    function _noQuote() internal pure returns (BridgeQuote memory q) {}
+
+    /// @dev DEC-162: the Across adapter's fee on a route with no expiry noted: `ceil(amount * 0.08%) + 0.03`.
+    function _ruleFee(uint256 amount) internal pure returns (uint256) {
+        return (amount * 8e14 + 1e18 - 1) / 1e18 + 30_000;
     }
 
     /// @dev Security review S-14: the spoke's first (empty) report, as its Spoke Vault would publish it right after

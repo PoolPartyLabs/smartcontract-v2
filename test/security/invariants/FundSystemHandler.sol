@@ -16,6 +16,7 @@ import {CoreMockToken} from "../../mocks/core/CoreMockTokens.sol";
 import {MockAcrossSpokePool} from "../../mocks/core/MockAcrossSpokePool.sol";
 import {MockPositionAdapter} from "../../mocks/spoke/MockPositionAdapter.sol";
 import {MockWormholeCore} from "../../mocks/spoke/MockWormholeCore.sol";
+import {MockBridgeNextArrive} from "../../mocks/across/MockBridgeNextArrive.sol";
 import {FundSystem} from "./FundSystemFixture.sol";
 
 /// @title Handler of the whole-fund invariant suites
@@ -41,6 +42,9 @@ contract FundSystemHandler is Test {
     uint256 internal constant SPOKE = 4663;
     uint16 internal constant WH_SPOKE = 72;
     uint256 internal constant MAX_BRIDGE_FEE_BPS = 50;
+
+    /// @dev The spoke's mock bridge adapter (the amount to arrive of a send home is set on it).
+    address internal _spokeBridge;
     uint256 internal constant MAX_POSITIONS = 3;
     bytes32 internal constant HUB_POOL = keccak256("hub WETH/USDC");
     bytes32 internal constant AAVE_USDC = keccak256("aave USDC");
@@ -134,6 +138,7 @@ contract FundSystemHandler is Test {
 
     constructor(FundSystem memory system, bool listSendsHomeAtOnce_, bool recognizeRefundsBeforeReports_) {
         s = system;
+        _spokeBridge = system.spokeVault.bridgeAdapters()[0];
         fundId = system.core.fundId();
         listSendsHomeAtOnce = listSendsHomeAtOnce_;
         recognizeRefundsBeforeReports = recognizeRefundsBeforeReports_;
@@ -354,7 +359,7 @@ contract FundSystemHandler is Test {
         if (!s.receiver.hasReport(0)) _publishAndDeliver();
         uint256 depositIndex = s.hubPool.numberOfDeposits();
         vm.prank(s.manager);
-        try s.core.sendToSpoke(0, amount, 0, _quote(output)) returns (bytes32 id) {
+        try s.core.sendToSpoke(0, amount, 0, _hubQuote(output)) returns (bytes32 id) {
             Transit memory t = s.core.transit(id);
             assertEq(t.amountSent, amount, "transit amount sent");
             assertEq(t.amountToArrive, output, "transit amount to arrive");
@@ -447,8 +452,9 @@ contract FundSystemHandler is Test {
         if (output == 0) return;
         TransferKind kind = income ? TransferKind.Income : TransferKind.Principal;
         uint256 depositIndex = s.spokePool.numberOfDeposits();
+        BridgeQuote memory none = _homeQuote(output);
         vm.prank(s.manager);
-        bytes32 id = s.spokeVault.sendToHub(amount, kind, 0, _quote(output));
+        bytes32 id = s.spokeVault.sendToHub(amount, kind, 0, none);
         Transit memory t = s.spokeVault.hubBoundTransit(id);
         _homeSends.push(HomeSend(id, depositIndex, amount, output, t.fillDeadline, kind, PENDING, false, 0));
         ++done["sendHome"];
@@ -881,8 +887,17 @@ contract FundSystemHandler is Test {
         return _actors[seed % _actors.length];
     }
 
-    function _quote(uint256 outputAmount) internal view returns (BridgeQuote memory) {
-        return BridgeQuote(outputAmount, uint32(block.timestamp), 0, address(0));
+    /// @dev DEC-158, DEC-162: the vaults pass no amount to arrive; the mock bridge adapters fix it. On the hub the mock
+    ///      reads this `bridgeData` word as its amount (a stand-in for a quote an adapter verifies itself).
+    function _hubQuote(uint256 outputAmount) internal pure returns (bytes memory) {
+        return abi.encode(outputAmount);
+    }
+
+    /// @dev The spoke's mock adapter delivers `outputAmount` on the next send home; the returned quote is the Spoke
+    ///      Vault's vestigial argument, which it ignores.
+    function _homeQuote(uint256 outputAmount) internal returns (BridgeQuote memory q) {
+        MockBridgeNextArrive.set(_spokeBridge, outputAmount);
+        q.outputAmount = outputAmount;
     }
 
     function _sharePrice() internal view returns (uint256) {

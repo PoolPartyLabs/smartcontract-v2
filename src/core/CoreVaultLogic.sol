@@ -14,12 +14,13 @@ import {IPriceSource} from "../interfaces/IPriceSource.sol";
 import {IManagerRegistry} from "../interfaces/IManagerRegistry.sol";
 import {IBridgeAdapter} from "../interfaces/IBridgeAdapter.sol";
 import {ITransitEscrow} from "../interfaces/ITransitEscrow.sol";
-import {Transit, TransitState, TransferKind, BridgeQuote} from "../interfaces/FundTypes.sol";
+import {Transit, TransitState, TransferKind} from "../interfaces/FundTypes.sol";
 import {SpokeConfig, BridgeAdapterConfig} from "../mandate/Mandate.sol";
 import {ReportCodec} from "../libraries/ReportCodec.sol";
 import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 import {TransitMessage} from "../libraries/TransitMessage.sol";
 import {CoreVaultState, CoreVaultWiring, SpokeBook, HubBoundTransfer} from "./CoreVaultTypes.sol";
+import {SpokeVaultTypes} from "../spoke/SpokeVaultTypes.sol";
 
 /// @title CoreVaultLogic
 /// @notice Value bases, collected income, report application, sends to spokes and transit outcomes of the Core
@@ -697,37 +698,66 @@ library CoreVaultLogic {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // Send to a spoke (DEC-037, DEC-066, DEC-085, DEC-087, DEC-088, DEC-095, QA19)
+    // Send to a spoke (DEC-037, DEC-066, DEC-085, DEC-087, DEC-088, DEC-095, DEC-158, DEC-162)
     // ---------------------------------------------------------------------------------------------------------------
 
     /// @notice ICoreVault.sendToSpoke after access control, the guard and the Operating Cash top-up.
-    /// @dev DEC-087 and IBridgeAdapter custody: the vault fixes recipient, token pair, amounts and message; the adapter
-    ///      only builds the call; the vault requires the pinned target, approves exactly the amount, makes a plain CALL
-    ///      without value, requires the exact debit and resets the approval.
+    /// @dev DEC-087 and IBridgeAdapter custody: the vault fixes recipient, token pair, amount sent and message; the
+    ///      bridge adapter fixes the amount to arrive and every other bridge term (DEC-158, DEC-162: the manager passes
+    ///      no bridge parameter, and no bridge fee cap lives in the fund, DEC-156); the vault requires the pinned
+    ///      target, `0 < amountToArrive <= usdcAmount` and a future deadline, approves exactly the amount, makes a
+    ///      plain CALL without value, requires the exact debit and resets the approval.
     function sendToSpoke(
         CoreVaultState storage s,
         CoreVaultWiring memory w,
         uint256 spokeIndex,
         uint256 usdcAmount,
         uint256 bridgeRank,
-        BridgeQuote calldata quote
+        bytes calldata bridgeData
     ) public returns (bytes32 transitId) {
         SpokeConfig memory spoke = s.mandate.spokes[spokeIndex];
-        address adapter = _checkSend(s, w, spokeIndex, spoke.chainId, usdcAmount, bridgeRank, quote);
-
+        address adapter = _checkSend(s, w, spokeIndex, spoke.chainId, usdcAmount, bridgeRank);
         transitId = keccak256(abi.encode(block.chainid, address(this), ++s.transitNonce));
-        // DEC-066, QA6: a keyless per-send escrow is the depositor of record, so a refund is recognizable.
-        address escrow = Clones.clone(w.escrowImplementation);
-        ITransitEscrow(escrow).initialize(address(this), w.usdc);
+        (IBridgeAdapter.BridgeCall memory call, address escrow) =
+            _buildSend(s, w, spoke, adapter, usdcAmount, transitId, bridgeData);
+        _bookSend(s, w, spokeIndex, spoke, adapter, escrow, usdcAmount, transitId, call);
+        _executeBridgeCall(IERC20(w.usdc), call, usdcAmount);
+    }
 
-        IBridgeAdapter.BridgeCall memory call =
-            IBridgeAdapter(adapter).buildSend(_sendRequest(w, spoke, usdcAmount, quote, transitId), escrow);
+    /// @dev DEC-066, QA6: clones the keyless per-send escrow (the depositor of record, so a refund is recognizable),
+    ///      has the adapter build the call and checks it: pinned target, `0 < amountToArrive <= usdcAmount` (DEC-085,
+    ///      DEC-162) and a future fill deadline.
+    function _buildSend(
+        CoreVaultState storage s,
+        CoreVaultWiring memory w,
+        SpokeConfig memory spoke,
+        address adapter,
+        uint256 usdcAmount,
+        bytes32 transitId,
+        bytes calldata bridgeData
+    ) private returns (IBridgeAdapter.BridgeCall memory call, address escrow) {
+        escrow = Clones.clone(w.escrowImplementation);
+        ITransitEscrow(escrow).initialize(address(this), w.usdc);
+        call = IBridgeAdapter(adapter).buildSend(_sendRequest(w, spoke, usdcAmount, transitId), escrow, bridgeData);
         if (
-            call.target != s.bridgeTarget[adapter] || call.amountToArrive != quote.outputAmount
+            call.target != s.bridgeTarget[adapter] || call.amountToArrive == 0 || call.amountToArrive > usdcAmount
                 || call.fillDeadline <= block.timestamp
         ) revert ICoreVault.BridgeCallMismatch(adapter);
+    }
 
-        // Effects: DEC-066 state Sent; Spoke Cap at the amount sent (C1); Share Assets at the amount to arrive (DEC-085).
+    /// @dev Effects: DEC-066 state Sent; Spoke Cap at the amount sent (C1); Share Assets at the amount to arrive
+    ///      (DEC-085).
+    function _bookSend(
+        CoreVaultState storage s,
+        CoreVaultWiring memory w,
+        uint256 spokeIndex,
+        SpokeConfig memory spoke,
+        address adapter,
+        address escrow,
+        uint256 usdcAmount,
+        bytes32 transitId,
+        IBridgeAdapter.BridgeCall memory call
+    ) private {
         s.idle -= usdcAmount;
         SpokeBook storage book = s.spokeBooks[spokeIndex];
         book.inFlightSent += usdcAmount;
@@ -749,11 +779,13 @@ library CoreVaultLogic {
         s.transits[transitId] = t;
         s.transitSpoke[transitId] = spokeIndex;
         emit ICoreVault.SentToSpoke(transitId, spokeIndex, t, w.hubChainId);
+    }
 
-        // Interaction: IBridgeAdapter custody rule 3.
-        IERC20 token = IERC20(w.usdc);
+    /// @dev Interaction, IBridgeAdapter custody rule 3: approve exactly `amount`, plain CALL without value, exact
+    ///      debit, approval reset.
+    function _executeBridgeCall(IERC20 token, IBridgeAdapter.BridgeCall memory call, uint256 amount) private {
         uint256 before = token.balanceOf(address(this));
-        token.forceApprove(call.target, usdcAmount);
+        token.forceApprove(call.target, amount);
         (bool ok, bytes memory ret) = call.target.call(call.data);
         if (!ok) {
             assembly ("memory-safe") {
@@ -761,7 +793,7 @@ library CoreVaultLogic {
             }
         }
         uint256 debited = before - token.balanceOf(address(this));
-        if (debited != usdcAmount) revert ICoreVault.BalanceChangeMismatch(usdcAmount, debited);
+        if (debited != amount) revert ICoreVault.BalanceChangeMismatch(amount, debited);
         token.forceApprove(call.target, 0);
     }
 
@@ -772,8 +804,7 @@ library CoreVaultLogic {
         uint256 spokeIndex,
         uint256 spokeChainId,
         uint256 usdcAmount,
-        uint256 bridgeRank,
-        BridgeQuote calldata quote
+        uint256 bridgeRank
     ) private view returns (address adapter) {
         // Security review S-14 (DEC-066, DEC-104): a spoke is funded only once the hub accepted a report from it. The
         // Spoke Vault is created by a second transaction on another chain; an Across fill to an address without code
@@ -795,40 +826,24 @@ library CoreVaultLogic {
         }
         if (adapter.codehash != s.bridgeCodehash[adapter]) revert ICoreVault.BridgeAdapterCodehashMismatch(adapter);
 
-        // Security review S-9: no Across exclusivity. An exclusive relayer (the manager's own) that never fills forces
-        // an expiry, and one that fills keeps the whole bound on every send; without exclusivity relayers compete.
-        if (quote.exclusiveRelayer != address(0) || quote.exclusivityDeadline != 0) {
-            revert ICoreVault.ExclusiveRelayerNotAllowed(quote.exclusiveRelayer);
-        }
-
-        // QA19: the quote's fee is at most maxBridgeFeeBps of the amount sent.
-        uint256 maxFee = usdcAmount * w.maxBridgeFeeBps / BPS;
-        uint256 fee = quote.outputAmount < usdcAmount ? usdcAmount - quote.outputAmount : 0;
-        if (fee > maxFee) revert ICoreVault.BridgeFeeAboveMax(fee, maxFee);
-
         // DEC-037, DEC-095, DEC-066 B1/C1: spoke value + in flight (both legs) + amount <= Spoke Cap.
         (uint256 spokeValue, uint256 inFlightSent, uint256 inFlightToHub, uint256 cap) = spokeCapUsage(s, w, spokeIndex);
         uint256 used = spokeValue + inFlightSent + inFlightToHub;
         if (used + usdcAmount > cap) revert ICoreVault.SpokeCapExceeded(spokeIndex, used, usdcAmount, cap);
     }
 
-    function _sendRequest(
-        CoreVaultWiring memory w,
-        SpokeConfig memory spoke,
-        uint256 usdcAmount,
-        BridgeQuote calldata quote,
-        bytes32 transitId
-    ) private pure returns (IBridgeAdapter.SendRequest memory) {
+    /// @dev DEC-087: what the vault fixes; never an amount to arrive (DEC-158, DEC-162).
+    function _sendRequest(CoreVaultWiring memory w, SpokeConfig memory spoke, uint256 usdcAmount, bytes32 transitId)
+        private
+        pure
+        returns (IBridgeAdapter.SendRequest memory)
+    {
         return IBridgeAdapter.SendRequest({
             inputToken: w.usdc,
             outputToken: spoke.spokeToken,
             inputAmount: usdcAmount,
-            outputAmount: quote.outputAmount,
             destinationChainId: spoke.chainId,
             recipient: spoke.spokeVault,
-            quoteTimestamp: quote.quoteTimestamp,
-            exclusivityDeadline: quote.exclusivityDeadline,
-            exclusiveRelayer: quote.exclusiveRelayer,
             message: TransitMessage.encode(w.fundId, w.hubChainId, transitId, TransferKind.Principal)
         });
     }
@@ -856,6 +871,13 @@ library CoreVaultLogic {
 
     /// @notice ICoreVault.attestExpiry: Sent becomes ExpiryAttested after the fill deadline with proof of non-arrival;
     ///         the Spoke Cap is released while Share Assets keep counting the transit until its refund (DEC-066).
+    /// @dev DEC-162: a report's proof of non-arrival is the send's outcome for the bridge adapter's fee rule
+    ///      (`_noteExpiry`); the time path proves nothing about the arrival (S-13), so on it the adapter learns the
+    ///      expiry only when the refund is recognized. Otherwise anyone could attest a filled send of a quiet fund
+    ///      (reports are published only when someone operates, DEC-157) and step every next send's fee up. A report
+    ///      proves nothing either for a send whose amount to arrive is below the Spoke Vault's listing minimum
+    ///      (`SpokeVaultTypes.MIN_LISTED_ARRIVAL`, CS-OQ-6: such an arrival is credited but never listed), so that
+    ///      send is also noted only at its refund.
     function attestExpiry(CoreVaultState storage s, CoreVaultWiring memory w, bytes32 transitId) public {
         Transit storage t = _knownTransit(s, transitId);
         if (t.state != TransitState.Sent) revert ICoreVault.InvalidTransitState(transitId, uint8(t.state));
@@ -872,15 +894,36 @@ library CoreVaultLogic {
         if (byReport) s.spokeBooks[spokeIndex].inFlightSent -= t.amountSent;
         else s.spokeCapHeld[transitId] = true;
         emit ICoreVault.TransitExpiryAttested(transitId, spokeIndex, msg.sender);
+        if (byReport && _listable(t)) _noteExpiry(t, transitId);
     }
 
-    /// @dev Releases the Spoke Cap a time-path attestation kept (security review S-13).
+    /// @dev Whether the spoke lists this send's arrival, so that a report's silence proves non-arrival for the fee
+    ///      rule: an arrival below `MIN_LISTED_ARRIVAL` is credited but never listed (CS-OQ-6).
+    function _listable(Transit storage t) private view returns (bool) {
+        return t.amountToArrive >= SpokeVaultTypes.MIN_LISTED_ARRIVAL;
+    }
+
+    /// @dev DEC-162: tells the transit's bridge adapter that the send will never arrive, so its fee rule steps the
+    ///      route's next send up. DEC-056: an adapter never blocks an outcome; a failure is only reported. A caller
+    ///      cannot starve the call to skip the note: EIP-150 leaves the vault 1/64 of the gas, far less than the work
+    ///      after the call, so a starved call reverts the whole outcome.
+    function _noteExpiry(Transit storage t, bytes32 transitId) private {
+        address adapter = t.bridgeAdapter;
+        try IBridgeAdapter(adapter).noteExpiry(t.bridgeRef) {}
+        catch {
+            emit ICoreVault.BridgeExpiryNoteFailed(transitId, adapter);
+        }
+    }
+
+    /// @dev Releases the Spoke Cap a time-path attestation kept (security review S-13); returns whether it held one.
     function _releaseHeldCap(CoreVaultState storage s, SpokeBook storage book, bytes32 transitId, uint256 amountSent)
         private
+        returns (bool held)
     {
-        if (!s.spokeCapHeld[transitId]) return;
+        if (!s.spokeCapHeld[transitId]) return false;
         delete s.spokeCapHeld[transitId];
         book.inFlightSent -= amountSent;
+        return true;
     }
 
     /// @notice ICoreVault.recognizeRefund (DEC-066, QA6): pulls an attested-expired transit's refund from its escrow
@@ -891,7 +934,11 @@ library CoreVaultLogic {
     ///      to the depositor, so an escrow holding less than `amountSent` holds no refund and nothing changes
     ///      (`NoRefund`). DEC-080, DEC-104: exactly `amountSent` enters Idle as the transit leaves In-flight Value;
     ///      anything above it (a donation) reaches the Core Vault unledgered and only `sweepExcess` moves it. A dust
-    ///      donation therefore can neither move the state nor Share Assets.
+    ///      donation therefore can neither move the state nor Share Assets. DEC-162: after an attestation by time
+    ///      alone, or by a report for a send below the listing minimum, the refund is the first proof of non-arrival,
+    ///      so the bridge adapter learns the expiry here. That proof is only the escrow balance: whoever pays
+    ///      `amountSent` into a filled send's escrow (the payment becomes the fund's) also steps one send's fee, once
+    ///      per send and within the cap (review round 1; a known limitation).
     function recognizeRefund(CoreVaultState storage s, CoreVaultWiring memory w, bytes32 transitId)
         public
         returns (uint256 amount)
@@ -907,11 +954,12 @@ library CoreVaultLogic {
         // The Spoke Cap was released at the attested expiry, or is released now if the expiry was attested by time
         // alone (S-13: the refund proves non-arrival); Share Assets release the transit now (QB11/QB10 stance).
         SpokeBook storage book = s.spokeBooks[spokeIndex];
-        _releaseHeldCap(s, book, transitId, amount);
+        bool attestedByTime = _releaseHeldCap(s, book, transitId, amount);
         book.inFlightToArrive -= t.amountToArrive;
         t.state = TransitState.RefundRecognized;
         s.idle += amount;
         emit ICoreVault.TransitRefundRecognized(transitId, spokeIndex, amount);
+        if (attestedByTime || !_listable(t)) _noteExpiry(t, transitId);
         uint256 before = token.balanceOf(address(this));
         ITransitEscrow(escrow).release(address(this));
         uint256 received = token.balanceOf(address(this)) - before;

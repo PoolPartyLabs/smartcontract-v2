@@ -42,6 +42,7 @@ import {MockAcrossSpokePool as HubAcrossPool} from "../../mocks/core/MockAcrossS
 import {MockBridgeAdapter as HubBridgeAdapter} from "../../mocks/core/MockBridgeAdapter.sol";
 import {MockAcrossSpokePool as SpokeAcrossPool} from "../../mocks/spoke/MockAcrossSpokePool.sol";
 import {MockBridgeAdapter as SpokeBridgeAdapter} from "../../mocks/spoke/MockBridgeAdapter.sol";
+import {MockBridgeNextArrive} from "../../mocks/across/MockBridgeNextArrive.sol";
 import {MockPositionAdapter} from "../../mocks/spoke/MockPositionAdapter.sol";
 import {MockWormholeCore} from "../../mocks/spoke/MockWormholeCore.sol";
 import {MockCoreBridge} from "../../mocks/receiver/MockCoreBridge.sol";
@@ -287,13 +288,10 @@ abstract contract AccountingPocFixture is Test {
         vm.stopPrank();
     }
 
-    function _quote(uint256 outputAmount) internal view returns (BridgeQuote memory) {
-        return BridgeQuote({
-            outputAmount: outputAmount,
-            quoteTimestamp: uint32(block.timestamp),
-            exclusivityDeadline: 0,
-            exclusiveRelayer: address(0)
-        });
+    /// @dev DEC-158, DEC-162: the vaults pass no amount to arrive; the mock bridge adapters fix it. On the hub the
+    ///      mock reads this `bridgeData` word as its amount (a stand-in for a quote an adapter verifies itself).
+    function _quote(uint256 outputAmount) internal pure returns (bytes memory) {
+        return abi.encode(outputAmount);
     }
 
     /// @dev Manager sends Idle to the Robinhood Spoke Vault through Across.
@@ -321,8 +319,11 @@ abstract contract AccountingPocFixture is Test {
 
     /// @dev Manager sends Unallocated Balance (or collected income) home through Across.
     function _sendHome(uint256 amount, uint256 outputAmount, TransferKind kind) internal returns (bytes32 transitId) {
+        // The spoke's mock adapter delivers `outputAmount`; the Spoke Vault ignores its vestigial quote argument.
+        MockBridgeNextArrive.set(address(spokeBridge), outputAmount);
+        BridgeQuote memory none;
         vm.prank(manager);
-        transitId = spokeVault.sendToHub(amount, kind, 0, _quote(outputAmount));
+        transitId = spokeVault.sendToHub(amount, kind, 0, none);
     }
 
     /// @dev An Across relayer fills a spoke-to-hub deposit on Arbitrum: USDC to the Core Vault with the message.

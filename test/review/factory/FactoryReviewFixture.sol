@@ -13,7 +13,7 @@ import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {ValueReportReceiver} from "../../../src/report/ValueReportReceiver.sol";
 import {ManagerRegistry} from "../../../src/core/ManagerRegistry.sol";
 import {IAcrossMessageHandler} from "../../../src/interfaces/external/IAcrossMessageHandler.sol";
-import {BridgeQuote, TransferKind} from "../../../src/interfaces/FundTypes.sol";
+import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {Mandate, MandateLib} from "../../../src/mandate/Mandate.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {MockToken} from "../../mocks/v4/MockToken.sol";
@@ -198,10 +198,6 @@ abstract contract FactoryReviewFixture is Test, FactoryDeployment, FundMandate {
         usdc.approve(address(vault), amount);
         (shares,) = vault.deposit(amount, 0);
         vm.stopPrank();
-    }
-
-    function _quote(uint256 outputAmount) internal view returns (BridgeQuote memory) {
-        return BridgeQuote(outputAmount, uint32(block.timestamp), 0, address(0));
     }
 
     /// @dev An Across fill as the live SpokePool performs it (`_fillRelayV3`): the output tokens are transferred to the

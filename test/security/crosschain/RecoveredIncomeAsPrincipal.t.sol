@@ -17,18 +17,19 @@ import {CrossChainFixture} from "./helpers/CrossChainFixture.sol";
 contract RecoveredIncomeAsPrincipalTest is CrossChainFixture {
     function test_VF_S4_recoveredIncomeSendHomeSkipsTheFeeSplitAndTheAccumulator() public {
         _deposit(alice, 100_000e6);
-        (, uint256 outboundDeposit) = _sendToSpoke(50_000e6, 49_975e6);
+        (, uint256 outboundDeposit) = _sendToSpoke(50_000e6);
         _fillOnSpoke(outboundDeposit);
         _reportAndDeliver(900);
 
         // Income earned on the spoke, sent home as Income, filled on the hub before any report lists it.
         _strangerFillOnSpoke(attacker, keccak256("spoke income"), 10_000e6, TransferKind.Income);
         assertEq(spoke.collectedIncome(address(usdg)), 10_000e6, "income sits in the spoke's collected bucket");
-        (bytes32 homeTransit, uint256 homeDeposit) = _sendToHub(10_000e6, TransferKind.Income, _quote(9995e6));
+        (bytes32 homeTransit, uint256 homeDeposit) = _sendToHub(10_000e6, TransferKind.Income);
+        uint256 arrives = 10_000e6 - _ruleFee(10_000e6); // DEC-162: the Across adapter's amount, 9,991.97
         skip(120);
         _fillOnHub(homeDeposit);
         uint256 filledAt = block.timestamp;
-        assertEq(core.unmatchedArrivals(), 9995e6, "held apart until a report lists it");
+        assertEq(core.unmatchedArrivals(), arrives, "held apart until a report lists it");
 
         uint256 idleBefore = core.idle();
         uint256 collectedBefore = core.collectedIncome(address(usdc));
@@ -39,18 +40,19 @@ contract RecoveredIncomeAsPrincipalTest is CrossChainFixture {
         skip(FILL_DEADLINE + 3 days + MAX_REPORT_AGE + 1);
         _reportAndDeliver(900);
         vm.warp(filledAt + 6 hours + 3 days + 2 * uint256(MAX_REPORT_AGE));
-        assertEq(core.recoverUnlistedArrival(0, homeTransit), 9995e6, "S-4: recovered");
+        assertEq(core.recoverUnlistedArrival(0, homeTransit), arrives, "S-4: recovered");
 
         // The income reached Idle as Principal: no fee split, nothing for the accumulator.
-        assertEq(core.idle(), idleBefore + 9995e6, "VF: the whole Income arrival entered Idle");
+        assertEq(core.idle(), idleBefore + arrives, "VF: the whole Income arrival entered Idle");
         assertEq(core.collectedIncome(address(usdc)), collectedBefore, "VF: nothing entered the collected income");
         assertEq(core.attributedIncome(alice, address(usdc)), 0, "VF: the holder is owed no Attributed Income");
         assertEq(IERC20(address(usdc)).balanceOf(core.managerFeeVault()), feeVaultBefore, "VF: no manager fee");
         assertEq(IERC20(address(usdc)).balanceOf(protocol), protocolBefore, "VF: no protocol slice");
         assertEq(core.owedFees(address(usdc), protocol), 0, "VF: no fee owed either");
 
-        // For reference, the same 9,995 USDC listed by a report would have paid 1,999 USDC of fees (20%, half each).
-        uint256 fee = 9995e6 * 2000 / 10_000;
-        assertEq(fee, 1999e6);
+        // For reference, the same 9,991.97 USDC listed by a report would have paid 1,998.394 USDC of fees (20%, half
+        // each).
+        uint256 fee = arrives * 2000 / 10_000;
+        assertEq(fee, 1998.394e6);
     }
 }

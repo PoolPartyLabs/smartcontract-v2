@@ -36,8 +36,8 @@ interface IAcrossSpokePoolFill {
 }
 
 /// @notice Adversarial fork checks: the fill simulation helper is compared against a real `fillRelay` on the live
-///         destination SpokePools, a future quote is rejected by the live pool, and a stranger's deposit between a
-///         build and its execution shifts the id a stale build would carry.
+///         destination SpokePools, a quote passed by the vault is refused before the live pool is reached, and a
+///         stranger's deposit between a build and its execution shifts the id a stale build would carry.
 contract AcrossFillForkTest is Test {
     uint256 internal constant ARBITRUM_CHAIN_ID = 42_161;
     address internal constant ARB_SPOKE_POOL = 0xe35e9842fceaCA96570B734083f4a58e8F7C5f2A;
@@ -144,26 +144,21 @@ contract AcrossFillForkTest is Test {
             inputToken: ARB_USDC,
             outputToken: RH_USDG,
             inputAmount: INPUT_AMOUNT,
-            outputAmount: OUTPUT_AMOUNT,
             destinationChainId: ROBINHOOD_CHAIN_ID,
             recipient: _word(spokeVault),
-            quoteTimestamp: uint32(block.timestamp),
-            exclusivityDeadline: 0,
-            exclusiveRelayer: address(0),
             message: _message(ARBITRUM_CHAIN_ID)
         });
     }
 
-    /// DEC-066: a quote timestamp in the future is rejected by the live pool; the vault keeps its balance and the
-    /// approval is not left open.
-    function test_DEC066_arbitrum_futureQuoteTimestampRevertsOnLivePool() public {
+    /// DEC-158: the quote terms are the adapter's; a vault that passes a quote in `bridgeData` is refused before the
+    /// live pool is reached; the vault keeps its balance and the approval is not left open.
+    function test_DEC158_arbitrum_passedQuoteIsRefusedAndMovesNothing() public {
         vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envUint("ARBITRUM_FORK_BLOCK"));
         (AcrossHarnessVault harness,) = _deploy(ARB_SPOKE_POOL, ARB_USDC);
         IBridgeAdapter.SendRequest memory req = _hubToSpokeRequest();
-        req.quoteTimestamp = uint32(block.timestamp) + 1;
 
-        vm.expectRevert();
-        harness.send(req);
+        vm.expectRevert(AcrossBridgeAdapter.QuotesNotSupported.selector);
+        harness.send(req, abi.encode(OUTPUT_AMOUNT, uint32(block.timestamp) + 1));
         assertEq(IERC20(ARB_USDC).balanceOf(address(harness)), 2 * INPUT_AMOUNT, "nothing moved");
         assertEq(IERC20(ARB_USDC).allowance(address(harness), ARB_SPOKE_POOL), 0, "no approval left open");
     }
@@ -175,8 +170,11 @@ contract AcrossFillForkTest is Test {
         (AcrossHarnessVault harness, AcrossBridgeAdapter adapter) = _deploy(ARB_SPOKE_POOL, ARB_USDC);
         IBridgeAdapter.SendRequest memory req = _hubToSpokeRequest();
 
-        IBridgeAdapter.BridgeCall memory stale = adapter.buildSend(req, makeAddr("escrow"));
+        uint256 snapshot = vm.snapshotState();
+        vm.prank(address(harness));
+        IBridgeAdapter.BridgeCall memory stale = adapter.buildSend(req, makeAddr("escrow"), "");
         uint256 staleId = uint256(stale.transitRef);
+        vm.revertToState(snapshot);
 
         deal(ARB_USDC, stranger, INPUT_AMOUNT);
         vm.startPrank(stranger);

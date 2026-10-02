@@ -17,7 +17,7 @@ import {XChainBase, LiveRelayData} from "./XChainBase.sol";
 ///         manager's relayer through the live refund leaf.
 /// @dev Adaptation to the fix branch, interface only: report v3 (`mandateHash`), no exclusivity, the bridge-fee cap.
 contract Fork_SpokeCreation is XChainBase {
-    uint256 internal constant ARRIVES = BRIDGE_AMOUNT - BRIDGE_FEE; // 3,998.40 USDG
+    uint256 internal constant ARRIVES = BRIDGE_AMOUNT - BRIDGE_FEE; // 3,996.77 USDG (DEC-162: 0.08% plus 0.03)
 
     /// @notice FIXED (S-14). Before `createSpoke` the hub has no accepted report from the spoke, so `sendToSpoke`
     ///         reverts `SpokeNotReporting` and nothing leaves Idle; no report can exist, since the Wormhole emitter is the
@@ -33,7 +33,7 @@ contract Fork_SpokeCreation is XChainBase {
         assertFalse(receiver.hasReport(0));
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(ICoreVault.SpokeNotReporting.selector, 0));
-        core.sendToSpoke(0, BRIDGE_AMOUNT, 0, _quote(ARRIVES));
+        core.sendToSpoke(0, BRIDGE_AMOUNT, 0, "");
         assertEq(core.idle(), 9975e6, "nothing left Idle");
         assertEq(core.inFlightValue(), 0);
 
@@ -41,7 +41,7 @@ contract Fork_SpokeCreation is XChainBase {
         assertEq(_createSpokeFrom(_plan()), mandateHash, "the hub's own Mandate");
         _report(); // the keeper's first report of the new spoke
         assertTrue(receiver.hasReport(0));
-        (bytes32 id, LiveRelayData memory relay) = _sendToSpoke(BRIDGE_AMOUNT, _quote(ARRIVES));
+        (bytes32 id, LiveRelayData memory relay) = _sendToSpoke(BRIDGE_AMOUNT);
         assertEq(relay.recipient, bytes32(uint256(uint160(predictedSpokeVault))), "the Mandate's predicted vault");
         _fillOnRobinhood(relay, relayer);
         assertEq(spokeVault.cumulativeReceived(), ARRIVES, "the handler ran: credited");
@@ -85,7 +85,7 @@ contract Fork_SpokeCreation is XChainBase {
 
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(ICoreVault.SpokeNotReporting.selector, 0));
-        core.sendToSpoke(0, BRIDGE_AMOUNT, 0, _quote(ARRIVES));
+        core.sendToSpoke(0, BRIDGE_AMOUNT, 0, "");
         assertEq(core.shareAssets(), 9975e6, "the capital never leaves the hub");
     }
 }

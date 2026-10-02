@@ -146,35 +146,29 @@ abstract contract XChainBase is EndToEndScenario {
     }
 
     /// @dev Manager: `sendToSpoke` through the live Arbitrum SpokePool; returns the transit id and its relay data.
-    function _sendToSpoke(uint256 amount, BridgeQuote memory quote)
-        internal
-        returns (bytes32 id, LiveRelayData memory relay)
-    {
+    ///      DEC-158, DEC-162: the manager passes no bridge parameter; the Across adapter fixes the amount to arrive.
+    function _sendToSpoke(uint256 amount) internal returns (bytes32 id, LiveRelayData memory relay) {
         _onArbitrum();
         vm.recordLogs();
         vm.prank(manager);
-        id = core.sendToSpoke(0, amount, 0, quote);
+        id = core.sendToSpoke(0, amount, 0, "");
         relay = _one(_relaysFrom(vm.getRecordedLogs(), ARB_ACROSS_SPOKE_POOL, ARBITRUM));
     }
 
-    /// @dev Manager: `sendToHub` through the live Robinhood SpokePool; returns the transit id and its relay data.
-    function _sendToHub(uint256 amount, TransferKind kind, BridgeQuote memory quote)
-        internal
-        returns (bytes32 id, LiveRelayData memory relay)
-    {
+    /// @dev Manager: `sendToHub` through the live Robinhood SpokePool; returns the transit id and its relay data. The
+    ///      quote argument is vestigial (ignored by the Spoke Vault since DEC-158 / DEC-162); a zero quote is passed.
+    function _sendToHub(uint256 amount, TransferKind kind) internal returns (bytes32 id, LiveRelayData memory relay) {
         _onRobinhood();
+        BridgeQuote memory none;
         vm.recordLogs();
         vm.prank(manager);
-        id = spokeVault.sendToHub(amount, kind, 0, quote);
+        id = spokeVault.sendToHub(amount, kind, 0, none);
         relay = _one(_relaysFrom(vm.getRecordedLogs(), RH_ACROSS_SPOKE_POOL, ROBINHOOD));
     }
 
-    function _quote(uint256 outputAmount) internal view returns (BridgeQuote memory) {
-        return BridgeQuote(outputAmount, uint32(block.timestamp), 0, address(0));
-    }
-
-    function _exclusiveQuote(uint256 outputAmount, address relayer_) internal view returns (BridgeQuote memory) {
-        return BridgeQuote(outputAmount, uint32(block.timestamp), 21_600, relayer_);
+    /// @dev DEC-162: the Across adapter's fee on a route with no expiry noted: `ceil(amount * 0.08%) + 0.03`.
+    function _ruleFee(uint256 amount) internal pure returns (uint256) {
+        return (amount * 8e14 + 1e18 - 1) / 1e18 + 30_000;
     }
 
     /// @dev A relayer fills `r` on the selected fork's live SpokePool `pool`, paying `r.outputAmount` of `token`.

@@ -155,15 +155,13 @@ library SpokeVaultTypes {
     error ZeroBridgeTarget(address bridgeAdapter);
     error UnknownBridgeRank(uint256 bridgeRank);
     error BridgeTargetMismatch(address bridgeAdapter, address pinned, address built);
-    error BridgeAmountMismatch(uint256 quoted, uint256 built);
+    /// @notice The bridge adapter's amount to arrive is zero or above the amount sent (DEC-085, DEC-162).
+    error BridgeAmountMismatch(uint256 amountSent, uint256 amountToArrive);
 
     /// @notice The bridge adapter built a call whose fill deadline is not in the future (independent review L-09,
     ///         parity with the Core Vault's `BridgeCallMismatch`).
     error BridgeDeadlineNotInFuture(uint32 fillDeadline);
     error BridgeDebitMismatch(uint256 expected, uint256 debited);
-    error InvalidQuoteAmount(uint256 amount, uint256 outputAmount);
-    /// @notice A quote named an exclusive relayer or an exclusivity period (security review S-9).
-    error ExclusiveRelayerNotAllowed(address exclusiveRelayer);
     error AdapterUsedAboveInput(address adapter, address token, uint256 sent, uint256 used);
     error LedgerExceedsBalance(address token, uint256 balance, uint256 ledger);
     error PositionAlreadyRegistered(address adapter, bytes32 positionKey);

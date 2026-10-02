@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
-import {BridgeQuote, TransferKind, TransitState} from "../../../src/interfaces/FundTypes.sol";
+import {TransferKind, TransitState} from "../../../src/interfaces/FundTypes.sol";
 import {CrossChainFixture} from "./helpers/CrossChainFixture.sol";
 
 /// @title Regression (security review S-3): an expired transfer home keeps its place in the Spoke Cap's return leg
@@ -24,33 +24,33 @@ contract ExpiredSendHomeCapBypassPoC is CrossChainFixture {
 
     function test_SEC_S3_expiredSendHomeNoLongerReleasesTheSpokeCap() public {
         _deposit(alice, 1_000_000e6);
-        (, uint256 outboundDeposit) = _sendToSpoke(CAP, 499_750e6);
+        (, uint256 outboundDeposit) = _sendToSpoke(CAP);
         _fillOnSpoke(outboundDeposit);
         _reportAndDeliver(900);
         (uint256 spokeValue,, uint256 inFlightToHub, uint256 cap) = core.spokeCapUsage(0);
         assertEq(cap, CAP);
-        assertEq(spokeValue, 499_750e6, "the cap is full");
+        // DEC-162: the Across adapters' fees, 0.08% plus 0.03 per send.
+        uint256 arrived = CAP - _ruleFee(CAP);
+        assertEq(spokeValue, arrived, "the cap is full");
 
         // 1. A transfer home that nobody fills.
-        BridgeQuote memory quote = BridgeQuote({
-            outputAmount: 399_800e6,
-            quoteTimestamp: uint32(block.timestamp),
-            exclusivityDeadline: 0,
-            exclusiveRelayer: address(0)
-        });
-        (bytes32 homeTransit, uint256 homeDeposit) = _sendToHub(400_000e6, TransferKind.Principal, quote);
+        (bytes32 homeTransit, uint256 homeDeposit) = _sendToHub(400_000e6, TransferKind.Principal);
         uint32 deadline = spokePool.deposit(homeDeposit).fillDeadline;
 
         // 2. fillDeadline + maxReportAge passes: the return leg still holds the cap.
         vm.warp(uint256(deadline) + MAX_REPORT_AGE + 1);
         _reportAndDeliver(900);
         (spokeValue,, inFlightToHub,) = core.spokeCapUsage(0);
-        assertEq(spokeValue + inFlightToHub, 499_550e6, "S-3: spoke 99,750 + return leg 399,800, still counted");
+        assertEq(
+            spokeValue + inFlightToHub,
+            arrived - 400_000e6 + (400_000e6 - _ruleFee(400_000e6)),
+            "S-3: spoke + return leg, still counted"
+        );
 
         // 3. The manager cannot send the transfer's room to the spoke.
         vm.prank(manager);
         vm.expectPartialRevert(ICoreVault.SpokeCapExceeded.selector);
-        core.sendToSpoke(0, 400_000e6, 0, _quote(399_800e6));
+        core.sendToSpoke(0, 400_000e6, 0, "");
 
         // 4. The refund lands; the next report recognizes it and the room is taken by the refunded principal.
         skip(45 minutes);
@@ -64,6 +64,6 @@ contract ExpiredSendHomeCapBypassPoC is CrossChainFixture {
         (spokeValue,, inFlightToHub, cap) = core.spokeCapUsage(0);
         assertEq(inFlightToHub, 0);
         assertLe(spokeValue, cap, "S-3: the Spoke Cap holds");
-        assertEq(core.shareAssets(), 997_500e6 - 250e6, "no loss beyond the one bridge fee");
+        assertEq(core.shareAssets(), 997_500e6 - _ruleFee(CAP), "no loss beyond the one bridge fee");
     }
 }

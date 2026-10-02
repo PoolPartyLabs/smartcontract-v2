@@ -94,11 +94,9 @@ contract SpokeReportSpotFork is IntegrationPriceBase {
 
     function _sendToRobinhood() internal {
         _onArbitrum();
-        uint256 fee = SEND * MAX_BRIDGE_FEE_BPS / 10_000;
-        BridgeQuote memory quote = BridgeQuote(SEND - fee, uint32(block.timestamp), 0, address(0));
         vm.recordLogs();
         vm.prank(manager);
-        transitId = core.sendToSpoke(0, SEND, 0, quote);
+        transitId = core.sendToSpoke(0, SEND, 0, ""); // DEC-162: the Across adapter fixes the amount to arrive
         (,,, DepositData memory d) = _fundsDeposited(vm.getRecordedLogs(), ARB_ACROSS_SPOKE_POOL);
         acrossMessage = d.message;
         amountToArrive = d.outputAmount;

@@ -23,6 +23,13 @@ import {AccessFundFixture} from "./AccessFundFixture.sol";
 contract ExpiredSendHomeMintPoC is AccessFundFixture {
     uint256 internal constant T0 = 1_800_000_000;
     uint256 internal constant FILL_WINDOW = 21_600;
+    /// @dev DEC-162: the Across adapters fix the amounts to arrive at 0.08% plus 0.03 (first sends on each route).
+    uint256 internal constant HUB_SEND = 300_000e6;
+    uint256 internal constant HUB_ARRIVES = HUB_SEND - 240e6 - 30_000; // 299,759.97
+    uint256 internal constant HOME_SEND = 299_000e6;
+    uint256 internal constant HOME_ARRIVES = HOME_SEND - 239.2e6 - 30_000; // 298,760.77
+    /// @dev What stays on the spoke: the arrival less the 10 USDG Operating Cash top-up and the send home.
+    uint256 internal constant SPOKE_LEFT = HUB_ARRIVES - 10e6 - HOME_SEND; // 749.97
 
     /// @dev What the spoke chain produced, carried across the chain switch in memory.
     struct SpokeSide {
@@ -47,13 +54,13 @@ contract ExpiredSendHomeMintPoC is AccessFundFixture {
         _deposit(core, alice, 500_000e6);
         _deliverReport(a.valueReportReceiver, s.spokeVault, 0, s.reportFirst);
         vm.prank(manager);
-        core.sendToSpoke(0, 300_000e6, 0, _quote(299_700e6, address(0)));
+        core.sendToSpoke(0, HUB_SEND, 0, "");
 
         vm.warp(T0 + 900);
         _deliverReport(a.valueReportReceiver, s.spokeVault, 1, s.reportAfterArrival);
         _deliverReport(a.valueReportReceiver, s.spokeVault, 2, s.reportWhileInFlight);
         uint256 fairAssets = core.shareAssets();
-        assertEq(fairAssets, 198_750e6 + 690e6 + 298_999e6, "Idle + spoke + the send home in flight");
+        assertEq(fairAssets, 198_750e6 + SPOKE_LEFT + HOME_ARRIVES, "Idle + spoke + the send home in flight");
         uint256 fairPrice = core.sharePrice();
         uint256 aliceFair = _shares(core, alice) * fairPrice / 1e36;
 
@@ -84,7 +91,7 @@ contract ExpiredSendHomeMintPoC is AccessFundFixture {
         assertLt(_balance(usdc, stranger) - before, 1_000_000e6, "S-3: the entrant cashes out less than it put in");
     }
 
-    /// @dev The spoke's half: the hub's send arrives; the manager sends 299,000 USDG home with a quote nobody fills;
+    /// @dev The spoke's half: the hub's send arrives; the manager sends 299,000 USDG home and nobody fills it;
     ///      the vault still lists it after `fillDeadline + maxReportAge`; the Across refund reaches the escrow 55
     ///      minutes after the deadline and is recognized. One report after each step.
     function _spokeSide() internal returns (SpokeSide memory s) {
@@ -101,14 +108,15 @@ contract ExpiredSendHomeMintPoC is AccessFundFixture {
 
         bytes32 hubTransitId = keccak256(abi.encode(HUB, spokeFactory.addressOf(fundId, "CoreVault", HUB), uint256(1)));
         bytes memory message = TransitMessage.encode(fundId, HUB, hubTransitId, TransferKind.Principal);
-        usdg.mint(address(spoke), 299_700e6);
+        usdg.mint(address(spoke), HUB_ARRIVES);
         vm.prank(address(spokeAcross));
-        spoke.handleV3AcrossMessage(address(usdg), 299_700e6, stranger, message);
+        spoke.handleV3AcrossMessage(address(usdg), HUB_ARRIVES, stranger, message);
         spoke.report();
         s.reportAfterArrival = spokeWormhole.published(1).payload;
 
         vm.prank(manager);
-        bytes32 homeTransitId = spoke.sendToHub(299_000e6, TransferKind.Principal, 0, _quote(298_999e6, address(0)));
+        bytes32 homeTransitId = spoke.sendToHub(HOME_SEND, TransferKind.Principal, 0, _noQuote());
+        assertEq(spoke.hubBoundTransit(homeTransitId).amountToArrive, HOME_ARRIVES);
         spoke.report();
         s.reportWhileInFlight = spokeWormhole.published(2).payload;
 
@@ -118,16 +126,16 @@ contract ExpiredSendHomeMintPoC is AccessFundFixture {
         s.reportAfterPresumedFill = spokeWormhole.published(3).payload;
         s.presumedFilledAt = block.timestamp;
         assertEq(spoke.buildReport().inFlightToHub.length, 1);
-        assertEq(spoke.unallocatedBalance(address(usdg)), 690e6);
+        assertEq(spoke.unallocatedBalance(address(usdg)), SPOKE_LEFT);
 
         // Across refunds the depositor of record (the escrow) 55 minutes after the deadline; anyone recognizes it.
         vm.warp(T0 + FILL_WINDOW + 55 minutes);
-        usdg.mint(spoke.hubBoundTransit(homeTransitId).escrow, 299_000e6);
+        usdg.mint(spoke.hubBoundTransit(homeTransitId).escrow, HOME_SEND);
         vm.prank(stranger);
         spoke.recognizeRefund(homeTransitId);
         spoke.report();
         s.reportAfterRefund = spokeWormhole.published(4).payload;
         s.refundedAt = block.timestamp;
-        assertEq(spoke.unallocatedBalance(address(usdg)), 299_690e6);
+        assertEq(spoke.unallocatedBalance(address(usdg)), SPOKE_LEFT + HOME_SEND);
     }
 }

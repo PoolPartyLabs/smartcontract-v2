@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
-import {BridgeQuote, TransferKind, TransitState} from "../../../src/interfaces/FundTypes.sol";
+import {TransferKind, TransitState} from "../../../src/interfaces/FundTypes.sol";
 import {CrossChainFixture} from "./helpers/CrossChainFixture.sol";
 import {SecAcrossSpokePool} from "./helpers/SecAcrossSpokePool.sol";
 
@@ -24,27 +24,24 @@ contract ExpiredSendHomeDiscountedMintPoC is CrossChainFixture {
 
     function test_SEC_S3_expiredSendHomeNoLongerAllowsADiscountedMint() public {
         _deposit(alice, 1_000_000e6);
-        (, uint256 outboundDeposit) = _sendToSpoke(500_000e6, 499_750e6);
+        (, uint256 outboundDeposit) = _sendToSpoke(500_000e6);
         _fillOnSpoke(outboundDeposit);
         _reportAndDeliver(900);
-        assertEq(core.shareAssets(), 997_250e6);
+        // DEC-162: the Across adapters' fees, 0.08% plus 0.03 per send.
+        uint256 arrived = 500_000e6 - _ruleFee(500_000e6);
+        assertEq(core.shareAssets(), 997_500e6 - _ruleFee(500_000e6));
         uint256 aliceShares = shares.balanceOf(alice);
 
         // 1. A transfer home that nobody fills.
-        BridgeQuote memory quote = BridgeQuote({
-            outputAmount: 399_800e6,
-            quoteTimestamp: uint32(block.timestamp),
-            exclusivityDeadline: 0,
-            exclusiveRelayer: address(0)
-        });
-        (bytes32 homeTransit, uint256 homeDeposit) = _sendToHub(400_000e6, TransferKind.Principal, quote);
+        (bytes32 homeTransit, uint256 homeDeposit) = _sendToHub(400_000e6, TransferKind.Principal);
         _reportAndDeliver(900);
-        assertEq(core.shareAssets(), 997_050e6, "Idle 497,500 + spoke 99,750 + return leg 399,800");
+        uint256 fair = 497_500e6 + (arrived - 400_000e6) + (400_000e6 - _ruleFee(400_000e6));
+        assertEq(core.shareAssets(), fair, "Idle 497,500 + spoke + return leg");
 
         // 2. fillDeadline + maxReportAge passes: the spoke keeps listing the unrefunded transfer.
         vm.warp(uint256(spokePool.deposit(homeDeposit).fillDeadline) + MAX_REPORT_AGE + 1);
         _reportAndDeliver(900);
-        assertEq(core.shareAssets(), 997_050e6, "S-3: the 400,000 USDG are still counted in flight");
+        assertEq(core.shareAssets(), fair, "S-3: the 400,000 USDG are still counted in flight");
 
         // 3. A would-be attacker mints at the fair Share Price.
         (uint256 attackerShares,) = _deposit(attacker, 600_000e6);
@@ -73,6 +70,6 @@ contract ExpiredSendHomeDiscountedMintPoC is CrossChainFixture {
         assertLt(usdc.balanceOf(attacker), 600_000e6, "S-3: the round trip loses the fees, no profit");
 
         uint256 aliceValue = aliceShares / 1e18 * core.sharePrice() / 1e18;
-        assertGe(aliceValue + 1e6, 997_050e6, "S-3: the earlier Shareholder paid no discount");
+        assertGe(aliceValue + 1e6, fair, "S-3: the earlier Shareholder paid no discount");
     }
 }

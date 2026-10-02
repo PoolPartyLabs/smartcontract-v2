@@ -34,9 +34,7 @@ contract H02_ReturnTransferStrandedInUnmatched is CoreBCrossChainFixture {
 
         // The manager brings the principal home; a relayer fills it on Arbitrum within minutes.
         vm.prank(manager);
-        home = spoke.sendToHub(
-            ARRIVES, TransferKind.Principal, 0, BridgeQuote(HOME_OUT, uint32(block.timestamp), 0, address(0))
-        );
+        home = spoke.sendToHub(ARRIVES, TransferKind.Principal, 0, _homeQuote(HOME_OUT));
         vm.warp(block.timestamp + 2 minutes);
         filledAt = block.timestamp;
         _fillOnHub(home, HOME_OUT, TransferKind.Principal);

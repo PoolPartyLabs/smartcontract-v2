@@ -91,8 +91,9 @@ contract Fork_AcrossDeadlineAndDustSends is SpokeVaultForkBase {
         assertEq(IERC20(ARB_USDC).balanceOf(makeAddr("coreVault")) - before, 999e6);
     }
 
-    /// @notice Lead 1: the live Robinhood SpokePool accepts a send home of one USDG base unit built by the real
-    ///         AcrossBridgeAdapter; each one lands in the report for 6.5 h, and the real Wormhole Core publishes them.
+    /// @notice Lead 1: the live Robinhood SpokePool accepts a dust send home built by the real AcrossBridgeAdapter
+    ///         (since DEC-162 the smallest its fee rule lets through: one USDG base unit to arrive); each one lands in
+    ///         the report for 6.5 h, and the real Wormhole Core publishes them.
     function test_lead1_forkRobinhood_oneUnitSendsHomeAreAcceptedAndListed() public {
         vm.createSelectFork(vm.envString("ROBINHOOD_RPC_URL"), vm.envUint("ROBINHOOD_FORK_BLOCK"));
         MockPositionAdapter spokeUni = new MockPositionAdapter(guardian, false);
@@ -136,15 +137,18 @@ contract Fork_AcrossDeadlineAndDustSends is SpokeVaultForkBase {
         );
 
         uint32 depositsBefore = IAcrossSpokePool(RH_SPOKE_POOL).numberOfDeposits();
-        BridgeQuote memory q = BridgeQuote(1, uint32(block.timestamp), 0, address(0));
+        // DEC-162: the Across adapter refuses a send its fee would swallow; the dust is the smallest send it lets
+        // through (0.030026 USDG: 0.08% rounded up plus 0.03, one base unit to arrive). The quote argument is ignored.
+        BridgeQuote memory q;
+        uint256 dust = 30_026;
         uint256 n = 50;
         uint256 g = gasleft();
         vm.startPrank(manager);
         for (uint256 i; i < n; ++i) {
-            vault.sendToHub(1, TransferKind.Principal, 0, q);
+            vault.sendToHub(dust, TransferKind.Principal, 0, q);
         }
         vm.stopPrank();
-        console2.log("average gas per one-unit send home on Robinhood (warm-ish)", (g - gasleft()) / n);
+        console2.log("average gas per dust send home on Robinhood (warm-ish)", (g - gasleft()) / n);
         assertEq(IAcrossSpokePool(RH_SPOKE_POOL).numberOfDeposits() - depositsBefore, n, "every deposit accepted");
         assertEq(vault.inFlightTransitIds().length, n);
 

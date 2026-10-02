@@ -17,7 +17,8 @@ import {XChainBase, LiveRelayData, BatchRelayer} from "./XChainBase.sol";
 ///         guardian signatures verified by `parseAndVerifyVM`), for the three growth levers done for real on the
 ///         Robinhood fork:
 ///         - positions: dust positions of one USDG base unit through the real Uniswap V4 adapter and PositionManager;
-///         - sends home: one-base-unit `sendToHub` through the real Across adapter into the live SpokePool;
+///         - sends home: dust `sendToHub` through the real Across adapter into the live SpokePool (since DEC-162 the
+///           smallest send the adapter's fee rule lets through: 0.030035 USDG, 10 base units to arrive);
 ///         - arrivals: a stranger's one-USDG deposits filled through the live SpokePool (the 256-id window).
 ///         Each measurement starts from the same stored report (one small report delivered in set-up) with the
 ///         receiver's and the Core Vault's storage cooled, like a keeper's new transaction. On `e5c778a`: about 145
@@ -28,15 +29,18 @@ import {XChainBase, LiveRelayData, BatchRelayer} from "./XChainBase.sol";
 ///      L1 data component is not part of it.
 contract Fork_ReportBloat is XChainBase {
     uint256 internal constant ARRIVES = BRIDGE_AMOUNT - BRIDGE_FEE;
+    /// @dev DEC-162: a dust send home the Across adapter accepts: 0.08% (25 base units, rounded up) plus 0.03 leaves
+    ///      10.
+    uint256 internal constant DUST_HOME = 30_035;
 
     function _setUpFund() internal {
         _createForks();
         _phase1CreateFund();
         _phase2AnaDeposits();
         _report(); // S-14: the spoke's first report, before the first send
-        (, LiveRelayData memory relay) = _sendToSpoke(BRIDGE_AMOUNT, _quote(ARRIVES));
+        (, LiveRelayData memory relay) = _sendToSpoke(BRIDGE_AMOUNT);
         _fillOnRobinhood(relay, relayer);
-        uint256 g = _report(); // the stored report: a spoke holding 3,988.40 USDG, one arrival listed
+        uint256 g = _report(); // the stored report: a spoke holding 3,986.77 USDG, one arrival listed
         _log("baseline delivery gas (real Core)", g);
     }
 
@@ -138,28 +142,28 @@ contract Fork_ReportBloat is XChainBase {
     }
 
     // -----------------------------------------------------------------------------------------------------------------
-    // Lever 2: one-unit sends home through the real Across adapter and the live SpokePool
+    // Lever 2: dust sends home through the real Across adapter and the live SpokePool
     // -----------------------------------------------------------------------------------------------------------------
 
     function _dustSendsHome(uint256 n, TransferKind kind) internal {
         _onRobinhood();
-        BridgeQuote memory q = BridgeQuote(1, uint32(block.timestamp), 0, address(0));
+        BridgeQuote memory q;
         uint32 before = IAcrossSpokePool(RH_ACROSS_SPOKE_POOL).numberOfDeposits();
         vm.startPrank(manager);
         for (uint256 i; i < n; ++i) {
-            spokeVault.sendToHub(1, kind, 0, q);
+            spokeVault.sendToHub(DUST_HOME, kind, 0, q);
         }
         vm.stopPrank();
         assertEq(IAcrossSpokePool(RH_ACROSS_SPOKE_POOL).numberOfDeposits() - before, n, "every deposit accepted");
     }
 
-    /// @dev A stranger's real 1 USDC deposit on Arbitrum whose message says Income, filled on Robinhood: the spoke's
-    ///      collected income bucket, which an Income send home debits.
+    /// @dev A stranger's real 2 USDC deposit on Arbitrum whose message says Income, filled on Robinhood: the spoke's
+    ///      collected income bucket, which an Income send home debits (64 dust sends need 1.92).
     function _strangerIncomeArrival() internal {
         _onArbitrum();
-        deal(ARB_USDC, stranger, 1e6);
+        deal(ARB_USDC, stranger, 2e6);
         vm.startPrank(stranger);
-        IERC20(ARB_USDC).approve(ARB_ACROSS_SPOKE_POOL, 1e6);
+        IERC20(ARB_USDC).approve(ARB_ACROSS_SPOKE_POOL, 2e6);
         vm.recordLogs();
         IAcrossSpokePool(ARB_ACROSS_SPOKE_POOL)
             .depositV3(
@@ -167,8 +171,8 @@ contract Fork_ReportBloat is XChainBase {
                 address(spokeVault),
                 ARB_USDC,
                 RH_USDG,
-                1e6,
-                1e6,
+                2e6,
+                2e6,
                 ROBINHOOD,
                 address(0),
                 uint32(block.timestamp),
@@ -178,7 +182,7 @@ contract Fork_ReportBloat is XChainBase {
             );
         vm.stopPrank();
         _fillOnRobinhood(_one(_relaysFrom(vm.getRecordedLogs(), ARB_ACROSS_SPOKE_POOL, ARBITRUM)), stranger);
-        assertEq(spokeVault.collectedIncome(RH_USDG), 1e6);
+        assertEq(spokeVault.collectedIncome(RH_USDG), 2e6);
     }
 
     /// @notice FIXED (S-11, MAX_HUB_BOUND_IN_FLIGHT = 64): the 65th listed send home is refused, and the report of 64
@@ -195,7 +199,7 @@ contract Fork_ReportBloat is XChainBase {
                 SpokeVaultTypes.HubBoundInFlightLimit.selector, SpokeVaultTypes.MAX_HUB_BOUND_IN_FLIGHT
             )
         );
-        spokeVault.sendToHub(1, TransferKind.Principal, 0, BridgeQuote(1, uint32(block.timestamp), 0, address(0)));
+        spokeVault.sendToHub(DUST_HOME, TransferKind.Principal, 0, BridgeQuote(0, 0, 0, address(0)));
     }
 
     // -----------------------------------------------------------------------------------------------------------------
@@ -235,7 +239,7 @@ contract Fork_ReportBloat is XChainBase {
     }
 
     /// @notice FIXED. The worst report the caps allow, built for real: a stranger fills the whole 256-id arrival window,
-    ///         the manager adds 64 one-unit sends home and 32 dust positions. The sends home are Income: the hub's first
+    ///         the manager adds 64 dust sends home and 32 dust positions. The sends home are Income: the hub's first
     ///         listing of an Income id writes its kind to a fresh slot, about 20,000 gas more per entry than Principal.
     ///         Its first delivery over the small stored report goes through the real Arbitrum Core within one 32M
     ///         transaction.
@@ -256,8 +260,9 @@ contract Fork_ReportBloat is XChainBase {
         assertLt(total, MAX_TX_GAS);
     }
 
-    /// @notice Re-attack of the caps: the same worst report, except that the 64 Income sends home (10 base units each,
-    ///         so the performance fee and the protocol slice are both non-zero) are filled on Arbitrum before the report
+    /// @notice Re-attack of the caps: the same worst report, except that the 64 Income sends home (10 base units to
+    ///         arrive each, so the performance fee and the protocol slice are both non-zero) are filled on Arbitrum
+    ///         before the report
     ///         that first lists them. Its delivery then also credits 64 held-apart Income arrivals, each with a fee split
     ///         and two USDC transfers.
     function test_REVIEW_H04_worstCaseWithHeldApartIncomeArrivals() public {
@@ -266,11 +271,11 @@ contract Fork_ReportBloat is XChainBase {
         _strangerArrivals(256);
         _dustPositions(SpokeVaultTypes.MAX_OPEN_POSITIONS);
         _onRobinhood();
-        BridgeQuote memory q = BridgeQuote(10, uint32(block.timestamp), 0, address(0));
+        BridgeQuote memory q;
         vm.recordLogs();
         vm.startPrank(manager);
         for (uint256 i; i < SpokeVaultTypes.MAX_HUB_BOUND_IN_FLIGHT; ++i) {
-            spokeVault.sendToHub(10, TransferKind.Income, 0, q);
+            spokeVault.sendToHub(DUST_HOME, TransferKind.Income, 0, q);
         }
         vm.stopPrank();
         LiveRelayData[] memory homes = _relaysFrom(vm.getRecordedLogs(), RH_ACROSS_SPOKE_POOL, ROBINHOOD);

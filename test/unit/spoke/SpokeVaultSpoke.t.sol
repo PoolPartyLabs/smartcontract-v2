@@ -5,6 +5,7 @@ import {Vm} from "forge-std/Vm.sol";
 import {SpokeVaultTestBase} from "./SpokeVaultTestBase.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
+import {SpokeCrossChainLib} from "../../../src/spoke/SpokeCrossChainLib.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
 import {IAdapter} from "../../../src/interfaces/IAdapter.sol";
 import {IAdapterGuard} from "../../../src/interfaces/IAdapterGuard.sol";
@@ -595,7 +596,7 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // Send home (DEC-056, DEC-066, DEC-085, DEC-087, DEC-088, DEC-092, QA19)
+    // Send home (DEC-056, DEC-066, DEC-085, DEC-087, DEC-088, DEC-092, DEC-158, DEC-162)
     // ---------------------------------------------------------------------------------------------------------------
 
     function test_DEC087_sendHomeFixesRecipientTokenPairMessageAndEscrow() public {
@@ -647,26 +648,45 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         assertEq(r.cumulativeSentHome, 500e6);
     }
 
-    function test_QA19_feeAboveMaxBridgeFeeReverts() public {
+    /// DEC-156, DEC-162: no bridge fee cap lives in the Spoke Vault (the Mandate's dead `maxBridgeFeeBps` is 50 bps);
+    /// the bridge adapter's rule fixes the amount to arrive and the vault takes it as given.
+    function test_DEC156_spokeVaultKeepsNoBridgeFeeCap() public {
         _disableOperatingCash();
         _arrive(1000e6, ARRIVAL, TransferKind.Principal);
-        vm.startPrank(manager);
-        vm.expectRevert(abi.encodeWithSelector(ISpokeVault.BridgeFeeAboveMax.selector, 5.1e6, 5e6));
-        vault.sendToHub(1000e6, TransferKind.Principal, 0, _quote(994.9e6));
-        vault.sendToHub(1000e6, TransferKind.Principal, 0, _quote(995e6));
-        vm.stopPrank();
+        vm.prank(manager);
+        bytes32 id = vault.sendToHub(1000e6, TransferKind.Principal, 0, _quote(994.9e6));
+        assertEq(vault.hubBoundTransit(id).amountToArrive, 994.9e6, "51 bps, above the old Mandate bound");
     }
 
-    function test_DEC085_quoteOutputZeroOrAboveInputReverts() public {
+    /// DEC-158, DEC-162: the quote argument is vestigial: an output of one unit and an exclusive relayer are ignored;
+    /// the deposit carries the adapter's amount and no exclusivity.
+    function test_DEC158_quoteArgumentIsIgnored() public {
+        _disableOperatingCash();
+        _arrive(1000e6, ARRIVAL, TransferKind.Principal);
+        spokeBridge.setFee(0.83e6);
+        vm.prank(manager);
+        bytes32 id = vault.sendToHub(
+            1000e6, TransferKind.Principal, 0, BridgeQuote(1, uint32(block.timestamp), 21_600, stranger)
+        );
+        assertEq(vault.hubBoundTransit(id).amountToArrive, 1000e6 - 0.83e6, "the adapter's amount");
+        MockAcrossSpokePool.Deposit memory d = spokePool.deposit(0);
+        assertEq(d.outputAmount, 1000e6 - 0.83e6);
+        assertEq(d.exclusiveRelayer, address(0), "no exclusive relayer");
+        assertEq(d.exclusivityDeadline, 0, "no exclusivity");
+    }
+
+    /// DEC-085, DEC-162: the vault requires the adapter's amount to arrive above zero and not above the amount sent.
+    function test_DEC085_amountToArriveZeroOrAboveSentReverts() public {
         _disableOperatingCash();
         _arrive(100e6, ARRIVAL, TransferKind.Principal);
         vm.startPrank(manager);
-        vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.InvalidQuoteAmount.selector, 10e6, 0));
+        vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.BridgeAmountMismatch.selector, 10e6, 0));
         vault.sendToHub(10e6, TransferKind.Principal, 0, _quote(0));
-        vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.InvalidQuoteAmount.selector, 10e6, 11e6));
+        vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.BridgeAmountMismatch.selector, 10e6, 11e6));
         vault.sendToHub(10e6, TransferKind.Principal, 0, _quote(11e6));
         vm.expectRevert(ISpokeVault.ZeroAmount.selector);
         vault.sendToHub(0, TransferKind.Principal, 0, _quote(0));
+        vault.sendToHub(10e6, TransferKind.Principal, 0, _quote(10e6)); // a send that pays no fee is a valid one
         vm.stopPrank();
     }
 
@@ -706,13 +726,13 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         vault.sendToHub(10e6, TransferKind.Principal, 0, _quote(10e6));
     }
 
-    function test_DEC085_builtAmountToArriveMismatchReverts() public {
+    function test_DEC085_builtAmountToArriveAboveSentReverts() public {
         _disableOperatingCash();
         _arrive(100e6, ARRIVAL, TransferKind.Principal);
         spokeBridge.setAmountToArriveDelta(1);
         vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.BridgeAmountMismatch.selector, 9.99e6, 9.99e6 + 1));
-        vault.sendToHub(10e6, TransferKind.Principal, 0, _quote(9.99e6));
+        vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.BridgeAmountMismatch.selector, 10e6, 10e6 + 1));
+        vault.sendToHub(10e6, TransferKind.Principal, 0, _quote(10e6));
     }
 
     /// Independent review L-09: the Spoke Vault refuses a built call whose fill deadline is not in the future, as the
@@ -1066,5 +1086,84 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         else usdg.mint(address(spokeUni), liquidity);
         spokeUni.addLiquidity(tokenOut, liquidity);
         spokeUni.setSwapRate(numerator, denominator);
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // The bridge adapter learns recognized refunds (DEC-162, DEC-056)
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// DEC-162: a recognized refund is the spoke's proof that a send never arrived; the bridge adapter is told once,
+    /// whether `recognizeRefund` or a report's sweep recognizes it.
+    function test_DEC162_recognizedRefundIsNotedToTheBridgeAdapter() public {
+        _disableOperatingCash();
+        _arrive(1000e6, ARRIVAL, TransferKind.Principal);
+        vm.startPrank(manager);
+        bytes32 first = vault.sendToHub(400e6, TransferKind.Principal, 0, _quote(399e6));
+        bytes32 second = vault.sendToHub(400e6, TransferKind.Principal, 0, _quote(399e6));
+        vm.stopPrank();
+        Transit memory a = vault.hubBoundTransit(first);
+        Transit memory b = vault.hubBoundTransit(second);
+        vm.warp(uint256(a.fillDeadline) + 1);
+        spokePool.refund(a.escrow, address(usdg), 400e6);
+        spokePool.refund(b.escrow, address(usdg), 400e6);
+
+        vault.recognizeRefund(first);
+        assertEq(spokeBridge.expiryNotes(a.bridgeRef), 1, "by recognizeRefund");
+        vault.report();
+        assertEq(spokeBridge.expiryNotes(b.bridgeRef), 1, "by the report's sweep");
+        assertEq(spokeBridge.expiryNotes(a.bridgeRef), 1, "never twice");
+    }
+
+    /// DEC-162: a send home dropped past its retention without a refund is not an expiry the adapter learns.
+    function test_DEC162_sendDroppedAfterRetentionIsNotNoted() public {
+        _disableOperatingCash();
+        _arrive(1000e6, ARRIVAL, TransferKind.Principal);
+        vm.prank(manager);
+        bytes32 id = vault.sendToHub(400e6, TransferKind.Principal, 0, _quote(399e6));
+        Transit memory t = vault.hubBoundTransit(id);
+        vm.warp(uint256(t.fillDeadline) + ReportCodec.HUB_BOUND_RETENTION + 1);
+        vault.report();
+        assertEq(vault.inFlightTransitIds().length, 0);
+        assertEq(spokeBridge.expiryNotes(t.bridgeRef), 0);
+    }
+
+    /// DEC-056: an adapter that refuses `noteExpiry` never blocks a refund; the vault reports the failure.
+    function test_DEC056_failingNoteExpiryNeverBlocksARefund() public {
+        _disableOperatingCash();
+        _arrive(1000e6, ARRIVAL, TransferKind.Principal);
+        vm.prank(manager);
+        bytes32 id = vault.sendToHub(400e6, TransferKind.Principal, 0, _quote(399e6));
+        Transit memory t = vault.hubBoundTransit(id);
+        spokeBridge.setNoteExpiryReverts(true);
+        vm.warp(uint256(t.fillDeadline) + 1);
+        spokePool.refund(t.escrow, address(usdg), 400e6);
+        vm.expectEmit(address(vault));
+        emit SpokeCrossChainLib.BridgeExpiryNoteFailed(id, address(spokeBridge));
+        assertEq(vault.recognizeRefund(id), 400e6);
+        assertEq(uint8(vault.hubBoundTransit(id).state), uint8(TransitState.RefundRecognized));
+        assertEq(vault.unallocatedBalance(address(usdg)), 1000e6);
+    }
+
+    /// DEC-162, DEC-056: a caller cannot starve `noteExpiry` so that the fee rule silently misses an expiry: at any gas
+    /// limit, the refund recognition either reverts or the adapter has the note.
+    function test_DEC162_starvedRefundRecognitionNeverSkipsTheNote() public {
+        _disableOperatingCash();
+        _arrive(1000e6, ARRIVAL, TransferKind.Principal);
+        vm.prank(manager);
+        bytes32 id = vault.sendToHub(400e6, TransferKind.Principal, 0, _quote(399e6));
+        Transit memory t = vault.hubBoundTransit(id);
+        vm.warp(uint256(t.fillDeadline) + 1);
+        spokePool.refund(t.escrow, address(usdg), 400e6);
+        uint256 succeeded;
+        for (uint256 g = 40_000; g <= 400_000; g += 4000) {
+            uint256 snapshot = vm.snapshotState();
+            (bool ok,) = address(vault).call{gas: g}(abi.encodeCall(ISpokeVault.recognizeRefund, (id)));
+            if (ok) {
+                ++succeeded;
+                assertEq(spokeBridge.expiryNotes(t.bridgeRef), 1, "every recognized refund reached the adapter");
+            }
+            vm.revertToState(snapshot);
+        }
+        assertGt(succeeded, 0, "enough gas recognizes");
     }
 }

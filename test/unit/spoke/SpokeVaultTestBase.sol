@@ -18,6 +18,7 @@ import {TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
 import {MockSpokeToken} from "../../mocks/spoke/MockSpokeToken.sol";
 import {MockPositionAdapter} from "../../mocks/spoke/MockPositionAdapter.sol";
 import {MockBridgeAdapter} from "../../mocks/spoke/MockBridgeAdapter.sol";
+import {MockBridgeNextArrive} from "../../mocks/across/MockBridgeNextArrive.sol";
 import {MockAcrossSpokePool} from "../../mocks/spoke/MockAcrossSpokePool.sol";
 import {MockCoreVault} from "../../mocks/spoke/MockCoreVault.sol";
 import {MockPriceSource} from "../../mocks/core/MockPriceSource.sol";
@@ -173,8 +174,11 @@ abstract contract SpokeVaultTestBase is Test {
         vault.setOperatingCashParameters(0, 0);
     }
 
-    function _quote(uint256 outputAmount) internal view returns (BridgeQuote memory) {
-        return BridgeQuote(outputAmount, uint32(block.timestamp), 0, address(0));
+    /// @dev DEC-158, DEC-162: the Spoke Vault ignores its vestigial quote argument and the bridge adapter fixes the
+    ///      amount to arrive, so the primary mock adapter is set to deliver `outputAmount` on the next send home.
+    function _quote(uint256 outputAmount) internal returns (BridgeQuote memory q) {
+        MockBridgeNextArrive.set(address(spokeBridge), outputAmount);
+        q.outputAmount = outputAmount;
     }
 
     /// @dev Income for a position: the tokens reach the adapter and are booked as uncollected.

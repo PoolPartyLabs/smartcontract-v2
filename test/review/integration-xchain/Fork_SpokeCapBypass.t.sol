@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IAcrossSpokePool} from "../../../src/interfaces/external/IAcrossSpokePool.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {AcrossBridgeAdapter} from "../../../src/adapters/AcrossBridgeAdapter.sol";
 import {Transit, TransitState, TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
@@ -15,11 +16,12 @@ import {XChainBase, LiveRelayData, BatchRelayer} from "./XChainBase.sol";
 ///         on time alone released `inFlightSent` of a transit that had arrived: 11,985.20 USDG sat on a spoke capped at
 ///         4,000 (variant A) and 12,753.20 with reports flowing and a fourth send accepted (variant B).
 /// @dev Adaptation to the fix branch, interface only: the spoke's first report is delivered before the first send
-///      (S-14); sends carry no exclusivity (S-9), so in variant B the manager's relayer fills the genuine send because
-///      it is first, not because it is the only one allowed.
+///      (S-14); sends carry no exclusivity (S-9; since DEC-158 / DEC-162 the Across adapter fixes every term), so in
+///      variant B the manager's relayer fills the genuine send because it is first, not because it is the only one
+///      allowed.
 contract Fork_SpokeCapBypass is XChainBase {
     uint256 internal constant SEND = SPOKE_CAP; // 4,000 USDC, the whole cap of the project's Mandate
-    uint256 internal constant ARRIVES = SPOKE_CAP - BRIDGE_FEE; // 3,998.40 USDG (4 bps, the Mandate maximum)
+    uint256 internal constant ARRIVES = SPOKE_CAP - BRIDGE_FEE; // 3,996.77 USDG (DEC-162: 0.08% plus 0.03)
 
     function _setUpFund() internal {
         _createForks();
@@ -35,7 +37,7 @@ contract Fork_SpokeCapBypass is XChainBase {
     ///         accepted report was skipped and mints stayed open, L-03).
     function test_REVIEW_H03_withheldReportsKeepTheCapHeldAfterATimeAttestation() public {
         _setUpFund();
-        (bytes32 id, LiveRelayData memory relay) = _sendToSpoke(SEND, _quote(ARRIVES));
+        (bytes32 id, LiveRelayData memory relay) = _sendToSpoke(SEND);
         _fillOnRobinhood(relay, relayer); // the live pool pays the Spoke Vault and calls its handler
         assertEq(SpokeVaultView(address(spokeVault)).arrivals(id), ARRIVES, "credited by id on the spoke");
 
@@ -49,7 +51,7 @@ contract Fork_SpokeCapBypass is XChainBase {
         assertEq(_capUsed(), SEND, "the arrived transit still uses the cap");
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(ICoreVault.SpokeCapExceeded.selector, 0, SEND, SEND, SPOKE_CAP));
-        core.sendToSpoke(0, SEND, 0, _quote(ARRIVES));
+        core.sendToSpoke(0, SEND, 0, "");
 
         address carol = makeAddr("carol");
         _refreshEthUsdFeed();
@@ -70,7 +72,8 @@ contract Fork_SpokeCapBypass is XChainBase {
         assertEq(spokeValue, ARRIVES - SPOKE_OPERATING_CASH_TOP_UP, "priced 1:1, Operating Cash outside");
     }
 
-    /// @notice FIXED. Variant B: reports flow. Exclusivity is refused (S-9); without it the manager's relayer contract
+    /// @notice FIXED. Variant B: reports flow. The manager cannot name a relayer (S-9, DEC-158: a quote passed to the
+    ///         Across adapter is refused); without exclusivity the manager's relayer contract
     ///         still fills the genuine send first and, in the same Robinhood transaction, 256 of the manager's own
     ///         one-USDG deposits (fresh ids, real deposits on Arbitrum), so the genuine id leaves the 256-id window
     ///         before any report is built. The time-path attestation now keeps the cap (S-13), and the next cap-sized
@@ -82,10 +85,10 @@ contract Fork_SpokeCapBypass is XChainBase {
 
         _onArbitrum();
         vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.ExclusiveRelayerNotAllowed.selector, address(mine)));
-        core.sendToSpoke(0, SEND, 0, _exclusiveQuote(ARRIVES, address(mine)));
+        vm.expectRevert(AcrossBridgeAdapter.QuotesNotSupported.selector);
+        core.sendToSpoke(0, SEND, 0, abi.encode(ARRIVES, address(mine), uint32(21_600)));
 
-        (bytes32 id, LiveRelayData memory relay) = _sendToSpoke(SEND, _quote(ARRIVES));
+        (bytes32 id, LiveRelayData memory relay) = _sendToSpoke(SEND);
         LiveRelayData[] memory dust = _managerDustDeposits(256, address(mine));
         LiveRelayData[] memory all = new LiveRelayData[](257);
         all[0] = relay;
@@ -117,7 +120,7 @@ contract Fork_SpokeCapBypass is XChainBase {
         assertGe(used, SEND, "the arrived value is still in a term of the cap");
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(ICoreVault.SpokeCapExceeded.selector, 0, used, SEND, SPOKE_CAP));
-        core.sendToSpoke(0, SEND, 0, _quote(ARRIVES));
+        core.sendToSpoke(0, SEND, 0, "");
         _onRobinhood();
         _log("spoke Unallocated Balance (USDG)", spokeVault.unallocatedBalance(RH_USDG));
     }
