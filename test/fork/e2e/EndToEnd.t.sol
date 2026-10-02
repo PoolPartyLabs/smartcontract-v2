@@ -28,6 +28,7 @@ import {Mandate, MandateLib} from "../../../src/mandate/Mandate.sol";
 import {ShareMath} from "../../../src/libraries/ShareMath.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
+import {SpokeUnwindTypes} from "../../../src/spoke/SpokeUnwindTypes.sol";
 import {EndToEndBase} from "./EndToEndBase.sol";
 
 /// @notice End-to-end fork scenario (docs/ARCHITECTURE.md §7): one fund driven across the pinned Arbitrum One and
@@ -667,22 +668,25 @@ abstract contract EndToEndScenario is EndToEndBase {
         ICoreVault.PayoutReceipt memory receipt =
             core.requestPayout(plan.request, ICoreVaultPayouts.PayoutMode.Instant, 0);
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        assertEq(core.payoutRequest(bruno).reserved, 0, "DEC-095: no reserve for an Instant Payout");
-
         (bytes32 requestId, uint256 fracNum, uint256 fracDen, ISpokeVaultUnwind.UnwindResult memory u) = _unwound(logs);
+        assertTrue(core.payoutRequest(bruno).awaitingSettlement, "DEC-139: the spoke leg waits");
+        uint256 spokeProceeds;
+        uint256 spokeMarketCost;
+        uint256 spokeLeaverCost;
+        (receipt, spokeProceeds, spokeMarketCost, spokeLeaverCost) = _settleSpokeUnwind(bruno, logs);
         assertEq(requestId, receipt.requestId, "the unwind and the payout name the same request");
         assertEq(fracNum, plan.fracNum, "DEC-137, D-11: (S - A/P) / (T - A/P) x 1.02, from shares");
         assertEq(fracDen, plan.fracDen);
         assertEq(receipt.fracNum, fracNum);
         assertEq(receipt.fracDen, fracDen);
-        assertEq(u.proceeds, receipt.unwindProceeds, "DEC-080: proceeds reached Idle through returnToIdle");
+        assertEq(u.proceeds + spokeProceeds, receipt.unwindProceeds, "DEC-080: Hub and spoke proceeds reached Idle");
         assertEq(u.excluded, 0, "no maximum: every position delivered");
         assertEq(u.delivered, plan.hubWeth != 0 ? 3 : 2, "Aave, V4 and the Unallocated WETH");
         _assertProportionalUnwind(plan);
 
-        assertEq(receipt.marketCost, u.marketCost, "DEC-118: the sales' loss against the V3 mid");
+        assertEq(receipt.marketCost, u.marketCost + spokeMarketCost, "DEC-118: the sales' loss against the V3 mid");
         assertEq(u.leaverCost, u.marketCost, "DEC-118: Instant, the requester bears it all");
-        assertEq(receipt.leaverCost, u.leaverCost);
+        assertEq(receipt.leaverCost, u.leaverCost + spokeLeaverCost);
         assertEq(receipt.marketCostAbsorbed, 0);
         assertEq(receipt.totalShares, plan.supply);
         assertEq(
@@ -698,7 +702,7 @@ abstract contract EndToEndScenario is EndToEndBase {
         assertEq(IERC20(ARB_USDC).balanceOf(bruno) - plan.brunoUsdc, receipt.usdcPaid);
         assertEq(
             receipt.payoutSettlementPrice,
-            Math.mulDiv(u.proceeds, 1e36, receipt.sharesBurned),
+            Math.mulDiv(receipt.unwindProceeds, 1e36, receipt.sharesBurned),
             "DEC-084, DEC-105: Settlement Price recorded only"
         );
         assertEq(IERC20(shareToken).balanceOf(bruno), plan.balance - receipt.sharesBurned);
@@ -706,6 +710,50 @@ abstract contract EndToEndScenario is EndToEndBase {
         emit log_named_decimal_uint("Instant Payout unwind fraction (bps)", fracNum * 10_000 / fracDen, 2);
         emit log_named_decimal_uint("Instant Payout Market Cost (USDC)", u.marketCost, 6);
         emit log_named_decimal_uint("Instant Payout outstanding after the claim (USDC)", receipt.usdcOutstanding, 6);
+    }
+
+    /// @notice DEC-139/105: destination clocks come from the VAA publish time, then Principal is credited before settlement.
+    function _settleSpokeUnwind(address holder, Vm.Log[] memory logs)
+        internal
+        returns (
+            ICoreVaultPayouts.PayoutReceipt memory receipt,
+            uint256 proceeds,
+            uint256 marketCost,
+            uint256 leaverCost
+        )
+    {
+        VaaBody[] memory orders = ICoreBridge(ARB_WORMHOLE_CORE).fetchPublishedMessages(logs);
+        assertEq(orders.length, 1);
+        _onRobinhood();
+        vm.warp(uint256(orders[0].envelope.timestamp) + 1 minutes);
+        ICoreBridge spokeCore = ICoreBridge(RH_WORMHOLE_CORE);
+        spokeCore.setUpOverride();
+        bytes memory vaa = VaaLib.encode(spokeCore.sign(orders[0]));
+        vm.recordLogs();
+        spokeVault.executeOrder(vaa);
+        VaaBody[] memory reports = spokeCore.fetchPublishedMessages(vm.getRecordedLogs());
+        assertEq(reports.length, 1);
+        ReportCodec.Report memory report = ReportCodec.decode(reports[0].payload);
+        SpokeUnwindTypes.OrderResult[] memory results =
+            abi.decode(report.unwindResults, (SpokeUnwindTypes.OrderResult[]));
+        SpokeUnwindTypes.OrderResult memory result = results[results.length - 1];
+        assertEq(result.excluded, 0);
+        _onArbitrum();
+        vm.warp(uint256(reports[0].envelope.timestamp) + 1 minutes);
+        receiver.deliver(VaaLib.encode(ICoreBridge(ARB_WORMHOLE_CORE).sign(reports[0])));
+        if (result.amountToArrive != 0) {
+            deal(ARB_USDC, address(core), IERC20(ARB_USDC).balanceOf(address(core)) + result.amountToArrive);
+            vm.prank(ARB_ACROSS_SPOKE_POOL);
+            core.handleV3AcrossMessage(
+                ARB_USDC,
+                result.amountToArrive,
+                relayer,
+                TransitMessage.encode(fundId, 4663, result.transitId, TransferKind.Principal)
+            );
+        }
+        _refreshEthUsdFeed();
+        receipt = core.settlePayout(holder);
+        return (receipt, result.amountToArrive, result.marketCost, result.leaverCost);
     }
 
     /// @dev Bruno asks 1,000 USDC more than Free Idle; the fraction is computed here from shares as D-11 states it,

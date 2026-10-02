@@ -40,7 +40,7 @@ jobs:
       ARBITRUM_RPC_URL: ${{ secrets.ARBITRUM_RPC_URL || 'https://arb1.arbitrum.io/rpc' }}
       ROBINHOOD_RPC_URL: ${{ secrets.ROBINHOOD_RPC_URL || 'https://rpc.mainnet.chain.robinhood.com' }}
       # Shard 3: the test files that call _createForks() (see the comment above the shards).
-      SCENARIO_SUITES: "test/{fork/e2e/**,fork/security/**,fork/spoke/{SwapAdapterVault,ProportionalUnwind}.fork.t.sol,review/integration-xchain/**/*Fork*,review/wp07c/HopTokenReentrantMintFork.t.sol,review/integration-price/DeprecatedAdapterFork.t.sol,review/integration-price/SpokeReportSpotFork.t.sol}"
+      SCENARIO_SUITES: "test/{fork/e2e/{EndToEnd,EndToEndAdversarial,SpokeUnwindOrder.fork}.t.sol,fork/security/**,fork/spoke/{SwapAdapterVault,ProportionalUnwind}.fork.t.sol,review/integration-xchain/**/*Fork*,review/wp07c/HopTokenReentrantMintFork.t.sol,review/integration-price/DeprecatedAdapterFork.t.sol,review/integration-price/SpokeReportSpotFork.t.sol}"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:

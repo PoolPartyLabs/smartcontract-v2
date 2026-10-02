@@ -52,7 +52,10 @@ contract EndToEndAdversarialForkTest is EndToEndScenario {
         vm.prank(bruno);
         ICoreVault.PayoutReceipt memory receipt =
             core.requestPayout(plan.request, ICoreVaultPayouts.PayoutMode.Instant, 0);
-        (, uint256 fracNum, uint256 fracDen, ISpokeVaultUnwind.UnwindResult memory u) = _unwound(vm.getRecordedLogs());
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        (, uint256 fracNum, uint256 fracDen, ISpokeVaultUnwind.UnwindResult memory u) = _unwound(logs);
+        uint256 spokeProceeds;
+        (receipt, spokeProceeds,,) = _settleSpokeUnwind(bruno, logs);
 
         assertEq(fracNum, plan.fracNum, "DEC-095, DEC-137: the fraction is measured against Free Idle, plus 2%");
         assertEq(fracDen, plan.fracDen);
@@ -62,10 +65,12 @@ contract EndToEndAdversarialForkTest is EndToEndScenario {
         // DEC-144, DEC-118: the Payout Fee and the requester's Market Cost stay in Idle.
         assertEq(
             core.idle(),
-            idleBefore + u.proceeds - receipt.usdcGross + receipt.payoutFee + receipt.leaverCost,
+            idleBefore + u.proceeds + spokeProceeds - receipt.usdcGross + receipt.payoutFee + receipt.leaverCost,
             "DEC-080: Idle moved by the proceeds and the payout only"
         );
-        assertLe(receipt.usdcGross, idleBefore - reserve + u.proceeds, "DEC-095: never from the reserve");
+        assertLe(
+            receipt.usdcGross, idleBefore - reserve + u.proceeds + spokeProceeds, "DEC-095: never from the reserve"
+        );
         assertEq(receipt.payoutFee, ShareMath.bpsOf(receipt.usdcGross, 200), "DEC-075: Payout Fee");
 
         _advance(72 hours);
