@@ -115,6 +115,7 @@ library DollarIncomeIndex {
         uint256[] fractions;
         uint64[] intervals;
         uint256[] sold;
+        uint256[] recognized;
         uint256[] rates;
         bool finalized;
     }
@@ -303,6 +304,7 @@ library DollarIncomeIndex {
             frozen.fractions.push(fraction);
             frozen.intervals.push(token.interval);
             frozen.sold.push(sold[index]);
+            frozen.recognized.push(claimed);
             if (claimed == 0) continue;
             uint256 carried = recognized - claimed;
             s.carry[token.interval][s.tokens[index]] = Math.mulDiv(carried, Q128, recognized);
@@ -326,7 +328,7 @@ library DollarIncomeIndex {
             frozen.rates.push(rate);
             increment += Math.mulDiv(frozen.indices[index], rate, Q128);
             total += obtained[index];
-            if (frozen.indices[index] != 0) attributed += obtained[index];
+            attributed += Math.mulDiv(frozen.recognized[index], rate, Q128, Math.Rounding.Ceil);
         }
         frozen.finalized = true;
         s.dollarIndex += increment;
