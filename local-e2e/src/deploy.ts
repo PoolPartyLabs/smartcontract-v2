@@ -153,8 +153,8 @@ function tupleValues(tuple: string): string[] {
 }
 
 /** Protocol wiring handed to script/DeployFactory.s.sol: the fee wallet is its own actor; the operator guards the
- *  adapters; the API signer owns the ManagerRegistry and signs swap routes and bridge quotes (reading D-01 of DEC-112;
- *  the scripts read `API_SIGNER` once Mandate v2 wires the swap adapters). */
+ *  adapters; the API signer signs every fund's swap routes and owns the ManagerRegistry (reading D-01, DEC-170 item 3;
+ *  the script defaults `REGISTRY_OWNER` to `API_SIGNER`, passed here all the same so the state file names both). */
 export function protocolRoles() {
   return {
     protocolRecipient: actors.protocolRecipient.address,
@@ -272,6 +272,7 @@ export async function createFund(fundFactory: Address, log: Logger): Promise<Fun
       uniswapV4Adapter: hubChain.uniswapV4Adapter,
       aaveV3Adapter: hubChain.aaveV3Adapter,
       acrossBridgeAdapter: hubChain.acrossBridgeAdapter,
+      uniswapV3SwapAdapter: hubChain.uniswapV3SwapAdapter,
       createdInBlock: created.blockNumber.toString(),
     },
     spoke: {
@@ -281,6 +282,7 @@ export async function createFund(fundFactory: Address, log: Logger): Promise<Fun
       spokeVault: s.spokeVault,
       uniswapV4Adapter: s.uniswapV4Adapter,
       acrossBridgeAdapter: s.acrossBridgeAdapter,
+      uniswapV3SwapAdapter: s.uniswapV3SwapAdapter,
       createdInBlock: spoke.blockNumber.toString(),
     },
     poolKeys: { hub: [HUB_POOL_KEY], spoke: [SPOKE_POOL_KEY] },

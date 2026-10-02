@@ -150,9 +150,9 @@ export const ACTOR_KEYS = {
   protocolRecipient: "0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e",
   /** Account 7: a third-party trader who swaps in the Uniswap V4 pools to generate fees. */
   trader: "0x4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356",
-  /** Account 8: the Pool Party API's key (reading D-01 of DEC-112): owner of the ManagerRegistry (`REGISTRY_OWNER`),
-   *  route signer of the swap adapters and future quote signer of the bridge adapters (`API_SIGNER`), and sender of
-   *  the report the API publishes after each deposit (DEC-159). */
+  /** Account 8: the Pool Party API's key (reading D-01, DEC-170): `API_SIGNER`, route signer of every fund's swap
+   *  adapters and owner of the ManagerRegistry (DEC-170 item 3; `REGISTRY_OWNER` defaults to it), and sender of the
+   *  report the API publishes after each deposit (DEC-159). No bridge quote signer in the MVP (DEC-176). */
   apiSigner: "0xdbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97",
 } as const satisfies Record<string, Hex>;
 
@@ -175,15 +175,21 @@ export const guardian = privateKeyToAccount(GUARDIAN_PRIVATE_KEY);
 
 /** Mandate rule values passed to script/CreateFund.s.sol, overridable through the same environment variables. The
  *  defaults are the end-to-end fork scenario's (test/fork/e2e/EndToEndBase.sol): a Spoke Cap of 40% of Ana's first
- *  deposit and the manager's seed at the Mandate minimum. `MAX_BRIDGE_FEE_BPS` is a dead Mandate field since the
- *  Across adapter fixes every send (DEC-156, DEC-162) until Mandate v2 removes it. */
+ *  deposit and the manager's seed at the Mandate minimum. Mandate v2 (WP-07 B): the script itself lists the Mandate
+ *  tokens (Arbitrum USDC and WETH, Robinhood USDG and WETH), the factory's Uniswap V3 swap adapter of each chain and
+ *  the Hub's Wormhole chain id 23; the Mandate has no unwind order, Standard Payout term or bridge fee bound any more
+ *  (DEC-137, DEC-154, DEC-156). The fees are the manager's, within the Mandate bounds (DEC-182, DEC-184, DEC-186). The
+ *  spoke Operating Cash floor and top-up are 0 (ruling 2026-10-02: nothing spends Operating Cash in the MVP; the hub
+ *  has no Operating Cash entry, so its floor and top-up are 0 too). */
 export const FUND_PLAN = {
   SPOKE_CAP: process.env.SPOKE_CAP ?? "4000000000", // 4,000 USDC (DEC-037, DEC-095)
   MIN_FIRST_DEPOSIT: process.env.MIN_FIRST_DEPOSIT ?? "100000000", // 100 USDC (DEC-061)
   // DEC-127: the manager's seed at creation, in USDC base units; the script approves the factory for it.
   SEED_AMOUNT: process.env.SEED_AMOUNT ?? process.env.MIN_FIRST_DEPOSIT ?? "100000000",
-  PERFORMANCE_FEE_BPS: process.env.PERFORMANCE_FEE_BPS ?? "2000", // 20% (DEC-107)
-  MAX_BRIDGE_FEE_BPS: process.env.MAX_BRIDGE_FEE_BPS ?? "4", // dead field (DEC-156, DEC-162)
+  PERFORMANCE_FEE_BPS: process.env.PERFORMANCE_FEE_BPS ?? "2000", // 20% (DEC-107; 1,000 to 9,000, DEC-184)
+  MANAGEMENT_FEE_BPS: process.env.MANAGEMENT_FEE_BPS ?? "0", // DEC-108, DEC-114 (0 to 500, DEC-186)
+  SPOKE_OPERATING_CASH_FLOOR: process.env.SPOKE_OPERATING_CASH_FLOOR ?? "0", // USDG base units (DEC-096)
+  SPOKE_OPERATING_CASH_TOP_UP: process.env.SPOKE_OPERATING_CASH_TOP_UP ?? "0", // USDG base units (DEC-096)
 } as const;
 
 /** Whether the module at `url` (`import.meta.url`) is the script node was started with. */

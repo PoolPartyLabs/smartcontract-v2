@@ -28,6 +28,9 @@ export interface FundRecord {
     uniswapV4Adapter: Address;
     aaveV3Adapter: Address;
     acrossBridgeAdapter: Address;
+    /** The fund's Uniswap V3 swap adapter on the hub (Mandate v2, DEC-136): vault the hub Spoke Vault, route signer the
+     *  API signer. */
+    uniswapV3SwapAdapter: Address;
     createdInBlock: string;
   };
   spoke: {
@@ -37,6 +40,8 @@ export interface FundRecord {
     spokeVault: Address;
     uniswapV4Adapter: Address;
     acrossBridgeAdapter: Address;
+    /** The fund's Uniswap V3 swap adapter on Robinhood (DEC-136): vault the Robinhood Spoke Vault. */
+    uniswapV3SwapAdapter: Address;
     createdInBlock: string;
   };
   poolKeys: { hub: PoolKey[]; spoke: PoolKey[] };
@@ -62,7 +67,7 @@ export interface ProtocolState {
     protocolRecipient: Address;
     adapterGuardian: Address;
     registryOwner: Address;
-    /** The API's key: route and quote signer (reading D-01 of DEC-112). */
+    /** The API's key: swap route signer and ManagerRegistry owner (reading D-01, DEC-170). */
     apiSigner: Address;
   };
   robinhood: DeployedContracts & {
@@ -96,8 +101,10 @@ export interface DeploymentState {
     arbitrumSwapRouter: Address;
     robinhoodSwapRouter: Address;
     /** A Uniswap V3 swap adapter per chain (src/adapters/UniswapV3SwapAdapter.sol) whose route signer is the API
-     *  signer and whose vault is the manager's wallet, standing in for the fund's own adapters until the factory
-     *  deploys them (Mandate v2, WP-07). The API signs routes for it; `swapAdapterVault` is the only caller of `swap`. */
+     *  signer and whose vault is the manager's wallet, so the probe can execute a signed route from a wallet: the
+     *  fund's own adapters (`fund.hub.uniswapV3SwapAdapter`, `fund.spoke.uniswapV3SwapAdapter`) take `swap` only from
+     *  their Spoke Vault, whose manager swap verb lands in WP-07 C. Its Robinhood instance also lists NVDA, so a route
+     *  can hop through WETH. The API signs routes for both; `swapAdapterVault` is the only caller of this one's `swap`. */
     swapAdapters: { arbitrum: Address; robinhood: Address };
     swapAdapterVault: Address;
   };

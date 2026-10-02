@@ -46,7 +46,7 @@ actor keys below, and read every address from `local-e2e/.state/deployment.json`
 
 | Command | What it does |
 |---|---|
-| `pnpm run up [--warm-up scenario\|none]` | `forge build`; starts both forks (`scripts/start-forks.sh`); `script/DeployFactory.s.sol` on both nodes with the operator's key (same factory address required, DEC-054; the API signer owns the ManagerRegistry); replaces the guardian set of both Wormhole Cores with the local guardian and self-tests a VAA in each direction; re-stamps Chainlink; finds the storage layouts the keeper needs; deploys the trader's swap routers and a Uniswap V3 swap adapter per chain for the API's signed routes; funds the actors (clearing the EIP-7702 delegations the public keys carry on mainnet); `script/CreateFund.s.sol` with the manager's key (`createFund` with the manager's seed on the hub, DEC-127; `createSpoke` on Robinhood); writes `.state/deployment.json`; then warms the fork caches (see [Troubleshooting](#troubleshooting)) |
+| `pnpm run up [--warm-up scenario\|none]` | `forge build`; starts both forks (`scripts/start-forks.sh`); `script/DeployFactory.s.sol` on both nodes with the operator's key (same factory address required, DEC-054; the API signer owns the ManagerRegistry); replaces the guardian set of both Wormhole Cores with the local guardian and self-tests a VAA in each direction; re-stamps Chainlink; finds the storage layouts the keeper needs; deploys the trader's swap routers and a harness Uniswap V3 swap adapter per chain whose vault is the manager's wallet, to execute the API's signed routes from a wallet; funds the actors (clearing the EIP-7702 delegations the public keys carry on mainnet); `script/CreateFund.s.sol` with the manager's key (`createFund` with the manager's seed on the hub, DEC-127; `createSpoke` on Robinhood); writes `.state/deployment.json`; then warms the fork caches (see [Troubleshooting](#troubleshooting)) |
 | `pnpm down` | Stops the keeper and both forks through their pid files (never another anvil), removes `deployment.json`, keeps the logs |
 | `pnpm keeper [--auto-report <s>] [--vaa-delay <s>] [--order-delay <s>] [--fill-delay <s>] [--fill-mode auto\|real\|simulated]` | The long-running keeper (see [Keeper](#keeper)); Ctrl-C finishes running work and exits |
 | `pnpm scenario [--keeper auto\|inprocess\|external] [--new-fund]` | The end-to-end scenario (see [Scenario](#scenario)); exits non-zero on the first failed assertion; writes a [run report](#run-reports) |
@@ -92,7 +92,7 @@ use them on a real network.**
 | stranger | 5 | `0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc` | `0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba` | Permissionless calls, donations |
 | protocolRecipient | 6 | `0x976EA74026E726554dB657fA54763abd0C3a0aa9` | `0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e` | Protocol Recipient: flow fee, protocol slice, swept excess (DEC-106) |
 | trader | 7 | `0x14dC79964da2C08b23698B3D3cc7Ca32193d9955` | `0x4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356` | Swaps in the V4 pools to generate fees (50M USDC and USDG, 10,000 WETH per chain) |
-| apiSigner | 8 | `0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f` | `0xdbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97` | The Pool Party API's key (reading D-01 of DEC-112): ManagerRegistry owner (`REGISTRY_OWNER`), route signer of the swap adapters and future quote signer of the bridge adapters (`API_SIGNER`), sender of the report after each deposit (DEC-159) |
+| apiSigner | 8 | `0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f` | `0xdbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97` | The Pool Party API's key (reading D-01, DEC-170): `API_SIGNER`, route signer of every fund's swap adapters and ManagerRegistry owner (DEC-170 item 3; `REGISTRY_OWNER` defaults to it), sender of the report after each deposit (DEC-159); no bridge quote signer in the MVP (DEC-176) |
 
 The operator (account 0) deploys the factories and guards the adapters. Every actor has 10,000 ETH on both nodes; the
 manager and the stranger also hold 10,000 USDC and 10,000 USDG (the manager's seed of each fund comes out of his USDC).
@@ -102,14 +102,17 @@ Chain; funding clears it on the forks so the actors are plain EOAs. The local Wo
 
 ## The default fund
 
-`up` creates fund `PP-1` with `script/CreateFund.s.sol`, the Mandate of the end-to-end fork scenario: hub Uniswap V4
+`up` creates fund `PP-1` with `script/CreateFund.s.sol`, the Mandate v2 of the end-to-end fork scenario: hub Uniswap V4
 WETH/USDC 0.05% plus Aave V3 USDC, spoke Uniswap V4 WETH/USDG 0.05%, Across in both directions (the adapter's fee rule
-fixes every send, DEC-162; the Mandate's `maxBridgeFeeBps` is a dead field until Mandate v2), a Spoke Cap of 4,000 USDC,
-a 2% Payout Fee, a 72 h Standard Payout term, a 20% performance fee, no management fee, a 100 USDC minimum first
-deposit and a Robinhood `maxReportAge` of 1,588 s. The manager seeds it in the creation transaction (DEC-127): 100 USDC,
-99 shares at 1.00 after the 25 bps flow fee. `SPOKE_CAP`, `MIN_FIRST_DEPOSIT`, `SEED_AMOUNT` (default
-`MIN_FIRST_DEPOSIT`), `PERFORMANCE_FEE_BPS` and `MAX_BRIDGE_FEE_BPS` override the values (the variables the script
-reads). More funds can be created with the same script or from the frontend; the keeper serves every fund the
+fixes every send, DEC-162), the Mandate tokens USDC and WETH on Arbitrum and USDG and WETH on Robinhood, the factory's
+Uniswap V3 swap adapter on each chain (DEC-136), the Hub's Wormhole chain id 23, a Spoke Cap of 4,000 USDC, a 2% Payout
+Fee, a 20% performance fee (within 10% to 90%, DEC-184), no management fee (at most 5%, DEC-186), Operating Cash floor
+and top-up 0 on both chains (ruling 2026-10-02), a 100 USDC minimum first deposit and a Robinhood `maxReportAge` of
+1,588 s; the Standard Payout term is the 72 h protocol constant (DEC-154), and there is no unwind order or bridge fee
+bound any more. The manager seeds it in the creation transaction (DEC-127): 100 USDC, 99 shares at 1.00 after the 25
+bps flow fee. `SPOKE_CAP`, `MIN_FIRST_DEPOSIT`, `SEED_AMOUNT` (default `MIN_FIRST_DEPOSIT`), `PERFORMANCE_FEE_BPS`,
+`MANAGEMENT_FEE_BPS`, `SPOKE_OPERATING_CASH_FLOOR` and `SPOKE_OPERATING_CASH_TOP_UP` override the values (the variables
+the script reads). More funds can be created with the same script or from the frontend; the keeper serves every fund the
 factories create.
 
 ## The state file
@@ -328,7 +331,7 @@ Git ignores them; commit a run worth keeping with `git add -f`.
 | `LOCAL_E2E_API_PORT` | 8787 | `pnpm api`, `pnpm api:probe` |
 | `LOCAL_E2E_ANVIL_CUPS`, `LOCAL_E2E_ANVIL_RETRIES`, `LOCAL_E2E_ANVIL_BACKOFF_MS` | 150, 10, 1000 | anvil's upstream rate limit, retries and backoff |
 | `LOCAL_E2E_HARDFORK` | prague | both nodes |
-| `SPOKE_CAP`, `MIN_FIRST_DEPOSIT`, `SEED_AMOUNT`, `PERFORMANCE_FEE_BPS`, `MAX_BRIDGE_FEE_BPS` | 4,000 USDC, 100 USDC, `MIN_FIRST_DEPOSIT`, 2000, 4 (dead field) | the funds `up`, `scenario` and `api:probe` create |
+| `SPOKE_CAP`, `MIN_FIRST_DEPOSIT`, `SEED_AMOUNT`, `PERFORMANCE_FEE_BPS`, `MANAGEMENT_FEE_BPS`, `SPOKE_OPERATING_CASH_FLOOR`, `SPOKE_OPERATING_CASH_TOP_UP` | 4,000 USDC, 100 USDC, `MIN_FIRST_DEPOSIT`, 2000, 0, 0, 0 | the funds `up`, `scenario` and `api:probe` create |
 | `KEEPER_*` | see [Keeper](#keeper) | the keeper |
 
 ## Troubleshooting
@@ -385,8 +388,9 @@ a run report keeps the host of a URL only.
 - **Orders.** Until the Core Vault publishes orders (WP-09 on) and the Spoke Vault executes them (WP-07), the scenario
   publishes one from the Core Vault's address and the keeper only logs it.
 - **The API signer.** Its key is a public anvil key held by the local API; in production it is the API's own key, the
-  ManagerRegistry owner and the route and quote signer wired at deployment (reading D-01). The harness's swap adapters
-  name the manager's wallet as their vault until the factory deploys each fund's own adapter (WP-07). The local API also
+  ManagerRegistry owner and the swap route signer wired at deployment (reading D-01, DEC-170). Besides each fund's own
+  swap adapters, the harness deploys one per chain whose vault is the manager's wallet, so a signed route can be
+  executed from a wallet until the Spoke Vault's manager swap verb lands (WP-07 C). The local API also
   pays the reports after deposits with it; production sends those from a separate gas key, never from the
   registry-owner and route-signer key, and keeps the deposits it answered in its store rather than in memory.
 - **Across.** Real SpokePools, but one keeper fills every deposit to a fund vault at whatever fee the quote left, within

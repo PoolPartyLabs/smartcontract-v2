@@ -86,7 +86,7 @@ const HALF_RANGE = 200;
 const SWING = 40;
 const SWAP_TOLERANCE_BPS = 300n;
 const FLOW_FEE_BPS = 25n;
-const SPOKE_OPERATING_CASH_TOP_UP = 10n * USD;
+const SPOKE_OPERATING_CASH_TOP_UP = BigInt(FUND_PLAN.SPOKE_OPERATING_CASH_TOP_UP);
 const INITIAL_SHARE_PRICE = 10n ** 24n;
 const WAD = 10n ** 18n;
 const WAIT_SECONDS = 120;
@@ -374,19 +374,30 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     run.eq(mandate.pools[0].poolKey, HUB_POOL_ID, "DEC-030: hub WETH/USDC 0.05%");
     run.eq(mandate.pools[1].poolKey, AAVE_USDC_POOL_KEY, "DEC-018, DEC-028: Aave USDC on the hub");
     run.eq(mandate.pools[2].poolKey, SPOKE_POOL_ID, "DEC-030: spoke WETH/USDG 0.05%");
-    run.eq(mandate.unwindOrder.length, 2, "feedback question 2: automatic unwind on hub positions only");
-    run.eq(mandate.unwindOrder[0].adapter, hubUni, "DEC-069: hub Uniswap V4 first");
-    run.eq(mandate.unwindOrder[1].adapter, hubAave, "DEC-069: then Aave");
+    // Mandate v2 (WP-07 B): the tokens of each chain, one factory-deployed swap adapter per chain, the Hub's Wormhole
+    // chain; no unwind order (DEC-137, DEC-139), Standard Payout term (DEC-154) or bridge fee bound (DEC-156).
+    const tokensOf = (chainId: number) =>
+      (mandate.tokens as { chainId: bigint; token: Address }[]).filter((t) => Number(t.chainId) === chainId).map((t) => t.token);
+    run.eq(tokensOf(ARBITRUM_CHAIN_ID).join(), [ARBITRUM.usdc, ARBITRUM.weth].join(), "DEC-123, DEC-136: hub Mandate tokens USDC and WETH");
+    run.eq(tokensOf(ROBINHOOD_CHAIN_ID).join(), [ROBINHOOD.usdg, ROBINHOOD.weth].join(), "DEC-136: spoke Mandate tokens USDG and WETH");
+    run.eq(Number(mandate.hubWormholeChainId), WORMHOLE_ARBITRUM, "DEC-120, D-15: the Hub's Wormhole chain 23");
+    run.eq(mandate.swapAdapters.length, 2, "DEC-136: one swap adapter per fund chain");
+    run.eq(mandate.swapAdapters[0].adapter, fund.hub.uniswapV3SwapAdapter, "DEC-136: the factory's hub swap adapter");
+    run.eq(mandate.swapAdapters[1].adapter, fund.spoke.uniswapV3SwapAdapter, "DEC-136: the factory's Robinhood swap adapter");
+    run.eq((await view<Address[]>("robinhood", spokeVault, spokeVaultAbi, "swapAdapters")).join(), fund.spoke.uniswapV3SwapAdapter, "DEC-136: the Spoke Vault pins it");
     run.eq(mandate.bridgeAdapters.length, 2, "DEC-088: Across on both sides");
     run.eq(Number(mandate.payoutFeeBps), 200, "DEC-102: Payout Fee 2%");
-    run.eq(Number(mandate.standardPayoutTerm), 72 * 3600, "DEC-060: 72 h term");
+    run.eq(Number(await view<number>("arbitrum", core, coreVaultAbi, "standardPayoutTerm")), 72 * 3600, "DEC-154: the 72 h protocol term");
     run.eq(BigInt(mandate.minFirstDeposit), 100n * USD, "DEC-061: 100 USDC minimum first deposit");
-    run.eq(Number(mandate.performanceFeeBps), 2000, "DEC-107: performance fee 20%");
-    run.eq(Number(mandate.managementFeeBps), 0, "DEC-108: management fee 0");
+    run.eq(Number(mandate.performanceFeeBps), 2000, "DEC-107, DEC-184: performance fee 20%, within 10% to 90%");
+    run.eq(Number(mandate.managementFeeBps), 0, "DEC-108, DEC-186: management fee 0");
+    run.eq(mandate.operatingCash.length, 1, "DEC-096: the spoke's Operating Cash entry only");
+    run.eq(BigInt(mandate.operatingCash[0].floor) + BigInt(mandate.operatingCash[0].topUp), 0n, "ruling 2026-10-02: Operating Cash floor and top-up 0");
     run.eq(BigInt(await view<number>("arbitrum", core, coreVaultAbi, "flowFeeBps")), FLOW_FEE_BPS, "DEC-106: flow fee 25 bps");
     run.ok(
       `Mandate: hub V4 WETH/USDC + Aave USDC, spoke V4 WETH/USDG, Across both ways (the adapter's fee rule, DEC-162), ` +
-        `Spoke Cap ${units(BigInt(spokeCfg.spokeCap), 6, 0)} USDC, Payout Fee 2%, 72 h term, performance fee 20%, maxReportAge 1588 s`,
+        `Spoke Cap ${units(BigInt(spokeCfg.spokeCap), 6, 0)} USDC, Payout Fee 2%, 72 h term, performance fee 20%, maxReportAge 1588 s; ` +
+        `Mandate v2: tokens USDC/WETH and USDG/WETH, a V3 swap adapter per chain, Hub Wormhole chain 23, Operating Cash 0`,
     );
 
     const [seeded] = await coreEvents(core, "FundSeeded", BigInt(fund.hub.createdInBlock));
@@ -626,7 +637,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
       amountToArrive - SPOKE_OPERATING_CASH_TOP_UP,
       "Unallocated Balance on the spoke",
     );
-    run.ok(`the Spoke Vault credited ${units(amountToArrive)} USDG: 10.00 to Operating Cash, the rest to Unallocated Balance`);
+    run.ok(`the Spoke Vault credited ${units(amountToArrive)} USDG: ${units(SPOKE_OPERATING_CASH_TOP_UP)} to Operating Cash, the rest to Unallocated Balance`);
 
     const spokeHalf = SPOKE_V4_USDG / 2n;
     const spokeSwap = await tx<bigint>("robinhood", "manager", spokeVault, spokeVaultAbi, "swapExactInput", [

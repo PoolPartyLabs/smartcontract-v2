@@ -114,9 +114,11 @@ export class RunReport {
       [f.hub.uniswapV4Adapter, "hub UniswapV4Adapter"],
       [f.hub.aaveV3Adapter, "AaveV3Adapter"],
       [f.hub.acrossBridgeAdapter, "hub AcrossBridgeAdapter"],
+      [f.hub.uniswapV3SwapAdapter, "hub UniswapV3SwapAdapter (the fund's)"],
       [f.spoke.spokeVault, "Robinhood Spoke Vault"],
       [f.spoke.uniswapV4Adapter, "Robinhood UniswapV4Adapter"],
       [f.spoke.acrossBridgeAdapter, "Robinhood AcrossBridgeAdapter"],
+      [f.spoke.uniswapV3SwapAdapter, "Robinhood UniswapV3SwapAdapter (the fund's)"],
       [s.protocol.arbitrum.fundFactory, "FundFactory"],
       [ARBITRUM.usdc, "USDC"],
       [ARBITRUM.weth, "WETH (Arbitrum)"],
@@ -128,8 +130,8 @@ export class RunReport {
       [ROBINHOOD.wormholeCore, "Wormhole Core (Robinhood)"],
       [s.helpers.arbitrumSwapRouter, "trader's V4 router (Arbitrum)"],
       [s.helpers.robinhoodSwapRouter, "trader's V4 router (Robinhood)"],
-      [s.helpers.swapAdapters.arbitrum, "UniswapV3SwapAdapter (Arbitrum)"],
-      [s.helpers.swapAdapters.robinhood, "UniswapV3SwapAdapter (Robinhood)"],
+      [s.helpers.swapAdapters.arbitrum, "harness UniswapV3SwapAdapter (Arbitrum)"],
+      [s.helpers.swapAdapters.robinhood, "harness UniswapV3SwapAdapter (Robinhood)"],
       ...ACTOR_NAMES.map((name) => [actors[name].address, name] as [string, string]),
     ];
     return new Map(entries.filter(([address]) => !!address).map(([address, name]) => [address.toLowerCase(), name]));

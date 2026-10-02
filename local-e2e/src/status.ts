@@ -44,6 +44,8 @@ export async function status(): Promise<void> {
   console.log(`  Core Vault         ${f.hub.coreVault}    ShareToken ${f.hub.shareToken}`);
   console.log(`  hub Spoke Vault    ${f.hub.spokeVault}    ValueReportReceiver ${f.hub.valueReportReceiver}`);
   console.log(`  Robinhood Spoke    ${f.spoke.spokeVault}`);
+  // Mandate v2 (DEC-136): the factory's Uniswap V3 swap adapter of each chain (absent from a pre-v2 state file).
+  console.log(`  swap adapters      ${f.hub.uniswapV3SwapAdapter ?? "?"} (hub)    ${f.spoke.uniswapV3SwapAdapter ?? "?"} (Robinhood)`);
   if (!hub || !spoke) return;
 
   try {
