@@ -1,8 +1,8 @@
 // `pnpm run up`: builds the contracts, starts both forks, deploys the protocol through the real Foundry scripts, puts
-// the Wormhole guardian set under the harness's key, re-stamps Chainlink, funds the actors, creates a fund with the
-// manager's seed (DEC-127) through script/CreateFund.s.sol, writes local-e2e/.state/deployment.json, and warms the
-// fork caches: the scenario runs inside a snapshot, the snapshot is reverted, and everything it touched is read again
-// while the upstream still serves the fork block (public RPCs serve fork state for minutes only; see README
+// the guardian sets of both Wormhole Cores under the harness's key, re-stamps Chainlink, funds the actors, creates a
+// fund with the manager's seed (DEC-127) through script/CreateFund.s.sol, writes local-e2e/.state/deployment.json, and
+// warms the fork caches: the scenario runs inside a snapshot, the snapshot is reverted, and everything it touched is
+// read again while the upstream still serves the fork block (public RPCs serve fork state for minutes only; see README
 // "Troubleshooting").
 //
 // Usage: pnpm run up [--warm-up scenario|none]
@@ -15,7 +15,7 @@ import { anvil, deploy, explain, nodes, nodesUp, rpc, type Side } from "./chain.
 import { ARBITRUM, HARNESS_DIR, ROBINHOOD, actors, guardian, isMain } from "./config.ts";
 import { createFund, deployFactory, forgeBuild, protocolRoles } from "./deploy.ts";
 import { discoverLayouts, discoverMappingSlot, fundAccounts, mappingSlot, storageRead } from "./fund-accounts.ts";
-import { WORMHOLE_SEQUENCES_SLOT, overrideGuardianSet, selfTest } from "./guardian.ts";
+import { CORES, WORMHOLE_SEQUENCES_SLOT, overrideBothCores, selfTest } from "./guardian.ts";
 import { bold, green, logger, red, type Logger } from "./log.ts";
 import { restampFeed } from "./price-feed.ts";
 import { runScenario } from "./scenario.ts";
@@ -98,8 +98,8 @@ export async function up(warmUp: "scenario" | "none"): Promise<DeploymentState> 
     throw new Error(`DEC-054: the factory landed at ${arbitrum.fundFactory} on Arbitrum but ${robinhood.fundFactory} on Robinhood`);
   }
 
-  const guardianSetIndex = await overrideGuardianSet(log.child("guardian"));
-  await selfTest(guardianSetIndex, log.child("guardian"));
+  const guardianSetIndexes = await overrideBothCores(log.child("guardian"));
+  await selfTest(guardianSetIndexes, log.child("guardian"));
   await restampFeed(log.child("chainlink"));
   const storage = await discoverStorage(log);
   const helpers = {
@@ -113,11 +113,15 @@ export async function up(warmUp: "scenario" | "none"): Promise<DeploymentState> 
 
   const roles = protocolRoles();
   const state: DeploymentState = {
-    version: 1,
+    version: 2,
     createdAt: new Date().toISOString(),
     nodes: nodeStates,
     actors: Object.fromEntries(Object.entries(actors).map(([name, account]) => [name, account.address])) as DeploymentState["actors"],
-    guardian: { address: guardian.address, coreBridge: ARBITRUM.wormholeCore, guardianSetIndex },
+    guardian: {
+      address: guardian.address,
+      arbitrum: { coreBridge: CORES.arbitrum, guardianSetIndex: guardianSetIndexes.arbitrum },
+      robinhood: { coreBridge: CORES.robinhood, guardianSetIndex: guardianSetIndexes.robinhood },
+    },
     protocol: {
       arbitrum: {
         fundFactory: arbitrum.fundFactory,

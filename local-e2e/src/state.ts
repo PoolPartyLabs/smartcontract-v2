@@ -76,11 +76,18 @@ export interface BalanceLayout {
 }
 
 export interface DeploymentState {
-  version: 1;
+  /** 2: the guardian on both Cores and the API signer. */
+  version: 2;
   createdAt: string;
   nodes: { arbitrum: NodeState; robinhood: NodeState };
   actors: Record<ActorName, Address>;
-  guardian: { address: Address; coreBridge: Address; guardianSetIndex: number };
+  /** The local guardian and the guardian set it forms on each node's Core (reports verified on Arbitrum, Hub orders
+   *  on Robinhood). */
+  guardian: {
+    address: Address;
+    arbitrum: { coreBridge: Address; guardianSetIndex: number };
+    robinhood: { coreBridge: Address; guardianSetIndex: number };
+  };
   protocol: ProtocolState;
   external: { arbitrum: Record<string, Address>; robinhood: Record<string, Address> };
   fund: FundRecord;
