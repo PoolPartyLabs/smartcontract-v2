@@ -76,6 +76,9 @@ abstract contract FactoryDeployment is CommonBase {
     error UnsupportedChain(uint256 chainId);
     error DeterministicDeploymentFailed(bytes32 salt);
 
+    /// @notice The artifact still needs a library its link list does not give.
+    error UnlinkedLibrary(string artifact);
+
     /// @notice A protocol address of the wiring holds no code on this chain.
     error WiringHasNoCode(string role, address target);
 
@@ -152,14 +155,13 @@ abstract contract FactoryDeployment is CommonBase {
         returns (Deployment memory)
     {
         d.create3Deployer = _deterministic(CREATE3_DEPLOYER_SALT, vm.getCode("Create3Deployer.sol:Create3Deployer"));
-        d.spokeCrossChainLib = _deterministic(LIBRARY_SALT, vm.getCode("SpokeCrossChainLib.sol:SpokeCrossChainLib"));
+        _deployLibraries(hub, d);
         w.spokeCrossChainLib = d.spokeCrossChainLib;
         if (hub) {
-            d.coreVaultLogic = _deterministic(LIBRARY_SALT, vm.getCode("CoreVaultLogic.sol:CoreVaultLogic"));
             w.coreVaultLogic = d.coreVaultLogic;
             w.coreVaultCreationCodeHash = keccak256(_coreVaultCreationCode(d.coreVaultLogic));
         }
-        IFundFactory.CreationCodeStores memory stores = _writeCodeStores(hub, d.spokeCrossChainLib);
+        IFundFactory.CreationCodeStores memory stores = _writeCodeStores(hub, d);
         d.factory = FundFactory(
             Create3Deployer(d.create3Deployer)
                 .deploy(
@@ -167,6 +169,14 @@ abstract contract FactoryDeployment is CommonBase {
                 )
         );
         return d;
+    }
+
+    /// @notice Step 2: every linked library this chain's fund contracts use, through the deterministic deployer
+    ///         (chain-independent addresses). The Spoke Vault's libraries go to every chain, since its linked creation
+    ///         code is the same everywhere; `CoreVaultLogic` only to the hub.
+    function _deployLibraries(bool hub, Deployment memory d) internal {
+        d.spokeCrossChainLib = _deterministic(LIBRARY_SALT, vm.getCode("SpokeCrossChainLib.sol:SpokeCrossChainLib"));
+        if (hub) d.coreVaultLogic = _deterministic(LIBRARY_SALT, vm.getCode("CoreVaultLogic.sol:CoreVaultLogic"));
     }
 
     /// @notice The verified protocol addresses of `chainId`; recipient, guardian, registry and price source are set by
@@ -209,11 +219,12 @@ abstract contract FactoryDeployment is CommonBase {
     }
 
     /// @notice Stores the creation code of every role this chain serves: the hub also needs Aave V3 and the receiver.
-    function _writeCodeStores(bool hub, address spokeCrossChainLib)
+    /// @param d The deployment so far: its Spoke Vault libraries are linked into the stored Spoke Vault code.
+    function _writeCodeStores(bool hub, Deployment memory d)
         internal
         returns (IFundFactory.CreationCodeStores memory s)
     {
-        s.spokeVault = CodeStore.write(_spokeVaultCreationCode(spokeCrossChainLib));
+        s.spokeVault = CodeStore.write(_spokeVaultCreationCode(d));
         s.uniswapV4Adapter = CodeStore.write(vm.getCode("UniswapV4Adapter.sol:UniswapV4Adapter"));
         s.acrossBridgeAdapter = CodeStore.write(vm.getCode("AcrossBridgeAdapter.sol:AcrossBridgeAdapter"));
         if (hub) {
@@ -224,12 +235,19 @@ abstract contract FactoryDeployment is CommonBase {
 
     /// @notice The Core Vault creation code linked to `coreVaultLogic` (what `createFund` takes in calldata).
     function _coreVaultCreationCode(address coreVaultLogic) internal view returns (bytes memory) {
-        return _linked(CORE_VAULT_ARTIFACT, CORE_VAULT_LOGIC_ID, coreVaultLogic);
+        string[] memory ids = new string[](1);
+        address[] memory libraries = new address[](1);
+        (ids[0], libraries[0]) = (CORE_VAULT_LOGIC_ID, coreVaultLogic);
+        return _linked(CORE_VAULT_ARTIFACT, ids, libraries);
     }
 
-    /// @notice The Spoke Vault creation code linked to `spokeCrossChainLib`.
-    function _spokeVaultCreationCode(address spokeCrossChainLib) internal view returns (bytes memory) {
-        return _linked(SPOKE_VAULT_ARTIFACT, SPOKE_CROSS_CHAIN_LIB_ID, spokeCrossChainLib);
+    /// @notice The Spoke Vault creation code linked to the deployment's Spoke Vault libraries (the code the factory
+    ///         stores and pins by hash).
+    function _spokeVaultCreationCode(Deployment memory d) internal view returns (bytes memory) {
+        string[] memory ids = new string[](1);
+        address[] memory libraries = new address[](1);
+        (ids[0], libraries[0]) = (SPOKE_CROSS_CHAIN_LIB_ID, d.spokeCrossChainLib);
+        return _linked(SPOKE_VAULT_ARTIFACT, ids, libraries);
     }
 
     /// @notice CREATE2 through the deterministic deployer; returns the existing contract when already deployed.
@@ -240,17 +258,23 @@ abstract contract FactoryDeployment is CommonBase {
         if (!ok || deployed.code.length == 0) revert DeterministicDeploymentFailed(salt);
     }
 
-    /// @notice Solidity library linking: replaces every `__$<34 hex of keccak256(libraryId)>$__` placeholder in the
-    ///         artifact's creation code with the library address.
-    function _linked(string memory artifact, string memory libraryId, address library_)
+    /// @notice Solidity library linking: replaces every `__$<34 hex of keccak256(libraryIds[i])>$__` placeholder in
+    ///         the artifact's creation code with `libraries[i]`.
+    /// @dev Reverts with `UnlinkedLibrary` when a placeholder is left, so a library added to a contract but not to
+    ///      its link list fails here by name instead of as a hex parse error.
+    function _linked(string memory artifact, string[] memory libraryIds, address[] memory libraries)
         internal
         view
         returns (bytes memory)
     {
-        string memory unlinked = vm.parseJsonString(vm.readFile(artifact), ".bytecode.object");
-        bytes32 id = keccak256(bytes(libraryId));
-        string memory placeholder = string.concat("__$", _hex(abi.encodePacked(id), 17), "$__");
-        return vm.parseBytes(vm.replace(unlinked, placeholder, _hex(abi.encodePacked(library_), 20)));
+        string memory code = vm.parseJsonString(vm.readFile(artifact), ".bytecode.object");
+        for (uint256 i; i < libraryIds.length; ++i) {
+            bytes32 id = keccak256(bytes(libraryIds[i]));
+            string memory placeholder = string.concat("__$", _hex(abi.encodePacked(id), 17), "$__");
+            code = vm.replace(code, placeholder, _hex(abi.encodePacked(libraries[i]), 20));
+        }
+        if (vm.contains(code, "__$")) revert UnlinkedLibrary(artifact);
+        return vm.parseBytes(code);
     }
 
     /// @dev Lowercase hex of the first `length` bytes, without prefix.
