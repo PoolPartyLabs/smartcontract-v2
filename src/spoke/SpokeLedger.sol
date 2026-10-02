@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
+import {ISpokeVaultIncome} from "../interfaces/ISpokeVaultIncome.sol";
 import {IAdapter} from "../interfaces/IAdapter.sol";
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
 import {SpokeVaultTypes} from "./SpokeVaultTypes.sol";
@@ -152,7 +153,7 @@ library SpokeLedger {
         if (amountOut < minAmountOut) revert SpokeVaultTypes.SwapOutputBelowMinimum(amountOut, minAmountOut);
         if (income) {
             s.collectedIncome[tokenOut] += amountOut;
-            emit ISpokeVault.IncomeSwapped(address(a), poolKey, tokenIn, tokenOut, amountIn, amountOut);
+            emit ISpokeVaultIncome.IncomeSwapped(address(a), poolKey, tokenIn, tokenOut, amountIn, amountOut);
         } else {
             s.unallocated[tokenOut] += amountOut;
             emit ISpokeVault.Swapped(address(a), poolKey, tokenIn, tokenOut, amountIn, amountOut);

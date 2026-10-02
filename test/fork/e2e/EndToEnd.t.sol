@@ -13,6 +13,7 @@ import {IFundFactory} from "../../../src/interfaces/IFundFactory.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
+import {ISpokeVaultUnwind} from "../../../src/interfaces/ISpokeVaultUnwind.sol";
 import {IAdapter} from "../../../src/interfaces/IAdapter.sol";
 import {IPriceSource} from "../../../src/interfaces/IPriceSource.sol";
 import {IManagerRegistry} from "../../../src/interfaces/IManagerRegistry.sol";
@@ -768,7 +769,9 @@ abstract contract EndToEndScenario is EndToEndBase {
     function _unwound(Vm.Log[] memory logs) internal view returns (uint256 target, uint256 proceeds) {
         uint256 seen;
         for (uint256 i; i < logs.length; ++i) {
-            if (logs[i].emitter != address(hubSpoke) || logs[i].topics[0] != ISpokeVault.UnwoundForPayout.selector) {
+            if (
+                logs[i].emitter != address(hubSpoke) || logs[i].topics[0] != ISpokeVaultUnwind.UnwoundForPayout.selector
+            ) {
                 continue;
             }
             ++seen;

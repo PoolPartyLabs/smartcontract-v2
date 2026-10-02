@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
+import {ISpokeVaultUnwind} from "../interfaces/ISpokeVaultUnwind.sol";
 import {SpokeVaultBase} from "./SpokeVaultBase.sol";
 import {SpokeUnwindLib} from "./SpokeUnwindLib.sol";
 
@@ -22,7 +22,7 @@ abstract contract SpokeVaultUnwind is SpokeVaultBase {
     // Automatic unwind (DEC-069, DEC-081, DEC-097, DEC-131)
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @inheritdoc ISpokeVault
+    /// @inheritdoc ISpokeVaultUnwind
     /// @dev DEC-069, DEC-081, DEC-097, DEC-131: the body lives in the linked library `SpokeUnwindLib` (see
     ///      `SpokeUnwindLib.unwindForPayout`); the vault keeps the chain, caller and reentrancy checks.
     /// @param unwindHints `abi.encode(SpokeVaultTypes.UnwindHint[])`, optional, one per position visited in order.

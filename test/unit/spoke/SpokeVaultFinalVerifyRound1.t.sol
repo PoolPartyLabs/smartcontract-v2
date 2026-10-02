@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {SpokeVaultTestBase} from "./SpokeVaultTestBase.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
+import {ISpokeVaultUnwind} from "../../../src/interfaces/ISpokeVaultUnwind.sol";
 import {IAdapter} from "../../../src/interfaces/IAdapter.sol";
 import {Transit, TransitState, TransferKind} from "../../../src/interfaces/FundTypes.sol";
 
@@ -49,7 +50,7 @@ contract SpokeVaultFinalVerifyRound1Test is SpokeVaultTestBase {
 
         // A later unwind visits the key, values it at zero and skips it.
         vm.expectEmit(address(vault));
-        emit ISpokeVault.UnwoundForPayout(1e6, 0);
+        emit ISpokeVaultUnwind.UnwoundForPayout(1e6, 0);
         assertEq(core.unwind(vault, 1e6, ""), 0);
         assertEq(core.idleReturned(), 1000e6, "nothing more reached Idle");
         assertEq(vault.positions().length, 1);

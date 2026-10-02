@@ -4,7 +4,7 @@ pragma solidity 0.8.28;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
+import {ISpokeVaultIncome} from "../interfaces/ISpokeVaultIncome.sol";
 import {IAdapter} from "../interfaces/IAdapter.sol";
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
 import {SpokeVaultTypes} from "./SpokeVaultTypes.sol";
@@ -24,7 +24,7 @@ abstract contract SpokeVaultIncome is SpokeVaultBase {
     // Collected income (DEC-092; CV-OQ-2, ruling 2026-09-29)
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @inheritdoc ISpokeVault
+    /// @inheritdoc ISpokeVaultIncome
     /// @dev CV-OQ-2, ruling 2026-09-29, DEC-092: collected income in, base token out, both inside the collected income
     ///      bucket; DEC-079, DEC-080: credited from what the adapter returns.
     function swapCollectedIncome(
@@ -42,7 +42,7 @@ abstract contract SpokeVaultIncome is SpokeVaultBase {
         amountOut = _s.swap(baseToken, a, p, poolKey, tokenIn, amountIn, minAmountOut, params, true);
     }
 
-    /// @inheritdoc ISpokeVault
+    /// @inheritdoc ISpokeVaultIncome
     /// @dev DEC-092: collected income is handed to the Core Vault's Attributed Income bucket; the destination is fixed.
     function forwardIncomeToCoreVault(address token) external onlyOnHubChain nonReentrant returns (uint256 amount) {
         amount = _s.collectedIncome[token];

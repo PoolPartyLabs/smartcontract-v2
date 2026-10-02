@@ -7,6 +7,7 @@ import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
 import {SpokeCrossChainLib} from "../../../src/spoke/SpokeCrossChainLib.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
+import {ISpokeVaultIncome} from "../../../src/interfaces/ISpokeVaultIncome.sol";
 import {IAdapter} from "../../../src/interfaces/IAdapter.sol";
 import {IAdapterGuard} from "../../../src/interfaces/IAdapterGuard.sol";
 import {ITransitEscrow} from "../../../src/interfaces/ITransitEscrow.sol";
@@ -799,7 +800,7 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
 
         _fundSwap(address(usdg), 100e6, 2000e6, 1e18); // 2,000 USDG per WETH
         vm.expectEmit(address(vault));
-        emit ISpokeVault.IncomeSwapped(address(spokeUni), SPOKE_POOL, address(weth), address(usdg), 0.01e18, 20e6);
+        emit ISpokeVaultIncome.IncomeSwapped(address(spokeUni), SPOKE_POOL, address(weth), address(usdg), 0.01e18, 20e6);
         vm.prank(manager);
         uint256 out = vault.swapCollectedIncome(address(spokeUni), SPOKE_POOL, address(weth), 0.01e18, 20e6, "");
         assertEq(out, 20e6);

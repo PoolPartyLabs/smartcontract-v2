@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
+import {ISpokeVaultUnwind} from "../interfaces/ISpokeVaultUnwind.sol";
 import {IAdapter} from "../interfaces/IAdapter.sol";
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
 import {IPriceSource} from "../interfaces/IPriceSource.sol";
@@ -70,7 +71,7 @@ library SpokeUnwindLib {
             s.unallocated[usdc] -= usdcProceeds;
             SpokeLedger.payCoreVaultIdle(usdc, c.coreVault, usdcProceeds);
         }
-        emit ISpokeVault.UnwoundForPayout(usdcTarget, usdcProceeds);
+        emit ISpokeVaultUnwind.UnwoundForPayout(usdcTarget, usdcProceeds);
     }
 
     /// @dev Every open position of one Mandate unwind step, in registry order, while the target is not reached; the
