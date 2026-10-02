@@ -78,9 +78,26 @@ async function forgeScript(
 ): Promise<ForgeRun> {
   const node = nodes[side];
   log.info(`forge script script/${script}.s.sol`, { chain: node.chain.id, rpc: node.rpc });
+  // Fees from the node's own gas price: left to estimate them, forge asks for `eth_feeHistory`, which anvil forwards to
+  // the upstream for the fork block, and archive endpoints stop serving fee history for old blocks (Alchemy on
+  // Arbitrum: "metadata is not found") long before they stop serving state.
+  const gasPrice = await node.client.getGasPrice();
   const output = await run(
     "forge",
-    ["script", `script/${script}.s.sol`, "--rpc-url", node.rpc, "--broadcast", "--slow", "--private-key", privateKey],
+    [
+      "script",
+      `script/${script}.s.sol`,
+      "--rpc-url",
+      node.rpc,
+      "--broadcast",
+      "--slow",
+      "--private-key",
+      privateKey,
+      "--with-gas-price",
+      (gasPrice * 2n).toString(),
+      "--priority-gas-price",
+      "0",
+    ],
     { ...env, FOUNDRY_BROADCAST: BROADCAST_DIR },
     log,
   );
