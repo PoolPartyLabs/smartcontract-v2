@@ -32,6 +32,43 @@ library CoreVaultClosureLogic {
         uint256 paid;
     }
 
+    function seed(
+        CoreVaultState storage state,
+        CoreVaultWiring memory wiring,
+        uint256 usdcAmount,
+        uint256 minFirstDeposit
+    ) public returns (uint256 shares) {
+        if (state.managerPeakShares != 0 || IERC20(wiring.shareToken).totalSupply() != 0) {
+            revert ICoreVaultLifecycle.AlreadySeeded();
+        }
+        if (usdcAmount < minFirstDeposit) revert ICoreVault.BelowMinFirstDeposit(usdcAmount, minFirstDeposit);
+        uint256 price = ShareMath.INITIAL_SHARE_PRICE;
+        (uint256 minted, uint256 usdcForShares, uint256 fee) =
+            ShareMath.previewDeposit(usdcAmount, wiring.flowFeeBps, price);
+        if (minted == 0) revert ICoreVault.DepositBelowOneShare(usdcAmount - fee, price);
+        shares = minted;
+
+        CoreVaultIncomeLogic.beforeBalanceChange(state, wiring, wiring.manager, 0);
+        state.idle += usdcForShares;
+        state.managerPeakShares = shares;
+        emit ICoreVaultLifecycle.FundSeeded(wiring.manager, usdcForShares, fee, shares);
+
+        IERC20(wiring.usdc).safeTransferFrom(msg.sender, address(this), usdcForShares + fee);
+        CoreVaultLogic.payFee(state, wiring.usdc, wiring.protocolRecipient, fee);
+        ShareToken(wiring.shareToken).mint(wiring.manager, shares);
+        CoreVaultIncomeLogic.afterMint(state, wiring, wiring.manager, shares);
+    }
+
+    function closeFund(CoreVaultState storage state, CoreVaultWiring memory wiring) public {
+        if (state.fundState != ICoreVaultLifecycle.FundState.Open) {
+            revert ICoreVaultLifecycle.FundNotOpen(state.fundState);
+        }
+        if (state.managementFeeBps != 0) CoreVaultLogic.recordValuation(state, wiring, false);
+        state.fundState = ICoreVaultLifecycle.FundState.Closing;
+        state.closingStartedAt = uint64(block.timestamp);
+        emit ICoreVaultLifecycle.FundClosing(uint64(block.timestamp));
+    }
+
     function onReportAccepted(
         CoreVaultState storage state,
         CoreVaultWiring memory wiring,

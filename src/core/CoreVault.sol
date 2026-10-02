@@ -103,28 +103,7 @@ contract CoreVault is CoreVaultPayout {
     ///      Cash at any time anyway (security review S-5, SEC-OQ-2). CoreVaultSeed.t.sol pins both cases.
     function seed(uint256 usdcAmount) external nonReentrant returns (uint256 shares) {
         if (msg.sender != factory) revert NotFactory(msg.sender);
-        // The peak is non-zero once seeded; a supply-0 fund is either new or closed, and a closed one never re-opens.
-        if (_s.managerPeakShares != 0 || _totalShares() != 0) revert AlreadySeeded();
-        if (usdcAmount < _minFirstDeposit) revert BelowMinFirstDeposit(usdcAmount, _minFirstDeposit);
-        uint256 price = ShareMath.INITIAL_SHARE_PRICE;
-        (uint256 minted, uint256 usdcForShares, uint256 fee) = ShareMath.previewDeposit(usdcAmount, flowFeeBps, price);
-        if (minted == 0) revert DepositBelowOneShare(usdcAmount - fee, price);
-        shares = minted;
-
-        // DEC-014: the income hooks run around the seed like around every mint (WP-07 D2). The manager's balance before
-        // it is 0 (no share exists yet) and every income index is still 0 (income met at supply 0 is kept ownerless and
-        // never moves an index, IncomeAccumulator.distribute), so the checkpoint records nothing.
-        CoreVaultWiring memory w = _wiring();
-        CoreVaultIncomeLogic.beforeBalanceChange(_s, w, manager, 0);
-        _s.idle += usdcForShares;
-        // DEC-146: the manager's first balance is the first peak.
-        _s.managerPeakShares = shares;
-        emit FundSeeded(manager, usdcForShares, fee, shares);
-
-        IERC20(usdc).safeTransferFrom(msg.sender, address(this), usdcForShares + fee);
-        CoreVaultLogic.payFee(_s, usdc, protocolRecipient, fee);
-        ShareToken(shareToken).mint(manager, shares);
-        CoreVaultIncomeLogic.afterMint(_s, w, manager, shares);
+        return CoreVaultClosureLogic.seed(_s, _wiring(), usdcAmount, _minFirstDeposit);
     }
 
     /// @inheritdoc ICoreVaultLifecycle
@@ -133,11 +112,7 @@ contract CoreVault is CoreVaultPayout {
     ///      DEC-114 (D-33): the management fee accrues up to this call and no further; it is booked here (a payout-mode
     ///      valuation, which never reverts on a failing dependency) and paid at the end of the closure (WP-13).
     function closeFund() external onlyManager nonReentrant {
-        _requireOpen();
-        if (_s.managementFeeBps != 0) CoreVaultLogic.recordValuation(_s, _wiring(), false);
-        _s.fundState = FundState.Closing;
-        _s.closingStartedAt = uint64(block.timestamp);
-        emit FundClosing(uint64(block.timestamp));
+        CoreVaultClosureLogic.closeFund(_s, _wiring());
     }
 
     /// @inheritdoc ICoreVaultLifecycle
