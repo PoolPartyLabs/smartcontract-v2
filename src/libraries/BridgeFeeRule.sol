@@ -16,8 +16,9 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 ///        `initialRate`, clamped to [floorRate, capRate]. An expired send leaves the window when it is still the
 ///        route's latest send (the window rewinds, so the retry takes its place); an older send's expiry leaves the
 ///        window as it is (research prototype semantics, which reproduce checklist doc 12 §5's tables);
-///      - next send: the reference; after an expiry was noted, `min(capRate, max(expiredRate, floorRate) * (1 + band))`
-///        instead (one step up), consumed by that send;
+///      - next send: the reference; after an expiry was noted,
+///        `max(reference, min(capRate, max(expiredRate, floorRate) * (1 + band)))` instead (one step up, never below
+///        the reference), consumed by that send;
 ///      - fee: `ceil(amount * rate) + fixedFee`, which must stay below the amount (a dust send waits in the vault).
 ///      Without signed API quotes (R-162-B, under evaluation) the rate never falls: it only rises through expiries, up
 ///      to the cap.
@@ -70,12 +71,19 @@ library BridgeFeeRule {
         return Math.min(Math.max(sum / WINDOW, p.floorRate), p.capRate);
     }
 
-    /// @notice The rate the next send uses: one step above the highest expired rate when an expiry is pending, else
-    ///         the reference.
+    /// @notice The rate the next send uses: the reference, raised to one step above the highest expired rate when an
+    ///         expiry is pending.
+    /// @dev The step never prices below the reference. Expiries are noted late as a matter of course (on the hub a
+    ///      time-path expiry waits for the permissionless `recognizeRefund`; reports run late in quiet funds, DEC-157),
+    ///      so a send priced well under today's reference can expire after the route already delivers above it; a
+    ///      step from that stale rate alone would undercut a market the route meets and force avoidable expiries of
+    ///      about 7.4 h each (DEC-066). In doc 12 §5's sequence the expired send is the latest, priced at or above the
+    ///      reference, so the step is the larger and the tables are unchanged.
     function nextRate(Route storage r, Params memory p) internal view returns (uint256) {
+        uint256 ref = referenceRate(r, p);
         uint256 expired = r.expiredRate;
-        if (expired == 0) return referenceRate(r, p);
-        return Math.min(Math.max(expired, p.floorRate) * (WAD + p.band) / WAD, p.capRate);
+        if (expired == 0) return ref;
+        return Math.max(ref, Math.min(Math.max(expired, p.floorRate) * (WAD + p.band) / WAD, p.capRate));
     }
 
     /// @notice `ceil(amount * rate) + fixedFee`; reverts `FeeNotBelowAmount` unless it stays below `amount`.

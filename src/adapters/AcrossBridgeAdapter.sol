@@ -194,8 +194,8 @@ contract AcrossBridgeAdapter is AdapterGuard, IBridgeAdapter {
     }
 
     /// @inheritdoc IBridgeAdapter
-    /// @dev The route's next send steps up one band above the highest expired rate, and the send leaves its route's
-    ///      window if it is still the latest (`BridgeFeeRule.noteExpiry`). Reverts `UnknownSend` for a send this
+    /// @dev The route's next send steps up one band above the highest expired rate (never below the route's
+    ///      reference), and the send leaves its route's window if it is still the latest (`BridgeFeeRule.noteExpiry`). Reverts `UnknownSend` for a send this
     ///      adapter did not price or already noted; the vaults call it in try/catch (DEC-056).
     function noteExpiry(bytes32 transitRef) external {
         if (msg.sender != vault) revert NotVault(msg.sender);
