@@ -11,6 +11,8 @@
 //   GET  /quote/swap?amountIn=&tokenIn=  hub swap minimum from the oracle less the API's slippage (security review S-8)
 //   GET  /quote/swap-route?chain=&tokenIn=&tokenOut=&amountIn=&slippageBps=&adapter=
 //                                        the best V3 path by QuoterV2, signed for a swap adapter (DEC-136, DEC-153)
+//   GET  /quote/bridge?direction=to-spoke|to-hub&amount=
+//                                        what the fund's Across adapter fixes for a send (DEC-158, DEC-162)
 //   POST /tx/deposit      {from, amount, minShares?}      approve + deposit, unsigned
 //   POST /tx/request      {from, amount, mode}            requestPayout, unsigned
 //   POST /tx/claim        {from}                          claimPayout with the unwind route hints the API computes
@@ -19,6 +21,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { decodeErrorResult, encodeAbiParameters, encodeFunctionData, type Abi, type Address, type Hex } from "viem";
 import {
+  acrossBridgeAdapterAbi,
   allErrorsAbi,
   chainlinkPriceSourceAbi,
   coreVaultAbi,
@@ -28,7 +31,7 @@ import {
   valueReportReceiverAbi,
 } from "./abis.ts";
 import { latestTimestamp, nodes, nodesUp, read, type Side } from "./chain.ts";
-import { ARBITRUM, HUB_POOL_ID, SWAP_ADAPTER_TOKENS, actors, isMain } from "./config.ts";
+import { ARBITRUM, HUB_POOL_ID, ROBINHOOD, SWAP_ADAPTER_TOKENS, actors, isMain } from "./config.ts";
 import { readState, type DeploymentState } from "./state.ts";
 import { encodeRoute, legsHash, quotePaths, signRoute } from "./swap-route.ts";
 
@@ -412,6 +415,45 @@ export async function quoteSwapRoute(
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+// Bridge quote (DEC-156, DEC-158, DEC-162)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** What the fund's Across adapter would fix for a send of `amount` now: the amount to arrive and the rate of its fee
+ *  rule (the same rule `buildSend` applies), with the route's fee state. Nobody passes these to the vault (DEC-158);
+ *  the API shows them before the manager sends, or before a payout or a collection reaches a spoke. */
+export async function quoteBridge(state: DeploymentState, direction: "to-spoke" | "to-hub", amount: bigint) {
+  const fund = hub(state);
+  const toSpoke = direction === "to-spoke";
+  const side: Side = toSpoke ? "arbitrum" : "robinhood";
+  const adapter = toSpoke ? fund.hub.acrossBridgeAdapter : fund.spoke.acrossBridgeAdapter;
+  const inputToken = toSpoke ? ARBITRUM.usdc : ROBINHOOD.usdg;
+  const destinationChainId = BigInt(toSpoke ? fund.spoke.chainId : fund.hub.chainId);
+  const call = <T>(functionName: string, args: unknown[]) => read<T>(side, { address: adapter, abi: acrossBridgeAdapterAbi, functionName, args });
+  let quote: readonly [bigint, bigint];
+  try {
+    quote = await call<readonly [bigint, bigint]>("quoteSend", [inputToken, destinationChainId, amount, "0x"]);
+  } catch (err) {
+    throw new HttpError(422, "the bridge adapter refuses this amount", decodeRevert(err));
+  }
+  const [amountToArrive, rateWad] = quote;
+  const [nextRateWad, referenceRateWad, expiredRateWad] = await call<readonly [bigint, bigint, bigint]>("feeState", [destinationChainId]);
+  return {
+    direction,
+    chainId: nodes[side].chain.id,
+    adapter,
+    inputToken,
+    destinationChainId,
+    amountSent: amount,
+    amountToArrive,
+    fee: amount - amountToArrive,
+    rateWad,
+    feeState: { nextRateWad, referenceRateWad, expiredRateWad },
+    // R-162-B (WP-11): a quote the API signs and anyone relays; the Across adapter refuses one today.
+    signed: false,
+  };
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 // HTTP
 // ---------------------------------------------------------------------------------------------------------------------
 
@@ -439,6 +481,15 @@ const routes: { method: string; pattern: RegExp; handler: (state: DeploymentStat
         u.searchParams.has("slippageBps") ? amountParam(u.searchParams.get("slippageBps") ?? undefined, "slippageBps") : API_SLIPPAGE_BPS,
         u.searchParams.get("adapter") ?? undefined,
       ),
+  },
+  {
+    method: "GET",
+    pattern: /^\/quote\/bridge$/,
+    handler: (s, _m, u) => {
+      const direction = u.searchParams.get("direction");
+      if (direction !== "to-spoke" && direction !== "to-hub") throw new HttpError(400, "direction must be to-spoke or to-hub");
+      return quoteBridge(s, direction, amountParam(u.searchParams.get("amount") ?? undefined, "amount"));
+    },
   },
   { method: "GET", pattern: /^\/events$/, handler: (s, _m, u) => coreEvents(s, BigInt(u.searchParams.get("fromBlock") ?? hub(s).hub.createdInBlock)) },
 ];
