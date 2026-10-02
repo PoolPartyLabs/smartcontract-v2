@@ -264,7 +264,14 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
     /// @inheritdoc ISpokeVault
     /// @dev Returns the report the linked library encodes: its payload is `abi.encode(VERSION, report)`, whose tail
     ///      from the second word is `abi.encode(report)` once that word holds the report's offset (0x20).
+    /// @dev DEC-173 consequence (PR #13 review, M-1): refused while a guarded entry of this vault runs. Mid-call the
+    ///      ledger is not final (a swap has debited its input and not yet credited its output; a position verb has sent
+    ///      tokens to the adapter) and third-party code can run then (a hop token of an API route, outside the
+    ///      Mandate). The Core Vault's mint and view valuations then revert and its payout valuation falls back to the
+    ///      last known hub value (DEC-056), so no share is minted or burned at a mid-call value. The other views stay
+    ///      readable mid-call; none of them values the fund.
     function buildReport() external view returns (ReportCodec.Report memory) {
+        if (_reentrancyGuardEntered()) revert ReentrancyGuardReentrantCall();
         bytes memory payload = SpokeCrossChainLib.encodedReport(_s, _config(), _s.reportSequence + 1);
         assembly ("memory-safe") {
             let start := add(payload, 0x40)
