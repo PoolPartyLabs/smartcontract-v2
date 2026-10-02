@@ -10,12 +10,12 @@ import {CoreVaultLogic} from "./CoreVaultLogic.sol";
 
 /// @title CoreVaultIncomeLogic
 /// @notice Collected income of the Core Vault: the fee split at collection and the advance of the shareholders'
-///         accumulator, as an external library that runs in the Core Vault's context (DELEGATECALL into the fund's own
-///         linked library, never into an adapter).
+///         accumulator, and the income payment of a full exit, as an external library that runs in the Core Vault's
+///         context (DELEGATECALL into the fund's own linked library, never into an adapter).
 /// @dev DEC-131 pattern (alternative C) applied to the Core Vault (D-43): moved out of `CoreVaultLogic` unchanged so
-///      each linked library keeps room under the 24,576-byte limit. It calls no other linked library (the fee
-///      transfer `CoreVaultLogic.payFee` is internal, so it is compiled in); the Core Vault and
-///      `CoreVaultTransitLogic` call it through its linked address, which is part of the Core Vault's creation code and
+///      each linked library keeps room under the 24,576-byte limit. It calls no other linked library (the fee transfer
+///      `CoreVaultLogic.payFee` is internal, so it is compiled in); the Core Vault, `CoreVaultTransitLogic` and
+///      `CoreVaultPayoutLogic` call it through its linked address, which is part of the Core Vault's creation code and
 ///      trust surface (immutable: no proxy, no upgrade path, DEC-022, DEC-058).
 /// @dev Events are emitted with the Core Vault as their address; they and the errors are declared in ICoreVault.
 library CoreVaultIncomeLogic {
@@ -64,6 +64,30 @@ library CoreVaultIncomeLogic {
             bps = value > BPS ? uint16(BPS) : value;
         } catch {
             bps = DEFAULT_PROTOCOL_SLICE_BPS;
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Full exit (DEC-045, DEC-047)
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// @notice DEC-045, DEC-047: a full burn pays all Attributed Income payable now, in every token, in the same
+    ///         transaction. The caller (`CoreVaultPayoutLogic`, after the burn) has checkpointed the holder.
+    /// @dev Independent review (verification plan CF-2; DEC-021, DEC-056: an exit is never blocked): an income token
+    ///      that cannot be transferred to the holder (paused, blocklisting the holder, reverting) no longer reverts the
+    ///      claim and with it the exit of the holder's principal. That token's income leaves the accumulator as usual
+    ///      and is kept for the holder as an owed transfer (the S-12 path, `CoreVaultLogic.payFee`), paid to the holder
+    ///      by the permissionless `claimOwedFees(token, holder)`. `withdrawIncome` still reverts on a failed transfer:
+    ///      there the holder asked for that one token.
+    function payAllIncome(CoreVaultState storage s, address holder) public {
+        address[] memory tokens = s.income.tokens;
+        for (uint256 i; i < tokens.length; ++i) {
+            address token = tokens[i];
+            uint256 amount = s.income.takeOwed(holder, token, s.collectedIncome[token]);
+            if (amount == 0) continue;
+            s.collectedIncome[token] -= amount;
+            CoreVaultLogic.payFee(s, token, holder, amount);
+            emit ICoreVault.IncomeWithdrawn(holder, token, amount);
         }
     }
 }

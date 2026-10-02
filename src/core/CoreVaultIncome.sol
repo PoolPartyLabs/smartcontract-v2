@@ -6,7 +6,6 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
 import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 import {CoreVaultBase} from "./CoreVaultBase.sol";
-import {CoreVaultLogic} from "./CoreVaultLogic.sol";
 import {CoreVaultIncomeLogic} from "./CoreVaultIncomeLogic.sol";
 
 /// @title CoreVaultIncome
@@ -51,26 +50,6 @@ abstract contract CoreVaultIncome is CoreVaultBase {
         _s.owedFeesTotal[token] -= amount;
         emit OwedFeePaid(token, recipient, amount);
         IERC20(token).safeTransfer(recipient, amount);
-    }
-
-    /// @notice DEC-045, DEC-047: a full burn pays all Attributed Income payable now, in every token, in the same
-    ///         transaction. The caller has checkpointed the holder.
-    /// @dev Independent review (verification plan CF-2; DEC-021, DEC-056: an exit is never blocked): an income token
-    ///      that cannot be transferred to the holder (paused, blocklisting the holder, reverting) no longer reverts the
-    ///      claim and with it the exit of the holder's principal. That token's income leaves the accumulator as usual and
-    ///      is kept for the holder as an owed transfer (the S-12 path, `CoreVaultLogic.payFee`), paid to the holder by
-    ///      the permissionless `claimOwedFees(token, holder)`. `withdrawIncome` still reverts on a failed transfer: there
-    ///      the holder asked for that one token.
-    function _payAllIncome(address holder) internal {
-        address[] memory tokens = _s.income.tokens;
-        for (uint256 i; i < tokens.length; ++i) {
-            address token = tokens[i];
-            uint256 amount = _s.income.takeOwed(holder, token, _s.collectedIncome[token]);
-            if (amount == 0) continue;
-            _s.collectedIncome[token] -= amount;
-            CoreVaultLogic.payFee(_s, token, holder, amount);
-            emit IncomeWithdrawn(holder, token, amount);
-        }
     }
 
     function _takeIncome(address holder, address token) internal returns (uint256 amount) {

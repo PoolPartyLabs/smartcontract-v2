@@ -35,6 +35,9 @@ abstract contract FactoryDeployment is CommonBase {
     string internal constant CORE_VAULT_TRANSIT_LOGIC_ARTIFACT =
         "out/CoreVaultTransitLogic.sol/CoreVaultTransitLogic.json";
     string internal constant CORE_VAULT_TRANSIT_LOGIC_ID = "src/core/CoreVaultTransitLogic.sol:CoreVaultTransitLogic";
+    string internal constant CORE_VAULT_PAYOUT_LOGIC_ARTIFACT =
+        "out/CoreVaultPayoutLogic.sol/CoreVaultPayoutLogic.json";
+    string internal constant CORE_VAULT_PAYOUT_LOGIC_ID = "src/core/CoreVaultPayoutLogic.sol:CoreVaultPayoutLogic";
     string internal constant SPOKE_VAULT_ARTIFACT = "out/SpokeVault.sol/SpokeVault.json";
     string internal constant SPOKE_CROSS_CHAIN_LIB_ID = "src/spoke/SpokeCrossChainLib.sol:SpokeCrossChainLib";
     string internal constant SPOKE_UNWIND_LIB_ID = "src/spoke/SpokeUnwindLib.sol:SpokeUnwindLib";
@@ -96,6 +99,7 @@ abstract contract FactoryDeployment is CommonBase {
         address coreVaultLogic;
         address coreVaultTransitLogic;
         address coreVaultIncomeLogic;
+        address coreVaultPayoutLogic;
         address spokeCrossChainLib;
         address spokeUnwindLib;
         address managerRegistry;
@@ -202,6 +206,7 @@ abstract contract FactoryDeployment is CommonBase {
         // Library-into-library links: a library that calls another is linked to it, so it is deployed after it.
         (string[] memory ids, address[] memory libraries) = _coreVaultLinks(d);
         d.coreVaultTransitLogic = _library(_linked(CORE_VAULT_TRANSIT_LOGIC_ARTIFACT, ids, libraries), deploy);
+        d.coreVaultPayoutLogic = _library(_linked(CORE_VAULT_PAYOUT_LOGIC_ARTIFACT, ids, libraries), deploy);
     }
 
     /// @notice A library's address under `LIBRARY_SALT`, deployed there first when `deploy` is set.
@@ -278,11 +283,12 @@ abstract contract FactoryDeployment is CommonBase {
         pure
         returns (string[] memory ids, address[] memory libraries)
     {
-        ids = new string[](3);
-        libraries = new address[](3);
+        ids = new string[](4);
+        libraries = new address[](4);
         (ids[0], libraries[0]) = (CORE_VAULT_LOGIC_ID, d.coreVaultLogic);
         (ids[1], libraries[1]) = (CORE_VAULT_TRANSIT_LOGIC_ID, d.coreVaultTransitLogic);
         (ids[2], libraries[2]) = (CORE_VAULT_INCOME_LOGIC_ID, d.coreVaultIncomeLogic);
+        (ids[3], libraries[3]) = (CORE_VAULT_PAYOUT_LOGIC_ID, d.coreVaultPayoutLogic);
     }
 
     /// @notice The Spoke Vault creation code linked to the deployment's Spoke Vault libraries (the code the factory

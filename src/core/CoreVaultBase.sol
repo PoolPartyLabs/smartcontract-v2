@@ -62,7 +62,7 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
     uint16 internal immutable _maxBridgeFeeBps;
 
     /// @dev Every mutable value of the Core Vault (see CoreVaultState). The unwinding flag lives in transient storage
-    ///      at `CORE_VAULT_UNWINDING_SLOT`, written by `CoreVault._unwindForPayout`.
+    ///      at `CORE_VAULT_UNWINDING_SLOT`, written by the linked `CoreVaultPayoutLogic`.
     CoreVaultState internal _s;
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -200,6 +200,12 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
         _;
     }
 
+    /// @dev DEC-147: deposits, Payout Requests and claims need an Open fund.
+    function _requireOpen() internal view {
+        FundState state = _s.fundState;
+        if (state != FundState.Open) revert FundNotOpen(state);
+    }
+
     // ---------------------------------------------------------------------------------------------------------------
     // Views
     // ---------------------------------------------------------------------------------------------------------------
@@ -252,11 +258,6 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
     /// @inheritdoc ICoreVault
     function transit(bytes32 transitId) external view returns (Transit memory) {
         return _s.transits[transitId];
-    }
-
-    /// @inheritdoc ICoreVault
-    function payoutRequest(address shareholder) external view returns (PayoutRequest memory) {
-        return _s.requests[shareholder];
     }
 
     /// @inheritdoc ICoreVault

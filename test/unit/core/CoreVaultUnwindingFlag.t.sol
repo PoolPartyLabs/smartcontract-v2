@@ -7,8 +7,8 @@ import {CORE_VAULT_UNWINDING_SLOT} from "../../../src/core/CoreVaultTypes.sol";
 import {MockHubSpokeVault} from "../../mocks/core/MockHubSpokeVault.sol";
 import {CoreVaultFixture} from "./CoreVaultFixture.sol";
 
-/// @notice The unwinding flag in its ERC-7201 transient slot (`CORE_VAULT_UNWINDING_SLOT`, ahead of WP-07 A2, which
-///         moves the payout path into a linked library, DEC-131 pattern): the payout sets it around
+/// @notice The unwinding flag after the payout path moved into the linked `CoreVaultPayoutLogic` (WP-07 A2, DEC-131
+///         pattern): the library sets it in transient storage (`CORE_VAULT_UNWINDING_SLOT`) around
 ///         `ISpokeVault.unwindForPayout` only, and `CoreVaultBase.onlyHubSpokeVaultCallback` reads it. The hub Spoke
 ///         Vault's `returnToIdle` is accepted inside an unwind and refused inside any other guarded entry, before and
 ///         after an unwind in the same transaction, whether the unwind returned or reverted.

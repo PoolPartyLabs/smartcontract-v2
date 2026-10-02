@@ -204,9 +204,9 @@ contract FundSystemPoCTest is FundSystemFixture {
 
     /// Was PoC `test_POC_zeroShareAssetsRevertEveryPayoutVerb`: with Share Assets at exactly zero and shares
     /// outstanding, `claimPayout`, `requestPayout` and `deposit` all reverted `ZeroSharePrice`, so an open request could
-    /// never be closed. Fix (S-18, `CoreVault._sharesFor`): the claim closes the request with nothing burned or paid
-    /// (`closedBelowOneShare`), the holder keeps its shares; a new request or a deposit still reverts, since nothing
-    /// can be priced until value returns (documented in docs/security/KNOWN-LIMITATIONS.md).
+    /// never be closed. Fix (S-18, `CoreVaultPayoutLogic._sharesFor`): the claim closes the request with nothing burned
+    /// or paid (`closedBelowOneShare`), the holder keeps its shares; a new request or a deposit still reverts, since
+    /// nothing can be priced until value returns (documented in docs/security/KNOWN-LIMITATIONS.md).
     function test_SEC_S18_zeroShareAssetsClaimClosesTheRequest() public {
         _deposit(ana, 100_250e6);
         vm.prank(ana);

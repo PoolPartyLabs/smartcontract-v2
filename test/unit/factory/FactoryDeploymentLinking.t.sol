@@ -30,12 +30,17 @@ contract FactoryDeploymentLinkingTest is Test, FactoryDeployment {
         assertTrue(vm.contains(code, _bareHex(d.coreVaultTransitLogic)), "CoreVaultTransitLogic linked");
         assertTrue(d.coreVaultIncomeLogic.code.length != 0, "CoreVaultIncomeLogic deployed on the hub");
         assertTrue(vm.contains(code, _bareHex(d.coreVaultIncomeLogic)), "CoreVaultIncomeLogic linked");
+        assertTrue(d.coreVaultPayoutLogic.code.length != 0, "CoreVaultPayoutLogic deployed on the hub");
+        assertTrue(vm.contains(code, _bareHex(d.coreVaultPayoutLogic)), "CoreVaultPayoutLogic linked");
         assertFalse(vm.contains(code, "__$"), "no placeholder left");
-        // Library into library: the transit library calls CoreVaultLogic and CoreVaultIncomeLogic through their own
-        // linked addresses.
+        // Library into library: the transit and payout libraries call CoreVaultLogic and CoreVaultIncomeLogic through
+        // their own linked addresses.
         string memory transit = vm.toString(d.coreVaultTransitLogic.code);
         assertTrue(vm.contains(transit, _bareHex(d.coreVaultLogic)), "transit -> CoreVaultLogic");
         assertTrue(vm.contains(transit, _bareHex(d.coreVaultIncomeLogic)), "transit -> CoreVaultIncomeLogic");
+        string memory payout = vm.toString(d.coreVaultPayoutLogic.code);
+        assertTrue(vm.contains(payout, _bareHex(d.coreVaultLogic)), "payout -> CoreVaultLogic");
+        assertTrue(vm.contains(payout, _bareHex(d.coreVaultIncomeLogic)), "payout -> CoreVaultIncomeLogic");
     }
 
     /// @notice A library linked before the library it calls is deployed fails by name, never as a call into nothing.

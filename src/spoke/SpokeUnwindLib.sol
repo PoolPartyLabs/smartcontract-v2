@@ -177,7 +177,8 @@ library SpokeUnwindLib {
     ///      floor measured against the spot quote alone followed the moved price. The price-source value (Chainlink
     ///      for WETH, the price Share Assets use) cannot be moved in the same block; a pushed-down spot now makes the
     ///      swap revert, the whole unwind reverts and the claim is paid from Idle only (DEC-068). A reverting price
-    ///      source reverts the unwind the same way (the claim itself never reverts, `CoreVault._unwindForPayout`).
+    ///      source reverts the unwind the same way (the claim itself never reverts,
+    ///      `CoreVaultPayoutLogic._unwindForPayout`).
     function _unwindSwap(
         SpokeVaultTypes.State storage s,
         SpokeVaultTypes.Config memory c,

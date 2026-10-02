@@ -75,9 +75,8 @@ struct CoreVaultWiring {
 
 /// @dev Transient slot of the Core Vault's unwinding flag: set while the Core Vault waits on
 ///      `ISpokeVault.unwindForPayout`, so the hub Spoke Vault may call back `returnToIdle` from inside a payout
-///      (`CoreVaultBase.onlyHubSpokeVaultCallback`). Written by `CoreVault._unwindForPayout` around that call only. A
-///      named slot rather than a transient state variable, so a linked library running in the Core Vault's context can
-///      write it too (WP-07 A2 moves the payout path into one; a library cannot reach a contract's variables).
+///      (`CoreVaultBase.onlyHubSpokeVaultCallback`). Written by the linked `CoreVaultPayoutLogic`, which runs in the
+///      Core Vault's context, around that call only.
 ///      keccak256(abi.encode(uint256(keccak256("pool-party.CoreVault.unwinding")) - 1)) & ~bytes32(uint256(0xff)), the
 ///      ERC-7201 derivation OpenZeppelin uses for its own transient reentrancy slot.
 bytes32 constant CORE_VAULT_UNWINDING_SLOT = 0xdf495c1bae34fcef25c7d9217d2909291103a476961a7c969c9c8e77b0605200;
