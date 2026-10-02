@@ -58,5 +58,40 @@ owed fees/income. After the final share burns, frozen-split rounding dust become
 
 ## Deployment
 
-`CoreVaultClosureLogic` is a linked library deployed and linked by `FactoryDeployment`. The Core Vault remains
-non-upgradeable; existing deployed funds do not acquire closure entry points. No compiler settings change.
+`CoreVaultClosureLogic` contains the Core Vault's seed and closure bodies, leaving access control and reentrancy
+wrappers on the vault. `SpokeCloseLib` contains CLOSE preparation and manual-sale cost measurement/checkpoints;
+it delegates proportional execution and retained-send reporting to `SpokeUnwindLib`. Manual-sale measurement lives
+in the Hub Spoke Vault, not the Core Vault. Both closure libraries are deployed and linked by `FactoryDeployment`.
+The local-e2e parser reads deployment return fields by ABI name, so the appended `spokeCloseLib` field needs no
+positional parsing change. The Core Vault remains non-upgradeable; existing deployed funds do not acquire closure
+entry points. No compiler settings change.
+
+## PR #21 round-two validation
+
+PR #22's final head `d5c6678` is merged without changing its result encoding. The shared types define
+`ENCODED_RESULT_SIZE` as 13 ABI words (416 bytes). The spoke encoder asserts that the actual ABI length matches;
+the payout, closure and spoke refund validators use the same size and check every record's narrow fields. This
+fixes the former payout decoder's 384-byte stride, which ignored valid multi-result reports. Regressions cover
+the complete 16-result payout history, retries, multiple closure results with a refunded send, actual ABI size
+agreement for every supported history length, and malformed fields in a later record.
+
+| Artifact | Round-two review size / margin | Final size / margin |
+|---|---:|---:|
+| Core Vault | 23,753 / 823 | 22,561 / 2,015 |
+| SpokeUnwindLib | 24,265 / 311 | 21,744 / 2,832 |
+| SpokeCloseLib | — | 5,875 / 18,701 |
+| CoreVaultClosureLogic | 13,825 / 10,751 | 16,057 / 8,519 |
+| Spoke Vault | 22,329 / 2,247 | 22,364 / 2,212 |
+
+All production contracts and linked libraries fit 24,576 bytes; none has less than 1,000 bytes headroom.
+The final green bar is 1,295 non-fork tests across 175 suites, 221 fork tests across 55 suites, 3 size tests,
+and 2 focused closure fork tests including the real two-fork CLOSE scenario. Build and formatting checks pass.
+The Core Vault pure move has the complete unit/fork suites green before and after. Before the spoke extraction,
+all behavioral tests passed, but merging the final PR #22 grew SpokeUnwindLib beyond the size limit; extraction
+restored the complete green bar. The fork retry assertion now checks the prior retained send identity and amounts,
+not zero amounts: no new send is created merely by retrying an already-sent closure.
+
+Placement deviations: moving `closeFund` alone left only 1,069 bytes margin, so the unchanged seed body also moved
+into the existing lifecycle library. The requested `test/utils/LinkedCode.sol` does not exist on this branch;
+`test/unit/factory/FactoryDeploymentLinking.t.sol` verifies the actual factory linking, including the new library's
+link to SpokeUnwindLib. No new spec divergences were found. No local-e2e harness processes were started.
