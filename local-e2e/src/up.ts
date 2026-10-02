@@ -10,7 +10,7 @@
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { encodeDeployData, encodeFunctionData, type Address, type Hex } from "viem";
-import { acrossSpokePoolAbi, v4SwapRouterAbi, v4SwapRouterBytecode, wormholeCoreAbi } from "./abis.ts";
+import { acrossSpokePoolAbi, forgeArtifact, v4SwapRouterAbi, v4SwapRouterBytecode, wormholeCoreAbi } from "./abis.ts";
 import { anvil, deploy, explain, nodes, nodesUp, rpc, type Side } from "./chain.ts";
 import { ARBITRUM, HARNESS_DIR, ROBINHOOD, actors, guardian, isMain } from "./config.ts";
 import { createFund, deployFactory, forgeBuild, protocolRoles } from "./deploy.ts";
@@ -75,6 +75,17 @@ async function deploySwapRouter(side: Side, poolManager: Address): Promise<Addre
   return deploy(side, "operator", encodeDeployData({ abi: v4SwapRouterAbi, bytecode: v4SwapRouterBytecode(), args: [poolManager] }) as Hex);
 }
 
+/** A UniswapV3SwapAdapter (WP-03) for the API's signed routes: the operator guards it, the API signer signs its routes
+ *  (reading D-01), the chain's base token and WETH are its Mandate tokens (DEC-136 item 2), and the manager's wallet
+ *  stands in for the Spoke Vault that will own it once the factory deploys swap adapters (WP-07). */
+async function deploySwapAdapter(side: Side): Promise<Address> {
+  const chain = side === "arbitrum" ? ARBITRUM : ROBINHOOD;
+  const base = side === "arbitrum" ? ARBITRUM.usdc : ROBINHOOD.usdg;
+  const { abi, bytecode } = forgeArtifact("UniswapV3SwapAdapter.sol", "UniswapV3SwapAdapter");
+  const args = [actors.manager.address, actors.operator.address, base, [base, chain.weth], chain.v3Factory, chain.v3SwapRouter02, chain.v3QuoterV2, actors.apiSigner.address];
+  return deploy(side, "operator", encodeDeployData({ abi, bytecode, args }), "deploy UniswapV3SwapAdapter");
+}
+
 export async function up(warmUp: "scenario" | "none"): Promise<DeploymentState> {
   const log = logger("up");
   const started = Date.now();
@@ -105,8 +116,18 @@ export async function up(warmUp: "scenario" | "none"): Promise<DeploymentState> 
   const helpers = {
     arbitrumSwapRouter: await deploySwapRouter("arbitrum", ARBITRUM.v4PoolManager),
     robinhoodSwapRouter: await deploySwapRouter("robinhood", ROBINHOOD.v4PoolManager),
+    swapAdapters: { arbitrum: await deploySwapAdapter("arbitrum"), robinhood: await deploySwapAdapter("robinhood") },
+    swapAdapterVault: actors.manager.address,
   };
-  log.info("trader swap routers deployed (test/mocks/v4/V4SwapRouter.sol)", helpers);
+  log.info("trader swap routers deployed (test/mocks/v4/V4SwapRouter.sol)", {
+    arbitrum: helpers.arbitrumSwapRouter,
+    robinhood: helpers.robinhoodSwapRouter,
+  });
+  log.info("swap adapters for the API's signed routes deployed (src/adapters/UniswapV3SwapAdapter.sol)", {
+    ...helpers.swapAdapters,
+    routeSigner: actors.apiSigner.address,
+    vault: helpers.swapAdapterVault,
+  });
   // DEC-127: the manager seeds the fund in the creation transaction, so the actors are funded first.
   await fundAccounts({ storage, helpers }, log.child("funding"));
   const fund = await createFund(arbitrum.fundFactory, log.child("deploy"));

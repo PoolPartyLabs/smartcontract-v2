@@ -61,6 +61,10 @@ export const ARBITRUM = {
   ethUsdFeed: "0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612",
   permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
   deterministicDeployer: "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+  // Uniswap V3 (the swap adapter's venue, DEC-136, DEC-153; verified by the swap research on both forks).
+  v3Factory: "0x1F98431c8aD98523631AE4a59f267346ea31F984",
+  v3QuoterV2: "0x61fFE014bA17989E743c5F6cB21bF9697530B21e",
+  v3SwapRouter02: "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45",
 } as const satisfies Record<string, Address>;
 
 /** Robinhood Chain (Spoke Chain). */
@@ -74,6 +78,9 @@ export const ROBINHOOD = {
   v4StateView: "0xF3334192D15450CdD385c8B70e03f9A6bD9E673b",
   permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
   deterministicDeployer: "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+  v3Factory: "0x1f7d7550B1b028f7571E69A784071F0205FD2EfA",
+  v3QuoterV2: "0x33e885eD0Ec9bF04EcfB19341582aADCb4c8A9E7",
+  v3SwapRouter02: "0xCaf681a66D020601342297493863E78C959E5cb2",
 } as const satisfies Record<string, Address>;
 
 /** Uniswap V4 PoolKey as the contracts encode it. */

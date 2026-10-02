@@ -91,7 +91,15 @@ export interface DeploymentState {
   protocol: ProtocolState;
   external: { arbitrum: Record<string, Address>; robinhood: Record<string, Address> };
   fund: FundRecord;
-  helpers: { arbitrumSwapRouter: Address; robinhoodSwapRouter: Address };
+  helpers: {
+    arbitrumSwapRouter: Address;
+    robinhoodSwapRouter: Address;
+    /** A Uniswap V3 swap adapter per chain (src/adapters/UniswapV3SwapAdapter.sol) whose route signer is the API
+     *  signer and whose vault is the manager's wallet, standing in for the fund's own adapters until the factory
+     *  deploys them (Mandate v2, WP-07). The API signs routes for it; `swapAdapterVault` is the only caller of `swap`. */
+    swapAdapters: { arbitrum: Address; robinhood: Address };
+    swapAdapterVault: Address;
+  };
   storage: {
     balances: { arbitrum: BalanceLayout[]; robinhood: BalanceLayout[] };
     /** Mapping slot of `fillStatuses` in each Across SpokePool (the keeper zero-fills a new relay's status slot so a

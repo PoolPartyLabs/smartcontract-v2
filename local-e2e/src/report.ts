@@ -128,6 +128,8 @@ export class RunReport {
       [ROBINHOOD.wormholeCore, "Wormhole Core (Robinhood)"],
       [s.helpers.arbitrumSwapRouter, "trader's V4 router (Arbitrum)"],
       [s.helpers.robinhoodSwapRouter, "trader's V4 router (Robinhood)"],
+      [s.helpers.swapAdapters.arbitrum, "UniswapV3SwapAdapter (Arbitrum)"],
+      [s.helpers.swapAdapters.robinhood, "UniswapV3SwapAdapter (Robinhood)"],
       ...ACTOR_NAMES.map((name) => [actors[name].address, name] as [string, string]),
     ];
     return new Map(entries.filter(([address]) => !!address).map(([address, name]) => [address.toLowerCase(), name]));
