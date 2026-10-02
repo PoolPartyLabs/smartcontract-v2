@@ -268,7 +268,7 @@ library SpokeUnwindLib {
         assembly ("memory-safe") {
             mstore(records, kept)
         }
-        s.unwind.reportBlob = abi.encode(records);
+        s.unwind.reportBlob = SpokeUnwindTypes.encodeResults(records);
     }
 
     /// @notice DEC-105/068: automatically recognized refunds appear in the same post-unwind report.
