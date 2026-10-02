@@ -8,6 +8,7 @@
     "node": ">=24"
   },
   "scripts": {
+    "test:alpha": "tsx --test src/alpha-relay.test.ts",
     "alpha:keeper": "tsx src/alpha.ts keeper",
     "alpha:api": "tsx src/alpha.ts api",
     "alpha:rehearsal": "tsx src/alpha-rehearsal.ts",

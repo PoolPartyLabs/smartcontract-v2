@@ -10,6 +10,7 @@ import {privateKeyToAccount} from "viem/accounts";
 import {coreVaultAbi, spokeVaultAbi, valueReportReceiverAbi, wormholeCoreAbi} from "./abis.ts";
 import {ROUTE_TYPES, encodeRoute, legsHash} from "./swap-route.ts";
 import {actors, guardian} from "./config.ts";
+import {createAlphaDelivery, drainAlphaPending, type AlphaMessage} from "./alpha-relay.ts";
 
 function required(name: string): string {
   const value = process.env[name];
@@ -99,7 +100,7 @@ if (mode === "api") {
   }
 }
 
-interface Message {side: Side; sequence: string; payload: Hex}
+type Message = AlphaMessage;
 interface Cursor {core: Address; spokeVault: Address; hub: string; spoke: string; pending: Message[]; lastReport: number}
 const initial: Cursor = {core, spokeVault: spoke, hub: required("ALPHA_HUB_START_BLOCK"), spoke: required("ALPHA_SPOKE_START_BLOCK"), pending: [], lastReport: 0};
 let cursor: Cursor = existsSync(stateFile) ? JSON.parse(readFileSync(stateFile, "utf8")) : initial;
@@ -110,34 +111,7 @@ function save() {
   renameSync(`${stateFile}.tmp`, stateFile);
 }
 
-async function deliver(message: Message): Promise<boolean> {
-  const config = sides[message.side];
-  const emitter = config.emitter.slice(2).toLowerCase().padStart(64, "0");
-  const response = await fetch(`${vaaBase}/${config.wormhole}/${emitter}/${message.sequence}`, {signal: AbortSignal.timeout(15000)});
-  if (response.status === 404) return false;
-  if (!response.ok) throw new Error("VAA service unavailable");
-  const body = await response.json() as {data?: {vaa?: string}};
-  if (!body.data?.vaa) throw new Error("Missing signed VAA");
-  const vaa = `0x${Buffer.from(body.data.vaa, "base64").toString("hex")}` as Hex;
-  const destination: Side = message.side === "spoke" ? "hub" : "spoke";
-  const [verified, valid] = await read(destination, bridges[destination], "parseAndVerifyVM", [vaa], wormholeCoreAbi);
-  if (!valid || verified.emitterChainId !== config.wormhole || verified.emitterAddress.toLowerCase() !== `0x${emitter}`
-    || verified.sequence.toString() !== message.sequence || verified.payload.toLowerCase() !== message.payload.toLowerCase()) throw new Error("VAA verification failed");
-  if (message.side === "spoke") {
-    const previous = await read("hub", receiver, "lastWormholeSequence", [0n], valueReportReceiverAbi);
-    if (previous >= BigInt(message.sequence)) return true;
-    await send("hub", receiver, valueReportReceiverAbi, "deliver", [vaa]);
-  } else {
-    const fee = await read("spoke", bridges.spoke, "messageFee", [], wormholeCoreAbi);
-    try {
-      await send("spoke", spoke, spokeVaultAbi, "executeOrder", [vaa], fee);
-    } catch (error: any) {
-      if (error?.walk?.((entry: any) => entry?.data?.errorName === "OrderSequenceTooLow")) return true;
-      throw error;
-    }
-  }
-  return true;
-}
+const deliver = createAlphaDelivery({sides, bridges, receiver, spoke, vaaBase, read, send});
 
 async function publish(): Promise<Message> {
   const fee = await read("spoke", bridges.spoke, "messageFee", [], wormholeCoreAbi);
@@ -178,14 +152,9 @@ async function keeperTick() {
     cursor.lastReport = Date.now();
   }
   save();
-  for (const message of [...cursor.pending]) {
-    try {
-      if (await deliver(message)) {
-        cursor.pending = cursor.pending.filter((entry) => entry !== message);
-        save();
-      }
-    } catch {console.error(`Relay pending: ${message.side} sequence ${message.sequence}; inspect VAA/expiry and fund state.`);}
-  }
+  await drainAlphaPending(cursor, deliver, save, (message) => {
+    console.error(`Relay pending: ${message.side} sequence ${message.sequence}; inspect VAA/expiry and fund state.`);
+  });
 }
 
 async function route(input: any) {
