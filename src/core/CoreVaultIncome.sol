@@ -7,17 +7,18 @@ import {ICoreVault} from "../interfaces/ICoreVault.sol";
 import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 import {CoreVaultBase} from "./CoreVaultBase.sol";
 import {CoreVaultLogic} from "./CoreVaultLogic.sol";
+import {CoreVaultIncomeLogic} from "./CoreVaultIncomeLogic.sol";
 
 /// @title CoreVaultIncome
 /// @notice Collected income, Attributed Income and Income Withdrawal of the Core Vault. See ICoreVault.
 /// @dev Ruling 2026-09-29 (fee split point, replaces the recognition-time booking): the per-token index advances ONLY
 ///      when collected income reaches the Core Vault, through `receiveCollectedIncome` from the hub Spoke Vault or a
-///      matched spoke-to-hub arrival of kind Income (USDC). The split happens right there (CoreVaultLogic.collectIncome):
-///      the performance fee (DEC-107) times the collected amount, of which the protocol slice read from the
-///      ManagerRegistry at that moment (DEC-106, DEC-110) is transferred to the Protocol Recipient and the rest to the
-///      fund's ManagerFeeVault, in kind (DEC-109); the net enters the shareholders' accumulator. Uncollected income
-///      (hub and spoke positions, spoke collected buckets) stays in its own bucket (DEC-092) and only informs Gross
-///      Assets.
+///      matched spoke-to-hub arrival of kind Income (USDC). The split happens right there
+///      (CoreVaultIncomeLogic.collectIncome): the performance fee (DEC-107) times the collected amount, of which the
+///      protocol slice read from the ManagerRegistry at that moment (DEC-106, DEC-110) is transferred to the Protocol
+///      Recipient and the rest to the fund's ManagerFeeVault, in kind (DEC-109); the net enters the shareholders'
+///      accumulator. Uncollected income (hub and spoke positions, spoke collected buckets) stays in its own bucket
+///      (DEC-092) and only informs Gross Assets.
 abstract contract CoreVaultIncome is CoreVaultBase {
     using SafeERC20 for IERC20;
     using IncomeAccumulator for IncomeAccumulator.State;
@@ -30,7 +31,7 @@ abstract contract CoreVaultIncome is CoreVaultBase {
         if (!_s.income.isRegistered(token)) revert UnknownIncomeToken(token);
         if (amount == 0) revert ZeroAmount();
         _requireUnledgered(token, amount);
-        CoreVaultLogic.collectIncome(_s, _wiring(), token, amount);
+        CoreVaultIncomeLogic.collectIncome(_s, _wiring(), token, amount);
     }
 
     /// @inheritdoc ICoreVault

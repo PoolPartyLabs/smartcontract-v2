@@ -15,6 +15,7 @@ import {TransitMessage} from "../libraries/TransitMessage.sol";
 import {CoreVaultState, CoreVaultWiring, SpokeBook, HubBoundTransfer} from "./CoreVaultTypes.sol";
 import {SpokeVaultTypes} from "../spoke/SpokeVaultTypes.sol";
 import {CoreVaultLogic} from "./CoreVaultLogic.sol";
+import {CoreVaultIncomeLogic} from "./CoreVaultIncomeLogic.sol";
 
 /// @title CoreVaultTransitLogic
 /// @notice Report application, spoke-to-hub arrivals, sends to spokes and the transit outcomes of the Core Vault (the
@@ -22,10 +23,11 @@ import {CoreVaultLogic} from "./CoreVaultLogic.sol";
 ///         into the fund's own linked library, never into an adapter).
 /// @dev DEC-131 pattern (alternative C) applied to the Core Vault (D-43): moved out of `CoreVaultLogic` unchanged so
 ///      each linked library keeps room under the 24,576-byte limit. It calls `CoreVaultLogic` (Spoke Cap usage) and
-///      the income split through their own linked addresses, so its creation code links them and its address is part
-///      of the Core Vault's creation code and trust surface (immutable: no proxy, no upgrade path, DEC-022, DEC-058).
-///      Report application lives here, not in `CoreVaultLogic`: it confirms transits and credits hub-bound arrivals,
-///      and a link back from `CoreVaultLogic` would make the two libraries' CREATE2 addresses depend on each other.
+///      `CoreVaultIncomeLogic` (the income split) through their own linked addresses, so its creation code links them
+///      and its address is part of the Core Vault's creation code and trust surface (immutable: no proxy, no upgrade
+///      path, DEC-022, DEC-058). Report application lives here, not in `CoreVaultLogic`: it confirms transits and
+///      credits hub-bound arrivals, and a link back from `CoreVaultLogic` would make the two libraries' CREATE2
+///      addresses depend on each other.
 /// @dev The Core Vault applies access control, the reentrancy guard and the Operating Cash top-up before calling in.
 ///      Events are emitted with the Core Vault as their address; they and the errors are declared in ICoreVault.
 library CoreVaultTransitLogic {
@@ -160,7 +162,7 @@ library CoreVaultTransitLogic {
             h.credited += credit;
             emit ICoreVault.TransitReceived(transitId, originChainId, kind, credit, true);
             if (kind == TransferKind.Principal) s.idle += credit;
-            else CoreVaultLogic.collectIncome(s, w, w.usdc, credit);
+            else CoreVaultIncomeLogic.collectIncome(s, w, w.usdc, credit);
         }
         if (amount > credit) {
             s.unmatchedArrivals += amount - credit;

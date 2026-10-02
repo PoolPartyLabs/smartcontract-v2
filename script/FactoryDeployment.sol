@@ -31,6 +31,7 @@ abstract contract FactoryDeployment is CommonBase {
 
     string internal constant CORE_VAULT_ARTIFACT = "out/CoreVault.sol/CoreVault.json";
     string internal constant CORE_VAULT_LOGIC_ID = "src/core/CoreVaultLogic.sol:CoreVaultLogic";
+    string internal constant CORE_VAULT_INCOME_LOGIC_ID = "src/core/CoreVaultIncomeLogic.sol:CoreVaultIncomeLogic";
     string internal constant CORE_VAULT_TRANSIT_LOGIC_ARTIFACT =
         "out/CoreVaultTransitLogic.sol/CoreVaultTransitLogic.json";
     string internal constant CORE_VAULT_TRANSIT_LOGIC_ID = "src/core/CoreVaultTransitLogic.sol:CoreVaultTransitLogic";
@@ -94,6 +95,7 @@ abstract contract FactoryDeployment is CommonBase {
         address create3Deployer;
         address coreVaultLogic;
         address coreVaultTransitLogic;
+        address coreVaultIncomeLogic;
         address spokeCrossChainLib;
         address spokeUnwindLib;
         address managerRegistry;
@@ -196,10 +198,9 @@ abstract contract FactoryDeployment is CommonBase {
         d.spokeUnwindLib = _library(vm.getCode("SpokeUnwindLib.sol:SpokeUnwindLib"), deploy);
         if (!hub) return;
         d.coreVaultLogic = _library(vm.getCode("CoreVaultLogic.sol:CoreVaultLogic"), deploy);
-        // Library-into-library links: a library that calls another is linked to it before its own address is known.
-        string[] memory ids = new string[](1);
-        address[] memory libraries = new address[](1);
-        (ids[0], libraries[0]) = (CORE_VAULT_LOGIC_ID, d.coreVaultLogic);
+        d.coreVaultIncomeLogic = _library(vm.getCode("CoreVaultIncomeLogic.sol:CoreVaultIncomeLogic"), deploy);
+        // Library-into-library links: a library that calls another is linked to it, so it is deployed after it.
+        (string[] memory ids, address[] memory libraries) = _coreVaultLinks(d);
         d.coreVaultTransitLogic = _library(_linked(CORE_VAULT_TRANSIT_LOGIC_ARTIFACT, ids, libraries), deploy);
     }
 
@@ -266,11 +267,22 @@ abstract contract FactoryDeployment is CommonBase {
     /// @notice The Core Vault creation code linked to the deployment's Core Vault libraries (what `createFund` takes in
     ///         calldata).
     function _coreVaultCreationCode(Deployment memory d) internal view returns (bytes memory) {
-        string[] memory ids = new string[](2);
-        address[] memory libraries = new address[](2);
+        (string[] memory ids, address[] memory libraries) = _coreVaultLinks(d);
+        return _linked(CORE_VAULT_ARTIFACT, ids, libraries);
+    }
+
+    /// @notice Every Core Vault library of the deployment as a link list (ids, addresses). A placeholder only exists
+    ///         for a library the artifact calls, so the full list fits every Core Vault library and the Core Vault.
+    function _coreVaultLinks(Deployment memory d)
+        internal
+        pure
+        returns (string[] memory ids, address[] memory libraries)
+    {
+        ids = new string[](3);
+        libraries = new address[](3);
         (ids[0], libraries[0]) = (CORE_VAULT_LOGIC_ID, d.coreVaultLogic);
         (ids[1], libraries[1]) = (CORE_VAULT_TRANSIT_LOGIC_ID, d.coreVaultTransitLogic);
-        return _linked(CORE_VAULT_ARTIFACT, ids, libraries);
+        (ids[2], libraries[2]) = (CORE_VAULT_INCOME_LOGIC_ID, d.coreVaultIncomeLogic);
     }
 
     /// @notice The Spoke Vault creation code linked to the deployment's Spoke Vault libraries (the code the factory
@@ -293,8 +305,9 @@ abstract contract FactoryDeployment is CommonBase {
 
     /// @notice Solidity library linking: replaces every `__$<34 hex of keccak256(libraryIds[i])>$__` placeholder in
     ///         the artifact's creation code with `libraries[i]`.
-    /// @dev Reverts with `UnlinkedLibrary` when a placeholder is left, so a library added to a contract but not to
-    ///      its link list fails here by name instead of as a hex parse error.
+    /// @dev Reverts with `UnlinkedLibrary` when a placeholder is left, or would be filled with the zero address (a
+    ///      library linked before the one it calls was deployed), so a library added to a contract but not to its link
+    ///      list fails here by name instead of as a hex parse error or a call into nothing.
     function _linked(string memory artifact, string[] memory libraryIds, address[] memory libraries)
         internal
         view
@@ -304,6 +317,7 @@ abstract contract FactoryDeployment is CommonBase {
         for (uint256 i; i < libraryIds.length; ++i) {
             bytes32 id = keccak256(bytes(libraryIds[i]));
             string memory placeholder = string.concat("__$", _hex(abi.encodePacked(id), 17), "$__");
+            if (libraries[i] == address(0) && vm.contains(code, placeholder)) revert UnlinkedLibrary(artifact);
             code = vm.replace(code, placeholder, _hex(abi.encodePacked(libraries[i]), 20));
         }
         if (vm.contains(code, "__$")) revert UnlinkedLibrary(artifact);

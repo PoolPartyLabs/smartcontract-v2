@@ -10,17 +10,16 @@ import {ICoreVault} from "../interfaces/ICoreVault.sol";
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {IValueReportReceiver} from "../interfaces/IValueReportReceiver.sol";
 import {IPriceSource} from "../interfaces/IPriceSource.sol";
-import {IManagerRegistry} from "../interfaces/IManagerRegistry.sol";
 import {TransferKind} from "../interfaces/FundTypes.sol";
 import {SpokeConfig} from "../mandate/Mandate.sol";
 import {ReportCodec} from "../libraries/ReportCodec.sol";
-import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 import {CoreVaultState, CoreVaultWiring} from "./CoreVaultTypes.sol";
 
 /// @title CoreVaultLogic
-/// @notice Value bases and collected income of the Core Vault, as an external library that runs in the Core Vault's
-///         context (DELEGATECALL into the fund's own linked library, never into an adapter). Report application, sends
-///         and transit outcomes live in `CoreVaultTransitLogic` (DEC-131 pattern, D-43).
+/// @notice Value bases of the Core Vault and the fee transfer helper, as an external library that runs in the Core
+///         Vault's context (DELEGATECALL into the fund's own linked library, never into an adapter). Report
+///         application, sends and transit outcomes live in `CoreVaultTransitLogic`, the income split in
+///         `CoreVaultIncomeLogic` (DEC-131 pattern, D-43).
 /// @dev Exists only to keep the Core Vault's runtime bytecode under the 24,576-byte limit without changing compiler
 ///      settings. The Core Vault applies access control, the reentrancy guard and the Operating Cash top-up before
 ///      calling in. Events are emitted with the Core Vault as their address; the library's own events and errors are
@@ -31,12 +30,6 @@ import {CoreVaultState, CoreVaultWiring} from "./CoreVaultTypes.sol";
 ///      forbids DELEGATECALL into adapters; this is the fund's own code, never an adapter (DEC-054).
 library CoreVaultLogic {
     using SafeERC20 for IERC20;
-    using IncomeAccumulator for IncomeAccumulator.State;
-
-    /// @dev DEC-106: default protocol slice when the registry cannot be read.
-    uint16 internal constant DEFAULT_PROTOCOL_SLICE_BPS = 5000;
-
-    uint256 private constant BPS = 10_000;
 
     // ---------------------------------------------------------------------------------------------------------------
     // Value bases (DEC-042, DEC-083, DEC-084, DEC-085, DEC-098, DEC-104)
@@ -417,34 +410,8 @@ library CoreVaultLogic {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // Collected income (ruling 2026-09-29; DEC-092, DEC-106, DEC-107, DEC-109, DEC-110)
+    // Fees (security review S-12)
     // ---------------------------------------------------------------------------------------------------------------
-
-    /// @notice Splits income that reached the Core Vault and advances the index (ruling 2026-09-29: fee split and
-    ///         attribution at collection).
-    /// @dev DEC-107: performance fee = `amount * performanceFeeBps`, on income only, no high-water mark. DEC-106,
-    ///      DEC-110: its protocol slice is read from the ManagerRegistry at this charge. DEC-109: both are paid in the
-    ///      collected token at once, the slice to the Protocol Recipient and the rest of the fee to the ManagerFeeVault,
-    ///      so no fee ever waits in the Core Vault. The net enters the shareholders' accumulator (DEC-014, Q60; with no
-    ///      shares outstanding it is kept ownerless, LC-32) and the collected balance (LC-100). The caller checked the
-    ///      token is an income token and that `amount` is held above the ledger (DEC-080). Rounding: the fee rounds
-    ///      down (in the holders' favour), the slice rounds down (in the manager's favour).
-    function collectIncome(CoreVaultState storage s, CoreVaultWiring memory w, address token, uint256 amount) public {
-        _collectIncome(s, w, token, amount);
-    }
-
-    function _collectIncome(CoreVaultState storage s, CoreVaultWiring memory w, address token, uint256 amount) private {
-        uint16 sliceBps = protocolSliceBps(w);
-        uint256 managerFee = amount * s.performanceFeeBps / BPS;
-        uint256 slice = managerFee * sliceBps / BPS;
-        managerFee -= slice;
-        uint256 net = amount - managerFee - slice;
-        s.collectedIncome[token] += net;
-        s.income.distribute(token, net, IERC20(w.shareToken).totalSupply());
-        emit ICoreVault.CollectedIncomeReceived(token, amount, managerFee, slice, sliceBps);
-        payFee(s, token, w.protocolRecipient, slice);
-        payFee(s, token, w.managerFeeVault, managerFee);
-    }
 
     /// @notice Transfers a fee to its recipient, or books it as owed when the transfer fails.
     /// @dev Security review S-12: the Protocol Recipient and the ManagerFeeVault are immutable third-party addresses on
@@ -456,17 +423,6 @@ library CoreVaultLogic {
         s.owedFees[token][recipient] += amount;
         s.owedFeesTotal[token] += amount;
         emit ICoreVault.FeeAccrued(token, recipient, amount);
-    }
-
-    /// @notice DEC-106, DEC-110: the registry is read at every charge. A failed read or a value above 100% never blocks
-    ///         recognition (DEC-107 reading 3): the DEC-106 default of 50% applies; values are capped at 100%.
-    function protocolSliceBps(CoreVaultWiring memory w) public view returns (uint16 bps) {
-        try IManagerRegistry(w.managerRegistry).protocolSliceBps(w.manager) returns (uint16 value) {
-            // forge-lint: disable-next-line(unsafe-typecast)
-            bps = value > BPS ? uint16(BPS) : value;
-        } catch {
-            bps = DEFAULT_PROTOCOL_SLICE_BPS;
-        }
     }
 
     /// @notice Key of a spoke-to-hub transfer: transit ids are unique per sending vault, so the origin chain is part of

@@ -28,6 +28,7 @@ contract DeployFactory is Script, FactoryDeployment {
         console.log("SpokeUnwindLib", d.spokeUnwindLib);
         console.log("CoreVaultLogic", d.coreVaultLogic);
         console.log("CoreVaultTransitLogic", d.coreVaultTransitLogic);
+        console.log("CoreVaultIncomeLogic", d.coreVaultIncomeLogic);
         console.log("ManagerRegistry", d.managerRegistry);
         console.log("ChainlinkPriceSource", d.priceSource);
         console.log("FundFactory", address(d.factory));

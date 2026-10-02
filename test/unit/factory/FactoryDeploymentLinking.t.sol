@@ -28,9 +28,25 @@ contract FactoryDeploymentLinkingTest is Test, FactoryDeployment {
         assertTrue(vm.contains(code, _bareHex(d.coreVaultLogic)), "CoreVaultLogic linked");
         assertTrue(d.coreVaultTransitLogic.code.length != 0, "CoreVaultTransitLogic deployed on the hub");
         assertTrue(vm.contains(code, _bareHex(d.coreVaultTransitLogic)), "CoreVaultTransitLogic linked");
+        assertTrue(d.coreVaultIncomeLogic.code.length != 0, "CoreVaultIncomeLogic deployed on the hub");
+        assertTrue(vm.contains(code, _bareHex(d.coreVaultIncomeLogic)), "CoreVaultIncomeLogic linked");
         assertFalse(vm.contains(code, "__$"), "no placeholder left");
-        // Library into library: the transit library calls CoreVaultLogic through its own linked address.
-        assertTrue(vm.contains(vm.toString(d.coreVaultTransitLogic.code), _bareHex(d.coreVaultLogic)));
+        // Library into library: the transit library calls CoreVaultLogic and CoreVaultIncomeLogic through their own
+        // linked addresses.
+        string memory transit = vm.toString(d.coreVaultTransitLogic.code);
+        assertTrue(vm.contains(transit, _bareHex(d.coreVaultLogic)), "transit -> CoreVaultLogic");
+        assertTrue(vm.contains(transit, _bareHex(d.coreVaultIncomeLogic)), "transit -> CoreVaultIncomeLogic");
+    }
+
+    /// @notice A library linked before the library it calls is deployed fails by name, never as a call into nothing.
+    function test_DEC131_linkingToAnUndeployedLibraryRevertsByName() public {
+        vm.expectRevert(abi.encodeWithSelector(UnlinkedLibrary.selector, CORE_VAULT_ARTIFACT));
+        this.linkCoreVaultWithoutLibraries();
+    }
+
+    function linkCoreVaultWithoutLibraries() external view returns (bytes memory) {
+        Deployment memory none;
+        return _coreVaultCreationCode(none);
     }
 
     /// @notice `CreateFund` links the Core Vault code to the predicted addresses, so they must be where step 2 deploys.
