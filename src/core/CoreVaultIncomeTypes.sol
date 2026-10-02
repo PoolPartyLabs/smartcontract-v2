@@ -42,6 +42,9 @@ library CoreVaultIncomeTypes {
         bytes32 transitId;
         uint256[] sold;
         uint256[] obtained;
+        uint256[] feeSold;
+        uint256[] totalSold;
+        uint64 frozen;
     }
 
     /// @notice An Income Withdrawal request (DEC-122): the collection round it waits for.
@@ -77,5 +80,6 @@ library CoreVaultIncomeTypes {
         uint64 deadline;
         uint256 pendingSpokes;
         mapping(address holder => Request) requests;
+        mapping(uint256 spokeIndex => mapping(bytes32 transitId => uint256)) recoveredIncome;
     }
 }

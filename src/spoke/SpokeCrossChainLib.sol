@@ -118,8 +118,17 @@ library SpokeCrossChainLib {
         amount = t.amountSent;
         t.state = TransitState.RefundRecognized;
         _removeInFlight(s, transitId);
-        if (t.kind == TransferKind.Principal) s.unallocated[baseToken] += amount;
-        else s.collectedIncome[baseToken] += amount;
+        if (t.kind == TransferKind.Principal) {
+            s.unallocated[baseToken] += amount;
+        } else {
+            s.collectedIncome[baseToken] += amount;
+            uint64 resultId = s.income.resultOf[transitId];
+            if (resultId != 0 && !s.income.awaitingResend[resultId]) {
+                s.income.awaitingResend[resultId] = true;
+                s.income.resendBase += amount;
+                s.income.refundQueue.push(resultId);
+            }
+        }
         emit ISpokeVault.TransitRefundRecognized(transitId, amount);
         address bridge = t.bridgeAdapter;
         try IBridgeAdapter(bridge).noteExpiry(t.bridgeRef) {}
