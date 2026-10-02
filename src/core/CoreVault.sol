@@ -110,6 +110,12 @@ contract CoreVault is CoreVaultTransit {
     ///      price is the initial Share Price by definition (DEC-061): nothing else is in the fund yet. D-34: the seed
     ///      is a deposit and pays the flow fee (DEC-113). The remainder below one share never leaves the caller
     ///      (DEC-035).
+    /// @dev No Operating Cash top-up here (DEC-096 tops up before pricing an entrant; the seed has a fixed price), so
+    ///      the first value-moving operation tops hub Operating Cash up out of the seed's Idle and the Share Price
+    ///      falls by the top-up. A seed whose Idle is at or below the top-up leaves a Share Price of 0 at that point:
+    ///      deposits revert `SharePriceBelowOneUnit` (their top-up reverts with them) until the manager lowers the
+    ///      parameters (`setOperatingCashParameters`). Not refused here: the manager can move Free Idle into Operating
+    ///      Cash at any time anyway (security review S-5, SEC-OQ-2). CoreVaultSeed.t.sol pins both cases.
     function seed(uint256 usdcAmount) external nonReentrant returns (uint256 shares) {
         if (msg.sender != factory) revert NotFactory(msg.sender);
         // The peak is non-zero once seeded; a supply-0 fund is either new or closed, and a closed one never re-opens.

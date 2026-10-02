@@ -58,6 +58,9 @@ interface ICoreVaultLifecycle {
     ///         shares to the manager at the initial Share Price.
     /// @dev Factory only, once, at supply 0; `usdcAmount >= minFirstDeposit` (DEC-061, DEC-127). The flow fee is
     ///      deducted before shares are computed and paid to the Protocol Recipient (DEC-113). Records the manager peak.
+    ///      Hub Operating Cash is not topped up here: the first value-moving operation tops it up out of the seed's
+    ///      Idle (DEC-096), so a seed should exceed the hub floor plus top-up or deposits revert until the manager
+    ///      lowers them.
     /// @return shares Whole shares minted to the manager.
     function seed(uint256 usdcAmount) external returns (uint256 shares);
 

@@ -6,7 +6,8 @@ import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {ICoreVaultLifecycle} from "../../../src/interfaces/ICoreVaultLifecycle.sol";
 import {CoreVault} from "../../../src/core/CoreVault.sol";
 import {CoreVaultConfig} from "../../../src/core/CoreVaultTypes.sol";
-import {Mandate} from "../../../src/mandate/Mandate.sol";
+import {Mandate, OperatingCashConfig} from "../../../src/mandate/Mandate.sol";
+import {ShareMath} from "../../../src/libraries/ShareMath.sol";
 import {CoreVaultFixture} from "./CoreVaultFixture.sol";
 
 /// @notice DEC-127, DEC-061, DEC-113, DEC-121: the manager seeds the fund at creation; the fund is born with shares,
@@ -119,6 +120,68 @@ contract CoreVaultSeedTest is CoreVaultFixture {
         c.factory = address(0);
         vm.expectRevert(ICoreVault.ZeroAddress.selector);
         new CoreVault(_mandate(2000), c);
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // The seed and hub Operating Cash (DEC-096): the first value-moving operation tops it up out of the seed's Idle
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// @dev A seed of the Mandate minimum with hub Operating Cash live from creation (floor 1, top-up 3): 100 USDC buys
+    ///      99 shares; the first deposit tops up 3 out of the seed's Idle before pricing, so the entrant pays 96 / 99.
+    function test_DEC096_theFirstDepositTopsUpOperatingCashOutOfTheSeed() public {
+        Mandate memory m = _mandate(2000);
+        m.minFirstDeposit = 100e6;
+        m.operatingCash = new OperatingCashConfig[](1);
+        m.operatingCash[0] = OperatingCashConfig(HUB, 1e6, 3e6);
+        _deployUnseeded(m, _config(25));
+        _fundFactory(100e6);
+        vault.seed(100e6);
+        assertEq(vault.idle(), 99e6);
+        assertEq(vault.operatingCash(), 0, "the seed does not top up");
+        assertEq(vault.sharePrice(), ONE);
+
+        (uint256 minted,) = _deposit(alice, 1003e6); // 1,000.49 after the flow fee
+        assertEq(vault.operatingCash(), 3e6, "topped up out of the seed's Idle");
+        assertEq(
+            minted, ShareMath.sharesForDeposit(1003e6 - ShareMath.flowFee(1003e6, 25), uint256(96e6) * 1e36 / 99e18)
+        );
+        assertEq(minted, 1031e18, "1,000.49 at 0.9697");
+    }
+
+    /// @dev Review round 1 (low): a seed whose Idle is at or below the top-up leaves a Share Price of 0 once the top-up
+    ///      runs, so every deposit reverts, the manager's too; the top-up reverts with the deposit, so nothing is lost,
+    ///      and once the manager lowers the parameters the fund takes deposits. Documented on `seed`, not refused:
+    ///      the manager can move Free Idle into Operating Cash at any time anyway (security review S-5).
+    function test_DEC096_aSeedAtOrBelowTheTopUpBlocksDepositsUntilTheManagerLowersIt() public {
+        Mandate memory m = _mandate(2000);
+        m.minFirstDeposit = 25e6;
+        m.operatingCash = new OperatingCashConfig[](1);
+        m.operatingCash[0] = OperatingCashConfig(HUB, 10e6, 30e6);
+        _deployUnseeded(m, _config(25));
+        _fundFactory(25e6);
+        vault.seed(25e6); // 24 shares, 24 USDC of Idle
+        assertEq(vault.idle(), 24e6);
+
+        usdc.mint(alice, 1_000_000e6);
+        vm.startPrank(alice);
+        usdc.approve(address(vault), 1_000_000e6);
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.SharePriceBelowOneUnit.selector, 0));
+        vault.deposit(1_000_000e6, 0);
+        vm.stopPrank();
+        usdc.mint(manager, 1000e6);
+        vm.startPrank(manager);
+        usdc.approve(address(vault), 1000e6);
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.SharePriceBelowOneUnit.selector, 0));
+        vault.deposit(1000e6, 0);
+        vm.stopPrank();
+        assertEq(vault.idle(), 24e6, "the top-up reverted with the deposit");
+        assertEq(vault.operatingCash(), 0);
+
+        vm.prank(manager);
+        vault.setOperatingCashParameters(1e6, 3e6);
+        (uint256 minted,) = _deposit(alice, 1003e6);
+        assertGt(minted, 0, "deposits resume");
+        assertEq(vault.operatingCash(), 3e6);
     }
 
     /// @dev Below one share after the flow fee, the seed is refused (DEC-035).
