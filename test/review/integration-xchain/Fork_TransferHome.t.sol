@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {AcrossBridgeAdapter} from "../../../src/adapters/AcrossBridgeAdapter.sol";
 import {Transit, TransitState, TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {ShareMath} from "../../../src/libraries/ShareMath.sol";
@@ -203,7 +204,8 @@ contract Fork_TransferHome is XChainBase {
     ///         the manager cannot name a relayer (DEC-158, DEC-162: the quote argument is ignored, the deposit carries
     ///         the Across adapter's terms); the same unfilled send (nobody fills it) stays listed (S-3), the refund
     ///         comes through the live pool's refund leaf at deadline + 55 min, and the next report recognizes it with
-    ///         no `recognizeRefund` call: the Share Price never leaves the fee-only level.
+    ///         no `recognizeRefund` call: the Share Price never leaves the fee-only level. The recognized refund also
+    ///         tells the adapter the send expired, so the next send home steps up one band (DEC-162).
     function test_REVIEW_H01_unfilledTransferHomeStaysInShareAssetsUntilItsRefund() public {
         uint256 principal = _setUpSpokeHoldsPrincipal();
         address managerRelayer = makeAddr("managerRelayer");
@@ -248,6 +250,9 @@ contract Fork_TransferHome is XChainBase {
         _onRobinhood();
         assertEq(uint8(spokeVault.hubBoundTransit(home).state), uint8(TransitState.RefundRecognized), "by report()");
         assertEq(spokeVault.unallocatedBalance(RH_USDG), principal, "the whole amount sent is back");
+        (uint256 nextRate,, uint256 expiredRate) = AcrossBridgeAdapter(spokeAcross).feeState(ARBITRUM);
+        assertEq(expiredRate, 8e14, "DEC-162: the adapter learned the expiry from the recognized refund");
+        assertEq(nextRate, 12e14, "the next send home steps one band up");
 
         _onArbitrum();
         uint256 priceAfter = core.sharePrice();

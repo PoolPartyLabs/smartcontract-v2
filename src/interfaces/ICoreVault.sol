@@ -143,6 +143,10 @@ interface ICoreVault is IAcrossMessageHandler {
     /// @notice A transit's refund was pulled from its escrow back to Idle (DEC-066).
     event TransitRefundRecognized(bytes32 indexed transitId, uint256 indexed spokeIndex, uint256 amount);
 
+    /// @notice The bridge adapter refused or failed `noteExpiry` for an expired transit; the outcome went through
+    ///         anyway (DEC-056, DEC-162), and the adapter's fee rule did not step up for it.
+    event BridgeExpiryNoteFailed(bytes32 indexed transitId, address indexed bridgeAdapter);
+
     /// @notice A spoke-to-hub transfer arrived through `handleV3AcrossMessage`. `matched` is false when no accepted
     ///         report lists the transit yet; such an amount is held apart until matched (DEC-080).
     event TransitReceived(
@@ -361,14 +365,16 @@ interface ICoreVault is IAcrossMessageHandler {
     ///      window cannot prove absence, OQ-09), or the deadline plus the report lifetime having passed. With a
     ///      report's proof it releases the Spoke Cap; on the time path alone the cap stays held until the arrival is
     ///      confirmed or the refund recognized (security review S-13). Share Assets keep counting the transit until its
-    ///      refund is recognized (QB11, QB10 OPEN).
+    ///      refund is recognized (QB11, QB10 OPEN). DEC-162: with a report's proof, the transit's bridge adapter is
+    ///      told the send expired (`IBridgeAdapter.noteExpiry`, in try/catch, DEC-056).
     function attestExpiry(bytes32 transitId) external;
 
     /// @notice Pulls an expired transit's refund from its escrow back to Idle (DEC-066, QA6). Permissionless.
     /// @dev Only for a transit in state ExpiryAttested (DEC-066, DEC-090: Sent -> ExpiryAttested -> RefundRecognized)
     ///      whose escrow holds at least `amountSent` (DEC-063: Across refunds the full input amount); reverts
     ///      `InvalidTransitState` or `NoRefund` otherwise. Exactly `amountSent` is credited to Idle; any surplus in the
-    ///      escrow reaches the Core Vault unledgered and is swept as excess (DEC-080).
+    ///      escrow reaches the Core Vault unledgered and is swept as excess (DEC-080). DEC-162: after an attestation by
+    ///      time alone, the transit's bridge adapter is told the send expired here (in try/catch, DEC-056).
     function recognizeRefund(bytes32 transitId) external returns (uint256 amount);
 
     /// @notice Credits to Idle, as Principal, what arrived from spoke `spokeIndex` for `transitId` while no accepted

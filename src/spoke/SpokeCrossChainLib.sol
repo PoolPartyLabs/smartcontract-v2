@@ -28,6 +28,11 @@ library SpokeCrossChainLib {
     ///      `SpokeVault.OPERATING_CASH_TOP_UP` (DEC-041, DEC-096).
     bytes32 internal constant OPERATING_CASH_TOP_UP = keccak256("OPERATING_CASH_TOP_UP");
 
+    /// @notice The bridge adapter refused or failed `noteExpiry` for a send home whose refund was recognized; the
+    ///         refund went through anyway (DEC-056, DEC-162), and the adapter's fee rule did not step up for it.
+    /// @dev Declared here, not in ISpokeVault, while `ISpokeVault` is outside this change; emitted from the vault.
+    event BridgeExpiryNoteFailed(bytes32 indexed transitId, address indexed bridgeAdapter);
+
     // ---------------------------------------------------------------------------------------------------------------
     // Send home (DEC-056, DEC-066, DEC-085, DEC-087, DEC-088, DEC-158, DEC-162, QA6)
     // ---------------------------------------------------------------------------------------------------------------
@@ -68,6 +73,7 @@ library SpokeCrossChainLib {
     ) public returns (bytes32 transitId) {
         if (amount == 0) revert ISpokeVault.ZeroAmount();
         // Security review S-11: the list a report walks is bounded; landed refunds and expired entries leave it first.
+        // DEC-162: a refund recognized here reaches the bridge adapter before it prices this send.
         _sweepInFlight(s, c.baseToken);
         if (s.inFlightIds.length >= SpokeVaultTypes.MAX_HUB_BOUND_IN_FLIGHT) {
             revert SpokeVaultTypes.HubBoundInFlightLimit(SpokeVaultTypes.MAX_HUB_BOUND_IN_FLIGHT);
@@ -111,7 +117,9 @@ library SpokeCrossChainLib {
         return IERC20(baseToken).balanceOf(t.escrow) >= t.amountSent;
     }
 
-    /// @dev Effects then the escrow release of a refund whose escrow holds at least `amountSent`.
+    /// @dev Effects then the escrow release of a refund whose escrow holds at least `amountSent`. DEC-162: the refund
+    ///      is the spoke's proof that the send never arrived, so the bridge adapter learns the expiry here (in
+    ///      try/catch: an adapter never blocks a refund, DEC-056).
     function _recognize(SpokeVaultTypes.State storage s, Transit storage t, address baseToken, bytes32 transitId)
         private
         returns (uint256 amount)
@@ -125,6 +133,11 @@ library SpokeCrossChainLib {
         if (t.kind == TransferKind.Principal) s.unallocated[baseToken] += amount;
         else s.collectedIncome[baseToken] += amount;
         emit ISpokeVault.TransitRefundRecognized(transitId, amount);
+        address bridge = t.bridgeAdapter;
+        try IBridgeAdapter(bridge).noteExpiry(t.bridgeRef) {}
+        catch {
+            emit BridgeExpiryNoteFailed(transitId, bridge);
+        }
         uint256 before = token.balanceOf(address(this));
         ITransitEscrow(escrow).release(address(this));
         uint256 received = token.balanceOf(address(this)) - before;

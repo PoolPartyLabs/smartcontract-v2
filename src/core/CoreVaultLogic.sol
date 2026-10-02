@@ -870,6 +870,10 @@ library CoreVaultLogic {
 
     /// @notice ICoreVault.attestExpiry: Sent becomes ExpiryAttested after the fill deadline with proof of non-arrival;
     ///         the Spoke Cap is released while Share Assets keep counting the transit until its refund (DEC-066).
+    /// @dev DEC-162: a report's proof of non-arrival is the send's outcome for the bridge adapter's fee rule
+    ///      (`_noteExpiry`); the time path proves nothing about the arrival (S-13), so on it the adapter learns the
+    ///      expiry only when the refund is recognized. Otherwise anyone could attest a filled send of a quiet fund
+    ///      (reports are published only when someone operates, DEC-157) and step every next send's fee up.
     function attestExpiry(CoreVaultState storage s, CoreVaultWiring memory w, bytes32 transitId) public {
         Transit storage t = _knownTransit(s, transitId);
         if (t.state != TransitState.Sent) revert ICoreVault.InvalidTransitState(transitId, uint8(t.state));
@@ -886,15 +890,28 @@ library CoreVaultLogic {
         if (byReport) s.spokeBooks[spokeIndex].inFlightSent -= t.amountSent;
         else s.spokeCapHeld[transitId] = true;
         emit ICoreVault.TransitExpiryAttested(transitId, spokeIndex, msg.sender);
+        if (byReport) _noteExpiry(t, transitId);
     }
 
-    /// @dev Releases the Spoke Cap a time-path attestation kept (security review S-13).
+    /// @dev DEC-162: tells the transit's bridge adapter that the send will never arrive, so its fee rule steps the
+    ///      route's next send up. DEC-056: an adapter never blocks an outcome; a failure is only reported.
+    function _noteExpiry(Transit storage t, bytes32 transitId) private {
+        address adapter = t.bridgeAdapter;
+        try IBridgeAdapter(adapter).noteExpiry(t.bridgeRef) {}
+        catch {
+            emit ICoreVault.BridgeExpiryNoteFailed(transitId, adapter);
+        }
+    }
+
+    /// @dev Releases the Spoke Cap a time-path attestation kept (security review S-13); returns whether it held one.
     function _releaseHeldCap(CoreVaultState storage s, SpokeBook storage book, bytes32 transitId, uint256 amountSent)
         private
+        returns (bool held)
     {
-        if (!s.spokeCapHeld[transitId]) return;
+        if (!s.spokeCapHeld[transitId]) return false;
         delete s.spokeCapHeld[transitId];
         book.inFlightSent -= amountSent;
+        return true;
     }
 
     /// @notice ICoreVault.recognizeRefund (DEC-066, QA6): pulls an attested-expired transit's refund from its escrow
@@ -905,7 +922,8 @@ library CoreVaultLogic {
     ///      to the depositor, so an escrow holding less than `amountSent` holds no refund and nothing changes
     ///      (`NoRefund`). DEC-080, DEC-104: exactly `amountSent` enters Idle as the transit leaves In-flight Value;
     ///      anything above it (a donation) reaches the Core Vault unledgered and only `sweepExcess` moves it. A dust
-    ///      donation therefore can neither move the state nor Share Assets.
+    ///      donation therefore can neither move the state nor Share Assets. DEC-162: after an attestation by time
+    ///      alone, the refund is the first proof of non-arrival, so the bridge adapter learns the expiry here.
     function recognizeRefund(CoreVaultState storage s, CoreVaultWiring memory w, bytes32 transitId)
         public
         returns (uint256 amount)
@@ -921,11 +939,12 @@ library CoreVaultLogic {
         // The Spoke Cap was released at the attested expiry, or is released now if the expiry was attested by time
         // alone (S-13: the refund proves non-arrival); Share Assets release the transit now (QB11/QB10 stance).
         SpokeBook storage book = s.spokeBooks[spokeIndex];
-        _releaseHeldCap(s, book, transitId, amount);
+        bool attestedByTime = _releaseHeldCap(s, book, transitId, amount);
         book.inFlightToArrive -= t.amountToArrive;
         t.state = TransitState.RefundRecognized;
         s.idle += amount;
         emit ICoreVault.TransitRefundRecognized(transitId, spokeIndex, amount);
+        if (attestedByTime) _noteExpiry(t, transitId);
         uint256 before = token.balanceOf(address(this));
         ITransitEscrow(escrow).release(address(this));
         uint256 received = token.balanceOf(address(this)) - before;

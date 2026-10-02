@@ -510,4 +510,68 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         pool.fill(address(vault), address(usdc), 500e6, message);
         assertEq(vault.unmatchedArrivals(), 500e6);
     }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // The bridge adapter learns proven expiries (DEC-162, DEC-056)
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// DEC-162: a report's proof of non-arrival tells the bridge adapter at the attestation, once; the refund that
+    /// follows does not tell it again.
+    function test_DEC162_reportProvenExpiryIsNotedOnceAtTheAttestation() public {
+        bytes32 id = _sendDefault();
+        bytes32 ref = vault.transit(id).bridgeRef;
+        vm.warp(vault.transit(id).fillDeadline + 1);
+        _deliver(_spokeReport(0, 0)); // built after the deadline, does not list the id
+        vault.attestExpiry(id);
+        assertEq(bridge.expiryNotes(ref), 1, "noted at the attestation");
+        pool.refund(0);
+        vault.recognizeRefund(id);
+        assertEq(bridge.expiryNotes(ref), 1, "not noted twice");
+    }
+
+    /// DEC-162 with security review S-13: the time path proves nothing about the arrival, so the adapter is told only
+    /// when the refund is recognized. Otherwise anyone could attest a filled send of a quiet fund (DEC-157) and step
+    /// the next send's fee up.
+    function test_DEC162_timePathExpiryIsNotedOnlyAtTheRefund() public {
+        bytes32 id = _sendDefault();
+        bytes32 ref = vault.transit(id).bridgeRef;
+        vm.warp(uint256(vault.transit(id).fillDeadline) + MAX_REPORT_AGE + 1);
+        vault.attestExpiry(id);
+        assertEq(bridge.expiryNotes(ref), 0, "the time path is no proof");
+        pool.refund(0);
+        vault.recognizeRefund(id);
+        assertEq(bridge.expiryNotes(ref), 1, "the refund is");
+    }
+
+    /// DEC-162: an arrival is never reported to the adapter as an expiry, even after a time-path attestation.
+    function test_DEC162_arrivalAfterATimeAttestationIsNeverNoted() public {
+        bytes32 id = _sendDefault();
+        bytes32 ref = vault.transit(id).bridgeRef;
+        vm.warp(uint256(vault.transit(id).fillDeadline) + MAX_REPORT_AGE + 1);
+        vault.attestExpiry(id);
+        _deliver(_arrived(_spokeReport(ARRIVES, ARRIVES), id, ARRIVES));
+        assertEq(uint8(vault.transit(id).state), uint8(TransitState.ArrivalConfirmed));
+        assertEq(bridge.expiryNotes(ref), 0);
+    }
+
+    /// DEC-056: an adapter that refuses `noteExpiry` never blocks an outcome; the vault reports the failure.
+    function test_DEC056_failingNoteExpiryNeverBlocksTheOutcome() public {
+        bytes32 id = _sendDefault();
+        bridge.setNoteExpiryReverts(true);
+        vm.warp(vault.transit(id).fillDeadline + 1);
+        _deliver(_spokeReport(0, 0));
+        vm.expectEmit(address(vault));
+        emit ICoreVault.BridgeExpiryNoteFailed(id, address(bridge));
+        vault.attestExpiry(id);
+        assertEq(uint8(vault.transit(id).state), uint8(TransitState.ExpiryAttested));
+
+        bytes32 second = _send(SENT, ARRIVES);
+        vm.warp(uint256(vault.transit(second).fillDeadline) + MAX_REPORT_AGE + 1);
+        vault.attestExpiry(second);
+        pool.refund(1);
+        vm.expectEmit(address(vault));
+        emit ICoreVault.BridgeExpiryNoteFailed(second, address(bridge));
+        assertEq(vault.recognizeRefund(second), SENT);
+        assertEq(uint8(vault.transit(second).state), uint8(TransitState.RefundRecognized));
+    }
 }

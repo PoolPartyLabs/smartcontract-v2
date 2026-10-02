@@ -5,6 +5,7 @@ import {Vm} from "forge-std/Vm.sol";
 import {SpokeVaultTestBase} from "./SpokeVaultTestBase.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
+import {SpokeCrossChainLib} from "../../../src/spoke/SpokeCrossChainLib.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
 import {IAdapter} from "../../../src/interfaces/IAdapter.sol";
 import {IAdapterGuard} from "../../../src/interfaces/IAdapterGuard.sol";
@@ -1085,5 +1086,61 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         else usdg.mint(address(spokeUni), liquidity);
         spokeUni.addLiquidity(tokenOut, liquidity);
         spokeUni.setSwapRate(numerator, denominator);
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // The bridge adapter learns recognized refunds (DEC-162, DEC-056)
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// DEC-162: a recognized refund is the spoke's proof that a send never arrived; the bridge adapter is told once,
+    /// whether `recognizeRefund` or a report's sweep recognizes it.
+    function test_DEC162_recognizedRefundIsNotedToTheBridgeAdapter() public {
+        _disableOperatingCash();
+        _arrive(1000e6, ARRIVAL, TransferKind.Principal);
+        vm.startPrank(manager);
+        bytes32 first = vault.sendToHub(400e6, TransferKind.Principal, 0, _quote(399e6));
+        bytes32 second = vault.sendToHub(400e6, TransferKind.Principal, 0, _quote(399e6));
+        vm.stopPrank();
+        Transit memory a = vault.hubBoundTransit(first);
+        Transit memory b = vault.hubBoundTransit(second);
+        vm.warp(uint256(a.fillDeadline) + 1);
+        spokePool.refund(a.escrow, address(usdg), 400e6);
+        spokePool.refund(b.escrow, address(usdg), 400e6);
+
+        vault.recognizeRefund(first);
+        assertEq(spokeBridge.expiryNotes(a.bridgeRef), 1, "by recognizeRefund");
+        vault.report();
+        assertEq(spokeBridge.expiryNotes(b.bridgeRef), 1, "by the report's sweep");
+        assertEq(spokeBridge.expiryNotes(a.bridgeRef), 1, "never twice");
+    }
+
+    /// DEC-162: a send home dropped past its retention without a refund is not an expiry the adapter learns.
+    function test_DEC162_sendDroppedAfterRetentionIsNotNoted() public {
+        _disableOperatingCash();
+        _arrive(1000e6, ARRIVAL, TransferKind.Principal);
+        vm.prank(manager);
+        bytes32 id = vault.sendToHub(400e6, TransferKind.Principal, 0, _quote(399e6));
+        Transit memory t = vault.hubBoundTransit(id);
+        vm.warp(uint256(t.fillDeadline) + ReportCodec.HUB_BOUND_RETENTION + 1);
+        vault.report();
+        assertEq(vault.inFlightTransitIds().length, 0);
+        assertEq(spokeBridge.expiryNotes(t.bridgeRef), 0);
+    }
+
+    /// DEC-056: an adapter that refuses `noteExpiry` never blocks a refund; the vault reports the failure.
+    function test_DEC056_failingNoteExpiryNeverBlocksARefund() public {
+        _disableOperatingCash();
+        _arrive(1000e6, ARRIVAL, TransferKind.Principal);
+        vm.prank(manager);
+        bytes32 id = vault.sendToHub(400e6, TransferKind.Principal, 0, _quote(399e6));
+        Transit memory t = vault.hubBoundTransit(id);
+        spokeBridge.setNoteExpiryReverts(true);
+        vm.warp(uint256(t.fillDeadline) + 1);
+        spokePool.refund(t.escrow, address(usdg), 400e6);
+        vm.expectEmit(address(vault));
+        emit SpokeCrossChainLib.BridgeExpiryNoteFailed(id, address(spokeBridge));
+        assertEq(vault.recognizeRefund(id), 400e6);
+        assertEq(uint8(vault.hubBoundTransit(id).state), uint8(TransitState.RefundRecognized));
+        assertEq(vault.unallocatedBalance(address(usdg)), 1000e6);
     }
 }
