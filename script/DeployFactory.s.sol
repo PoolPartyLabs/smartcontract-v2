@@ -37,6 +37,7 @@ contract DeployFactory is Script, FactoryDeployment {
         console.log("CoreVaultIncomeLogic", d.coreVaultIncomeLogic);
         console.log("CoreVaultIncomeCollectionLogic", d.coreVaultIncomeCollectionLogic);
         console.log("CoreVaultPayoutLogic", d.coreVaultPayoutLogic);
+        console.log("CoreVaultClosureLogic", d.coreVaultClosureLogic);
         console.log("API signer", apiSigner);
         console.log("ManagerRegistry", d.managerRegistry);
         console.log("ChainlinkPriceSource", d.priceSource);

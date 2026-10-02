@@ -238,8 +238,10 @@ abstract contract FactoryDeployment is CommonBase {
     }
 
     function _libraries(bool hub, Deployment memory d, bool deploy) private {
-        d.spokeCrossChainLib = _library(vm.getCode("SpokeCrossChainLib.sol:SpokeCrossChainLib"), deploy);
-        d.spokeUnwindLib = _library(vm.getCode("SpokeUnwindLib.sol:SpokeUnwindLib"), deploy);
+        d.spokeCrossChainLib =
+            _library(_linkedToSpokeVaultLibraries("out/SpokeCrossChainLib.sol/SpokeCrossChainLib.json", d), deploy);
+        d.spokeUnwindLib =
+            _library(_linkedToSpokeVaultLibraries("out/SpokeUnwindLib.sol/SpokeUnwindLib.json", d), deploy);
         d.spokeCloseLib = _library(_linkedToSpokeVaultLibraries("out/SpokeCloseLib.sol/SpokeCloseLib.json", d), deploy);
         // SpokeIncomeLib sends the collections home through SpokeCrossChainLib (WP-10), so it is linked to it.
         d.spokeIncomeLib = _library(_linkedToSpokeVaultLibraries(SPOKE_INCOME_LIB_ARTIFACT, d), deploy);
@@ -248,8 +250,12 @@ abstract contract FactoryDeployment is CommonBase {
         // linked to the addresses deployed so far. CoreVaultIncomeCollectionLogic calls none of them,
         // CoreVaultIncomeLogic calls it (WP-10), CoreVaultLogic calls CoreVaultIncomeLogic (the valuation hook, WP-07
         // D2), the payout library calls both and the transit library all three (the report hooks).
-        d.coreVaultIncomeCollectionLogic =
-            _library(vm.getCode("CoreVaultIncomeCollectionLogic.sol:CoreVaultIncomeCollectionLogic"), deploy);
+        d.coreVaultIncomeCollectionLogic = _library(
+            _linkedToCoreVaultLibraries(
+                "out/CoreVaultIncomeCollectionLogic.sol/CoreVaultIncomeCollectionLogic.json", d
+            ),
+            deploy
+        );
         d.coreVaultIncomeLogic = _library(_linkedToCoreVaultLibraries(CORE_VAULT_INCOME_LOGIC_ARTIFACT, d), deploy);
         d.coreVaultLogic = _library(_linkedToCoreVaultLibraries(CORE_VAULT_LOGIC_ARTIFACT, d), deploy);
         d.coreVaultPayoutLogic = _library(_linkedToCoreVaultLibraries(CORE_VAULT_PAYOUT_LOGIC_ARTIFACT, d), deploy);

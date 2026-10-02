@@ -50,7 +50,7 @@ The factory address is what every fund prediction is a function of: deploy the f
 |---|---|---|
 | `Create3Deployer` via the deterministic deployer | yes | yes |
 | `SpokeCrossChainLib` via the deterministic deployer (chain-independent address) | yes | yes |
-| `SpokeUnwindLib` via the deterministic deployer (chain-independent address; DEC-131) | yes | yes |
+| `SpokeUnwindLib` linked to `SpokeCrossChainLib`, via the deterministic deployer (chain-independent address; DEC-131) | yes | yes |
 | `SpokeCloseLib` linked to `SpokeUnwindLib`, via the deterministic deployer (DEC-131/147/149) | yes | yes |
 | `SpokeIncomeLib` linked to `SpokeCrossChainLib`, via the deterministic deployer | yes | yes |
 | `CoreVaultIncomeCollectionLogic`, then linked `CoreVaultIncomeLogic`, `CoreVaultLogic`, `CoreVaultPayoutLogic`, `CoreVaultClosureLogic`, `CoreVaultTransitLogic` | yes | no |
@@ -58,6 +58,14 @@ The factory address is what every fund prediction is a function of: deploy the f
 | Creation code stores (`CodeStore`): linked Spoke Vault, Uniswap V4, Uniswap V3 swap adapter, Across | yes | yes |
 | Creation code stores: Aave V3, ValueReportReceiver | yes | no |
 | `FundFactory` via `Create3Deployer` with `FACTORY_SALT` | yes | yes |
+
+All libraries use the artifact linker, including libraries that currently have no dependencies. Dependencies deploy
+first: `SpokeCrossChainLib` before `SpokeUnwindLib`, then `SpokeCloseLib` and `SpokeIncomeLib`; on the Hub,
+`CoreVaultIncomeCollectionLogic` before `CoreVaultIncomeLogic`, then `CoreVaultLogic`, `CoreVaultPayoutLogic`,
+`CoreVaultClosureLogic` and `CoreVaultTransitLogic`. Address prediction follows the same order and hashes the linked
+creation code. Any unresolved placeholder or zero-address dependency fails with `UnlinkedLibrary` before deployment
+(DEC-058/131). The script-path regression runs `DeployFactory.run()` for both chains and checks the factory's pinned
+code hashes and nested runtime links.
 
 ```bash
 set -a; . ./.env; set +a
