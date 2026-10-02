@@ -211,23 +211,6 @@ contract MockPositionAdapter is AdapterGuard, IAdapter {
         emit IncomeCollected(positionKey, a.income0, a.income1);
     }
 
-    function swapExactInput(bytes32 poolKey, address tokenIn, uint256 amountIn, uint256 minAmountOut, bytes calldata)
-        external
-        onlyVault
-        returns (uint256 amountOut)
-    {
-        Pool memory pool = pools[poolKey];
-        if (!pool.exists) revert UnknownPool(poolKey);
-        address tokenOut = tokenIn == pool.token0 ? pool.token1 : pool.token0;
-        // Security review S-10: a deprecated adapter still swaps into the vault's base token (an exit).
-        if (deprecated && tokenOut != ISpokeVault(vault).baseToken()) revert AdapterIsDeprecated();
-        reserved[tokenIn] += amountIn;
-        amountOut = amountIn * swapNumerator / swapDenominator * (10_000 - swapHaircutBps) / 10_000;
-        if (amountOut < minAmountOut) revert InsufficientOutput(amountOut, minAmountOut);
-        _pay(tokenOut, amountOut);
-        emit Swapped(poolKey, tokenIn, tokenOut, amountIn, amountOut);
-    }
-
     function positionValue(bytes32 positionKey) external view returns (PositionValue memory v) {
         Position memory p = position[positionKey];
         if (!p.open) revert UnknownPosition(positionKey);
@@ -269,12 +252,6 @@ contract MockPositionAdapter is AdapterGuard, IAdapter {
         uint256 bps = (numerator * 10_000 + denominator - 1) / denominator;
         if (bps >= 10_000) return (true, "");
         return (false, abi.encode(bps));
-    }
-
-    /// @dev The swap rate is the pool's spot price in the mock.
-    function spotQuote(bytes32 poolKey, address, uint256 amountIn) external view returns (uint256) {
-        if (!pools[poolKey].exists) revert UnknownPool(poolKey);
-        return amountIn * swapNumerator / swapDenominator;
     }
 
     // ---- internals ----

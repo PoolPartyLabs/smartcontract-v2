@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Test} from "forge-std/Test.sol";
 import {FundSeed} from "../../utils/FundSeed.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -127,7 +128,7 @@ abstract contract AdaptersForkBase is Test, FundSeed {
             m, FUND_ID, HUB, coreAt, USDC, makeAddr("across"), address(0), address(escrowImpl), makeAddr("excess")
         );
         // Priced before the Core Vault: it refuses a hub pool token its price source cannot price (review M-03).
-        prices.setPrice(WETH, adapter.spotQuote(livePool, WETH, 1e18));
+        prices.setPrice(WETH, _poolPrice());
         vault = new CoreVault(m, _config(address(hubVault), address(registry), address(receiver), address(escrowImpl)));
         // DEC-127: this contract plays the factory and seeds the fund (FundSeed).
         _seedFund(address(vault), vault.usdc(), vault.flowFeeBps());
@@ -197,5 +198,10 @@ abstract contract AdaptersForkBase is Test, FundSeed {
         c.factory = address(this);
         c.shareName = "Pool Party Fund 1";
         c.shareSymbol = "PP-1";
+    }
+
+    function _poolPrice() internal view returns (uint256) {
+        (uint160 sqrtPrice,,,) = IStateView(SV).getSlot0(PoolId.wrap(livePool));
+        return Math.mulDiv(Math.mulDiv(sqrtPrice, sqrtPrice, 1 << 64), 1e18, 1 << 128);
     }
 }

@@ -136,16 +136,13 @@ contract UniswapV4AdapterTest is Test {
         );
     }
 
-    /// DEC-079 (OPEN), OQ-12: a hooked pool is unknown to poolTokens, openPosition and swapExactInput.
+    /// DEC-079 (OPEN), OQ-12: a hooked pool is unknown to poolTokens and openPosition.
     function test_DEC079_hookedPoolIsUnknown() public {
         vm.expectRevert(abi.encodeWithSelector(IAdapter.UnknownPool.selector, hookedId));
         adapter.poolTokens(hookedId);
 
         vm.expectRevert(abi.encodeWithSelector(IAdapter.UnknownPool.selector, hookedId));
         vault.open(hookedId, address(token0), 1e20, address(token1), 1e20, _openParams(LIQUIDITY));
-
-        vm.expectRevert(abi.encodeWithSelector(IAdapter.UnknownPool.selector, hookedId));
-        vault.swap(hookedId, address(token0), 1e18, 0, _swapParams());
     }
 
     function test_DEC030_unregisteredPoolIsUnknown() public {
@@ -176,18 +173,10 @@ contract UniswapV4AdapterTest is Test {
         adapter.closePosition(positionKey, _closeParams());
         vm.expectRevert(notVault);
         adapter.collectIncome(positionKey);
-        vm.expectRevert(notVault);
-        adapter.swapExactInput(poolId, address(token0), 1, 0, _swapParams());
         vm.stopPrank();
     }
 
-    function test_DEC058_unlockCallbackIsPoolManagerOnly() public {
-        vm.expectRevert(abi.encodeWithSelector(UniswapV4Adapter.NotPoolManager.selector, stranger));
-        vm.prank(stranger);
-        adapter.unlockCallback("");
-    }
-
-    /// DEC-056: quarantine blocks open and increase; decrease, collect, close and (OQ-04) swap keep working.
+    /// DEC-056: quarantine blocks open and increase; decrease, collect and close keep working.
     function test_DEC056_pauseBlocksEntriesNeverExits() public {
         bytes32 positionKey = _open();
         v4.accrueFees(poolId, GROWTH, GROWTH);
@@ -201,14 +190,12 @@ contract UniswapV4AdapterTest is Test {
 
         vault.collect(positionKey);
         vault.decrease(positionKey, _decreaseParams(LIQUIDITY / 2));
-        vault.swap(poolId, address(token0), 1e18, 0, _swapParams());
         vault.close(positionKey, _closeParams());
         assertEq(adapter.positionKeys().length, 0);
     }
 
-    /// DEC-058: deprecation blocks open, increase and (OQ-04) a swap out of the base token; exits keep working, and
-    /// since security review S-10 so does a swap into the vault's base token (the exit of a non-base leg).
-    function test_DEC058_deprecationBlocksEntriesAndSwapNeverExits() public {
+    /// DEC-058: deprecation blocks entries, never position exits; swaps belong to ISwapAdapter (DEC-136).
+    function test_DEC058_deprecationBlocksEntriesNeverExits() public {
         bytes32 positionKey = _open();
         vault.setBaseToken(address(token1));
         vm.prank(guardian);
@@ -218,9 +205,6 @@ contract UniswapV4AdapterTest is Test {
         vault.open(poolId, address(token0), 1e20, address(token1), 1e20, _openParams(LIQUIDITY));
         vm.expectRevert(IAdapterGuard.AdapterIsDeprecated.selector);
         vault.increase(positionKey, address(token0), 1e20, address(token1), 1e20, _increaseParams(LIQUIDITY));
-        vm.expectRevert(IAdapterGuard.AdapterIsDeprecated.selector);
-        vault.swap(poolId, address(token1), 1e18, 0, _swapParams());
-        vault.swap(poolId, address(token0), 1e18, 0, _swapParams());
 
         vault.collect(positionKey);
         vault.decrease(positionKey, _decreaseParams(LIQUIDITY / 2));
@@ -503,76 +487,6 @@ contract UniswapV4AdapterTest is Test {
         adapter.unwindExitParams(positionKey, 1, 2);
     }
 
-    /// Final verification (QA3 OPEN): the spot quote is the slot0 price with no fee or impact, in both directions.
-    function test_QA3_spotQuoteReadsSlot0BothWays() public {
-        assertEq(adapter.spotQuote(poolId, address(token0), 1e18), 1e18, "tick 0 is 1:1");
-        v4.setTick(poolId, 6932); // about 2 token1 per token0
-        uint256 out = adapter.spotQuote(poolId, address(token0), 1e18);
-        assertApproxEqRel(out, 2e18, 1e14);
-        assertApproxEqRel(adapter.spotQuote(poolId, address(token1), out), 1e18, 1e14);
-        vm.expectRevert(abi.encodeWithSelector(UniswapV4Adapter.TokenNotInPool.selector, stranger));
-        adapter.spotQuote(poolId, stranger, 1e18);
-        vm.expectRevert(abi.encodeWithSelector(IAdapter.UnknownPool.selector, hookedId));
-        adapter.spotQuote(hookedId, address(token0), 1e18);
-    }
-
-    /// Final verification: empty swap params mean no price limit and the current block as deadline, so the vault's
-    /// automatic unwind can swap without a claimant hint.
-    function test_OQ04_swapWithEmptyParamsUsesDefaults() public {
-        v4.setSwap(2e18, 10_000);
-        assertEq(vault.swap(poolId, address(token0), 1e18, 2e18, ""), 2e18);
-        _assertAdapterHoldsNothing();
-    }
-
-    function test_OQ04_swapSendsOutputToVault() public {
-        v4.setSwap(2e18, 10_000);
-        uint256 before1 = token1.balanceOf(address(vault));
-        uint256 out = vault.swap(poolId, address(token0), 1e18, 2e18, _swapParams());
-        assertEq(out, 2e18);
-        assertEq(token1.balanceOf(address(vault)) - before1, 2e18);
-        _assertAdapterHoldsNothing();
-
-        uint256 before0 = token0.balanceOf(address(vault));
-        out = vault.swap(poolId, address(token1), 1e18, 0, _swapParams());
-        assertEq(token0.balanceOf(address(vault)) - before0, out);
-    }
-
-    /// IAdapter custody (Uniswap V4 verifier finding): input already sitting in the adapter goes back to the vault.
-    function test_DEC080_swapHandsBackAnySurplusInput() public {
-        v4.setSwap(2e18, 10_000);
-        token0.mint(address(adapter), 3); // dust a stranger left in the adapter
-        uint256 before0 = token0.balanceOf(address(vault));
-        vault.swap(poolId, address(token0), 1e18, 0, _swapParams());
-        assertEq(token0.balanceOf(address(vault)), before0 - 1e18 + 3, "the surplus came back, unreported");
-        _assertAdapterHoldsNothing();
-    }
-
-    function test_OQ04_swapRevertsBelowMinimumOutput() public {
-        vm.expectRevert(abi.encodeWithSelector(IAdapter.InsufficientOutput.selector, 1e18, 1e18 + 1));
-        vault.swap(poolId, address(token0), 1e18, 1e18 + 1, _swapParams());
-    }
-
-    function test_OQ04_swapRevertsOnPartialFill() public {
-        v4.setSwap(1e18, 5000);
-        vm.expectRevert(abi.encodeWithSelector(UniswapV4Adapter.PartialSwap.selector, 5e17, 1e18));
-        vault.swap(poolId, address(token0), 1e18, 0, _swapParams());
-    }
-
-    function test_OQ04_swapRejectsForeignTokenZeroAmountAndExpiredDeadline() public {
-        MockToken foreign = new MockToken("F", 18);
-        foreign.mint(address(vault), 1e18);
-        vm.expectRevert(abi.encodeWithSelector(UniswapV4Adapter.TokenNotInPool.selector, address(foreign)));
-        vault.swap(poolId, address(foreign), 1e18, 0, _swapParams());
-
-        vm.expectRevert(UniswapV4Adapter.ZeroAmount.selector);
-        vault.swap(poolId, address(token0), 0, 0, _swapParams());
-
-        bytes memory expired =
-            abi.encode(UniswapV4Adapter.SwapExactInputParams({sqrtPriceLimitX96: 0, deadline: block.timestamp - 1}));
-        vm.expectRevert(abi.encodeWithSelector(UniswapV4Adapter.DeadlineExpired.selector, block.timestamp - 1));
-        vault.swap(poolId, address(token0), 1e18, 0, expired);
-    }
-
     // ------------------------------------------------------------------ helpers
 
     function _deploy(address vault_, PoolKey[] memory keys) internal returns (UniswapV4Adapter) {
@@ -637,10 +551,6 @@ contract UniswapV4AdapterTest is Test {
 
     function _closeParams() internal view returns (bytes memory) {
         return abi.encode(UniswapV4Adapter.CloseParams({amount0Min: 0, amount1Min: 0, deadline: block.timestamp}));
-    }
-
-    function _swapParams() internal view returns (bytes memory) {
-        return abi.encode(UniswapV4Adapter.SwapExactInputParams({sqrtPriceLimitX96: 0, deadline: block.timestamp}));
     }
 
     function _assertMonotonic(uint256 last0, uint256 last1) internal view returns (uint256 now0, uint256 now1) {

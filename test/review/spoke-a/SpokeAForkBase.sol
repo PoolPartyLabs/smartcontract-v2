@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Test} from "forge-std/Test.sol";
 import {FundSeed} from "../../utils/FundSeed.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -163,7 +164,7 @@ abstract contract SpokeAForkBase is Test, FundSeed {
         );
         // The oracle agrees with the pool before any action (price1e18 = USDC base units per 1e18 wei); priced before
         // the Core Vault, which refuses a hub pool token its price source cannot price (review M-03).
-        prices.setPrice(WETH, adapter.spotQuote(poolId, WETH, 1e18));
+        prices.setPrice(WETH, _poolPrice());
         vault = new CoreVault(m, _config(address(hubVault), address(registry), address(receiver), address(escrowImpl)));
         // DEC-127: this contract plays the factory and seeds the fund (FundSeed).
         _seedFund(address(vault), vault.usdc(), vault.flowFeeBps());
@@ -227,5 +228,10 @@ abstract contract SpokeAForkBase is Test, FundSeed {
         c.factory = address(this);
         c.shareName = "Pool Party Fund 1";
         c.shareSymbol = "PP-1";
+    }
+
+    function _poolPrice() internal view returns (uint256) {
+        (uint160 sqrtPrice,,,) = IStateView(SV).getSlot0(PoolId.wrap(poolId));
+        return Math.mulDiv(Math.mulDiv(sqrtPrice, sqrtPrice, 1 << 64), 1e18, 1 << 128);
     }
 }

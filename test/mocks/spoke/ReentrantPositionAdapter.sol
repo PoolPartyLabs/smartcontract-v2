@@ -96,10 +96,6 @@ contract ReentrantPositionAdapter is AdapterGuard, IAdapter {
         revert UnsupportedOperation();
     }
 
-    function swapExactInput(bytes32, address, uint256, uint256, bytes calldata) external pure returns (uint256) {
-        revert UnsupportedOperation();
-    }
-
     function positionValue(bytes32 positionKey) external view returns (PositionValue memory v) {
         uint256 p = principal[positionKey];
         if (p == 0) revert UnknownPosition(positionKey);
@@ -116,10 +112,6 @@ contract ReentrantPositionAdapter is AdapterGuard, IAdapter {
 
     function unwindExitParams(bytes32, uint256, uint256) external pure returns (bool, bytes memory) {
         return (true, "");
-    }
-
-    function spotQuote(bytes32, address, uint256) external pure returns (uint256) {
-        revert UnsupportedOperation();
     }
 
     function positionKeys() external view returns (bytes32[] memory) {

@@ -331,7 +331,7 @@ contract OracleAwareV4AdapterProbe is IAdapter, AdapterGuard, ReentrancyGuard, I
         return (false, abi.encode(DecreaseParams(uint128(part), 0, 0, block.timestamp)));
     }
 
-    /// @inheritdoc IAdapter
+    /// @notice Historical review probe's pool-price quote; not part of the production position-adapter interface.
     /// @dev `slot0` price of token1 per token0 as `sqrtPriceX96^2 / 2^192`, kept in Q128 with 512-bit `mulDiv`
     ///      (`sqrtPriceX96 >= MIN_SQRT_PRICE`, so the Q128 price is never 0). DEC-079 OPEN: hooked pools revert.
     function spotQuote(bytes32 poolKey, address tokenIn, uint256 amountIn) external view returns (uint256) {
@@ -513,7 +513,7 @@ contract OracleAwareV4AdapterProbe is IAdapter, AdapterGuard, ReentrancyGuard, I
         emit IncomeCollected(positionKey, amounts.income0, amounts.income1);
     }
 
-    /// @inheritdoc IAdapter
+    /// @notice Historical review probe's pool swap; not part of the production position-adapter interface.
     /// @dev `params` is `abi.encode(SwapExactInputParams)`. OQ-04: reverts when deprecated, never when paused. DEC-030,
     ///      DEC-079 OPEN: registered hookless pools only. The swap runs in `unlockCallback`; the output goes straight
     ///      from the PoolManager to the vault; a swap that does not use the whole input reverts `PartialSwap`.

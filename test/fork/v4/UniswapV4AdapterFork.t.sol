@@ -265,26 +265,6 @@ abstract contract UniswapV4AdapterForkBase is Test {
         last1;
     }
 
-    /// OQ-04: swapExactInput through the PoolManager; the output lands in the vault; minimum output enforced.
-    function test_OQ04_swapExactInputToVault() public {
-        (uint256 a0,) = _desired();
-        uint256 amountIn = a0 / 10;
-        uint256[2] memory before = _vaultBalances();
-        uint256 out = vault.swap(poolId, token0, amountIn, 1, _swapParams());
-        assertGt(out, 0);
-        _assertVaultDelta(before, -int256(amountIn), int256(out));
-        _assertAdapterHoldsNothing();
-
-        vm.expectRevert();
-        vault.swap(poolId, token0, amountIn, type(uint256).max, _swapParams());
-
-        before = _vaultBalances();
-        uint256 back = vault.swap(poolId, token1, out, 1, _swapParams());
-        _assertVaultDelta(before, int256(back), -int256(out));
-        assertLt(back, amountIn, "a round trip pays the pool fee");
-        _assertAdapterHoldsNothing();
-    }
-
     // ------------------------------------------------------------------ helpers
 
     function _desired() internal pure returns (uint256 amount0, uint256 amount1) {
@@ -370,10 +350,6 @@ abstract contract UniswapV4AdapterForkBase is Test {
 
     function _closeParams() internal view returns (bytes memory) {
         return abi.encode(UniswapV4Adapter.CloseParams({amount0Min: 0, amount1Min: 0, deadline: block.timestamp}));
-    }
-
-    function _swapParams() internal view returns (bytes memory) {
-        return abi.encode(UniswapV4Adapter.SwapExactInputParams({sqrtPriceLimitX96: 0, deadline: block.timestamp}));
     }
 }
 
