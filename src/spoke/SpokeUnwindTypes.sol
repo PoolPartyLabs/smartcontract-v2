@@ -95,6 +95,9 @@ library SpokeUnwindTypes {
         mapping(bytes32 orderId => bool) executed;
         mapping(bytes32 requestId => bytes32[]) transits;
         mapping(bytes32 transitId => bool) refundRecovered;
+        mapping(bytes32 transitId => bytes32) transitRequest;
+        mapping(bytes32 transitId => bool) feeRefunded;
+        mapping(bytes32 transitId => bool) retired;
     }
 
     /// @notice One atomic step of an automatic unwind (`ISpokeVaultUnwind.unwindStep`).
@@ -127,6 +130,7 @@ library SpokeUnwindTypes {
     error UnwindProceedsReserved();
     error OrderAlreadyExecuted(bytes32 orderId);
     error OrderResultCapacity();
+    error InvalidTransitOutcome();
 
     /// @notice The name of a step in `Book.delivered`: a position by its adapter and key, a non-base Unallocated
     ///         Balance by a zero adapter and the token.

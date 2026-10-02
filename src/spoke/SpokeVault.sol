@@ -263,9 +263,9 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
     function executeOrder(bytes calldata vaa) external payable onlyOnSpokeChain nonReentrant returns (uint64 sequence) {
         (OrderCodec.Order memory o, bytes32 orderId, uint64 orderSequence) =
             SpokeUnwindLib.acceptOrder(_s, wormholeCore, _hubWormholeChainId, coreVault, fundId, vaa);
-        // `OrderCodec.check` admits these three kinds only.
         if (o.kind == OrderCodec.UNWIND) _executeUnwindOrder(o);
         else if (o.kind == OrderCodec.CLOSE) _executeCloseOrder(o);
+        else if (o.kind == OrderCodec.ACKNOWLEDGE) SpokeUnwindLib.acknowledge(_s, _config(), o);
         else _executeCollectOrder(o);
         emit OrderExecuted(o.kind, orderId, orderSequence);
         (sequence,) = _publishReport();

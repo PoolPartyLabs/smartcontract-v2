@@ -53,6 +53,16 @@ abstract contract CoreVaultPayout is CoreVaultTransit {
         receipt = CoreVaultPayoutLogic.claimPayout(_s, _wiring(), maxLossBps, msg.value);
     }
 
+    /// @notice DEC-068/139: permissionless delivery of authenticated Hub resolution to the Spoke Vault.
+    function acknowledgeSpokeTransit(uint256 spokeIndex, bytes32 transitId)
+        external
+        payable
+        nonReentrant
+        returns (uint64 sequence)
+    {
+        sequence = CoreVaultPayoutLogic.acknowledgeSpokeTransit(_s, _wiring(), spokeIndex, transitId, msg.value);
+    }
+
     function settlePayout(address holder) external payable nonReentrant returns (PayoutReceipt memory receipt) {
         _requireOpen();
         receipt = CoreVaultPayoutLogic.settlePayout(_s, _wiring(), holder, msg.value);

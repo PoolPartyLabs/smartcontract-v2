@@ -15,7 +15,7 @@ import {ShareMath} from "../libraries/ShareMath.sol";
 import {ReportCodec} from "../libraries/ReportCodec.sol";
 import {OrderCodec} from "../libraries/OrderCodec.sol";
 import {SpokeUnwindTypes} from "../spoke/SpokeUnwindTypes.sol";
-import {TransferKind} from "../interfaces/FundTypes.sol";
+import {TransferKind, TransitState} from "../interfaces/FundTypes.sol";
 import {IPriceSource} from "../interfaces/IPriceSource.sol";
 import {ShareToken} from "./ShareToken.sol";
 import {CoreVaultState, CoreVaultWiring, CORE_VAULT_UNWINDING_SLOT, STANDARD_PAYOUT_TERM} from "./CoreVaultTypes.sol";
@@ -581,9 +581,16 @@ library CoreVaultPayoutLogic {
             bytes32 costKey = keccak256(abi.encode(req.requestId, index));
             uint256 marketCost = Math.mulDiv(leg.marketCost, rate, 1e18);
             uint256 leaverCostBase = leg.leaverCost;
-            if (leg.refunded && req.mode == ICoreVaultPayouts.PayoutMode.Instant) {
-                uint256 bridgeCost = leg.amountSent > leg.amountToArrive ? leg.amountSent - leg.amountToArrive : 0;
-                leaverCostBase -= Math.min(leaverCostBase, bridgeCost);
+            if (req.mode == ICoreVaultPayouts.PayoutMode.Instant) {
+                leaverCostBase = leg.marketCost;
+                bytes32[] storage transits = s.payouts.transits[req.requestId][index];
+                for (uint256 transitIndex; transitIndex < transits.length; ++transitIndex) {
+                    bytes32 key = CoreVaultLogic.hubBoundKey(s.mandate.spokes[index].chainId, transits[transitIndex]);
+                    SpokeUnwindTypes.OrderResult storage send = s.payouts.transitResults[key];
+                    if (!send.refunded && send.amountSent > send.amountToArrive) {
+                        leaverCostBase += send.amountSent - send.amountToArrive;
+                    }
+                }
             }
             uint256 leaverCost = Math.mulDiv(leaverCostBase, rate, 1e18);
             claim.marketCost += marketCost > s.payouts.paidMarketCost[costKey]
@@ -597,6 +604,42 @@ library CoreVaultPayoutLogic {
             claim.excluded += leg.excluded;
         }
         _settlementTransits(s, w, req, claim, true);
+    }
+
+    /// @notice DEC-068/139: publish retirement only after Principal credit or accepted refund proof.
+    function acknowledgeSpokeTransit(
+        CoreVaultState storage s,
+        CoreVaultWiring memory w,
+        uint256 spokeIndex,
+        bytes32 transitId,
+        uint256 messageFee
+    ) external returns (uint64 sequence) {
+        bytes32 key = CoreVaultLogic.hubBoundKey(s.mandate.spokes[spokeIndex].chainId, transitId);
+        bool refunded = s.payouts.transitResults[key].refunded;
+        (ReportCodec.Report memory report,,) = IValueReportReceiver(w.reportReceiver).latestReport(spokeIndex);
+        if (_validResults(report.unwindResults)) {
+            SpokeUnwindTypes.OrderResult[] memory results =
+                abi.decode(report.unwindResults, (SpokeUnwindTypes.OrderResult[]));
+            for (uint256 index; index < results.length; ++index) {
+                if (results[index].transitId == transitId && results[index].refunded) refunded = true;
+            }
+        }
+        if (
+            !refunded
+                && (s.hubBound[key].kind != TransferKind.Principal
+                    || s.hubBound[key].credited == 0
+                    || s.hubBound[key].credited < s.hubBound[key].listed)
+        ) {
+            revert ICoreVaultPayouts.SpokeUnwindNotCredited(spokeIndex, transitId);
+        }
+        OrderCodec.Order memory order;
+        order.kind = OrderCodec.ACKNOWLEDGE;
+        order.fundId = w.fundId;
+        order.requestId = transitId;
+        order.fracNum = s.mandate.spokes[spokeIndex].chainId;
+        order.fracDen = uint256(refunded ? TransitState.RefundRecognized : TransitState.ArrivalConfirmed);
+        sequence = OrderCodec.publish(w.wormholeCore, order, messageFee);
+        emit ICoreVault.OrderPublished(order.kind, OrderCodec.orderId(order), transitId, 0, sequence);
     }
 
     function _settlementTransits(

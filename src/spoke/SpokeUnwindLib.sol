@@ -113,9 +113,6 @@ library SpokeUnwindLib {
                 s.unwind.refundRecovered[transitId] = true;
                 pending.proceeds += transit.amountSent;
                 s.unwind.reservedBase += transit.amountSent;
-                if (pending.bridgeCost >= transit.amountSent - transit.amountToArrive) {
-                    pending.bridgeCost -= transit.amountSent - transit.amountToArrive;
-                }
             }
         }
         if (s.hubBoundTransits[pending.transitId].state == TransitState.RefundRecognized) {
@@ -186,6 +183,7 @@ library SpokeUnwindLib {
                 s.unwind.reservedBase -= amount;
                 pending.transitId = record.transitId;
                 s.unwind.transits[order.requestId].push(record.transitId);
+                s.unwind.transitRequest[record.transitId] = order.requestId;
             }
         }
         _append(s, record);
@@ -201,7 +199,10 @@ library SpokeUnwindLib {
         if (offset != 0) {
             uint256 removable = type(uint256).max;
             for (uint256 index; index < previous.length; ++index) {
-                if (previous[index].transitId == bytes32(0) || previous[index].transitId == record.transitId) {
+                if (
+                    previous[index].transitId == bytes32(0) || previous[index].transitId == record.transitId
+                        || s.unwind.retired[previous[index].transitId]
+                ) {
                     removable = index;
                     break;
                 }
@@ -222,6 +223,52 @@ library SpokeUnwindLib {
     /// @notice DEC-068: a confirmed refund is reported as proof that this Principal send did not arrive.
     function onRefund(SpokeVaultTypes.State storage s, bytes32 transitId) external {
         _markRefunds(s, transitId);
+    }
+
+    /// @notice DEC-068/139/151: retire only a transit the authenticated Hub has resolved, never by elapsed time.
+    function acknowledge(
+        SpokeVaultTypes.State storage s,
+        SpokeVaultTypes.Config memory config,
+        OrderCodec.Order memory order
+    ) external {
+        if (order.fracNum != config.chainId) return;
+        bytes32 transitId = order.requestId;
+        bytes32 requestId = s.unwind.transitRequest[transitId];
+        if (requestId == bytes32(0) || s.unwind.retired[transitId]) return;
+        Transit storage transit = s.hubBoundTransits[transitId];
+        if (order.fracDen == uint256(TransitState.ArrivalConfirmed)) {
+            if (transit.state != TransitState.Sent) revert SpokeUnwindTypes.InvalidTransitOutcome();
+            transit.state = TransitState.ArrivalConfirmed;
+        } else if (order.fracDen == uint256(TransitState.ExpiryAttested)) {
+            if (transit.state != TransitState.Sent) revert SpokeUnwindTypes.InvalidTransitOutcome();
+            transit.state = TransitState.ExpiryAttested;
+        } else if (
+            order.fracDen != uint256(TransitState.RefundRecognized) || transit.state != TransitState.RefundRecognized
+        ) {
+            revert SpokeUnwindTypes.InvalidTransitOutcome();
+        }
+        _recoverSend(s, config.baseToken, requestId, s.unwind.pending[requestId]);
+        s.unwind.retired[transitId] = true;
+        if (s.unwind.pending[requestId].transitId == transitId) {
+            s.unwind.pending[requestId].transitId = bytes32(0);
+        }
+        bytes32[] storage transits = s.unwind.transits[requestId];
+        for (uint256 index; index < transits.length; ++index) {
+            if (transits[index] != transitId) continue;
+            transits[index] = transits[transits.length - 1];
+            transits.pop();
+            break;
+        }
+        SpokeUnwindTypes.OrderResult[] memory records =
+            abi.decode(s.unwind.reportBlob, (SpokeUnwindTypes.OrderResult[]));
+        uint256 kept;
+        for (uint256 index; index < records.length; ++index) {
+            if (records[index].transitId != transitId) records[kept++] = records[index];
+        }
+        assembly ("memory-safe") {
+            mstore(records, kept)
+        }
+        s.unwind.reportBlob = abi.encode(records);
     }
 
     /// @notice DEC-105/068: automatically recognized refunds appear in the same post-unwind report.
@@ -254,6 +301,25 @@ library SpokeUnwindLib {
         bytes memory blob = s.unwind.reportBlob;
         if (!SpokeUnwindTypes.validResults(blob)) return false;
         SpokeUnwindTypes.OrderResult[] memory records = abi.decode(blob, (SpokeUnwindTypes.OrderResult[]));
+        for (uint256 index; index < records.length; ++index) {
+            bytes32 id = records[index].transitId;
+            if (
+                id == bytes32(0) || s.unwind.feeRefunded[id]
+                    || s.hubBoundTransits[id].state != TransitState.RefundRecognized
+            ) continue;
+            s.unwind.feeRefunded[id] = true;
+            bytes32 requestId = records[index].requestId;
+            uint256 fee = records[index].amountSent - records[index].amountToArrive;
+            SpokeUnwindTypes.Pending storage pending = s.unwind.pending[requestId];
+            if (pending.bridgeCost < fee) continue;
+            pending.bridgeCost -= fee;
+            for (uint256 later; later < records.length; ++later) {
+                if (records[later].requestId == requestId && records[later].attempt >= records[index].attempt) {
+                    records[later].leaverCost -= Math.min(records[later].leaverCost, fee);
+                }
+            }
+            changed = true;
+        }
         for (uint256 index; index < records.length; ++index) {
             if (
                 !records[index].refunded

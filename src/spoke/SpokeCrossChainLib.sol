@@ -91,7 +91,9 @@ library SpokeCrossChainLib {
         returns (uint256 amount)
     {
         Transit storage t = s.hubBoundTransits[transitId];
-        if (t.state != TransitState.Sent) revert ISpokeVault.UnknownTransit(transitId);
+        if (t.state != TransitState.Sent && t.state != TransitState.ExpiryAttested) {
+            revert ISpokeVault.UnknownTransit(transitId);
+        }
         if (block.timestamp <= t.fillDeadline) revert ISpokeVault.FillDeadlineNotReached(transitId, t.fillDeadline);
         if (!_refundLanded(t, baseToken)) revert ISpokeVault.NoRefund(transitId);
         amount = _recognize(s, t, baseToken, transitId);
@@ -151,8 +153,11 @@ library SpokeCrossChainLib {
         for (uint256 i = s.inFlightIds.length; i > 0; --i) {
             bytes32 id = s.inFlightIds[i - 1];
             Transit storage t = s.hubBoundTransits[id];
-            if (block.timestamp > t.fillDeadline && _refundLanded(t, baseToken)) _recognize(s, t, baseToken, id);
-            else if (!_stillInFlight(t)) _removeInFlight(s, id);
+            if (t.state == TransitState.Sent && block.timestamp > t.fillDeadline && _refundLanded(t, baseToken)) {
+                _recognize(s, t, baseToken, id);
+            } else if (!_stillInFlight(t)) {
+                _removeInFlight(s, id);
+            }
         }
     }
 
