@@ -16,16 +16,17 @@ import {CoreVaultState, CoreVaultWiring, SpokeBook, HubBoundTransfer} from "./Co
 import {SpokeVaultTypes} from "../spoke/SpokeVaultTypes.sol";
 import {CoreVaultLogic} from "./CoreVaultLogic.sol";
 import {CoreVaultIncomeLogic} from "./CoreVaultIncomeLogic.sol";
+import {CoreVaultPayoutLogic} from "./CoreVaultPayoutLogic.sol";
 
 /// @title CoreVaultTransitLogic
 /// @notice Report application, spoke-to-hub arrivals, sends to spokes and the transit outcomes of the Core Vault (the
 ///         DEC-066 transit state machine), as an external library that runs in the Core Vault's context (DELEGATECALL
 ///         into the fund's own linked library, never into an adapter).
 /// @dev DEC-131 pattern (alternative C) applied to the Core Vault (D-43): moved out of `CoreVaultLogic` unchanged so
-///      each linked library keeps room under the 24,576-byte limit. It calls `CoreVaultLogic` (Spoke Cap usage) and
-///      `CoreVaultIncomeLogic` (the income split) through their own linked addresses, so its creation code links them
-///      and its address is part of the Core Vault's creation code and trust surface (immutable: no proxy, no upgrade
-///      path, DEC-022, DEC-058). Report application lives here, not in `CoreVaultLogic`: it confirms transits and
+///      each linked library keeps room under the 24,576-byte limit. It calls `CoreVaultLogic` (Spoke Cap usage),
+///      `CoreVaultIncomeLogic` (the income hooks) and `CoreVaultPayoutLogic` (the payout hook) through their own linked
+///      addresses, so its creation code links them and its address is part of the Core Vault's creation code and trust
+///      surface (immutable: no proxy, no upgrade path, DEC-022, DEC-058). Report application lives here, not in `CoreVaultLogic`: it confirms transits and
 ///      credits hub-bound arrivals, and a link back from `CoreVaultLogic` would make the two libraries' CREATE2
 ///      addresses depend on each other.
 /// @dev The Core Vault applies access control, the reentrancy guard and the Operating Cash top-up before calling in.
@@ -40,6 +41,8 @@ library CoreVaultTransitLogic {
     /// @notice Applies a newly accepted report: confirms arrived transits and credits matched spoke-to-hub arrivals.
     ///         Never reverts because of an unknown or repeated transit id. The report's cumulative income counters are
     ///         informational (ruling 2026-09-29: spoke income is attributed only when it arrives as Income).
+    /// @dev WP-07 D2: ends with the income and payout hooks (`onReportAccepted`, no-ops for now), which get the report
+    ///      to read their own results from it (`collectionResults`, `unwindResults`, report version 4).
     function applyReport(CoreVaultState storage s, CoreVaultWiring memory w, uint256 spokeIndex) public {
         if (spokeIndex >= s.mandate.spokes.length) revert ICoreVault.UnknownSpoke(spokeIndex);
         (ReportCodec.Report memory r,,) = IValueReportReceiver(w.reportReceiver).latestReport(spokeIndex);
@@ -52,6 +55,8 @@ library CoreVaultTransitLogic {
         uint256 arrived = _confirmArrivals(s, spokeIndex, r.arrivedTransits, r.sequence);
         _matchReturnLeg(s, w, s.mandate.spokes[spokeIndex].chainId, r.inFlightToHub);
         emit ICoreVault.ReportAccepted(spokeIndex, r.sequence, r.blockNumber, r.timestamp, arrived);
+        CoreVaultIncomeLogic.onReportAccepted(s, w, spokeIndex, r);
+        CoreVaultPayoutLogic.onReportAccepted(s, w, spokeIndex, r);
     }
 
     /// @notice DEC-066, DEC-090: Sent or ExpiryAttested becomes ArrivalConfirmed when a report of the destination spoke
@@ -144,8 +149,8 @@ library CoreVaultTransitLogic {
     }
 
     /// @notice Credits up to the listed amount not yet credited, by the listed kind: Principal to Idle; Income is
-    ///         collected income that reached the Core Vault, split at once (ruling 2026-09-29, `collectIncome`); the
-    ///         rest is held apart for good (DEC-080).
+    ///         collected income that reached the Core Vault, handed to the income hook `onIncomeArrival` (today: split
+    ///         at once, ruling 2026-09-29, `collectIncome`); the rest is held apart for good (DEC-080).
     function _creditHubBound(
         CoreVaultState storage s,
         CoreVaultWiring memory w,
@@ -161,13 +166,23 @@ library CoreVaultTransitLogic {
         if (credit != 0) {
             h.credited += credit;
             emit ICoreVault.TransitReceived(transitId, originChainId, kind, credit, true);
-            if (kind == TransferKind.Principal) s.idle += credit;
-            else CoreVaultIncomeLogic.collectIncome(s, w, w.usdc, credit);
+            if (kind == TransferKind.Principal) {
+                s.idle += credit;
+            } else {
+                uint256 spokeIndex = _spokeIndexOf(s, originChainId);
+                CoreVaultIncomeLogic.onIncomeArrival(s, w, spokeIndex, w.usdc, credit, transitId);
+            }
         }
         if (amount > credit) {
             s.unmatchedArrivals += amount - credit;
             emit ICoreVault.ArrivalHeldApart(transitId, originChainId, kind, amount - credit);
         }
+    }
+
+    /// @dev The Mandate spoke on `chainId` (spoke chain ids are unique, MandateLib.validate). Only called for a transfer an
+    ///      accepted report of that spoke listed, so the spoke exists.
+    function _spokeIndexOf(CoreVaultState storage s, uint256 chainId) private view returns (uint256 i) {
+        while (s.mandate.spokes[i].chainId != chainId) ++i;
     }
 
     /// @notice ICoreVault.recoverUnlistedArrival (security review S-4, corrected by the cross-check of the independent

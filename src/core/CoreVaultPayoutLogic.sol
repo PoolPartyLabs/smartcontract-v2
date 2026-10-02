@@ -10,6 +10,7 @@ import {ICoreVaultPayouts} from "../interfaces/ICoreVaultPayouts.sol";
 import {ICoreVaultLifecycle} from "../interfaces/ICoreVaultLifecycle.sol";
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {ShareMath} from "../libraries/ShareMath.sol";
+import {ReportCodec} from "../libraries/ReportCodec.sol";
 import {ShareToken} from "./ShareToken.sol";
 import {CoreVaultState, CoreVaultWiring, CORE_VAULT_UNWINDING_SLOT, STANDARD_PAYOUT_TERM} from "./CoreVaultTypes.sol";
 import {CoreVaultLogic} from "./CoreVaultLogic.sol";
@@ -220,6 +221,18 @@ library CoreVaultPayoutLogic {
         }
         proceeds = s.idle - idleBefore;
     }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Report hook (WP-07 D2; DEC-105, DEC-120, DEC-139)
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// @notice Called after the Core Vault applied a newly accepted report of spoke `spokeIndex`
+    ///         (`CoreVaultTransitLogic.applyReport`). Nothing to do yet.
+    /// @dev The payout work reads the report's `unwindResults` here: DEC-105 and DEC-120 item 3, the settlement waits
+    ///      for every reached spoke's post-unwind report.
+    function onReportAccepted(CoreVaultState storage, CoreVaultWiring memory, uint256, ReportCodec.Report memory)
+        public
+        pure {}
 
     /// @notice Burn and pay atomically (DEC-047), fees, reserve release and the full-burn income payment (DEC-045).
     function _executePayout(

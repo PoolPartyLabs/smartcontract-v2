@@ -231,7 +231,8 @@ abstract contract FactoryDeployment is CommonBase {
         if (!hub) return;
         // Library-into-library links: a library that calls another is linked to it, so it is deployed after it and
         // linked to the addresses deployed so far. CoreVaultIncomeLogic calls none of them, CoreVaultLogic calls it
-        // (the valuation hook, WP-07 D2) and the payout and transit libraries call both.
+        // (the valuation hook, WP-07 D2), the payout library calls both and the transit library all three (the
+        // report hooks).
         d.coreVaultIncomeLogic = _library(vm.getCode("CoreVaultIncomeLogic.sol:CoreVaultIncomeLogic"), deploy);
         d.coreVaultLogic = _library(_linkedToCoreVaultLibraries(CORE_VAULT_LOGIC_ARTIFACT, d), deploy);
         d.coreVaultPayoutLogic = _library(_linkedToCoreVaultLibraries(CORE_VAULT_PAYOUT_LOGIC_ARTIFACT, d), deploy);

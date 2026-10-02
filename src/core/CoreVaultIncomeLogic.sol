@@ -74,6 +74,37 @@ library CoreVaultIncomeLogic {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
+    // Cross-chain hooks (WP-07 D2; DEC-122, DEC-124, DEC-161)
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// @notice Called when an Income transfer of spoke `spokeIndex` reaches the Core Vault and is credited
+    ///         (`CoreVaultTransitLogic`: up to what an accepted report of that spoke listed for `transitId`).
+    /// @dev Ruling 2026-09-29: the collected income is split at once (`collectIncome`). The income work (DEC-161: the
+    ///      Hub dollar index with each collection's rates) changes this body.
+    function onIncomeArrival(
+        CoreVaultState storage s,
+        CoreVaultWiring memory w,
+        uint256,
+        address token,
+        uint256 amount,
+        bytes32
+    ) public {
+        _collectIncome(s, w, token, amount);
+    }
+
+    /// @notice Called after the Core Vault applied a newly accepted report of spoke `spokeIndex`. Nothing to do yet.
+    /// @dev The income work reads the report's `collectionResults` here (DEC-122 item 5, DEC-161).
+    function onReportAccepted(CoreVaultState storage, CoreVaultWiring memory, uint256, ReportCodec.Report memory)
+        public
+        pure {}
+
+    /// @notice Whether the fund's final income collection is done, so a closure may finish (DEC-147, DEC-149). Always
+    ///         true until the collection orders exist (DEC-122, DEC-161); the closure work reads it.
+    function finalCollectionDone(CoreVaultState storage, CoreVaultWiring memory) public pure returns (bool) {
+        return true;
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
     // Valuation hook (WP-07 D2; DEC-117)
     // ---------------------------------------------------------------------------------------------------------------
 
