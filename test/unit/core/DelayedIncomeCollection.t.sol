@@ -113,4 +113,21 @@ contract DelayedIncomeCollectionTest is CoreVaultIncomeTest {
         assertApproxEqAbs(vault.unconvertedIncome(caio, 1, address(spokeWeth)), 0.03e18, 2);
         assertApproxEqAbs(vault.unconvertedIncome(manager, 1, address(spokeWeth)), 0.0525e18, 2);
     }
+
+    function test_agedResendDoesNotFreezeAnAlreadyReadSaleAgain() public {
+        _deliver(_spokeIncomeReport(0.1e18, 0.1e18));
+        _request(manager);
+        _deliver(_collectionReport(0.1e18, 1, 1, HOME, 0.1e18, 266e6, 265e6));
+        _deposit(caio, 100e6);
+        for (uint64 id = 2; id <= 10; ++id) {
+            _deliver(_collectionReport(0.1e18, id, 1, bytes32(0), 0, 0, 0));
+        }
+        bytes32 resent = keccak256("aged-resend");
+        _deliver(_collectionReport(0.2e18, 1, 1, resent, 0.1e18, 266e6, 264e6));
+        _fillIncome(resent, 264e6);
+        assertEq(_incomeOf(caio), 0);
+        assertApproxEqAbs(_incomeOf(manager), 118.8e6, 1);
+        assertApproxEqAbs(vault.unconvertedIncome(caio, 1, address(spokeWeth)), 0.03e18, 2);
+        assertEq(vault.incomeCollection().openResults, 0);
+    }
 }

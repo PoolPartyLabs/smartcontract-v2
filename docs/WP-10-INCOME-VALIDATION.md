@@ -13,10 +13,19 @@ Validated on October 2, 2026, after merging `origin/main` at `1db9a9d`.
 - An Income Withdrawal request collects Hub positions and broadcasts a COLLECT order when accepted reports show spoke
   income. Requests piggy-back on pending rounds; expired orders can be published again. Anyone settles only to the holder.
 - Spokes collect every position, sell non-base income through the Mandate swap adapter, bridge as Income, and report token
-  sales and the transit identifier. The Hub converts only after the entire report-listed arrival is credited. Partial or
+  sales and the transit identifier. The Hub freezes the recognized claims and fee units when the authenticated sale
+  result is first read, before later recognition or balance changes can mix intervals. Holder claims are captured before
+  each subsequent balance change, including full exits; delayed dollars finalize only that sale's claims. The Hub converts
+  only after the entire authenticated arrival amount is credited. Partial or
   front-run dust arrivals cannot close a collection or change its conversion rate.
 - Dust sales wait in the collected bucket until a bridge can deliver positive value. Refunded sends retain their sale
-  record and are sent again. Reports carry the last eight results.
+  record and are sent again. Refund recognition reserves their dollars independently of the report window. Reports carry
+  at most eight results; resends are included immediately, and anyone can call `refreshIncomeResults(uint64[])` with up to
+  eight retained result ids, then publish a report to recover an evicted result. Result ids are discoverable from events.
+  The result also authenticates its expected arrival amount after in-flight retention expires.
+- Unlisted recovery holds dollars outside Idle while recognized Income or a collection remains unresolved. Authenticated
+  Income metadata reconciles the recovery exactly once; an authenticated Principal listing releases it to Idle. An Across
+  message's unauthenticated kind never establishes Income ownership.
 - Failed holder transfers emit `IncomeTransferOwed`, not `IncomeWithdrawn`, and remain claimable through `claimOwedFees`.
 - Conversion happens at collection; removed APIs include in-kind withdrawal, manager income swaps and forwarding.
 
@@ -45,14 +54,14 @@ also pass the size test. No production margin is below 1,000 bytes.
 | Contract/library | Main before | After | Margin |
 | --- | ---: | ---: | ---: |
 | CoreVault | 20,996 | 21,914 | 2,662 |
-| CoreVaultIncomeLogic | 5,929 | 10,517 | 14,059 |
-| CoreVaultIncomeCollectionLogic | New | 13,627 | 10,949 |
+| CoreVaultIncomeLogic | 5,929 | 12,101 | 12,475 |
+| CoreVaultIncomeCollectionLogic | New | 16,530 | 8,046 |
 | CoreVaultLogic | 13,739 | 13,684 | 10,892 |
-| CoreVaultTransitLogic | 14,227 | 14,225 | 10,351 |
-| CoreVaultPayoutLogic | 9,098 | 9,098 | 15,478 |
-| SpokeVault | 22,304 | 22,355 | 2,221 |
-| SpokeIncomeLib | 698 | 8,709 | 15,867 |
-| SpokeCrossChainLib | 11,904 | 11,904 | 12,672 |
+| CoreVaultTransitLogic | 14,227 | 14,744 | 9,832 |
+| CoreVaultPayoutLogic | 9,098 | 9,095 | 15,481 |
+| SpokeVault | 22,304 | 22,748 | 1,828 |
+| SpokeIncomeLib | 698 | 11,577 | 12,999 |
+| SpokeCrossChainLib | 11,904 | 12,112 | 12,464 |
 | SpokeUnwindLib | 10,985 | 10,985 | 13,591 |
 | FundFactory | 18,347 | 18,347 | 6,229 |
 | ManagerFeeVault | 1,077 | 1,077 | 23,499 |
@@ -62,7 +71,7 @@ also pass the size test. No production margin is below 1,000 bytes.
 - `forge build --sizes`: passes, unchanged optimizer configuration.
 - `forge fmt --check`: passes.
 - `forge test --match-path test/size/ContractSizes.t.sol -vv`: 3/3, all 22 production contracts and linked libraries fit.
-- `forge test --no-match-path "test/{fork/**,review/**/*Fork*}"`: 1,192 tests, 168 suites, no failures or skips.
+- `forge test --no-match-path "test/{fork/**,review/**/*Fork*}"`: 1,238 tests, 170 suites, no failures or skips.
 - `forge test --match-path "test/{fork/**,review/**/*Fork*}" -j 4`: 218 tests, 51 suites, no failures or skips.
 - Doc 10 worked examples run through the Core Vault, net of the mandatory 10% performance fee: 119.70 then 170.10 USDC
   for the two-collection example, and 50.40/50.40/25.20 USDC for the mid-interval entrant example, within rounding bounds.
@@ -88,12 +97,40 @@ also pass the size test. No production margin is below 1,000 bytes.
 ## Spec divergences and residual limitations
 
 - DEC-175 and the October 2 ruling explicitly permit caller-paid gas/Wormhole fees in the MVP; reimbursement is deferred.
-- Existing unlisted-arrival recovery can reclassify Income as Principal after a multi-day report outage. If a collection's
-  send is recovered this way before its result is accepted, that result cannot receive the income credit needed to close.
-  The existing transit recovery path is not changed by WP-10; lifecycle/transit integration must address this limitation.
-- Results outside the last-eight report window cannot be rediscovered after an extended report outage; refund resends are
-  also bounded by that window. This is the plan's explicit retention bound, not an unbounded catch-up guarantee.
+- Round-1 findings are corrected: delayed conversion freezes ownership, refund accounting survives report eviction, and
+  recovered Income reconciles without becoming principal or leaving a permanent settlement blocker. The three original
+  regression tests fail on the reviewed implementation (including the 39.749999 USDC entrant allocation) and pass after
+  the fixes. Additional tests cover partial sales, full exits, two delayed collections filled out of order, metadata-only
+  arrival authentication, and permissionless republishing of evicted results.
+- Report serialization remains bounded at eight results, but retained financial metadata is no longer evicted. After a
+  multi-day outage the keeper must republish missing result ids in bounded batches. This extends the plan's last-eight
+  behavior with a recovery path rather than accepting loss of financial metadata.
 - Collection data is trusted only from this fund's authenticated, Mandate-matched Spoke Vault. Arbitrarily malformed ABI
   blobs are not a supported report input; the canonical executor produces bounded, well-formed collection results.
 
 Independent PR review and merge remain the orchestrator's responsibility.
+
+## PR #18 round-1 fix validation
+
+The full green bar passes on October 2, 2026: build with sizes, formatting, 3 size tests, 1,238 non-fork tests in 170
+suites, and 218 fork tests in 51 suites. No tests fail or skip. The complete fork suite uses the handoff archive RPC
+environment and fixed pins. No shared fork fixture or new fork file is added; CI shard routing is unchanged.
+
+| Changed runtime | Reviewed PR | Round-1 fix | Margin to 24,576 |
+| --- | ---: | ---: | ---: |
+| CoreVault | 21,914 | 21,914 | 2,662 |
+| SpokeVault | 22,355 | 22,748 | 1,828 |
+| CoreVaultIncomeCollectionLogic | 13,627 | 16,530 | 8,046 |
+| CoreVaultIncomeLogic | 10,517 | 12,101 | 12,475 |
+| CoreVaultTransitLogic | 14,225 | 14,744 | 9,832 |
+| SpokeIncomeLib | 8,709 | 11,577 | 12,999 |
+| SpokeCrossChainLib | 11,904 | 12,112 | 12,464 |
+
+Every production contract and linked library remains within the limit; none has less than 1,000 bytes of margin.
+The fixes retain the compiler settings. The Core Vault's runtime is unchanged; the Spoke Vault adds only the thin
+permissionless refresh entry, with bookkeeping and serialization in linked libraries.
+
+No finding is declined. No separate low finding is listed in the review; cheap adjacent fixes validate result-array
+lengths before marking results seen, and recheck repeated results for closure instead of returning early. The plan
+deviation is bounded report refresh with permanently retained sale metadata rather than a last-eight-only recovery
+window. DEC-145 and the other handoff deferrals are unchanged; no new spec divergence is adopted.
