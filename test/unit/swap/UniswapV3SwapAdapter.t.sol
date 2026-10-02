@@ -220,6 +220,47 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
         assertEq(spot, AMOUNT);
     }
 
+    /// @dev Review round 3: a third party's tier at a quarter of the market's mid loses only its 0.01% fee against
+    ///      that mid. With a 4 bps maximum, which no honest tier meets (the 0.05% tier's fee alone is 5 bps), the sale
+    ///      is refused (DEC-148) instead of selling to that tier at a quarter of its value, which is what ranking the
+    ///      tiers by the maximum against each tier's own mid did (review round 2). A maximum an honest tier meets sells
+    ///      in the honest tier.
+    function test_DEC153_aThirdPartyTierBelowTheMarketNeverBuysABoundedSale() public {
+        uint256 trapOut = _tierBelowTheMarket().out(address(weth), AMOUNT);
+        assertEq(adapter.spotValue(address(weth), address(base), AMOUNT, 100), AMOUNT / 4, "a quarter of the market");
+        assertGe(trapOut, AMOUNT / 4 * 9996 / 10_000, "within 4 bps of its own mid");
+
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), AMOUNT);
+        assertEq(fee, 500, "the honest tier pays the most");
+        assertEq(quoted, _out(AMOUNT, 500, 0));
+        _fund(address(weth), AMOUNT);
+        vm.expectRevert(
+            abi.encodeWithSelector(ISwapAdapter.InsufficientOutput.selector, quoted, AMOUNT * 9996 / 10_000)
+        );
+        adapter.swap(address(weth), address(base), AMOUNT, 4, "");
+
+        (uint256 out, uint256 spot) = adapter.swap(address(weth), address(base), AMOUNT, 10, "");
+        assertEq(out, quoted, "a maximum the honest tier meets sells there");
+        assertEq(spot, AMOUNT);
+        _assertNothingKept(address(weth));
+    }
+
+    /// @dev Open for the founder (review round 3): when the sale is larger than every honest tier can fill (here each
+    ///      takes one unit less), the same tier below the market is the only one that fills. It is chosen, meets the
+    ///      maximum against its own mid, and buys the input at a quarter of its value.
+    function test_DEC153_whenNoHonestTierFillsATierBelowTheMarketIsTheOnlyRoute() public {
+        uint256 trapOut = _tierBelowTheMarket().out(address(weth), AMOUNT);
+        for (uint256 i = 1; i < 4; ++i) {
+            wethBase[i].setFillableIn(AMOUNT - 1);
+        }
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), AMOUNT);
+        assertEq(fee, 100, "the only tier that fills");
+        assertEq(quoted, trapOut);
+        (uint256 out, uint256 spot) = _swap(address(weth), address(base), AMOUNT, 4, "");
+        assertEq(out, trapOut, "a quarter of the market");
+        assertEq(spot, AMOUNT / 4, "measured against its own mid");
+    }
+
     /// @dev Open for the founder (review round 2): without a maximum the same trap wins on output and the fund receives
     ///      more than any honest tier pays, but `spotOut` is the trap's own mid, so the sale reports a loss it did not
     ///      have. Until the founder rules, a vault must not charge a cost measured against the `spotOut` of an
@@ -566,6 +607,14 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
         uint160 sqrtPriceX96 = address(weth) < address(base) ? uint160(1 << 97) : uint160(1 << 95);
         trap = factory.createPool(address(weth), address(base), 10_000, sqrtPriceX96, LIQUIDITY);
         trap.setImpactBps(7400);
+    }
+
+    /// @dev A third party's tier below the market (review round 3): replaces the 0.01% WETH/base pool with one at a
+    ///      quarter of the market's mid price (four times when WETH is token1) and no price impact, so it loses only its
+    ///      fee against its own mid.
+    function _tierBelowTheMarket() internal returns (MockV3Pool trap) {
+        uint160 sqrtPriceX96 = address(weth) < address(base) ? uint160(1 << 95) : uint160(1 << 97);
+        trap = factory.createPool(address(weth), address(base), 100, sqrtPriceX96, LIQUIDITY);
     }
 
     /// @dev QuoterV2's price limit when it is given none: one inside the end of the range the price moves towards.
