@@ -16,6 +16,7 @@ import {CoreVaultState, CoreVaultWiring, SpokeBook, HubBoundTransfer} from "./Co
 import {SpokeVaultTypes} from "../spoke/SpokeVaultTypes.sol";
 import {CoreVaultLogic} from "./CoreVaultLogic.sol";
 import {CoreVaultIncomeLogic} from "./CoreVaultIncomeLogic.sol";
+import {CoreVaultIncomeTypes} from "./CoreVaultIncomeTypes.sol";
 import {CoreVaultPayoutLogic} from "./CoreVaultPayoutLogic.sol";
 
 /// @title CoreVaultTransitLogic
@@ -109,6 +110,13 @@ library CoreVaultTransitLogic {
             if (h.listed == 0) {
                 h.listed = list[i].amount;
                 h.kind = list[i].kind;
+            }
+            uint256 spokeIndex = _spokeIndexOf(s, originChainId);
+            uint256 recovered = s.incomeBook.recoveredIncome[spokeIndex][id];
+            if (recovered != 0 && h.kind == TransferKind.Principal) {
+                delete s.incomeBook.recoveredIncome[spokeIndex][id];
+                s.incomeBook.heldDollars -= recovered;
+                s.idle += recovered;
             }
             uint256 pending = h.pending;
             if (pending == 0) continue;
@@ -217,8 +225,27 @@ library CoreVaultTransitLogic {
         h.pending = 0;
         h.credited += amount;
         s.unmatchedArrivals -= amount;
-        s.idle += amount;
+        if (_incomeRecoveryPending(s, spokeIndex, transitId)) {
+            s.incomeBook.recoveredIncome[spokeIndex][transitId] += amount;
+            s.incomeBook.heldDollars += amount;
+        } else {
+            s.idle += amount;
+        }
         emit ICoreVault.UnlistedArrivalRecovered(transitId, originChainId, amount);
+    }
+
+    function _incomeRecoveryPending(CoreVaultState storage s, uint256 spokeIndex, bytes32 transitId)
+        private
+        view
+        returns (bool)
+    {
+        if (s.incomeBook.resultOf[spokeIndex][transitId] != 0 || s.incomeBook.pendingSpokes != 0) return true;
+        CoreVaultIncomeTypes.Source storage source = s.incomeBook.sources[spokeIndex + 1];
+        for (uint256 index; index < source.index.tokens.length; ++index) {
+            address token = source.index.tokens[index];
+            if (source.index.token[token].recognized != 0 || source.feeUnits[token] != 0) return true;
+        }
+        return false;
     }
 
     /// @notice DEC-066: non-arrival is proven by a spoke report built after the fill deadline that does not list the

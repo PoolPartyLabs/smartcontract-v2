@@ -80,5 +80,6 @@ library CoreVaultIncomeTypes {
         uint64 deadline;
         uint256 pendingSpokes;
         mapping(address holder => Request) requests;
+        mapping(uint256 spokeIndex => mapping(bytes32 transitId => uint256)) recoveredIncome;
     }
 }

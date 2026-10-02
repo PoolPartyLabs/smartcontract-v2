@@ -15,6 +15,7 @@ import {SpokeIncomeTypes} from "../spoke/SpokeIncomeTypes.sol";
 import {CoreVaultState, CoreVaultWiring} from "./CoreVaultTypes.sol";
 import {CoreVaultIncomeTypes} from "./CoreVaultIncomeTypes.sol";
 import {CoreVaultLogic} from "./CoreVaultLogic.sol";
+import {TransferKind} from "../interfaces/FundTypes.sol";
 
 /// @title CoreVaultIncomeCollectionLogic
 /// @notice Attributed Income of the Core Vault in the Hub dollar index (DEC-161), collection side: recognition from the
@@ -301,15 +302,41 @@ library CoreVaultIncomeCollectionLogic {
             (res.sold, res.obtained,) = _align(b.sources[spokeIndex + 1].index.tokens, c.tokens, c.sold, c.obtained);
             _freezeResult(b.sources[spokeIndex + 1], res);
             ++b.openResults;
-        } else if (res.transitId == c.transitId || c.transitId == bytes32(0)) {
+        } else if (c.transitId == bytes32(0)) {
             return;
         }
         if (res.transitId != bytes32(0)) delete b.resultOf[spokeIndex][res.transitId];
         res.transitId = c.transitId;
         b.resultOf[spokeIndex][c.transitId] = c.resultId;
+        _reconcileRecovery(s, spokeIndex, c);
         uint256 credited = b.credited[spokeIndex][c.transitId];
         if (credited != 0 && _fullyCredited(s, spokeIndex, c.transitId)) {
             _closeSpokeResult(s, w, spokeIndex, res, credited);
+        }
+    }
+
+    function _reconcileRecovery(
+        CoreVaultState storage s,
+        uint256 spokeIndex,
+        SpokeIncomeTypes.CollectionResult memory result
+    ) private {
+        CoreVaultIncomeTypes.Book storage book = s.incomeBook;
+        bytes32 transitId = result.transitId;
+        uint256 recovered = book.recoveredIncome[spokeIndex][transitId];
+        if (recovered == 0) return;
+        bytes32 key = CoreVaultLogic.hubBoundKey(s.mandate.spokes[spokeIndex].chainId, transitId);
+        if (s.hubBound[key].listed == 0 && result.amountToArrive != 0) {
+            s.hubBound[key].listed = result.amountToArrive;
+            s.hubBound[key].kind = TransferKind.Income;
+        }
+        uint256 listed = s.hubBound[key].listed;
+        if (listed == 0) return;
+        delete book.recoveredIncome[spokeIndex][transitId];
+        uint256 credited = recovered < listed ? recovered : listed;
+        book.credited[spokeIndex][transitId] += credited;
+        if (recovered > credited) {
+            book.heldDollars -= recovered - credited;
+            s.unmatchedArrivals += recovered - credited;
         }
     }
 
