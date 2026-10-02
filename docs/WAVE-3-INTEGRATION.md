@@ -69,10 +69,10 @@ integration / approved refresh; margins are for the approved refresh. Compiler s
 | SpokeUnwindLib | 10,985 | 11,530 | 11,530 | 13,046 |
 | SpokeIncomeLib | 698 | 8,709 | 11,577 | 12,999 |
 | FundFactory | 18,347 | 18,347 | 18,347 | 6,229 |
-| AaveV3Adapter | 9,893 | 9,893 | 9,893 | 14,683 |
+| AaveV3Adapter | 10,158 | 9,893 | 9,893 | 14,683 |
 | AcrossBridgeAdapter | 6,713 | 6,713 | 6,713 | 17,863 |
 | UniswapV3SwapAdapter | 10,586 | 10,586 | 10,586 | 13,990 |
-| UniswapV4Adapter | 15,328 | 14,369 | 14,369 | 10,207 |
+| UniswapV4Adapter | 18,079 | 14,369 | 14,369 | 10,207 |
 | ManagerFeeVault | 1,077 | 1,077 | 1,077 | 23,499 |
 | ManagerRegistry | 1,603 | 1,603 | 1,603 | 22,973 |
 | ShareToken | 1,822 | 1,822 | 1,822 | 22,754 |
