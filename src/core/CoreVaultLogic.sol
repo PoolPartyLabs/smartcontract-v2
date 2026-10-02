@@ -20,6 +20,7 @@ import {ReportCodec} from "../libraries/ReportCodec.sol";
 import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 import {TransitMessage} from "../libraries/TransitMessage.sol";
 import {CoreVaultState, CoreVaultWiring, SpokeBook, HubBoundTransfer} from "./CoreVaultTypes.sol";
+import {SpokeVaultTypes} from "../spoke/SpokeVaultTypes.sol";
 
 /// @title CoreVaultLogic
 /// @notice Value bases, collected income, report application, sends to spokes and transit outcomes of the Core
@@ -873,7 +874,10 @@ library CoreVaultLogic {
     /// @dev DEC-162: a report's proof of non-arrival is the send's outcome for the bridge adapter's fee rule
     ///      (`_noteExpiry`); the time path proves nothing about the arrival (S-13), so on it the adapter learns the
     ///      expiry only when the refund is recognized. Otherwise anyone could attest a filled send of a quiet fund
-    ///      (reports are published only when someone operates, DEC-157) and step every next send's fee up.
+    ///      (reports are published only when someone operates, DEC-157) and step every next send's fee up. A report
+    ///      proves nothing either for a send whose amount to arrive is below the Spoke Vault's listing minimum
+    ///      (`SpokeVaultTypes.MIN_LISTED_ARRIVAL`, CS-OQ-6: such an arrival is credited but never listed), so that
+    ///      send is also noted only at its refund.
     function attestExpiry(CoreVaultState storage s, CoreVaultWiring memory w, bytes32 transitId) public {
         Transit storage t = _knownTransit(s, transitId);
         if (t.state != TransitState.Sent) revert ICoreVault.InvalidTransitState(transitId, uint8(t.state));
@@ -890,7 +894,13 @@ library CoreVaultLogic {
         if (byReport) s.spokeBooks[spokeIndex].inFlightSent -= t.amountSent;
         else s.spokeCapHeld[transitId] = true;
         emit ICoreVault.TransitExpiryAttested(transitId, spokeIndex, msg.sender);
-        if (byReport) _noteExpiry(t, transitId);
+        if (byReport && _listable(t)) _noteExpiry(t, transitId);
+    }
+
+    /// @dev Whether the spoke lists this send's arrival, so that a report's silence proves non-arrival for the fee
+    ///      rule: an arrival below `MIN_LISTED_ARRIVAL` is credited but never listed (CS-OQ-6).
+    function _listable(Transit storage t) private view returns (bool) {
+        return t.amountToArrive >= SpokeVaultTypes.MIN_LISTED_ARRIVAL;
     }
 
     /// @dev DEC-162: tells the transit's bridge adapter that the send will never arrive, so its fee rule steps the
@@ -925,7 +935,8 @@ library CoreVaultLogic {
     ///      (`NoRefund`). DEC-080, DEC-104: exactly `amountSent` enters Idle as the transit leaves In-flight Value;
     ///      anything above it (a donation) reaches the Core Vault unledgered and only `sweepExcess` moves it. A dust
     ///      donation therefore can neither move the state nor Share Assets. DEC-162: after an attestation by time
-    ///      alone, the refund is the first proof of non-arrival, so the bridge adapter learns the expiry here.
+    ///      alone, or by a report for a send below the listing minimum, the refund is the first proof of non-arrival,
+    ///      so the bridge adapter learns the expiry here.
     function recognizeRefund(CoreVaultState storage s, CoreVaultWiring memory w, bytes32 transitId)
         public
         returns (uint256 amount)
@@ -946,7 +957,7 @@ library CoreVaultLogic {
         t.state = TransitState.RefundRecognized;
         s.idle += amount;
         emit ICoreVault.TransitRefundRecognized(transitId, spokeIndex, amount);
-        if (attestedByTime) _noteExpiry(t, transitId);
+        if (attestedByTime || !_listable(t)) _noteExpiry(t, transitId);
         uint256 before = token.balanceOf(address(this));
         ITransitEscrow(escrow).release(address(this));
         uint256 received = token.balanceOf(address(this)) - before;
