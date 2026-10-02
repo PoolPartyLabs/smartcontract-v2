@@ -5,9 +5,16 @@ import {CoreBridgeVM} from "wormhole-sdk/interfaces/ICoreBridge.sol";
 
 /// @notice Core Bridge stand-in: a "VAA" is `abi.encode(CoreBridgeVM)`; verification succeeds unless the test turns
 ///         it off.
+/// @dev `chainId()` is Arbitrum One's Wormhole chain id (23), the Hub Chain of every fixture, which the Core Vault checks
+///      against `Mandate.hubWormholeChainId` (WP-07 B2, D-15).
 contract MockCoreBridge {
     bool public valid = true;
     string public reason;
+    uint16 public chainId = 23;
+
+    function setChainId(uint16 chainId_) external {
+        chainId = chainId_;
+    }
 
     function setInvalid(string calldata reason_) external {
         valid = false;

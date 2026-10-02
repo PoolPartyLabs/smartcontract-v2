@@ -270,6 +270,7 @@ abstract contract AccountingPocFixture is Test, FundSeed {
         c.managerRegistry = address(registry);
         c.priceSource = address(prices);
         c.acrossSpokePool = address(hubAcross);
+        c.wormholeCore = address(hubWormhole);
         c.protocolRecipient = protocol;
         c.excessRecipient = excess;
         c.escrowImplementation = address(escrowImpl);

@@ -222,6 +222,7 @@ abstract contract FundSystemFixture is Test, FundSeed {
         c.managerRegistry = address(registry);
         c.priceSource = address(sys.prices);
         c.acrossSpokePool = address(sys.hubPool);
+        c.wormholeCore = address(coreBridge);
         c.protocolRecipient = protocolRecipient;
         c.excessRecipient = excessRecipient;
         c.escrowImplementation = address(escrowImplementation);

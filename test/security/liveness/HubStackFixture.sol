@@ -38,6 +38,7 @@ import {MockManagerRegistry} from "../../mocks/core/MockManagerRegistry.sol";
 import {MockReportReceiver} from "../../mocks/core/MockReportReceiver.sol";
 import {MandateFixture} from "../../utils/MandateFixture.sol";
 import {MockSwapAdapter} from "../../mocks/swap/MockSwapAdapter.sol";
+import {MockWormholeCore} from "../../mocks/spoke/MockWormholeCore.sol";
 
 /// @notice A hub-only fund (OQ-08) built from the REAL contracts: CoreVault (linked CoreVaultLogic), the hub SpokeVault
 ///         (linked SpokeCrossChainLib) and the real UniswapV4Adapter, over the MockV4 pool (PoolManager, PositionManager
@@ -64,6 +65,7 @@ abstract contract HubStackFixture is Test, FundSeed {
     TransitEscrow internal escrowImpl;
     UniswapV4Adapter internal adapter;
     MockSwapAdapter internal hubSwap;
+    MockWormholeCore internal hubWormhole;
     SpokeVault internal hubSpoke;
     CoreVault internal vault;
     ShareToken internal shares;
@@ -103,6 +105,7 @@ abstract contract HubStackFixture is Test, FundSeed {
         escrowImpl = new TransitEscrow();
 
         hubSwap = new MockSwapAdapter();
+        hubWormhole = new MockWormholeCore();
         uint64 nonce = vm.getNonce(address(this));
         address predictedSpoke = vm.computeCreateAddress(address(this), nonce + 1);
         address predictedCore = vm.computeCreateAddress(address(this), nonce + 2);
@@ -164,6 +167,7 @@ abstract contract HubStackFixture is Test, FundSeed {
         c.managerRegistry = address(registry);
         c.priceSource = address(prices);
         c.acrossSpokePool = acrossPool;
+        c.wormholeCore = address(hubWormhole);
         c.protocolRecipient = protocol;
         c.excessRecipient = excess;
         c.escrowImplementation = address(escrowImpl);

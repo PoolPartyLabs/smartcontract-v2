@@ -131,6 +131,7 @@ contract L01_MandateSizeInitcodeCliff is FactoryReviewFixture {
         c.managerRegistry = address(registry);
         c.priceSource = address(prices);
         c.acrossSpokePool = address(hubAcross);
+        c.wormholeCore = address(1);
         c.protocolRecipient = recipient;
         c.excessRecipient = recipient;
         c.escrowImplementation = address(1);

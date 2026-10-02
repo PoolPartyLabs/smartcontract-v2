@@ -543,6 +543,7 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
         c.managerRegistry = _managerRegistry;
         c.priceSource = _priceSource;
         c.acrossSpokePool = _acrossSpokePool;
+        c.wormholeCore = _wormholeCore;
         c.protocolRecipient = _protocolRecipient;
         c.excessRecipient = _protocolRecipient;
         c.escrowImplementation = transitEscrowImplementation;

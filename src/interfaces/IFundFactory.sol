@@ -26,7 +26,8 @@ interface IFundFactory {
     ///        Chain: USDG) (DEC-011, DEC-031, DEC-055).
     /// @param acrossSpokePool Across SpokePool of this chain (DEC-031, DEC-087).
     /// @param wormholeCore Wormhole Core Bridge of this chain: the report publisher on a spoke, the verifier on the hub
-    ///        (DEC-086, DEC-093).
+    ///        (DEC-086, DEC-093), and on the hub the Core Vault's order publisher, whose `chainId()` must equal the
+    ///        Mandate's `hubWormholeChainId` (DEC-120, DEC-139; D-15).
     /// @param uniswapV4PoolManager Uniswap V4 PoolManager; zero where the fund may not use Uniswap V4.
     /// @param uniswapV4PositionManager Uniswap V4 PositionManager.
     /// @param uniswapV4StateView Uniswap V4 StateView.

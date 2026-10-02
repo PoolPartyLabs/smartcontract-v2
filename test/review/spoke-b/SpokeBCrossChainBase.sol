@@ -192,6 +192,7 @@ abstract contract SpokeBCrossChainBase is Test, FundSeed {
         c.managerRegistry = address(registry);
         c.priceSource = address(prices);
         c.acrossSpokePool = address(hubAcross);
+        c.wormholeCore = address(coreBridge);
         c.protocolRecipient = protocol;
         c.excessRecipient = excess;
         c.escrowImplementation = address(escrowImpl);

@@ -38,6 +38,7 @@ import {MockManagerRegistry} from "../../mocks/core/MockManagerRegistry.sol";
 import {MockReportReceiver} from "../../mocks/core/MockReportReceiver.sol";
 import {MandateFixture} from "../../utils/MandateFixture.sol";
 import {MockSwapAdapter} from "../../mocks/swap/MockSwapAdapter.sol";
+import {MockWormholeCore} from "../../mocks/spoke/MockWormholeCore.sol";
 
 /// @notice Review fixture (spoke-a), adapted from the core-a fixture: a hub-only fund built from the REAL contracts on
 ///         the payout path: CoreVault (+ linked CoreVaultLogic), the hub SpokeVault (+ linked SpokeCrossChainLib) and
@@ -69,6 +70,7 @@ abstract contract SpokeAHubFixture is Test, FundSeed {
     MockPositionAdapter internal exact;
     SpokeVault internal hubVault;
     MockSwapAdapter internal hubSwap;
+    MockWormholeCore internal hubWormhole;
     CoreVault internal vault;
     ShareToken internal shares;
 
@@ -121,6 +123,7 @@ abstract contract SpokeAHubFixture is Test, FundSeed {
 
         // Circular wiring (adapter -> hub Spoke Vault -> Core Vault -> hub Spoke Vault): predict the three addresses.
         hubSwap = new MockSwapAdapter();
+        hubWormhole = new MockWormholeCore();
         uint64 n = vm.getNonce(address(this));
         address adapterAt = vm.computeCreateAddress(address(this), n);
         address hubVaultAt = vm.computeCreateAddress(address(this), n + 1);
@@ -190,6 +193,7 @@ abstract contract SpokeAHubFixture is Test, FundSeed {
         c.managerRegistry = address(registry);
         c.priceSource = address(prices);
         c.acrossSpokePool = acrossHub;
+        c.wormholeCore = address(hubWormhole);
         c.protocolRecipient = protocol;
         c.excessRecipient = excess;
         c.escrowImplementation = address(escrowImpl);

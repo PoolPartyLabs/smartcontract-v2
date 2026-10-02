@@ -15,6 +15,8 @@ import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 /// @param managerRegistry Per-manager registry holding the protocol slice (DEC-106, DEC-110).
 /// @param priceSource Prices non-USDC quantities into hub USDC (docs/ARCHITECTURE.md §5, OPEN).
 /// @param acrossSpokePool Across SpokePool on the Hub Chain, the only caller of `handleV3AcrossMessage`.
+/// @param wormholeCore The Hub Chain's Wormhole Core Bridge (the Hub factory's): its `chainId()` must equal
+///        `Mandate.hubWormholeChainId` (D-15), and it publishes the Hub's orders to the spokes (DEC-120, DEC-139).
 /// @param protocolRecipient Recipient of the flow fee and the protocol slice: the fee wallet (DEC-106, DEC-116).
 /// @param excessRecipient Recipient of swept excess balances: the fee wallet too (DEC-096, DEC-101, DEC-116,
 ///        DEC-121).
@@ -36,6 +38,7 @@ struct CoreVaultConfig {
     address managerRegistry;
     address priceSource;
     address acrossSpokePool;
+    address wormholeCore;
     address protocolRecipient;
     address excessRecipient;
     address escrowImplementation;
@@ -49,6 +52,7 @@ struct CoreVaultConfig {
 /// @notice Immutable addresses and terms the Core Vault hands to its external libraries on every call.
 /// @param flowFeeBps ICoreVault.flowFeeBps (DEC-106, DEC-113).
 /// @param payoutFeeBps ICoreVault.payoutFeeBps (DEC-075, DEC-144).
+/// @param wormholeCore ICoreVault.wormholeCore: the publisher of the Hub's orders (DEC-120, DEC-139).
 struct CoreVaultWiring {
     bytes32 fundId;
     bytes32 mandateHash;
@@ -62,6 +66,7 @@ struct CoreVaultWiring {
     address escrowImplementation;
     address protocolRecipient;
     address managerFeeVault;
+    address wormholeCore;
     uint256 hubChainId;
     uint16 flowFeeBps;
     uint16 payoutFeeBps;

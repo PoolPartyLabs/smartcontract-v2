@@ -29,6 +29,7 @@ import {MockReportReceiver} from "../../mocks/core/MockReportReceiver.sol";
 import {FundSeed} from "../../utils/FundSeed.sol";
 import {MandateFixture} from "../../utils/MandateFixture.sol";
 import {MockSwapAdapter} from "../../mocks/swap/MockSwapAdapter.sol";
+import {MockWormholeCore} from "../../mocks/spoke/MockWormholeCore.sol";
 
 /// @notice Shared deployment of a Core Vault against mocks: Arbitrum as hub (42161), Robinhood as the one spoke (4663).
 /// @dev The test contract plays the factory (`CoreVaultConfig.factory`): `_deploy` seeds every fund at creation, as
@@ -59,6 +60,7 @@ abstract contract CoreVaultFixture is Test, FundSeed {
     MockBridgeAdapter internal bridge;
     MockHubSpokeVault internal hubVault;
     MockReportReceiver internal receiver;
+    MockWormholeCore internal hubWormhole;
     TransitEscrow internal escrowImpl;
     CoreVault internal vault;
     ShareToken internal shares;
@@ -90,6 +92,7 @@ abstract contract CoreVaultFixture is Test, FundSeed {
         spokeWeth = new CoreMockToken("Robinhood WETH", "WETH", 18);
         hubSwapAdapter = address(new MockSwapAdapter());
         spokeSwapAdapter = address(new MockSwapAdapter());
+        hubWormhole = new MockWormholeCore();
         prices = new MockPriceSource();
         prices.setPrice(address(weth), 2.5e9); // 2,500 USDC per WETH
         prices.setPrice(address(spokeWeth), 2.5e9);
@@ -147,6 +150,7 @@ abstract contract CoreVaultFixture is Test, FundSeed {
         c.managerRegistry = address(registry);
         c.priceSource = address(prices);
         c.acrossSpokePool = address(pool);
+        c.wormholeCore = address(hubWormhole);
         c.protocolRecipient = protocol;
         c.excessRecipient = excess;
         c.escrowImplementation = address(escrowImpl);

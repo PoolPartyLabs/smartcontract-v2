@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
+import {ICoreBridge} from "wormhole-sdk/interfaces/ICoreBridge.sol";
 import {TransientSlot} from "@openzeppelin/contracts/utils/TransientSlot.sol";
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
 import {ICoreVaultLifecycle} from "../interfaces/ICoreVaultLifecycle.sol";
@@ -45,6 +46,8 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
     address public immutable managerRegistry;
     address public immutable priceSource;
     address public immutable acrossSpokePool;
+    /// @inheritdoc ICoreVault
+    address public immutable wormholeCore;
     address public immutable protocolRecipient;
     address public immutable excessRecipient;
     address public immutable escrowImplementation;
@@ -75,11 +78,15 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
         if (
             c.usdc == address(0) || c.hubSpokeVault == address(0) || c.reportReceiver == address(0)
                 || c.managerRegistry == address(0) || c.priceSource == address(0) || c.acrossSpokePool == address(0)
-                || c.protocolRecipient == address(0) || c.excessRecipient == address(0)
+                || c.wormholeCore == address(0) || c.protocolRecipient == address(0) || c.excessRecipient == address(0)
                 || c.escrowImplementation == address(0) || c.factory == address(0) || c.fundId == bytes32(0)
         ) revert ZeroAddress();
         if (c.usdc != m.usdc) revert UsdcMismatch(c.usdc, m.usdc);
         if (block.chainid != m.hubChainId) revert NotOnHubChain(block.chainid, m.hubChainId);
+        // D-15 (DEC-120, DEC-139): the spokes accept orders only from the Mandate's Hub Wormhole chain, so it must be
+        // the chain of the Core this vault publishes through.
+        uint16 coreChainId = ICoreBridge(c.wormholeCore).chainId();
+        if (coreChainId != m.hubWormholeChainId) revert HubWormholeChainIdMismatch(coreChainId, m.hubWormholeChainId);
         // DEC-106, DEC-110: flow fee capped at 1% as a core constant.
         if (c.flowFeeBps > ShareMath.MAX_FLOW_FEE_BPS) revert FlowFeeAboveCap(c.flowFeeBps);
         // DEC-115, DEC-125 item 3: the fund starts at or above the minimum manager fee it was created under.
@@ -96,6 +103,7 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
         managerRegistry = c.managerRegistry;
         priceSource = c.priceSource;
         acrossSpokePool = c.acrossSpokePool;
+        wormholeCore = c.wormholeCore;
         protocolRecipient = c.protocolRecipient;
         excessRecipient = c.excessRecipient;
         escrowImplementation = c.escrowImplementation;
@@ -356,6 +364,7 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
             escrowImplementation: escrowImplementation,
             protocolRecipient: protocolRecipient,
             managerFeeVault: managerFeeVault,
+            wormholeCore: wormholeCore,
             hubChainId: _hubChainId,
             flowFeeBps: flowFeeBps,
             payoutFeeBps: payoutFeeBps

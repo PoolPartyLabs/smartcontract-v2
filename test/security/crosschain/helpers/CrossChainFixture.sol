@@ -220,6 +220,7 @@ abstract contract CrossChainFixture is Test, FundSeed {
         c.managerRegistry = address(registry);
         c.priceSource = address(prices);
         c.acrossSpokePool = address(hubPool);
+        c.wormholeCore = address(hubWormhole);
         c.protocolRecipient = protocol;
         c.excessRecipient = excess;
         c.escrowImplementation = address(escrowImpl);

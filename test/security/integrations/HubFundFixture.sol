@@ -42,6 +42,7 @@ import {PoolLibV4} from "./mocks/PoolLibV4.sol";
 import {BlocklistToken} from "./mocks/BlocklistToken.sol";
 import {MandateFixture} from "../../utils/MandateFixture.sol";
 import {MockSwapAdapter} from "../../mocks/swap/MockSwapAdapter.sol";
+import {MockWormholeCore} from "../../mocks/spoke/MockWormholeCore.sol";
 
 /// @notice A hub-only fund on Arbitrum (42161) built from the real contracts: `CoreVault` (linked `CoreVaultLogic`),
 ///         the hub `SpokeVault` (linked `SpokeCrossChainLib`), `UniswapV4Adapter`, `ShareToken`, `ManagerFeeVault` and
@@ -83,6 +84,7 @@ abstract contract HubFundFixture is Test, FundSeed {
     UniswapV4Adapter internal adapter;
     SpokeVault internal hubVault;
     MockSwapAdapter internal hubSwap;
+    MockWormholeCore internal hubWormhole;
     CoreVault internal core;
     ShareToken internal shares;
 
@@ -119,6 +121,7 @@ abstract contract HubFundFixture is Test, FundSeed {
         // The adapter needs its vault, the hub Spoke Vault its Core Vault and the Core Vault its hub Spoke Vault:
         // three consecutive deployments from this contract, so every address is predicted from the nonce.
         hubSwap = new MockSwapAdapter();
+        hubWormhole = new MockWormholeCore();
         uint64 nonce = vm.getNonce(address(this));
         address adapterAddress = vm.computeCreateAddress(address(this), nonce);
         address hubVaultAddress = vm.computeCreateAddress(address(this), nonce + 1);
@@ -182,6 +185,7 @@ abstract contract HubFundFixture is Test, FundSeed {
         c.managerRegistry = address(registry);
         c.priceSource = address(prices);
         c.acrossSpokePool = address(across);
+        c.wormholeCore = address(hubWormhole);
         c.protocolRecipient = protocol;
         c.excessRecipient = excess;
         c.escrowImplementation = address(escrowImpl);

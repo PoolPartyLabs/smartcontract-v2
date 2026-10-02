@@ -217,6 +217,7 @@ abstract contract SpokeAForkBase is Test, FundSeed {
         c.managerRegistry = registry;
         c.priceSource = address(prices);
         c.acrossSpokePool = makeAddr("across");
+        c.wormholeCore = 0xa5f208e072434bC67592E4C49C1B991BA79BCA46; // Arbitrum One Wormhole Core (chain id 23)
         c.protocolRecipient = makeAddr("protocol");
         c.excessRecipient = makeAddr("x");
         c.escrowImplementation = escrowImpl;

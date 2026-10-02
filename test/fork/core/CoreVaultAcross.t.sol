@@ -88,6 +88,7 @@ contract CoreVaultAcrossForkTest is Test, FundSeed {
         c.managerRegistry = address(new MockManagerRegistry());
         c.priceSource = address(prices);
         c.acrossSpokePool = SPOKE_POOL;
+        c.wormholeCore = 0xa5f208e072434bC67592E4C49C1B991BA79BCA46; // Arbitrum One Wormhole Core (chain id 23)
         c.protocolRecipient = makeAddr("protocol");
         c.excessRecipient = makeAddr("excess");
         c.escrowImplementation = address(new TransitEscrow());
