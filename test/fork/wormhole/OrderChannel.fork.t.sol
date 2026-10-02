@@ -21,9 +21,9 @@ import {OrderReceiverHarness, OrderVerifierHarness} from "../../mocks/wormhole/O
 ///         verification gas is realistic.
 /// @dev Fresh pins at run time (`ARBITRUM_FORK_BLOCK`, `ROBINHOOD_FORK_BLOCK`); no block-specific constants. The
 ///      Robinhood clock at delivery is set from the publish time the message carries (`_onRobinhoodAtDelivery`), never
-///      read from the Robinhood fork: the two pins are independent, and `forge test` hands every fork of one url and
-///      block the block env last left on any of them, warps by other suites in the same run included (CI saw the
-///      Robinhood fork 7h45m ahead of its pin).
+///      read from the Robinhood fork: the two pins are independent, and in one `forge test` process a later
+///      `createFork` of a url and block starts from the block env last left on the first fork created for that pair,
+///      another suite's warps included (CI saw the Robinhood fork 7h45m ahead of its pin).
 contract OrderChannelForkTest is Test {
     using AdvancedWormholeOverride for ICoreBridge;
 

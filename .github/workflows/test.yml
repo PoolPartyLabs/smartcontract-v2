@@ -59,9 +59,10 @@ jobs:
       # (UniswapV3SwapAdapter, DepthProbe, about 5 minutes each) get a shard of their own. Every shard runs even when an
       # earlier one failed. An archive RPC in the secrets serves any pin, so fresh pins work there too.
       # The scenario suites (EndToEndBase's scenario clock: they warp a fork, then switch to the other) run in a
-      # process of their own. forge test hands every fork of one url and block the block env last left on any of
-      # them, so their warps reach the forks other suites create in the same run (with -j 1, UnwindAttackFork reads
-      # a stale ETH / USD price after DeprecatedAdapterFork). A new suite on EndToEndBase belongs in shard 3.
+      # process of their own. In one forge test process, a later createFork of a url and block starts from the block
+      # env last left on the first fork created for that pair, so when a scenario suite creates it first, its warps
+      # reach the forks other suites create later (with -j 1, UnwindAttackFork reads a stale ETH / USD price after
+      # DeprecatedAdapterFork). A new suite on EndToEndBase belongs in shard 3.
       - name: "Fork shard 1/5: test/fork, except swap and the scenario suites"
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
