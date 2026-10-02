@@ -23,6 +23,7 @@ contract MidSwapActor {
     uint256 public minted;
     uint256 public sharesBurned;
     uint256 public claimSharePrice;
+    uint256 public requestedAmount;
 
     constructor(ICoreVault core_, IERC20 usdc_) {
         core = core_;
@@ -43,13 +44,14 @@ contract MidSwapActor {
     }
 
     function request(uint256 usdcAmount) external {
-        core.requestPayout(usdcAmount, ICoreVaultPayouts.PayoutMode.Instant);
+        requestedAmount = usdcAmount;
     }
 
     function onMidSwap() external {
         fired = true;
         if (claims) {
-            ICoreVaultPayouts.PayoutReceipt memory r = core.claimPayout("");
+            ICoreVaultPayouts.PayoutReceipt memory r =
+                core.requestPayout(requestedAmount, ICoreVaultPayouts.PayoutMode.Instant, 0);
             (sharesBurned, claimSharePrice) = (r.sharesBurned, r.sharePrice);
             return;
         }
