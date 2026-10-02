@@ -112,3 +112,31 @@ against the 24,576-byte limit (DEC-131). No margin is below 1,000 bytes.
   was removed. Existing `lib/` and `.env` symlinks were left untouched and unstaged.
 - No new spec divergence found. Existing interim unwind ordering, unsupported
   order kinds, and Operating Cash deferral remain explicit limitations.
+
+## PR #16 round-1 fix verification (2026-10-02)
+
+- M-1 fixed in `0b22558`: URL userinfo is removed even without a path; paths,
+  queries, and fragments remain redacted. The audit covered all `local-e2e/`
+  URL output: fork startup and disk logs, status, structured logger messages and
+  fields, forwarded RPC/forge errors, and JSON/Markdown run reports. Other direct
+  RPC prints use loopback URLs constructed only from numeric private ports.
+- The round-1 review lists no low findings and no declined findings.
+- `pnpm check:urls`: eight synthetic URL cases pass through the shell stdout/disk
+  pipeline and TypeScript redactor, including no-path Basic Auth, percent-encoded
+  userinfo, IPv6, uppercase schemes, query/fragment secrets, and clean loopback
+  URLs. Logger info/warn/error/child checks pass. No real key is used in this check.
+- `CI=true pnpm install --frozen-lockfile`, shell syntax, and `git diff --check`
+  pass. Foundry build/sizes and formatting pass; size suite 3/3, non-fork suites
+  1,173/1,173 across 166 suites, fork suites 216/216 across 51 suites, no skips.
+- Archive helper sourced; `pnpm run up --warm-up none`, `pnpm status`, and
+  `pnpm down` pass on private ports 59545/59546 (API reserved 59787). Both persisted
+  fork logs exclude upstream credentials. PID files and log writers are gone;
+  all three private ports are closed, with no harness service left running.
+- Optional `pnpm exec tsc --noEmit` remains blocked by existing missing Node
+  type definitions and resulting implicit-any errors; no dependency change is
+  introduced by this security fix.
+- Production sizes/margins are unchanged from the table above, including
+  SpokeVault 22,304 bytes / 2,272 margin, CoreVault 20,996 / 3,580, and every linked
+  library below 24,576. No margin below 1,000. No new spec divergence or plan
+  deviation. The full scenario/API probe were not repeated for this logging-only
+  fix; their independent round-1 results remain recorded on the PR.
