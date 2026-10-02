@@ -72,7 +72,9 @@ contract SpokeClosureForkTest is EndToEndScenario {
         _advance(uint256(transit.fillDeadline) + ReportCodec.HUB_BOUND_RETENTION + 1 - block.timestamp);
         SpokeUnwindTypes.OrderResult memory second = _closeAttempt();
         assertEq(second.attempt, 2);
-        assertEq(second.amountSent, 0);
+        assertEq(second.transitId, first.transitId);
+        assertEq(second.amountSent, first.amountSent);
+        assertEq(second.amountToArrive, first.amountToArrive);
         assertEq(second.closureExcessCost, first.closureExcessCost);
         core.requestIncomeWithdrawal(0);
         core.finalizeClosure();
