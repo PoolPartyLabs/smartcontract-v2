@@ -5,11 +5,12 @@ import {console2} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IUniswapV3Pool} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 import {IQuoterV2} from "@uniswap/v3-periphery/contracts/interfaces/IQuoterV2.sol";
+import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {UniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
 import {ISwapAdapter} from "../../../src/interfaces/ISwapAdapter.sol";
 import {IAdapterGuard} from "../../../src/interfaces/IAdapterGuard.sol";
 import {ForkToken, DustMinter} from "../../mocks/swap/V3ForkHelpers.sol";
-import {SwapForkBase} from "./SwapForkBase.sol";
+import {SwapForkBase, ISwapRouter02Full} from "./SwapForkBase.sol";
 
 /// @notice The Uniswap V3 swap adapter on forks of both MVP chains (DEC-129, DEC-136, DEC-140, DEC-142, DEC-143,
 ///         DEC-153; founder chat 1, 2026-10-02): every mode against the live V3 factory, QuoterV2 and SwapRouter02, the
@@ -148,7 +149,7 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
         V3Chain memory c = _arbitrum();
         (address t0, address t1) = _trappedPair(c);
         uint256 amountIn = 100e18;
-        (uint256 trapOut, uint256 honestOut) = _assertTheTrapQuotesMore(c, t1, t0, amountIn);
+        (uint256 trapOut, uint256 honestOut) = _assertTheTrapQuotesMore(c, t1, t0, amountIn, 10_000);
 
         _setUpWithBase(c, t0, _tokens2(t0, t1));
         assertApproxEqRel(adapter.spotValue(t1, t0, amountIn, 10_000), 10 * amountIn, 1e9, "the trap's own mid");
@@ -202,7 +203,7 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
         V3Chain memory c = _arbitrum();
         (address t0, address t1) = _trappedPair(c);
         uint256 amountIn = 100e18;
-        (uint256 trapOut,) = _assertTheTrapQuotesMore(c, t1, t0, amountIn);
+        (uint256 trapOut,) = _assertTheTrapQuotesMore(c, t1, t0, amountIn, 10_000);
 
         _setUpWithBase(c, t0, _tokens2(t0, t1));
         (uint24 fee,) = adapter.bestDirectFee(t1, t0, amountIn);
@@ -210,6 +211,60 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
         (uint256 out, uint256 spot,) = _swap(t1, t0, amountIn, NO_MAX, "", "no API, no maximum, a trap 1% tier");
         assertEq(out, trapOut, "more than the honest tier pays");
         assertApproxEqRel(spot, 10 * amountIn, 1e9, "but valued at the trap's own mid");
+    }
+
+    /// @dev Open for the founder (review round 4), a tier above the market that stands in place: the 0.01% tier of
+    ///      `_pairWithAStandingTierAboveTheMarket` at price 0.1 (one token1 worth ten token0). Between its mid and the
+    ///      market it holds only dust, and its fill liquidity sells token0 at or above the market, so walking it to the
+    ///      market earns dust and nobody does. Selling 100 token1 it quotes about 99.98 against the honest tier's
+    ///      99.94 and is chosen (DEC-153 item 2), at a mid value of 1,000. Every bounded sale reverts, a 50% maximum
+    ///      included, although the honest tier fills within 1%, and the tier is still in place for the next sale. No
+    ///      transaction from the third party at sale time.
+    function test_arbitrum_noApi_aStandingTierAboveTheMarketBlocksEveryBoundedSale() public {
+        V3Chain memory c = _arbitrum();
+        (address t0, address t1, IUniswapV3Pool trap) =
+            _pairWithAStandingTierAboveTheMarket(c, SQRT_PRICE_X96_OF_ONE_TENTH);
+        uint256 amountIn = 100e18; // the fund sells token1 for token0, its base token
+        _assertNoArbitrageUpToTheMarket(c, t0, t1);
+        (uint256 trapOut, uint256 honestOut) = _assertTheTrapQuotesMore(c, t1, t0, amountIn, 100);
+        assertLt(trapOut, amountIn, "its fill liquidity pays less than the market: no arbitrage there either");
+
+        _setUpWithBase(c, t0, _tokens2(t0, t1));
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(t1, t0, amountIn);
+        assertEq(uint256(fee), 100, "chosen on output");
+        assertEq(quoted, trapOut);
+        assertApproxEqRel(adapter.spotValue(t1, t0, amountIn, 100), 10 * amountIn, 1e9, "valued at its own mid");
+        _fund(t1, amountIn);
+        vm.expectPartialRevert(ISwapAdapter.InsufficientOutput.selector);
+        adapter.swap(t1, t0, amountIn, 100, "");
+        vm.expectPartialRevert(ISwapAdapter.InsufficientOutput.selector);
+        adapter.swap(t1, t0, amountIn, 5000, "");
+        (uint160 sqrtPriceX96,,,,,,) = trap.slot0();
+        assertEq(sqrtPriceX96, SQRT_PRICE_X96_OF_ONE_TENTH, "still in place for the next sale");
+
+        (uint256 out, uint256 spot) = adapter.swapDirect(t1, t0, amountIn, 500, 100);
+        assertEq(out, honestOut, "the honest tier fills it within 1%");
+        assertEq(spot, amountIn);
+    }
+
+    /// @dev Open for the founder (review round 4), the same standing tier with its mid at tick -480 instead (one token1
+    ///      worth about 1.049 token0, 4.9% above the market): a sale of 100 token1 with a 5% maximum passes on the
+    ///      seller's own transaction and reports a loss of about 4.7% against that mid, while it lost about 2 bps
+    ///      against the market. A vault charging that loss would bill the leaver for it (DEC-118 item 2, DEC-141).
+    function test_arbitrum_noApi_aStandingTierJustAboveTheMarketOverstatesABoundedSalesLoss() public {
+        V3Chain memory c = _arbitrum();
+        (address t0, address t1,) = _pairWithAStandingTierAboveTheMarket(c, TickMath.getSqrtPriceAtTick(-480));
+        uint256 amountIn = 100e18; // the fund sells token1 for token0, its base token
+        _assertNoArbitrageUpToTheMarket(c, t0, t1);
+        (uint256 trapOut,) = _assertTheTrapQuotesMore(c, t1, t0, amountIn, 100);
+
+        _setUpWithBase(c, t0, _tokens2(t0, t1));
+        (uint24 fee,) = adapter.bestDirectFee(t1, t0, amountIn);
+        assertEq(uint256(fee), 100, "chosen on output");
+        (uint256 out, uint256 spot,) = _swap(t1, t0, amountIn, 500, "", "no API, a standing tier at tick -480, 5% max");
+        assertEq(out, trapOut, "more than the honest tier pays");
+        assertGt(_lossBps(spot, out), 400, "reports a loss over 4% against its own mid");
+        assertLt(_lossBps(amountIn, out), 5, "on a sale that lost under 5 bps against the market");
     }
 
     /// @dev DEC-129 item 3 ("em qualquer quantia"): 1e5 wei of WETH is worth less than 1 USDC unit, so every tier fills
@@ -448,20 +503,62 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
         minter.mint(trap, -23_000, -22_800, 3.2e21);
     }
 
-    /// @dev QuoterV2 on its own: the trap 1% tier fills the whole input and quotes more than the honest 0.05% tier.
-    function _assertTheTrapQuotesMore(V3Chain memory c, address tokenIn, address tokenOut, uint256 amountIn)
-        internal
-        returns (uint256 trapOut, uint256 honestOut)
-    {
+    /// @dev QuoterV2 on its own: the trap tier `trapFee` fills the whole input and quotes more than the honest 0.05%
+    ///      tier.
+    function _assertTheTrapQuotesMore(
+        V3Chain memory c,
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        uint24 trapFee
+    ) internal returns (uint256 trapOut, uint256 honestOut) {
         assertGt(uint160(tokenIn), uint160(tokenOut), "selling token1");
         uint160 trapAfter;
         (trapOut, trapAfter,,) = c.quoter
-            .quoteExactInputSingle(IQuoterV2.QuoteExactInputSingleParams(tokenIn, tokenOut, amountIn, 10_000, 0));
+            .quoteExactInputSingle(IQuoterV2.QuoteExactInputSingleParams(tokenIn, tokenOut, amountIn, trapFee, 0));
         (honestOut,,,) =
             c.quoter.quoteExactInputSingle(IQuoterV2.QuoteExactInputSingleParams(tokenIn, tokenOut, amountIn, 500, 0));
-        console2.log("trap 1% quote", trapOut, "honest 0.05% quote", honestOut);
+        console2.log("trap tier", uint256(trapFee), "quote", trapOut);
+        console2.log("honest 0.05% quote", honestOut);
         assertGt(trapOut, honestOut, "the trap quotes more");
         assertLt(trapAfter, MAX_SQRT_RATIO - 1, "and fills the whole input");
+    }
+
+    /// @dev Two new tokens: an honest 0.05% pool at price 1 with L = 1e24 over the full range, and a 0.01% pool someone
+    ///      created at `trapSqrtPriceX96` (below 1: token0 cheap there, so a token1 buys more token0 than at the
+    ///      market) with dust (L = 1e9) over the full range and L = 1e24 in ticks [0, 4]: about 200 token0 at 1.0000 to
+    ///      1.0004 token1 each, at or just above the market.
+    function _pairWithAStandingTierAboveTheMarket(V3Chain memory c, uint160 trapSqrtPriceX96)
+        internal
+        returns (address t0, address t1, IUniswapV3Pool trap)
+    {
+        (t0, t1) = _sorted(address(new ForkToken("AAA")), address(new ForkToken("BBB")));
+        DustMinter minter = new DustMinter();
+        IUniswapV3Pool honest = IUniswapV3Pool(c.factory.createPool(t0, t1, 500));
+        honest.initialize(2 ** 96);
+        minter.mint(honest, -887_270, 887_270, 1e24);
+        trap = IUniswapV3Pool(c.factory.createPool(t0, t1, 100));
+        trap.initialize(trapSqrtPriceX96);
+        minter.mint(trap, -887_272, 887_272, 1e9);
+        minter.mint(trap, 0, 4, 1e24);
+    }
+
+    /// @dev An arbitrageur buys the cheap token0 of the 0.01% tier with token1 through SwapRouter02 up to the market
+    ///      price (1), in a snapshot: the token0 it gets is worth less than 1e10 wei over the token1 it spends, far below
+    ///      the gas of the trade, so nobody moves the tier back to the market.
+    function _assertNoArbitrageUpToTheMarket(V3Chain memory c, address t0, address t1) internal {
+        uint256 snap = vm.snapshotState();
+        address arb = makeAddr("arbitrageur");
+        ForkToken(t1).mint(arb, 1e18);
+        vm.startPrank(arb);
+        IERC20(t1).approve(address(c.router), 1e18);
+        uint256 got = c.router
+            .exactInputSingle(ISwapRouter02Full.ExactInputSingleParams(t1, t0, 100, arb, 1e18, 0, uint160(2 ** 96)));
+        vm.stopPrank();
+        uint256 spent = 1e18 - IERC20(t1).balanceOf(arb);
+        console2.log("walking the tier to the market: token1 spent", spent, "token0 bought", got);
+        assertLt(got > spent ? got - spent : 0, 1e10, "the arbitrage profit is dust");
+        vm.revertToState(snap);
     }
 
     /// @dev Two new tokens: an honest 0.05% pool at price 1 with L = 1e21 over the full range, and a 0.01% pool at price
