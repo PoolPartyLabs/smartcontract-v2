@@ -60,7 +60,7 @@ library SpokeUnwindLib {
             s.operatingCash = 0;
         }
         SpokeUnwindTypes.Pending storage pending = s.unwind.pending[order.requestId];
-        _recoverSend(s, c.baseToken, pending);
+        _recoverSend(s, c.baseToken, order.requestId, pending);
         if (closing) s.unwind.reservedBase = pending.proceeds;
         uint256 beforeBase = s.unallocated[c.baseToken];
         bytes32 baseId = SpokeUnwindTypes.stepId(address(0), bytes32(uint256(uint160(c.baseToken))));
@@ -97,30 +97,38 @@ library SpokeUnwindLib {
         pending.spotOut += result.spotOut;
         pending.marketCost += result.marketCost;
         pending.leaverCost += result.leaverCost;
-        pending.attempt = order.attempt;
         _sendResult(s, c, order, result, pending);
         if (closing) s.unwind.closed = true;
     }
 
-    function _recoverSend(SpokeVaultTypes.State storage s, address base, SpokeUnwindTypes.Pending storage pending)
-        private
-    {
-        if (pending.transitId == bytes32(0)) return;
-        Transit storage transit = s.hubBoundTransits[pending.transitId];
-        if (
-            transit.state == TransitState.Sent && block.timestamp > transit.fillDeadline
-                && IERC20(base).balanceOf(transit.escrow) >= transit.amountSent
-        ) {
-            SpokeCrossChainLib.recognizeRefund(s, base, pending.transitId);
+    function _recoverSend(
+        SpokeVaultTypes.State storage s,
+        address base,
+        bytes32 requestId,
+        SpokeUnwindTypes.Pending storage pending
+    ) private {
+        bytes32[] storage transits = s.unwind.transits[requestId];
+        for (uint256 index; index < transits.length; ++index) {
+            bytes32 transitId = transits[index];
+            Transit storage transit = s.hubBoundTransits[transitId];
+            if (
+                transit.state == TransitState.Sent && block.timestamp > transit.fillDeadline
+                    && IERC20(base).balanceOf(transit.escrow) >= transit.amountSent
+            ) {
+                SpokeCrossChainLib.recognizeRefund(s, base, transitId);
+            }
+            if (transit.state == TransitState.RefundRecognized && !s.unwind.refundRecovered[transitId]) {
+                s.unwind.refundRecovered[transitId] = true;
+                pending.proceeds += transit.amountSent;
+                s.unwind.reservedBase += transit.amountSent;
+                if (pending.bridgeCost >= transit.amountSent - transit.amountToArrive) {
+                    pending.bridgeCost -= transit.amountSent - transit.amountToArrive;
+                }
+            }
         }
-        if (transit.state == TransitState.RefundRecognized) {
-            pending.proceeds += transit.amountSent;
-            s.unwind.reservedBase += transit.amountSent;
-            pending.spotOut += pending.sentSpotOut;
-            pending.marketCost += pending.sentMarketCost;
-            pending.leaverCost += pending.sentLeaverCost;
+        if (s.hubBoundTransits[pending.transitId].state == TransitState.RefundRecognized) {
+            pending.transitId = bytes32(0);
         }
-        pending.transitId = bytes32(0);
     }
 
     function _sendResult(
@@ -136,10 +144,15 @@ library SpokeUnwindLib {
         record.attempt = order.attempt;
         record.spotOut = pending.spotOut;
         record.marketCost = pending.marketCost;
-        record.leaverCost = pending.leaverCost;
+        record.leaverCost = pending.leaverCost + pending.bridgeCost;
         record.delivered = result.delivered;
         record.excluded = result.excluded;
         uint256 amount = pending.proceeds;
+        if (pending.transitId != bytes32(0)) {
+            record.transitId = pending.transitId;
+            record.amountSent = s.hubBoundTransits[pending.transitId].amountSent;
+            record.amountToArrive = s.hubBoundTransits[pending.transitId].amountToArrive;
+        }
         if (amount != 0) {
             uint256 arrival;
             try IBridgeAdapter(s.bridgeAdapters[0]).quoteSend(c.baseToken, c.hubChainId, amount, "") returns (
@@ -174,16 +187,12 @@ library SpokeUnwindLib {
                 record.amountToArrive = s.hubBoundTransits[record.transitId].amountToArrive;
                 if (order.payoutMode == uint8(ICoreVaultPayouts.PayoutMode.Instant)) {
                     record.leaverCost += amount - record.amountToArrive;
+                    pending.bridgeCost += amount - record.amountToArrive;
                 }
                 pending.proceeds = 0;
                 s.unwind.reservedBase -= amount;
-                pending.sentSpotOut = pending.spotOut;
-                pending.sentMarketCost = pending.marketCost;
-                pending.sentLeaverCost = pending.leaverCost;
-                pending.spotOut = 0;
-                pending.marketCost = 0;
-                pending.leaverCost = 0;
                 pending.transitId = record.transitId;
+                s.unwind.transits[order.requestId].push(record.transitId);
             }
         }
         _append(s, record);
@@ -196,6 +205,20 @@ library SpokeUnwindLib {
         uint256 count = previous.length < SpokeUnwindTypes.REPORTED_RESULTS ? previous.length + 1 : previous.length;
         SpokeUnwindTypes.OrderResult[] memory records = new SpokeUnwindTypes.OrderResult[](count);
         uint256 offset = previous.length + 1 - count;
+        if (offset != 0) {
+            uint256 removable = type(uint256).max;
+            for (uint256 index; index < previous.length; ++index) {
+                if (previous[index].transitId == bytes32(0) || previous[index].transitId == record.transitId) {
+                    removable = index;
+                    break;
+                }
+            }
+            if (removable == type(uint256).max) revert SpokeUnwindTypes.OrderResultCapacity();
+            for (uint256 index = removable; index + 1 < previous.length; ++index) {
+                previous[index] = previous[index + 1];
+            }
+            offset = 0;
+        }
         for (uint256 index; index + 1 < count; ++index) {
             records[index] = previous[index + offset];
         }
@@ -279,6 +302,10 @@ library SpokeUnwindLib {
         OrderVerifier.Cursor storage cursor = s.orders;
         (o, wormholeSequence) = OrderVerifier.accept(cursor, wormholeCore, vaa, hubWormholeChainId, coreVault, fundId);
         orderId = OrderCodec.orderId(o);
+        if (o.kind == OrderCodec.UNWIND || o.kind == OrderCodec.CLOSE) {
+            if (s.unwind.executed[orderId]) revert SpokeUnwindTypes.OrderAlreadyExecuted(orderId);
+            s.unwind.executed[orderId] = true;
+        }
     }
 
     // ---------------------------------------------------------------------------------------------------------------

@@ -114,7 +114,8 @@ contract SpokeUnwindOrdersTest is SpokeVaultTestBase {
         assertTrue(vault.unwindDelivered(REQUEST, address(spokeUni), position));
         assertEq(vault.unallocatedBalance(address(usdg)), 100e6);
         SpokeUnwindTypes.OrderResult memory again = _execute(OrderCodec.UNWIND, 3, 0, true);
-        assertEq(again.amountSent, 0);
+        assertEq(again.transitId, retry.transitId);
+        assertEq(again.amountSent, retry.amountSent);
         assertEq(again.delivered, 0);
     }
 

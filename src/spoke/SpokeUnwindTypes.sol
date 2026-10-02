@@ -26,17 +26,14 @@ library SpokeUnwindTypes {
         bool refunded;
     }
 
-    /// @notice DEC-151/156: sales retained across bridge refusal, plus costs restored if the send is refunded.
+    /// @notice DEC-151/156: unsent proceeds and cumulative sale costs retained across refusals and refunds.
     struct Pending {
-        uint256 sentSpotOut;
-        uint256 sentMarketCost;
-        uint256 sentLeaverCost;
         uint256 proceeds;
         uint256 spotOut;
         uint256 marketCost;
         uint256 leaverCost;
         bytes32 transitId;
-        uint32 attempt;
+        uint256 bridgeCost;
     }
 
     /// @notice The unwind's state inside `SpokeVaultTypes.State`.
@@ -53,6 +50,9 @@ library SpokeUnwindTypes {
         mapping(bytes32 requestId => Pending) pending;
         bool closed;
         uint256 reservedBase;
+        mapping(bytes32 orderId => bool) executed;
+        mapping(bytes32 requestId => bytes32[]) transits;
+        mapping(bytes32 transitId => bool) refundRecovered;
     }
 
     /// @notice One atomic step of an automatic unwind (`ISpokeVaultUnwind.unwindStep`).
@@ -83,6 +83,8 @@ library SpokeUnwindTypes {
     error UnwindStepNotSelf(address caller);
     error SpokeClosed();
     error UnwindProceedsReserved();
+    error OrderAlreadyExecuted(bytes32 orderId);
+    error OrderResultCapacity();
 
     /// @notice The name of a step in `Book.delivered`: a position by its adapter and key, a non-base Unallocated
     ///         Balance by a zero adapter and the token.
