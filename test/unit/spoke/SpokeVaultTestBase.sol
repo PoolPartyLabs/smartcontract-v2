@@ -75,8 +75,11 @@ abstract contract SpokeVaultTestBase is Test {
         hubUni.addPool(HUB_POOL, address(weth), address(usdc));
         hubAave.addPool(AAVE_USDC, address(usdc), address(0));
         spokeUni.addPool(SPOKE_POOL, address(weth), address(usdg));
+        // DEC-136: every swap runs through a Mandate swap adapter; the stand-ins swap at 2,000 USDC (USDG) per WETH.
         hubSwap = new MockSwapAdapter();
         spokeSwap = new MockSwapAdapter();
+        hubSwap.setPrice(address(weth), address(usdc), 2000e6, 1e18);
+        spokeSwap.setPrice(address(weth), address(usdg), 2000e6, 1e18);
         spokePool = new MockAcrossSpokePool();
         spokeBridge = new MockBridgeAdapter(guardian, address(spokePool));
         spokeBridgeFallback = new MockBridgeAdapter(guardian, address(spokePool));

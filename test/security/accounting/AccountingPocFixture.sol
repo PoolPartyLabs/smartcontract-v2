@@ -370,8 +370,9 @@ abstract contract AccountingPocFixture is Test, FundSeed {
     }
 
     /// @dev The Manager moves `usdcAmount` of Idle into one hub Uniswap V4 position centred on the fair price: half is
-    ///      swapped to WETH at the oracle price (the V4 mock swaps at a fixed rate), then both legs enter the range
-    ///      `TICK_FAIR +- halfWidthTicks`. Returns the position key (the PositionManager token id).
+    ///      swapped to WETH at the oracle price through the Mandate swap adapter (a stand-in at a fixed rate, DEC-136),
+    ///      then both legs enter the range `TICK_FAIR +- halfWidthTicks`. Returns the position key (the
+    ///      PositionManager token id).
     function _openHubPosition(uint256 usdcAmount, int24 halfWidthTicks) internal returns (bytes32 positionKey) {
         return _openHubPositionAt(usdcAmount, TICK_FAIR - halfWidthTicks, TICK_FAIR + halfWidthTicks);
     }
@@ -383,10 +384,10 @@ abstract contract AccountingPocFixture is Test, FundSeed {
     {
         uint256 half = usdcAmount / 2;
         // WETH base units per USDC base unit, 1e18-scaled: the inverse of the oracle price.
-        v4.setSwap(1e36 / wethPrice1e18, 10_000);
+        hubSwap.setPrice(address(usdc), address(weth), 1e36 / wethPrice1e18, 1e18);
         vm.startPrank(manager);
         core.allocateToHubSpokeVault(usdcAmount);
-        uint256 wethOut = hubVault.swapExactInput(address(hubV4), hubPoolId, address(usdc), half, 0, "");
+        uint256 wethOut = hubVault.swap(address(hubSwap), address(usdc), address(weth), half, 0, "");
         UniswapV4Adapter.OpenParams memory p = UniswapV4Adapter.OpenParams({
             tickLower: tickLower,
             tickUpper: tickUpper,

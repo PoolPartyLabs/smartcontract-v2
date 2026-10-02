@@ -51,13 +51,28 @@ interface ISpokeVault is IAcrossMessageHandler, ISpokeVaultUnwind, ISpokeVaultIn
     event PositionDecreased(address indexed adapter, bytes32 indexed positionKey, IAdapter.Amounts amounts);
     event PositionClosed(address indexed adapter, bytes32 indexed positionKey, IAdapter.Amounts amounts);
     event IncomeCollected(address indexed adapter, bytes32 indexed positionKey, uint256 income0, uint256 income1);
+
+    /// @notice Unallocated Balance of `tokenIn` was swapped into `tokenOut` (DEC-079, DEC-080): by the manager through
+    ///         a Mandate swap adapter (DEC-136, DEC-142), or by the automatic unwind (see `SpokeUnwindLib`).
+    /// @dev Checklist doc 15, gap 4: the event carries the limit the swap was accepted under. For the automatic
+    ///      unwind's interim sale in a Mandate pool (until WP-09 moves it to the swap adapter, DEC-136 item 4),
+    ///      `adapter` is the position adapter, `maxLossBps` is `SpokeVault.MAX_UNWIND_SLIPPAGE_BPS`, measured from the
+    ///      higher of `spotOut` and the price source, and `minOut` also counts the claimant's hint.
+    /// @param adapter The swap adapter (a position adapter for an automatic unwind sale).
+    /// @param spotOut Mid value of `amountIn` before the trade, without fee or price impact: the reference of the loss
+    ///        (DEC-118, DEC-141).
+    /// @param maxLossBps The caller's maximum loss against `spotOut`, in bps; 0 or >= 10,000 for none (D-23).
+    /// @param minOut The minimum output the swap was held to: the stricter of `spotOut` less `maxLossBps` and the
+    ///        signed API route's minimum (DEC-142), 0 when neither applies.
     event Swapped(
         address indexed adapter,
-        bytes32 indexed poolKey,
-        address tokenIn,
-        address tokenOut,
+        address indexed tokenIn,
+        address indexed tokenOut,
         uint256 amountIn,
-        uint256 amountOut
+        uint256 amountOut,
+        uint256 spotOut,
+        uint16 maxLossBps,
+        uint256 minOut
     );
 
     /// @notice A bridge transfer arrived through `handleV3AcrossMessage` and was credited (DEC-090).
@@ -113,6 +128,8 @@ interface ISpokeVault is IAcrossMessageHandler, ISpokeVaultUnwind, ISpokeVaultIn
     error InsufficientUnallocatedBalance(address token, uint256 available, uint256 requested);
     error InsufficientCollectedIncome(address token, uint256 available, uint256 requested);
     error UnexpectedToken(address token);
+    /// @notice A swap's input or output is not a Mandate token of this chain (DEC-136 item 2).
+    error TokenNotInMandate(address token);
     error WrongFund(bytes32 fundId);
     error BridgeFeeAboveMax(uint256 fee, uint256 maxFee);
     error UnknownTransit(bytes32 transitId);
@@ -199,15 +216,27 @@ interface ISpokeVault is IAcrossMessageHandler, ISpokeVaultUnwind, ISpokeVaultIn
     /// @notice Collects a position's income into the collected income bucket. Manager only.
     function collectIncome(address adapter, bytes32 positionKey) external returns (IAdapter.Amounts memory amounts);
 
-    /// @notice Swaps Unallocated Balance in a Mandate pool. Manager only. See `IAdapter.swapExactInput` for the OPEN
-    ///         points.
-    function swapExactInput(
-        address adapter,
-        bytes32 poolKey,
+    /// @notice Swaps `amountIn` of Unallocated Balance of `tokenIn` into `tokenOut` through a Mandate swap adapter of
+    ///         this chain; the output is credited to Unallocated Balance. Manager only; on every chain.
+    /// @dev DEC-136 (founder, 2026-10-02: "swaps are not done in the fund pools"): never in a Mandate position pool.
+    ///      Both tokens must be Mandate tokens of this chain (DEC-136 item 2). Who chooses the route (DEC-143,
+    ///      DEC-153): with an empty `route` the adapter swaps in the best direct Uniswap V3 fee tier; otherwise `route`
+    ///      is an API route the Pool Party API signed, which anyone may relay (D-01, D-02). `maxLossBps` is the
+    ///      manager's optional maximum loss against the pool mid before the trade, without a protocol cap; with a
+    ///      signed route the stricter of it and the API minimum applies (DEC-142). Custody: the vault approves exactly
+    ///      `amountIn`, resets the approval to zero, and checks from its own balances that exactly `amountIn` left and
+    ///      at least the returned `amountOut` arrived, then credits `amountOut` (DEC-079, DEC-080). Quarantine and
+    ///      deprecation are the adapter's: a swap into the base token always runs (DEC-056).
+    /// @param swapAdapter A Mandate swap adapter of this chain (codehash pinned, Q17-4).
+    /// @param maxLossBps Maximum loss in bps against the mid before the trade; 0 or >= 10,000 for none (D-23).
+    /// @param route Empty, or `abi.encode(ISwapAdapter.ApiRoute)` signed by the adapter's route signer.
+    function swap(
+        address swapAdapter,
         address tokenIn,
+        address tokenOut,
         uint256 amountIn,
-        uint256 minAmountOut,
-        bytes calldata params
+        uint16 maxLossBps,
+        bytes calldata route
     ) external returns (uint256 amountOut);
 
     /// @notice Sets the Operating Cash floor and top-up of this chain. Manager only (DEC-096; no protocol cap on the

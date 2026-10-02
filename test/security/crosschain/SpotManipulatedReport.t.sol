@@ -126,11 +126,13 @@ contract SpotManipulatedReportPoC is CrossChainFixture {
         assertGe(aliceValueAfter + 10e6, aliceValueBefore, "S-1: nothing taken from the remaining Shareholder");
     }
 
-    /// @dev The manager swaps half of the USDG into WETH and opens one position over `tick0 +- RANGE`.
+    /// @dev The manager swaps half of the USDG into WETH at 2,500 through the Mandate swap adapter (DEC-136) and opens
+    ///      one position over `tick0 +- RANGE`.
     function _openSpokePosition() internal {
         vm.chainId(SPOKE);
+        spokeSwap.setPrice(address(usdg), address(spokeWeth), 4e26, 1e18);
         vm.startPrank(manager);
-        uint256 wethBought = spoke.swapExactInput(spokeAdapter, poolId, address(usdg), 445_000e6, 0, "");
+        uint256 wethBought = spoke.swap(address(spokeSwap), address(usdg), address(spokeWeth), 445_000e6, 0, "");
         uint256 usdgLeft = spoke.unallocatedBalance(address(usdg));
         (uint256 amount0, uint256 amount1) = wethIsToken0 ? (wethBought, usdgLeft) : (usdgLeft, wethBought);
         spoke.openPosition(

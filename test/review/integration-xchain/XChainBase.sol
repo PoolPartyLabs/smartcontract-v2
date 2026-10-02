@@ -432,6 +432,7 @@ abstract contract XChainBase is EndToEndScenario {
         hubUniswap = a.chains[0].uniswapV4Adapter;
         hubAave = a.chains[0].aaveV3Adapter;
         hubAcross = a.chains[0].acrossBridgeAdapter;
+        hubSwapAdapter = a.chains[0].uniswapV3SwapAdapter;
         predictedSpokeVault = predicted.chains[1].spokeVault;
         spokeVault = ISpokeVault(predictedSpokeVault);
     }
@@ -459,6 +460,7 @@ abstract contract XChainBase is EndToEndScenario {
         spokeVault = ISpokeVault(s.spokeVault);
         spokeUniswap = s.uniswapV4Adapter;
         spokeAcross = s.acrossBridgeAdapter;
+        spokeSwapAdapter = s.uniswapV3SwapAdapter;
     }
 
     // -----------------------------------------------------------------------------------------------------------------

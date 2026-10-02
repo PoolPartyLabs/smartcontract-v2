@@ -320,9 +320,7 @@ contract Fork_ConservationWalk is XChainBase {
         _onRobinhood();
         vm.startPrank(manager);
         spokeVault.collectIncome(spokeUniswap, spokeUniswapPosition);
-        spokeVault.swapCollectedIncome(
-            spokeUniswap, RH_WETH_USDG_POOL_ID, RH_WETH, spokeVault.collectedIncome(RH_WETH), 0, _swapParams()
-        );
+        spokeVault.swapCollectedIncome(spokeSwapAdapter, RH_WETH, spokeVault.collectedIncome(RH_WETH), 0, "");
         vm.stopPrank();
         _step("W11 spoke income collected and swapped to USDG", 0, false, 0);
         _onRobinhood();

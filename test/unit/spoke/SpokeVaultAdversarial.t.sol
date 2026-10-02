@@ -42,16 +42,16 @@ contract SpokeVaultAdversarialSpokeTest is SpokeVaultTestBase {
     // ---------------------------------------------------------------------------------------------------------------
 
     /// @dev A hooked Mandate pool token tries to re-enter `sweepExcess` while the vault moves it: on the swap output
-    ///      the adapter pays and on the position input the vault sends. Both re-entries fail and the ledger is exact.
+    ///      the swap adapter pays and on the position input the vault sends. Both re-entries fail and the ledger is
+    ///      exact.
     function test_DEC080_hookedPoolTokenCannotReenterSweepWhileTheVaultMovesIt() public {
         _arrive(1000e6, GENUINE, TransferKind.Principal);
-        rtk.mint(address(spokeUni), 500e6);
-        spokeUni.addLiquidity(address(rtk), 500e6);
-        spokeUni.setSwapRate(1, 1);
+        rtk.mint(address(spokeSwap), 500e6);
+        spokeSwap.setPrice(address(usdg), address(rtk), 1, 1);
         rtk.setHook(address(vault), abi.encodeCall(ISpokeVault.sweepExcess, (address(rtk))));
 
         vm.prank(manager);
-        vault.swapExactInput(address(spokeUni), SPOKE_POOL, address(usdg), 300e6, 0, "");
+        vault.swap(address(spokeSwap), address(usdg), address(rtk), 300e6, 0, "");
         assertEq(rtk.hookCalls(), 1, "hook ran on the adapter's payment to the vault");
         assertEq(rtk.reentrySucceeded(), 0, "re-entry blocked");
         assertEq(vault.unallocatedBalance(address(rtk)), 300e6);
@@ -63,7 +63,7 @@ contract SpokeVaultAdversarialSpokeTest is SpokeVaultTestBase {
         assertEq(rtk.reentrySucceeded(), 0, "re-entry blocked");
         assertEq(vault.unallocatedBalance(address(rtk)), 0);
         assertEq(rtk.balanceOf(address(vault)), 0);
-        assertEq(rtk.balanceOf(address(spokeUni)), 500e6, "the adapter holds what the ledger says it used");
+        assertEq(rtk.balanceOf(address(spokeUni)), 300e6, "the adapter holds what the ledger says it used");
     }
 
     /// @dev `sweepExcess` is permissionless and takes any token: a stranger's hooked token cannot use its own sweep

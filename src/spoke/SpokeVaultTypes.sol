@@ -167,6 +167,10 @@ library SpokeVaultTypes {
     error LedgerExceedsBalance(address token, uint256 balance, uint256 ledger);
     error PositionAlreadyRegistered(address adapter, bytes32 positionKey);
     error SwapOutputBelowMinimum(uint256 amountOut, uint256 minAmountOut);
+    /// @notice A swap adapter did not take exactly the input the vault approved (DEC-080, DEC-136).
+    error SwapDebitMismatch(uint256 expected, uint256 debited);
+    /// @notice The vault received less than the output the swap adapter returned (DEC-079, DEC-080).
+    error SwapOutputNotReceived(uint256 amountOut, uint256 received);
     error UnexpectedOriginChain(uint256 originChainId);
     /// @notice An unwind exit returns `token`, the position's own pool does not pair it with USDC and no hint names a
     ///         route for it (final verification: the unwind is never sized or swapped without a price).

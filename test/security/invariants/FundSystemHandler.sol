@@ -517,12 +517,9 @@ contract FundSystemHandler is Test {
             uint256 available = s.spokeVault.collectedIncome(address(s.spokeWeth));
             if (available == 0) return;
             amount = bound(amount, 1, available);
-            // The mock swaps one base unit for one base unit; the adapter needs the output on its books.
-            s.usdg.mint(address(s.spokeUni), amount);
-            s.spokeUni.addLiquidity(address(s.usdg), amount);
+            // The swap adapter stand-in swaps one base unit for one base unit (DEC-136).
             vm.prank(s.manager);
-            uint256 out =
-                s.spokeVault.swapCollectedIncome(address(s.spokeUni), SPOKE_POOL, address(s.spokeWeth), amount, 0, "");
+            uint256 out = s.spokeVault.swapCollectedIncome(address(s.spokeSwap), address(s.spokeWeth), amount, 0, "");
             spokeIncomeSwappedIn += amount;
             spokeIncomeSwappedOut += out;
             ++done["spokeSwapIncome"];

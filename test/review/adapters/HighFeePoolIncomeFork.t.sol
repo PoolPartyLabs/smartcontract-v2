@@ -76,29 +76,31 @@ contract HighFeePoolIncomeFork is AdaptersForkBase {
     }
 }
 
-/// @notice What M-02 still allows at the cap: the same channel through a 1% Mandate pool in which the fund is the only
-///         LP. Each round trip of the manager's own Unallocated Balance through the fund's own range turns 2% of the leg
-///         into "income" with no loss to anyone but the holders, and nothing bounds the number of round trips: the
-///         one-shot 100% pool's effect is reached in about fifty calls. Performance fee 25% (the Mandate cap), protocol
-///         slice 50%, as in the original one-shot test.
+/// @notice What M-02 allowed at the cap: the same channel through a 1% Mandate pool in which the fund is the only LP.
+///         Each round trip of the manager's own Unallocated Balance through the fund's own range turned 2% of the leg
+///         into "income" with no loss to anyone but the holders, and nothing bounded the number of round trips.
+/// @notice FIXED by DEC-136 (founder, 2026-10-02: "swaps are not done in the fund pools"): the manager's swaps run
+///         through the Mandate swap adapter (the real `UniswapV3SwapAdapter` on Arbitrum One), which never trades in a
+///         fund's V4 pool. The round trips leave the 1% pool and the fund's position in it untouched: no income, no fee.
+///         Performance fee 25% (the Mandate cap), protocol slice 50%, as in the original one-shot test.
 contract OnePercentPoolWashFork is AdaptersForkBase {
-    uint256 internal constant ROUND_TRIPS = 50;
+    uint256 internal constant ROUND_TRIPS = 3;
     uint256 internal constant LEG = 20_000e6;
 
     function _secondFee() internal pure override returns (uint24) {
         return 10_000;
     }
 
-    function test_POC_REVIEW_M02_onePercentPoolWashTurnsPrincipalIntoFeeableIncome() public {
+    function test_REVIEW_M02_DEC136_onePercentPoolWashNoLongerReachesTheFundsPool() public {
         // 1. Alice deposits 1,000,000 USDC; the manager allocates 400,000 to the hub Spoke Vault.
         _depositAs(alice, 1_000_000e6);
         vm.prank(manager);
         vault.allocateToHubSpokeVault(400_000e6);
 
-        // 2. The manager buys WETH in the live pool and opens a +-10% position of about 100,000 in the 1% pool, where
-        //    the fund is the only LP.
+        // 2. The manager buys WETH through the swap adapter and opens a +-10% position of about 100,000 in the 1% pool,
+        //    where the fund is the only LP.
         vm.prank(manager);
-        uint256 weth = hubVault.swapExactInput(address(adapter), livePool, USDC, 50_000e6, 0, "");
+        uint256 weth = hubVault.swap(address(hubSwap), USDC, WETH, 50_000e6, 0, "");
         int24 lo = _floor(tick0, 60) - 960;
         bytes memory params = abi.encode(
             UniswapV4Adapter.OpenParams({
@@ -113,49 +115,34 @@ contract OnePercentPoolWashFork is AdaptersForkBase {
             })
         );
         vm.prank(manager);
-        (bytes32 pk, uint256 used0, uint256 used1) =
-            hubVault.openPosition(address(adapter), secondPool, weth, 50_000e6, params);
+        (bytes32 pk,,) = hubVault.openPosition(address(adapter), secondPool, weth, 50_000e6, params);
 
         address mfv = vault.managerFeeVault();
-        uint256 shareAssetsBefore = vault.shareAssets();
-        uint256 holderIncomeBefore = _usd(vault.collectedIncome(WETH), vault.collectedIncome(USDC));
+        (, int24 tickBefore,,) = IStateView(SV).getSlot0(PoolId.wrap(secondPool));
         uint256 protocolBefore =
             _usd(IERC20(WETH).balanceOf(protocolRecipient), IERC20(USDC).balanceOf(protocolRecipient));
 
-        // 3. Round trips of 20,000 USDC through the 1% pool with minAmountOut 0: the fund trades against itself.
+        // 3. Round trips of 20,000 USDC with no maximum loss: they run in Uniswap V3, not in the fund's 1% pool.
         for (uint256 i; i < ROUND_TRIPS; ++i) {
             vm.prank(manager);
-            uint256 wethOut = hubVault.swapExactInput(address(adapter), secondPool, USDC, LEG, 0, "");
+            uint256 wethOut = hubVault.swap(address(hubSwap), USDC, WETH, LEG, 0, "");
             vm.prank(manager);
-            hubVault.swapExactInput(address(adapter), secondPool, WETH, wethOut, 0, "");
+            hubVault.swap(address(hubSwap), WETH, USDC, wethOut, 0, "");
         }
 
-        // 4. Collect and forward (anyone): the Core Vault splits it as income.
+        // 4. Collect: the position earned nothing from them, and nothing is split.
         vm.prank(manager);
         IAdapter.Amounts memory inc = hubVault.collectIncome(address(adapter), pk);
-        if (hubVault.collectedIncome(WETH) != 0) hubVault.forwardIncomeToCoreVault(WETH);
-        if (hubVault.collectedIncome(USDC) != 0) hubVault.forwardIncomeToCoreVault(USDC);
-
-        uint256 incomeUsd = _usd(inc.income0, inc.income1);
-        uint256 managerCut = _usd(IERC20(WETH).balanceOf(mfv), IERC20(USDC).balanceOf(mfv));
-        uint256 protocolCut =
-            _usd(IERC20(WETH).balanceOf(protocolRecipient), IERC20(USDC).balanceOf(protocolRecipient)) - protocolBefore;
-        uint256 holdersBefore = shareAssetsBefore + holderIncomeBefore;
-        uint256 holdersAfter = vault.shareAssets() + _usd(vault.collectedIncome(WETH), vault.collectedIncome(USDC));
-        console2.log("position used WETH / USDC", used0, used1);
-        console2.log("wash volume (USDC)", 2 * LEG * ROUND_TRIPS);
+        (, int24 tickAfter,,) = IStateView(SV).getSlot0(PoolId.wrap(secondPool));
         console2.log("income reported by the adapter, WETH / USDC", inc.income0, inc.income1);
-        console2.log("income (USDC at the oracle)", incomeUsd);
-        console2.log("Share Assets before / after", shareAssetsBefore, vault.shareAssets());
-        console2.log("holders' value lost (Share Assets + Attributed Income)", holdersBefore - holdersAfter);
-        console2.log("manager fee vault", managerCut);
-        console2.log("protocol slice", protocolCut);
-
-        // The cap bounds one swap, not the channel: about 2% of the leg per round trip becomes income, a quarter of it
-        // leaves the holders (12.5% to the manager, 12.5% to the protocol).
-        assertGt(incomeUsd, 2 * LEG * ROUND_TRIPS * 95 / 10_000, "over 0.95% of the volume came back as income");
-        assertApproxEqRel(managerCut, incomeUsd / 8, 0.01e18, "the manager took 12.5% of it");
-        assertApproxEqRel(protocolCut, incomeUsd / 8, 0.01e18, "the protocol took 12.5% of it");
-        assertApproxEqRel(holdersBefore - holdersAfter, managerCut + protocolCut, 0.05e18, "the holders paid both");
+        assertEq(tickAfter, tickBefore, "DEC-136: the fund's 1% pool never traded");
+        assertEq(inc.income0, 0);
+        assertEq(inc.income1, 0);
+        assertEq(_usd(IERC20(WETH).balanceOf(mfv), IERC20(USDC).balanceOf(mfv)), 0, "nothing for the manager");
+        assertEq(
+            _usd(IERC20(WETH).balanceOf(protocolRecipient), IERC20(USDC).balanceOf(protocolRecipient)),
+            protocolBefore,
+            "nothing for the protocol"
+        );
     }
 }

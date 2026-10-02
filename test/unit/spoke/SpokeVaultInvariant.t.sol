@@ -9,6 +9,7 @@ import {Transit, TransferKind, BridgeQuote} from "../../../src/interfaces/FundTy
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {MockSpokeToken} from "../../mocks/spoke/MockSpokeToken.sol";
 import {MockPositionAdapter} from "../../mocks/spoke/MockPositionAdapter.sol";
+import {MockSwapAdapter} from "../../mocks/swap/MockSwapAdapter.sol";
 import {MockAcrossSpokePool} from "../../mocks/spoke/MockAcrossSpokePool.sol";
 
 /// @notice Drives a spoke-chain Spoke Vault through random sequences of every verb, donations included. Every action
@@ -22,6 +23,7 @@ contract SpokeVaultHandler is Test {
     MockSpokeToken internal usdg;
     MockSpokeToken internal weth;
     MockPositionAdapter internal adapter;
+    MockSwapAdapter internal swapAdapter;
     MockAcrossSpokePool internal pool;
     address internal manager;
 
@@ -40,6 +42,7 @@ contract SpokeVaultHandler is Test {
         MockSpokeToken usdg_,
         MockSpokeToken weth_,
         MockPositionAdapter adapter_,
+        MockSwapAdapter swapAdapter_,
         MockAcrossSpokePool pool_,
         address manager_
     ) {
@@ -47,6 +50,7 @@ contract SpokeVaultHandler is Test {
         usdg = usdg_;
         weth = weth_;
         adapter = adapter_;
+        swapAdapter = swapAdapter_;
         pool = pool_;
         manager = manager_;
     }
@@ -123,10 +127,8 @@ contract SpokeVaultHandler is Test {
         uint256 available = usdgIn ? _usdgAfterTopUp() : vault.unallocatedBalance(address(weth));
         if (available == 0) return;
         amount = bound(amount, 1, available);
-        tokenOut.mint(address(adapter), amount);
-        adapter.addLiquidity(address(tokenOut), amount);
         vm.prank(manager);
-        vault.swapExactInput(address(adapter), SPOKE_POOL, tokenIn, amount, 0, "");
+        vault.swap(address(swapAdapter), tokenIn, address(tokenOut), amount, 0, "");
         _check();
     }
 
@@ -211,8 +213,8 @@ contract SpokeVaultInvariantTest is SpokeVaultTestBase {
     function setUp() public {
         _setUpMocks();
         _deploySpoke();
-        spokeUni.setSwapRate(1, 1);
-        handler = new SpokeVaultHandler(vault, usdg, weth, spokeUni, spokePool, manager);
+        spokeSwap.setPrice(address(weth), address(usdg), 1, 1);
+        handler = new SpokeVaultHandler(vault, usdg, weth, spokeUni, spokeSwap, spokePool, manager);
         targetContract(address(handler));
     }
 

@@ -22,15 +22,15 @@ contract SpokeVaultSingleAssetUnwindTest is SpokeVaultTestBase {
         _deployHubWithAaveWeth();
         usdc.mint(address(core), 10_000e6);
 
-        // 400 USDC allocated, swapped into 0.2 WETH at 2,000, all of it supplied to the WETH reserve.
+        // 400 USDC allocated, swapped into 0.2 WETH at 2,000 through the swap adapter (DEC-136), all of it supplied
+        // to the WETH reserve. The unwind's hinted route still sells in the Uniswap pool until WP-09: USDC liquidity.
         core.allocate(vault, 400e6);
-        weth.mint(address(hubUni), 1e18);
-        hubUni.addLiquidity(address(weth), 1e18);
-        hubUni.setSwapRate(1e18, 2000e6);
         vm.startPrank(manager);
-        vault.swapExactInput(address(hubUni), HUB_POOL, address(usdc), 400e6, 0, "");
+        vault.swap(address(hubSwap), address(usdc), address(weth), 400e6, 0, "");
         (wethKey,,) = vault.openPosition(address(hubAave), AAVE_WETH, 0.2e18, 0, "");
         vm.stopPrank();
+        usdc.mint(address(hubUni), 10_000e6);
+        hubUni.addLiquidity(address(usdc), 10_000e6);
         hubUni.setSwapRate(2000e6, 1e18);
     }
 

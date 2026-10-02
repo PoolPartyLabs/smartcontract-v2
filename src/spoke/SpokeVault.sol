@@ -171,20 +171,23 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
     }
 
     /// @inheritdoc ISpokeVault
-    /// @dev OQ-04 stance: manager only; the adapter reverts when deprecated, never when paused. Debits Unallocated
-    ///      Balance of `tokenIn` and credits what the adapter returns in the other pool token (DEC-079, DEC-080).
-    function swapExactInput(
-        address adapter,
-        bytes32 poolKey,
+    /// @dev DEC-136, DEC-142, DEC-143, DEC-153; founder, 2026-10-02 ("swaps are not done in the fund pools"). The
+    ///      custody and ledger checks are `SpokeLedger.swapThrough`; the swap adapter applies the route, the maximum
+    ///      loss and its own pause and deprecation (DEC-056: a swap into the base token always runs).
+    function swap(
+        address swapAdapter,
         address tokenIn,
+        address tokenOut,
         uint256 amountIn,
-        uint256 minAmountOut,
-        bytes calldata params
+        uint16 maxLossBps,
+        bytes calldata route
     ) external onlyManager nonReentrant returns (uint256 amountOut) {
-        IAdapter a = _s.positionAdapter(adapter);
-        SpokeVaultTypes.PoolTokens memory p = _s.pool(adapter, poolKey);
         _topUpOperatingCash();
-        amountOut = _s.swap(baseToken, a, p, poolKey, tokenIn, amountIn, minAmountOut, params, false);
+        uint256 spotOut;
+        uint256 minOut;
+        (amountOut, spotOut, minOut) =
+            _s.swapThrough(swapAdapter, tokenIn, tokenOut, amountIn, maxLossBps, route, false);
+        emit Swapped(swapAdapter, tokenIn, tokenOut, amountIn, amountOut, spotOut, maxLossBps, minOut);
     }
 
     /// @inheritdoc ISpokeVault
