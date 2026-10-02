@@ -18,9 +18,8 @@ import {MandateFixture} from "../../utils/MandateFixture.sol";
 ///         linked `SpokeUnwindLib`), runs the executor of the order's kind and publishes its report in the same
 ///         transaction with `msg.value` as the Wormhole fee. No inactivity switch (DEC-157).
 /// @dev The spoke's Wormhole Core is `MockOrderCore`: it verifies the hand-crafted VAAs (the guardian quorum is the
-///      Core's job) and records the report the vault publishes. Until the order work exists the production executors
-///      refuse every kind; `SpokeVaultOrderHarness` stands in executors that succeed, so the checks, the dispatch and
-///      the report are seen end to end.
+///      Core's job) and records the report the vault publishes. `SpokeVaultOrderHarness` stands in the executors
+///      to isolate the checks, dispatch and report; production executor rules are in SpokeUnwindOrdersTest.
 contract ExecuteOrderTest is SpokeVaultTestBase {
     /// @dev The Hub's Wormhole chain id in the fixture Mandate (Arbitrum One).
     uint16 internal constant WH_HUB = MandateFixture.ARBITRUM_WORMHOLE_CHAIN_ID;
@@ -322,12 +321,11 @@ contract ExecuteOrderTest is SpokeVaultTestBase {
     }
 
     // -----------------------------------------------------------------------------------------------------------------
-    // Production executors: stubs until the order work exists
+    // Production executors
     // -----------------------------------------------------------------------------------------------------------------
 
-    /// @dev Every kind is refused whole by the production Spoke Vault (`OrderKindNotSupported`): nothing executes and
-    ///      nothing is published.
-    function test_WP07D4_theRemainingStubsRefuseUnwindAndClose() public {
+    /// @dev DEC-120/149: the production UNWIND and CLOSE executors publish their post-order reports.
+    function test_WP12_productionExecutorsPublishUnwindAndCloseReports() public {
         vm.chainId(SPOKE);
         SpokeVault v = new SpokeVault(
             _mandate(),
@@ -343,10 +341,10 @@ contract ExecuteOrderTest is SpokeVaultTestBase {
         uint8[2] memory kinds = [OrderCodec.UNWIND, OrderCodec.CLOSE];
         for (uint256 i; i < kinds.length; ++i) {
             bytes memory vaa = _vaa(_order(kinds[i], 1), uint64(i));
-            vm.expectRevert(abi.encodeWithSelector(ISpokeVault.OrderKindNotSupported.selector, kinds[i]));
             _deliver(v, vaa);
         }
-        assertEq(v.reportSequence(), 0, "no report");
-        assertEq(orderCore.publishedCount(), 0, "nothing published");
+        assertEq(v.reportSequence(), 2);
+        assertEq(orderCore.publishedCount(), 2);
+        assertTrue(v.spokeClosed());
     }
 }
