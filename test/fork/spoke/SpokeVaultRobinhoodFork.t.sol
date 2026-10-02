@@ -18,6 +18,10 @@ import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {MockPositionAdapter} from "../../mocks/spoke/MockPositionAdapter.sol";
 import {MockBridgeAdapter} from "../../mocks/spoke/MockBridgeAdapter.sol";
 import {MockSwapAdapter} from "../../mocks/swap/MockSwapAdapter.sol";
+import {UniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
+import {SpokeIncomeTypes} from "../../../src/spoke/SpokeIncomeTypes.sol";
+import {OrderCodec} from "../../../src/libraries/OrderCodec.sol";
+import {MandateFixture} from "../../utils/MandateFixture.sol";
 
 /// @notice Spoke role on a pinned Robinhood Chain fork: real USDG, the real Wormhole Core Bridge (report publication,
 ///         parsed with `WormholeOverride.fetchPublishedMessages`, then signed and verified with an overridden guardian
@@ -50,6 +54,22 @@ contract SpokeVaultRobinhoodForkTest is SpokeVaultForkBase {
             hubSwap: makeAddr("hubSwap"),
             spokeSwap: address(new MockSwapAdapter())
         });
+        TransitEscrow escrow = new TransitEscrow();
+        address[] memory tokens = new address[](2);
+        tokens[0] = RH_USDG;
+        tokens[1] = RH_WETH;
+        a.spokeSwap = address(
+            new UniswapV3SwapAdapter(
+                vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1),
+                guardian,
+                RH_USDG,
+                tokens,
+                0x1f7d7550B1b028f7571E69A784071F0205FD2EfA,
+                0xCaf681a66D020601342297493863E78C959E5cb2,
+                0x33e885eD0Ec9bF04EcfB19341582aADCb4c8A9E7,
+                address(0)
+            )
+        );
         vault = new SpokeVault(
             _mandate(a),
             FUND_ID,
@@ -58,7 +78,7 @@ contract SpokeVaultRobinhoodForkTest is SpokeVaultForkBase {
             RH_USDG,
             RH_SPOKE_POOL,
             RH_WORMHOLE_CORE,
-            address(new TransitEscrow()),
+            address(escrow),
             excessRecipient
         );
         spokeUni.setVault(address(vault));
@@ -141,6 +161,46 @@ contract SpokeVaultRobinhoodForkTest is SpokeVaultForkBase {
         assertEq(r.inFlightToHub.length, 1);
         assertEq(r.inFlightToHub[0].amount, 499e6);
         assertEq(r.cumulativeSentHome, 500e6);
+    }
+
+    function test_DEC122_forkRobinhood_collectOrderSellsWithLiveV3AndBridgesWithAcross() public {
+        vm.prank(manager);
+        vault.setOperatingCashParameters(0, 0);
+        _arrive(1000e6);
+        vm.prank(manager);
+        (bytes32 key,,) = vault.openPosition(address(spokeUni), SPOKE_POOL, 0, 500e6, "");
+        deal(RH_WETH, address(spokeUni), 0.1e18);
+        spokeUni.earnIncome(key, 0.1e18, 0);
+        spokeBridge.setFee(1e6);
+        OrderCodec.Order memory order;
+        order.kind = OrderCodec.COLLECT;
+        order.fundId = FUND_ID;
+        order.requestId = bytes32(uint256(1));
+        order.deadline = uint64(block.timestamp) + OrderCodec.ORDER_LIFETIME;
+        VaaBody memory body;
+        body.envelope.emitterChainId = MandateFixture.ARBITRUM_WORMHOLE_CHAIN_ID;
+        body.envelope.emitterAddress = toUniversalAddress(coreVault);
+        body.envelope.consistencyLevel = OrderCodec.CONSISTENCY_INSTANT;
+        body.payload = OrderCodec.encode(order);
+        CORE.setUpOverride();
+        bytes memory vaa = VaaLib.encode(CORE.sign(body));
+        vm.recordLogs();
+        vault.executeOrder{value: CORE.messageFee()}(vaa);
+        VaaBody[] memory published = CORE.fetchPublishedMessages(vm.getRecordedLogs());
+        assertEq(published.length, 1);
+        ReportCodec.Report memory report = ReportCodec.decode(published[0].payload);
+        SpokeIncomeTypes.CollectionResult memory result =
+            abi.decode(report.collectionResults, (SpokeIncomeTypes.CollectionResult[]))[0];
+        assertEq(result.round, 1);
+        assertEq(result.tokens[0], RH_WETH);
+        assertEq(result.sold[0], 0.1e18);
+        assertGt(result.obtained[0], 1e6);
+        assertEq(result.amountSent, result.obtained[0]);
+        assertEq(vault.hubBoundTransit(result.transitId).amountToArrive, result.amountSent - 1e6);
+        assertEq(uint8(vault.hubBoundTransit(result.transitId).kind), uint8(TransferKind.Income));
+        assertEq(vault.collectedIncome(RH_WETH), 0);
+        assertEq(vault.collectedIncome(RH_USDG), 0);
+        assertEq(report.cumulativeIncome[1].amount, 0.1e18);
     }
 
     /// @notice Non-indexed fields of `FundsDeposited`, in event order.

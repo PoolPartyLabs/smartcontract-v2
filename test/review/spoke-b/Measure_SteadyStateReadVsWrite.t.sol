@@ -21,7 +21,7 @@ contract Measure_SteadyStateReadVsWrite is SpokeBFixture {
         _fillOnSpoke(out, 99_950e6);
         _dustPositions(SpokeVaultTypes.MAX_OPEN_POSITIONS);
         _incomeArrival(64);
-        _dustSendsHome(64, TransferKind.Income);
+        _dustSendsHome(64, TransferKind.Principal); // WP-10: the manager's sends home are Principal only
         _dustArrivals(256);
         {
             (bytes memory payload, uint64 seq) = _publishPayload();

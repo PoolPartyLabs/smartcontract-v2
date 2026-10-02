@@ -118,17 +118,15 @@ contract DeprecatedAdapterFork is EndToEndScenario {
         console2.log("WETH principal / WETH income after the close", wethPrincipal, wethIncome);
         assertGt(wethPrincipal, 0);
 
-        // Both become USDG through the deprecated swap adapter and can go home; the way back stays gated.
+        // The principal becomes USDG through the deprecated swap adapter and can go home; the way back stays gated.
+        // The WETH income waits in the collected bucket for a collection order, whose sale into USDG is the same exit
+        // through the same adapter (DEC-056, DEC-122, DEC-124; WP-10: the manager has no income swap of its own).
         vm.prank(manager);
         uint256 usdg = spokeVault.swap(spokeSwapAdapter, RH_WETH, RH_USDG, wethPrincipal, 0, "");
         console2.log("USDG from the WETH principal", usdg);
         assertGt(usdg, 0);
         assertEq(spokeVault.unallocatedBalance(RH_WETH), 0, "no WETH principal stranded");
-        if (wethIncome != 0) {
-            vm.prank(manager);
-            spokeVault.swapCollectedIncome(spokeSwapAdapter, RH_WETH, wethIncome, 0, "");
-            assertEq(spokeVault.collectedIncome(RH_WETH), 0, "no WETH income stranded");
-        }
+        assertEq(spokeVault.collectedIncome(RH_WETH), wethIncome, "the WETH income waits for a collection");
         vm.prank(manager);
         vm.expectRevert(IAdapterGuard.AdapterIsDeprecated.selector);
         spokeVault.swap(spokeSwapAdapter, RH_USDG, RH_WETH, 100e6, 0, "");

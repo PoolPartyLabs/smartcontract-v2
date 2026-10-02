@@ -258,12 +258,11 @@ interface ISpokeVault is IAcrossMessageHandler, ISpokeVaultUnwind, ISpokeVaultIn
     ///         only; Spoke Chains only.
     /// @dev The vault fixes the recipient (the Core Vault), the token pair (base token to hub USDC) and the message
     ///      (TransitMessage); the bridge adapter fixes the amount to arrive and every other bridge term, and the manager
-    ///      passes no bridge parameter (DEC-087, DEC-158, DEC-162; DEC-176: no signed quote in the MVP). `Principal`
-    ///      debits Unallocated Balance; `Income` debits the collected income bucket of the base token (who pays
-    ///      bridging of income is OPEN, LC-22 / LC-37 / LC-49). Every send is in the base token (the spoke token, USDG
-    ///      on Robinhood Chain) and lands on the hub as USDC (CV-OQ-2): an `Income` send is credited on the hub as
-    ///      collected USDC income and split there (ruling 2026-09-29, DEC-107); income collected in another token is
-    ///      first turned into the base token with `swapCollectedIncome`. A per-send TransitEscrow is the depositor (DEC-066, QA6). The exit path is
+    ///      passes no bridge parameter (DEC-087, DEC-158, DEC-162; DEC-176: no signed quote in the MVP). Only
+    ///      `Principal`, which debits Unallocated Balance: income goes home only through a collection order, with the
+    ///      sale record the Hub converts it by (DEC-122, DEC-124, DEC-161), so `Income` reverts
+    ///      `IncomeSentOnlyByCollection`. Every send is in the base token (the spoke token, USDG on Robinhood Chain) and
+    ///      lands on the hub as USDC (CV-OQ-2). A per-send TransitEscrow is the depositor (DEC-066, QA6). The exit path is
     ///      never blocked by the bridge adapter's pause or deprecation (DEC-056). Custody: the vault executes the call
     ///      `IBridgeAdapter.buildSend` returns against the pinned target, with an exact approval reset to zero; the
     ///      adapter never holds the base token (DEC-087).

@@ -53,10 +53,8 @@ contract CoreVaultSetupTest is CoreVaultFixture {
         assertEq(vault.standardPayoutTerm(), 72 hours, "DEC-154: a protocol constant");
         assertEq(vault.performanceFeeBps(), 2000);
         assertEq(vault.managementFeeBps(), 0);
-        address[] memory tokens = vault.incomeTokens();
-        assertEq(tokens.length, 2);
-        assertEq(tokens[0], address(usdc));
-        assertEq(tokens[1], address(weth));
+        assertTrue(vault.incomeToken(0, address(usdc)).registered);
+        assertTrue(vault.incomeToken(0, address(weth)).registered);
     }
 
     function test_Q59_deploysAndOwnsItsShareToken() public view {
@@ -261,7 +259,7 @@ contract CoreVaultSetupTest is CoreVaultFixture {
 
     function test_DEC098_grossAssetsAddsCashAndIncome() public {
         _deposit(alice, 1000e6);
-        hubVault.forwardIncome(address(usdc), 100e6); // 80 net to holders at 20% performance
+        _hubIncomeCollected(address(usdc), 100e6); // 80 net to holders at 20% performance
         hubVault.setPositionIncome(7e6);
         vm.prank(manager);
         vault.setOperatingCashParameters(1e6, 2e6);

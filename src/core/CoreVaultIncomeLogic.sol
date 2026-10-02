@@ -2,176 +2,293 @@
 pragma solidity 0.8.28;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ICoreVaultIncome} from "../interfaces/ICoreVaultIncome.sol";
-import {IManagerRegistry} from "../interfaces/IManagerRegistry.sol";
-import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
+import {TokenConfig} from "../mandate/Mandate.sol";
+import {DollarIncomeIndex} from "../libraries/DollarIncomeIndex.sol";
 import {ReportCodec} from "../libraries/ReportCodec.sol";
 import {CoreVaultState, CoreVaultWiring} from "./CoreVaultTypes.sol";
-import {CoreVaultLogic} from "./CoreVaultLogic.sol";
+import {CoreVaultIncomeTypes} from "./CoreVaultIncomeTypes.sol";
+import {CoreVaultIncomeCollectionLogic} from "./CoreVaultIncomeCollectionLogic.sol";
 
 /// @title CoreVaultIncomeLogic
-/// @notice Collected income of the Core Vault: the fee split at collection and the advance of the shareholders'
-///         accumulator, and the income hooks the other paths call at fixed points (valuation, share balance changes),
-///         as an external library that runs in the Core Vault's context (DELEGATECALL into the fund's own linked
-///         library, never into an adapter).
-/// @dev DEC-131 pattern (alternative C) applied to the Core Vault (D-43): moved out of `CoreVaultLogic` unchanged so
-///      each linked library keeps room under the 24,576-byte limit. It calls no other linked library (the fee transfer
-///      `CoreVaultLogic.payFee` is internal, so it is compiled in); the Core Vault, `CoreVaultLogic`,
-///      `CoreVaultTransitLogic` and `CoreVaultPayoutLogic` call it through its linked address, which is part of the
-///      Core Vault's creation code and trust surface (immutable: no proxy, no upgrade path, DEC-022, DEC-058). It must
-///      never call a public function of those libraries: they link this one, so a link back would make their CREATE2
-///      addresses depend on each other.
-/// @dev WP-07 D2: the hooks keep today's behaviour (a no-op where nothing happened before); the income work (DEC-117,
-///      DEC-122, DEC-145, DEC-161) changes their bodies here without editing the callers.
-/// @dev Events are emitted with the Core Vault as their address; they and the errors are declared in ICoreVaultIncome.
+/// @notice Attributed Income of the Core Vault in the Hub dollar index (DEC-161), holders' side: the income sources'
+///         registration, the hooks the other paths call at fixed points (valuation, share balance changes, report
+///         delivery, Income arrival), the holders' settlement around every balance change, Income Withdrawal in USDC and
+///         the views, as an external library that runs in the Core Vault's context (DELEGATECALL into the fund's own
+///         linked library, never into an adapter).
+/// @dev Mechanism: checklist doc 10 section 2 (`DollarIncomeIndex`), one index per source (the Hub positions, and each
+///      spoke; `CoreVaultIncomeTypes.Source`). See ICoreVaultIncome for the rules. Recognition, the collections and the
+///      conversion live in the linked `CoreVaultIncomeCollectionLogic` (split by concern under the 24,576-byte limit,
+///      DEC-131 pattern, D-43), which the hooks forward to.
+/// @dev Linking: it calls `CoreVaultIncomeCollectionLogic` through that library's linked address, so its creation code
+///      links it and it is deployed after it. The Core Vault, `CoreVaultLogic`, `CoreVaultTransitLogic` and
+///      `CoreVaultPayoutLogic` call this library through its linked address, which is part of the Core Vault's creation
+///      code and trust surface (immutable: no proxy, no upgrade path, DEC-022, DEC-058). It must never call a public
+///      function of those four: they link this one, so a link back would make their CREATE2 addresses depend on each
+///      other.
+/// @dev WP-07 D2: the hooks keep their signatures; their bodies are the income work's (WP-10).
+/// @dev Events are emitted with the Core Vault as their address; they and the errors are declared in ICoreVaultIncome,
+///      except the `DollarIncomeIndex` events, which the index emits itself (checklist doc 15, gap 5: read them with this
+///      library's ABI).
 library CoreVaultIncomeLogic {
-    using IncomeAccumulator for IncomeAccumulator.State;
-
-    /// @dev DEC-106: default protocol slice when the registry cannot be read.
-    uint16 internal constant DEFAULT_PROTOCOL_SLICE_BPS = 5000;
-
-    uint256 private constant BPS = 10_000;
+    using SafeERC20 for IERC20;
+    using DollarIncomeIndex for DollarIncomeIndex.State;
 
     // ---------------------------------------------------------------------------------------------------------------
-    // Collected income (ruling 2026-09-29; DEC-092, DEC-106, DEC-107, DEC-109, DEC-110)
+    // Construction
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @notice Splits income that reached the Core Vault and advances the index (ruling 2026-09-29: fee split and
-    ///         attribution at collection).
-    /// @dev DEC-107: performance fee = `amount * performanceFeeBps`, on income only, no high-water mark. DEC-106,
-    ///      DEC-110: its protocol slice is read from the ManagerRegistry at this charge. DEC-109: both are paid in the
-    ///      collected token at once, the slice to the Protocol Recipient and the rest of the fee to the ManagerFeeVault,
-    ///      so no fee ever waits in the Core Vault. The net enters the shareholders' accumulator (DEC-014, Q60; with no
-    ///      shares outstanding it is kept ownerless, LC-32) and the collected balance (LC-100). The caller checked the
-    ///      token is an income token and that `amount` is held above the ledger (DEC-080). Rounding: the fee rounds
-    ///      down (in the holders' favour), the slice rounds down (in the manager's favour).
-    function collectIncome(CoreVaultState storage s, CoreVaultWiring memory w, address token, uint256 amount) public {
-        _collectIncome(s, w, token, amount);
-    }
-
-    function _collectIncome(CoreVaultState storage s, CoreVaultWiring memory w, address token, uint256 amount) private {
-        uint16 sliceBps = protocolSliceBps(w);
-        uint256 managerFee = amount * s.performanceFeeBps / BPS;
-        uint256 slice = managerFee * sliceBps / BPS;
-        managerFee -= slice;
-        uint256 net = amount - managerFee - slice;
-        s.incomeBook.collectedIncome[token] += net;
-        s.incomeBook.index.distribute(token, net, IERC20(w.shareToken).totalSupply());
-        emit ICoreVaultIncome.CollectedIncomeReceived(token, amount, managerFee, slice, sliceBps);
-        CoreVaultLogic.payFee(s, token, w.protocolRecipient, slice);
-        CoreVaultLogic.payFee(s, token, w.managerFeeVault, managerFee);
-    }
-
-    /// @notice DEC-106, DEC-110: the registry is read at every charge. A failed read or a value above 100% never blocks
-    ///         recognition (DEC-107 reading 3): the DEC-106 default of 50% applies; values are capped at 100%.
-    function protocolSliceBps(CoreVaultWiring memory w) public view returns (uint16 bps) {
-        try IManagerRegistry(w.managerRegistry).protocolSliceBps(w.manager) returns (uint16 value) {
+    /// @notice Registers the income sources from the stored Mandate: the Hub (source 0) with USDC first and the Hub's
+    ///         other Mandate tokens, then one source per spoke with that spoke chain's Mandate tokens (DEC-123,
+    ///         DEC-136: the closed token list; at most `MandateLib.MAX_TOKENS` in all).
+    /// @dev Called once by the Core Vault constructor, after it stored the Mandate.
+    function initialize(CoreVaultState storage s) public {
+        CoreVaultIncomeTypes.Book storage b = s.incomeBook;
+        uint256 count = 1 + s.mandate.spokes.length;
+        b.sourceCount = count;
+        TokenConfig[] storage tokens = s.mandate.tokens;
+        address usdc = s.mandate.usdc;
+        for (uint256 k; k < count; ++k) {
+            DollarIncomeIndex.State storage index = b.sources[k].index;
+            // casting to 'uint8' is safe because a Mandate lists at most 16 tokens, so at most 15 spokes
             // forge-lint: disable-next-line(unsafe-typecast)
-            bps = value > BPS ? uint16(BPS) : value;
-        } catch {
-            bps = DEFAULT_PROTOCOL_SLICE_BPS;
+            index.source = uint8(k);
+            uint256 chainId =
+                k == CoreVaultIncomeTypes.HUB_SOURCE ? s.mandate.hubChainId : s.mandate.spokes[k - 1].chainId;
+            if (k == CoreVaultIncomeTypes.HUB_SOURCE) index.registerToken(usdc);
+            for (uint256 i; i < tokens.length; ++i) {
+                if (tokens[i].chainId != chainId) continue;
+                if (k == CoreVaultIncomeTypes.HUB_SOURCE && tokens[i].token == usdc) continue;
+                index.registerToken(tokens[i].token);
+            }
         }
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // Cross-chain hooks (WP-07 D2; DEC-122, DEC-124, DEC-161)
+    // Shareholder verbs (DEC-025, DEC-073, DEC-117 item 4, DEC-122, DEC-124; the request is in
+    // CoreVaultIncomeCollectionLogic)
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @notice Called when an Income transfer of spoke `spokeIndex` reaches the Core Vault and is credited
-    ///         (`CoreVaultTransitLogic`: up to what an accepted report of that spoke listed for `transitId`).
-    /// @dev Ruling 2026-09-29: the collected income is split at once (`collectIncome`). The income work (DEC-161: the
-    ///      Hub dollar index with each collection's rates) changes this body. It runs inside a report delivery or an
-    ///      Across fill (`handleV3AcrossMessage`), so it must not revert: a revert would refuse the report or fail the
-    ///      relayer's fill.
-    function onIncomeArrival(
-        CoreVaultState storage s,
-        CoreVaultWiring memory w,
-        uint256,
-        address token,
-        uint256 amount,
-        bytes32
-    ) public {
-        _collectIncome(s, w, token, amount);
-    }
-
-    /// @notice Called after the Core Vault applied a newly accepted report of spoke `spokeIndex`. Nothing to do yet.
-    /// @dev The income work reads the report's `collectionResults` here (DEC-122 item 5, DEC-161). It runs inside the
-    ///      report delivery, so it must not revert (Q60 fitness function: report admission never reverts because of
-    ///      income) and must stay bounded in gas.
-    function onReportAccepted(CoreVaultState storage, CoreVaultWiring memory, uint256, ReportCodec.Report memory)
+    /// @notice ICoreVaultIncome.settleIncomeWithdrawal after the guard.
+    function settleIncomeWithdrawal(CoreVaultState storage s, CoreVaultWiring memory w, address holder)
         public
-        pure {}
+        returns (uint256 amount)
+    {
+        CoreVaultIncomeTypes.Book storage b = s.incomeBook;
+        CoreVaultIncomeTypes.Request memory r = b.requests[holder];
+        if (!r.open) revert ICoreVaultIncome.NoIncomeWithdrawalRequest(holder);
+        if ((r.round == b.round && b.pendingSpokes != 0) || b.openResults != 0) {
+            revert ICoreVaultIncome.IncomeCollectionPending(r.round);
+        }
+        delete b.requests[holder];
+        return withdrawIncome(s, w, holder);
+    }
 
-    /// @notice Whether the fund's final income collection is done, so a closure may finish (DEC-147, DEC-149). Always
-    ///         true until the collection orders exist (DEC-122, DEC-161); the closure work reads it.
-    function finalCollectionDone(CoreVaultState storage, CoreVaultWiring memory) public pure returns (bool) {
-        return true;
+    /// @notice ICoreVaultIncome.withdrawIncome for `holder`, after the guard: settles and pays every settled dollar.
+    function withdrawIncome(CoreVaultState storage s, CoreVaultWiring memory w, address holder)
+        public
+        returns (uint256 amount)
+    {
+        _settle(s, holder, IERC20(w.shareToken).balanceOf(holder));
+        return _pay(s, w, holder);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // Valuation hook (WP-07 D2; DEC-117)
+    // Valuation hook (WP-07 D2; DEC-117, DEC-138)
     // ---------------------------------------------------------------------------------------------------------------
 
     /// @notice Called at the end of every recorded valuation (`CoreVaultLogic.recordValuation`: deposits, Payout
-    ///         Requests, claims, management fee bookings) with the hub Spoke Vault's report that valuation read.
-    ///         Nothing to do yet.
-    /// @dev DEC-117: the income work recognizes hub income here, inside the valuation and so before the operation
-    ///      checkpoints any holder. `hubRead` is false when a payout's valuation could not read the hub report (payout
-    ///      liveness, DEC-021, DEC-056), and `hubReport` is then empty; `mint` tells a mint's valuation (every
-    ///      dependency answered, fresh) from a payout's. In a payout's valuation it must never revert: an exit is never
-    ///      blocked (DEC-021, DEC-056).
-    function onValuation(CoreVaultState storage, CoreVaultWiring memory, ReportCodec.Report memory, bool, bool)
-        public
-        pure {}
+    ///         Requests, claims, management fee bookings) with the hub Spoke Vault's report that valuation read:
+    ///         recognizes the Hub income since the last recognition (DEC-117 item 1, DEC-138).
+    /// @dev Inside the valuation, before the operation settles any holder, at the supply before the mint or burn: an
+    ///      entrant gets none of it and a leaver keeps it (DEC-014). `hubRead` false (a payout could not read the hub
+    ///      report, DEC-021, DEC-056): the last counters stay and nothing is recognized now; the next read recognizes
+    ///      the whole advance. Never reverts.
+    function onValuation(
+        CoreVaultState storage s,
+        CoreVaultWiring memory w,
+        ReportCodec.Report memory hubReport,
+        bool hubRead,
+        bool
+    ) public {
+        if (hubRead) {
+            CoreVaultIncomeCollectionLogic.recognize(s, w, CoreVaultIncomeTypes.HUB_SOURCE, hubReport.cumulativeIncome);
+        } else {
+            emit ICoreVaultIncome.HubIncomeCollectionFailed();
+        }
+    }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // Share balance hooks (WP-07 D2; DEC-014, DEC-045, DEC-047, Q60)
+    // Share balance hooks (WP-07 D2; DEC-014, DEC-045, DEC-047)
     // ---------------------------------------------------------------------------------------------------------------
 
     /// @notice Called before every mint (deposit, seed) and every burn (payout) of `holder`'s shares, with the balance
-    ///         before the change.
-    /// @dev DEC-014, Q60: checkpoints the holder's Attributed Income at that balance, so an entrant gets none of the
-    ///      income collected before it entered and a leaver keeps what it earned. The income work changes this body,
-    ///      not its callers.
+    ///         before the change: settles the holder in every source (doc 10 section 2, "apuração do investidor").
+    /// @dev A settlement that runs out of steps (`DollarIncomeIndex.MAX_SETTLE_STEPS`, only after many partial sales)
+    ///      keeps its progress, so the loop always ends; a mint or burn is never refused for it.
     function beforeBalanceChange(
         CoreVaultState storage s,
         CoreVaultWiring memory,
         address holder,
         uint256 balanceBefore
     ) public {
-        s.incomeBook.index.checkpoint(holder, balanceBefore);
+        _settle(s, holder, balanceBefore);
     }
 
-    /// @notice Called after every mint (deposit, seed): `minted` shares went to `holder`. Nothing to do yet; the income
-    ///         work fills it (DEC-145, entry time).
-    function afterMint(CoreVaultState storage, CoreVaultWiring memory, address, uint256) public pure {}
-
-    /// @notice Called after every burn (payout) that burned shares: `burned` shares of `holder` were burned, leaving
-    ///         `balanceAfter`.
-    /// @dev DEC-045, DEC-047: a full burn pays all Attributed Income payable now, in every token, in the same
-    ///      transaction; `beforeBalanceChange` checkpointed the holder before the burn.
-    function afterBurn(CoreVaultState storage s, CoreVaultWiring memory, address holder, uint256, uint256 balanceAfter)
-        public
-    {
-        if (balanceAfter == 0) _payAllIncome(s, holder);
-    }
-
-    /// @notice DEC-045, DEC-047: pays all Attributed Income payable now to `holder`, in every token.
-    /// @dev Independent review (verification plan CF-2; DEC-021, DEC-056: an exit is never blocked): an income token
-    ///      that cannot be transferred to the holder (paused, blocklisting the holder, reverting) no longer reverts the
-    ///      claim and with it the exit of the holder's principal. That token's income leaves the accumulator as usual
-    ///      and is kept for the holder as an owed transfer (the S-12 path, `CoreVaultLogic.payFee`), paid to the holder
-    ///      by the permissionless `claimOwedFees(token, holder)`. `withdrawIncome` still reverts on a failed transfer:
-    ///      there the holder asked for that one token.
-    function _payAllIncome(CoreVaultState storage s, address holder) private {
-        address[] memory tokens = s.incomeBook.index.tokens;
-        for (uint256 i; i < tokens.length; ++i) {
-            address token = tokens[i];
-            uint256 amount = s.incomeBook.index.takeOwed(holder, token, s.incomeBook.collectedIncome[token]);
-            if (amount == 0) continue;
-            s.incomeBook.collectedIncome[token] -= amount;
-            CoreVaultLogic.payFee(s, token, holder, amount);
-            emit ICoreVaultIncome.IncomeWithdrawn(holder, token, amount);
+    /// @notice Called after every mint (deposit, seed): the `minted` shares take nothing of what the open intervals
+    ///         earned before them (DEC-014, doc 10 section 2).
+    function afterMint(CoreVaultState storage s, CoreVaultWiring memory, address holder, uint256 minted) public {
+        CoreVaultIncomeTypes.Book storage b = s.incomeBook;
+        uint256 count = b.sourceCount;
+        for (uint256 k; k < count; ++k) {
+            b.sources[k].index.onMint(holder, minted);
         }
+    }
+
+    /// @notice Called after every burn (payout) that burned shares: the `burned` shares keep what they earned in the
+    ///         open intervals (DEC-014, DEC-045); a full burn pays every settled dollar now (DEC-045, DEC-047).
+    /// @dev What the burned shares earned and no collection converted yet stays the holder's and is paid in dollars once
+    ///      a collection converts it (Income Withdrawal, even at a zero balance): the dollar index pays only converted
+    ///      income (DEC-124, DEC-161; DEC-045's "a detalhar" on income still in the positions).
+    function afterBurn(
+        CoreVaultState storage s,
+        CoreVaultWiring memory w,
+        address holder,
+        uint256 burned,
+        uint256 balanceAfter
+    ) public {
+        CoreVaultIncomeTypes.Book storage b = s.incomeBook;
+        uint256 count = b.sourceCount;
+        for (uint256 k; k < count; ++k) {
+            b.sources[k].index.onBurn(holder, burned);
+        }
+        if (balanceAfter == 0) _pay(s, w, holder);
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Cross-chain hooks (WP-07 D2; DEC-122, DEC-124, DEC-161)
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// @notice Called after the Core Vault applied a newly accepted report of spoke `spokeIndex`: recognizes the
+    ///         spoke's income from the report's counters, then reads its collection results
+    ///         (`CoreVaultIncomeCollectionLogic.readReport`; DEC-122 item 5, DEC-138, DEC-161).
+    /// @dev Runs inside the report delivery: never reverts on income (Q60 fitness function) and stays bounded in gas.
+    function onReportAccepted(
+        CoreVaultState storage s,
+        CoreVaultWiring memory w,
+        uint256 spokeIndex,
+        ReportCodec.Report memory r
+    ) public {
+        CoreVaultIncomeCollectionLogic.readReport(s, w, spokeIndex, r.cumulativeIncome, r.collectionResults);
+    }
+
+    /// @notice Called when an Income transfer of spoke `spokeIndex` reaches the Core Vault and is credited
+    ///         (`CoreVaultTransitLogic`: up to what an accepted report of that spoke listed for `transitId`): held for the
+    ///         collection result it carries (`CoreVaultIncomeCollectionLogic.creditIncome`; DEC-161, DEC-166).
+    /// @dev It runs inside a report delivery or an Across fill (`handleV3AcrossMessage`), so it never reverts.
+    function onIncomeArrival(
+        CoreVaultState storage s,
+        CoreVaultWiring memory w,
+        uint256 spokeIndex,
+        address,
+        uint256 amount,
+        bytes32 transitId
+    ) public {
+        CoreVaultIncomeCollectionLogic.creditIncome(s, w, spokeIndex, amount, transitId);
+    }
+
+    /// @notice Whether the fund's final income collection is done, so a closure may finish (DEC-147, DEC-149, DEC-163):
+    ///         no collection round is waiting for a spoke, no spoke result waits for its dollars, and no income or fee
+    ///         recognized in any source is left unconverted.
+    function finalCollectionDone(CoreVaultState storage s, CoreVaultWiring memory) public view returns (bool) {
+        CoreVaultIncomeTypes.Book storage b = s.incomeBook;
+        if (b.pendingSpokes != 0 || b.openResults != 0) return false;
+        uint256 count = b.sourceCount;
+        for (uint256 k; k < count; ++k) {
+            CoreVaultIncomeTypes.Source storage src = b.sources[k];
+            address[] storage tokens = src.index.tokens;
+            for (uint256 i; i < tokens.length; ++i) {
+                if (src.index.token[tokens[i]].recognized != 0 || src.feeUnits[tokens[i]] != 0) return false;
+            }
+        }
+        return true;
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Views
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// @notice ICoreVaultIncome.incomeOwed.
+    function incomeOwed(CoreVaultState storage s, CoreVaultWiring memory w, address holder)
+        public
+        view
+        returns (uint256 dollars)
+    {
+        CoreVaultIncomeTypes.Book storage b = s.incomeBook;
+        uint256 shares = IERC20(w.shareToken).balanceOf(holder);
+        uint256 count = b.sourceCount;
+        for (uint256 k; k < count; ++k) {
+            dollars += b.sources[k].index.owedDollars(holder, shares);
+        }
+    }
+
+    /// @notice ICoreVaultIncome.unconvertedIncome.
+    function unconvertedIncome(
+        CoreVaultState storage s,
+        CoreVaultWiring memory w,
+        address holder,
+        uint256 source,
+        address token
+    ) public view returns (uint256) {
+        return _source(s, source).index.tokenOwed(holder, IERC20(w.shareToken).balanceOf(holder), token);
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Holders
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// @dev Settles `holder` at `shares` in every source, to completion (see `beforeBalanceChange`).
+    function _settle(CoreVaultState storage s, address holder, uint256 shares) private {
+        CoreVaultIncomeTypes.Book storage b = s.incomeBook;
+        uint256 count = b.sourceCount;
+        for (uint256 k; k < count; ++k) {
+            DollarIncomeIndex.State storage index = b.sources[k].index;
+            while (!index.settle(holder, shares)) {}
+        }
+    }
+
+    /// @dev Pays `holder` every settled dollar of every source in USDC (DEC-124). A transfer that fails is owed to the
+    ///      holder and paid by `claimOwedFees` (independent review, plan CF-2: an exit is never blocked by its income;
+    ///      checklist doc 15, gap 16: `IncomeTransferOwed`, not `IncomeWithdrawn`).
+    function _pay(CoreVaultState storage s, CoreVaultWiring memory w, address holder) private returns (uint256 amount) {
+        CoreVaultIncomeTypes.Book storage b = s.incomeBook;
+        uint256 count = b.sourceCount;
+        for (uint256 k; k < count; ++k) {
+            amount += b.sources[k].index.take(holder, type(uint256).max);
+        }
+        if (amount == 0) return 0;
+        b.heldDollars -= amount;
+        address usdc = w.usdc;
+        if (IERC20(usdc).trySafeTransfer(holder, amount)) {
+            emit ICoreVaultIncome.IncomeWithdrawn(holder, usdc, amount);
+        } else {
+            s.owedFees[usdc][holder] += amount;
+            s.owedFeesTotal[usdc] += amount;
+            emit ICoreVaultIncome.IncomeTransferOwed(holder, usdc, amount);
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Helpers
+    // ---------------------------------------------------------------------------------------------------------------
+
+    function _source(CoreVaultState storage s, uint256 source)
+        private
+        view
+        returns (CoreVaultIncomeTypes.Source storage)
+    {
+        if (source >= s.incomeBook.sourceCount) revert ICoreVaultIncome.UnknownIncomeSource(source);
+        return s.incomeBook.sources[source];
     }
 }

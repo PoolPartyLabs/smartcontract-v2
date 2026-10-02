@@ -128,6 +128,8 @@ abstract contract FundSystemFixture is Test, FundSeed {
         spokeSwap = new MockSwapAdapter();
         // WETH income is swapped into USDG one base unit for one base unit (DEC-136: through the swap adapter).
         spokeSwap.setPrice(address(sys.spokeWeth), address(sys.usdg), 1, 1);
+        // DEC-172: the hub collections sell WETH income for USDC at the price source's 2,500 USDC per WETH.
+        hubSwap.setPrice(address(sys.weth), address(sys.usdc), 2500e6, 1e18);
         sys.spokeSwap = spokeSwap;
         sys.manager = manager;
         sys.protocolRecipient = protocolRecipient;
@@ -226,7 +228,7 @@ abstract contract FundSystemFixture is Test, FundSeed {
         c.managerRegistry = address(registry);
         c.priceSource = address(sys.prices);
         c.acrossSpokePool = address(sys.hubPool);
-        c.wormholeCore = address(coreBridge);
+        c.wormholeCore = address(sys.wormhole);
         c.protocolRecipient = protocolRecipient;
         c.excessRecipient = excessRecipient;
         c.escrowImplementation = address(escrowImplementation);

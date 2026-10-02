@@ -6,13 +6,13 @@ import {CoreBridgeVM, GuardianSignature} from "wormhole-sdk/interfaces/ICoreBrid
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
+import {IAdapter} from "../../../src/interfaces/IAdapter.sol";
 import {Transit, TransitState, TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {ShareMath} from "../../../src/libraries/ShareMath.sol";
-import {IncomeAccumulator} from "../../../src/libraries/IncomeAccumulator.sol";
 import {MandateLib} from "../../../src/mandate/Mandate.sol";
 import {CoreMockToken} from "../../mocks/core/CoreMockTokens.sol";
 import {MockAcrossSpokePool} from "../../mocks/core/MockAcrossSpokePool.sol";
@@ -127,11 +127,15 @@ contract FundSystemHandler is Test {
     /// @notice USDC moved between Idle and the hub Spoke Vault.
     uint256 public allocatedToHubVault;
     uint256 public returnedFromHubVault;
-    /// @notice Collected income that reached the Core Vault and the fees that left it, per token.
-    mapping(address => uint256) public incomeGross;
-    mapping(address => uint256) public incomeFees;
+    /// @notice Income in USDC that reached the Core Vault (the hub collections' sales, DEC-161, DEC-172), the fees that
+    ///         left it and what holders took (Income Withdrawal and full exits).
+    uint256 public incomeObtained;
+    uint256 public incomeFees;
+    uint256 public incomeTaken;
+    /// @notice What the hub collections took out of the hub Spoke Vault's collected income bucket, per token.
     mapping(address => uint256) public incomeForwardedFromHubVault;
-    /// @notice Spoke collected income: swaps between the two tokens of the bucket.
+    /// @notice Spoke collected income: swaps between the two tokens of the bucket (none since DEC-178 item 5: the
+    ///         conversion happens at the collection order).
     uint256 public spokeIncomeSwappedIn;
     uint256 public spokeIncomeSwappedOut;
     uint64 public lastReportSequence;
@@ -229,13 +233,14 @@ contract FundSystemHandler is Test {
 
     function _before(address who) internal view returns (Before memory b) {
         b.balance = s.usdc.balanceOf(who);
-        b.taken = s.core.incomeState(address(s.usdc)).taken;
+        b.taken = _heldIncome();
         b.hubVault = _hubVaultPrincipal();
     }
 
     /// @dev Checks and books a claim's receipt (an Instant request's or a claim's).
     function _bookClaim(address who, Before memory b, ICoreVault.PayoutReceipt memory r, uint256 outstanding) internal {
-        uint256 income = s.core.incomeState(address(s.usdc)).taken - b.taken;
+        uint256 income = b.taken - _heldIncome();
+        incomeTaken += income;
         assertEq(s.usdc.balanceOf(who) - b.balance, r.usdcPaid + income, "claimant receives exactly the receipt");
         assertLe(r.usdcGross, outstanding, "DEC-077: never more than requested");
         assertEq(r.usdcGross, r.usdcPaid + r.payoutFee + r.flowFee, "receipt adds up");
@@ -257,16 +262,16 @@ contract FundSystemHandler is Test {
         this.claimPayout(actorSeed, true);
     }
 
-    function withdrawIncome(uint256 actorSeed, bool inWeth) external {
+    /// @dev DEC-124: Income Withdrawal pays USDC only (`inWeth` is kept for the callers; it no longer selects).
+    function withdrawIncome(uint256 actorSeed, bool) external {
         address who = _actor(actorSeed);
-        CoreMockToken token = inWeth ? s.weth : s.usdc;
-        uint256 owed = s.core.attributedIncome(who, address(token));
-        uint256 collected = s.core.collectedIncome(address(token));
-        uint256 before = token.balanceOf(who);
+        uint256 owed = s.core.incomeOwed(who);
+        uint256 before = s.usdc.balanceOf(who);
         vm.prank(who);
-        uint256 amount = s.core.withdrawIncome(address(token));
-        assertEq(amount, owed < collected ? owed : collected, "LC-100: min(owed, collected)");
-        assertEq(token.balanceOf(who) - before, amount, "income paid");
+        uint256 amount = s.core.withdrawIncome();
+        assertEq(amount, owed, "DEC-161: every converted dollar");
+        assertEq(s.usdc.balanceOf(who) - before, amount, "income paid");
+        incomeTaken += amount;
         if (amount != 0) ++done["withdrawIncome"];
         _observe();
     }
@@ -326,7 +331,7 @@ contract FundSystemHandler is Test {
         _observe();
     }
 
-    /// @notice Income on a hub position from earning to the shareholders' accumulator: earn, collect, forward.
+    /// @notice Income on a hub position from earning to the holders' dollars: earn, collect, convert.
     function hubIncomeCycle(uint256 index, uint256 amountWeth, uint256 amountStable, bool forwardWeth) external {
         if (s.hubVault.positions().length == 0) this.hubPosition(index % 2, 0, amountStable, 0);
         ISpokeVault.PositionRef[] memory refs = s.hubVault.positions();
@@ -338,20 +343,44 @@ contract FundSystemHandler is Test {
         if (forwardWeth) this.forwardIncome(true);
     }
 
-    function forwardIncome(bool inWeth) external {
-        CoreMockToken token = inWeth ? s.weth : s.usdc;
-        uint256 amount = s.hubVault.collectedIncome(address(token));
-        if (amount == 0) return;
-        uint256 feesBefore = _feeBalances(token);
-        uint256 collectedBefore = s.core.collectedIncome(address(token));
-        s.hubVault.forwardIncomeToCoreVault(address(token));
-        uint256 fees = _feeBalances(token) - feesBefore;
-        assertEq(fees + s.core.collectedIncome(address(token)) - collectedBefore, amount, "income split adds up");
-        incomeGross[address(token)] += amount;
-        incomeFees[address(token)] += fees;
-        incomeForwardedFromHubVault[address(token)] += amount;
+    /// @notice DEC-122, DEC-161, DEC-172: an Income Withdrawal request collects the hub positions' income, sells the
+    ///         WETH for USDC through the Mandate swap adapter and converts it in the Hub dollar index; the fee leaves in
+    ///         USDC at once (`inWeth` is kept for the callers; one collection takes every token).
+    function forwardIncome(bool) external {
+        uint256[2] memory before = [_hubIncomeAvailable(s.usdc), _hubIncomeAvailable(s.weth)];
+        if (before[0] == 0 && before[1] == 0) return;
+        uint256 feesBefore = _feeBalances(s.usdc);
+        uint256 coreBefore = s.usdc.balanceOf(address(s.core));
+        uint256 heldBefore = _heldIncome();
+        vm.prank(stranger);
+        s.core.requestIncomeWithdrawal(0);
+        uint256 fees = _feeBalances(s.usdc) - feesBefore;
+        uint256 obtained = s.usdc.balanceOf(address(s.core)) - coreBefore + fees;
+        assertLe(fees + _heldIncome() - heldBefore, obtained, "fees plus the holders' dollars within what was obtained");
+        assertEq(s.hubVault.collectedIncome(address(s.usdc)), 0, "DEC-172: every hub token is collected");
+        assertEq(s.hubVault.collectedIncome(address(s.weth)), 0, "DEC-172: and sold");
+        incomeObtained += obtained;
+        incomeFees += fees;
+        incomeForwardedFromHubVault[address(s.usdc)] += before[0];
+        incomeForwardedFromHubVault[address(s.weth)] += before[1];
         ++done["forwardIncome"];
         _observe();
+    }
+
+    /// @dev What a hub collection would take of `token`: the collected bucket plus the open positions' uncollected
+    ///      income (which the collection realizes first).
+    function _hubIncomeAvailable(CoreMockToken token) internal view returns (uint256 amount) {
+        amount = s.hubVault.collectedIncome(address(token));
+        ISpokeVault.PositionRef[] memory refs = s.hubVault.positions();
+        for (uint256 i; i < refs.length; ++i) {
+            IAdapter.PositionValue memory v = IAdapter(refs[i].adapter).positionValue(refs[i].positionKey);
+            if (v.token0 == address(token)) amount += v.income0;
+            if (v.token1 == address(token)) amount += v.income1;
+        }
+    }
+
+    function _heldIncome() internal view returns (uint256) {
+        return s.core.incomeCollection().heldDollars;
     }
 
     /// @dev DEC-110, DEC-184: the performance fee only falls, and never below the 10% floor.
@@ -473,7 +502,10 @@ contract FundSystemHandler is Test {
         _observe();
     }
 
+    /// @dev DEC-122, DEC-161: income goes home only through a collection order, so every manual send is Principal
+    ///      (`income` is kept for the callers).
     function sendHome(uint256 amount, bool income, uint256 feeBps) external {
+        income = false;
         uint256 available = income ? s.spokeVault.collectedIncome(address(s.usdg)) : _spokeUsdgAfterTopUp();
         if (available == 0) return;
         // Security review S-11: a full hub-bound list makes `sendToHub` revert; deep campaigns stop sending there.
@@ -524,7 +556,8 @@ contract FundSystemHandler is Test {
     // Manager: spoke
     // ===============================================================================================================
 
-    /// @param action 0 open, 2 decrease, 3 close, 4 collect, 5 earn, 1 swap collected WETH income into USDG.
+    /// @param action 0 open, 2 decrease, 3 close, 4 collect, 5 earn, 1 nothing (the manager's income swap is gone:
+    ///        DEC-178 item 5, the conversion happens at the collection order).
     function spokePosition(uint256 action, uint256 index, uint256 amount, uint256 amount2) external {
         action = action % 6;
         ISpokeVault.PositionRef[] memory refs = s.spokeVault.positions();
@@ -535,15 +568,7 @@ contract FundSystemHandler is Test {
             s.spokeVault.openPosition(address(s.spokeUni), SPOKE_POOL, 0, bound(amount, 1, available), "");
             ++done["spokeOpen"];
         } else if (action == 1) {
-            uint256 available = s.spokeVault.collectedIncome(address(s.spokeWeth));
-            if (available == 0) return;
-            amount = bound(amount, 1, available);
-            // The swap adapter stand-in swaps one base unit for one base unit (DEC-136).
-            vm.prank(s.manager);
-            uint256 out = s.spokeVault.swapCollectedIncome(address(s.spokeSwap), address(s.spokeWeth), amount, 0, "");
-            spokeIncomeSwappedIn += amount;
-            spokeIncomeSwappedOut += out;
-            ++done["spokeSwapIncome"];
+            return;
         } else {
             if (refs.length == 0) return;
             ISpokeVault.PositionRef memory ref = refs[index % refs.length];
@@ -636,7 +661,7 @@ contract FundSystemHandler is Test {
         bytes32 id = keccak256(abi.encode("fabricated", ++_fakeIds));
         uint256 priceBefore = _sharePrice();
         uint256 idleBefore = s.core.idle();
-        uint256 collectedBefore = s.core.collectedIncome(address(s.usdc));
+        uint256 collectedBefore = _heldIncome();
         uint256 unmatchedBefore = s.core.unmatchedArrivals();
         TransferKind kind = income ? TransferKind.Income : TransferKind.Principal;
         s.hubPool
@@ -647,9 +672,7 @@ contract FundSystemHandler is Test {
                 TransitMessage.encode(fundId, fromSpokeChain ? SPOKE : 8453, id, kind)
             );
         assertEq(s.core.idle(), idleBefore, "DEC-080: a fabricated arrival reached Idle");
-        assertEq(
-            s.core.collectedIncome(address(s.usdc)), collectedBefore, "DEC-080: a fabricated arrival became income"
-        );
+        assertEq(_heldIncome(), collectedBefore, "DEC-080: a fabricated arrival became income");
         assertEq(s.core.unmatchedArrivals(), unmatchedBefore + amount, "OQ-01: a fabricated arrival is held apart");
         assertEq(_sharePrice(), priceBefore, "DEC-080: a fabricated arrival moved the Share Price");
         strangerHubArrivals += amount;
@@ -822,9 +845,9 @@ contract FundSystemHandler is Test {
     /// @notice What a vault's ledger says it holds of `token`.
     function ledgerOf(address vault, address token) public view returns (uint256 total) {
         if (vault == address(s.core)) {
-            total = s.core.collectedIncome(token);
+            // DEC-161: the Core Vault holds income in USDC only.
             if (token == address(s.usdc)) {
-                total += s.core.idle() + s.core.operatingCash() + s.core.unmatchedArrivals();
+                total = s.core.idle() + s.core.operatingCash() + s.core.unmatchedArrivals() + _heldIncome();
             }
         } else {
             SpokeVault v = SpokeVault(vault);
@@ -1031,20 +1054,20 @@ contract FundSystemHandler is Test {
         assertEq(d.recipient, address(s.core), "DEC-087: the vault fixes the recipient");
         uint256 idleBefore = s.core.idle();
         uint256 feesBefore = _feeBalances(s.usdc);
-        uint256 collectedBefore = s.core.collectedIncome(address(s.usdc));
+        uint256 collectedBefore = _heldIncome();
         s.hubPool.fill(address(s.core), address(s.usdc), d.outputAmount, d.message);
         uint256 toIdle = s.core.idle() - idleBefore;
         uint256 fees = _feeBalances(s.usdc) - feesBefore;
-        uint256 toIncome = s.core.collectedIncome(address(s.usdc)) - collectedBefore + fees;
+        uint256 toIncome = _heldIncome() - collectedBefore + fees;
         if (h.kind == TransferKind.Principal) {
             assertEq(toIncome, 0, "OQ-01: a Principal transfer home was credited as income");
             if (listSendsHomeAtOnce) assertEq(toIdle, h.amountToArrive, "a listed Principal arrival reaches Idle");
             principalOut += h.amountSent - h.amountToArrive;
         } else {
             assertEq(toIdle, 0, "DEC-092: an Income transfer home reached Idle");
-            if (listSendsHomeAtOnce) assertEq(toIncome, h.amountToArrive, "a listed Income arrival is collected");
-            incomeGross[address(s.usdc)] += toIncome;
-            incomeFees[address(s.usdc)] += fees;
+            if (listSendsHomeAtOnce) {
+                assertEq(toIncome, h.amountToArrive, "a listed Income arrival is held for income");
+            }
         }
     }
 

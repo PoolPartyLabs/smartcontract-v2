@@ -12,11 +12,11 @@ import {IPriceSource} from "../interfaces/IPriceSource.sol";
 import {Transit, ExpensePayer} from "../interfaces/FundTypes.sol";
 import {Mandate, MandateLib, SpokeConfig, BridgeAdapterConfig, TokenConfig} from "../mandate/Mandate.sol";
 import {ShareMath} from "../libraries/ShareMath.sol";
-import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 import {ShareToken} from "./ShareToken.sol";
 import {ManagerFeeVault} from "./ManagerFeeVault.sol";
 import {CoreVaultConfig, CoreVaultWiring, CoreVaultState, CORE_VAULT_UNWINDING_SLOT} from "./CoreVaultTypes.sol";
 import {CoreVaultLogic} from "./CoreVaultLogic.sol";
+import {CoreVaultIncomeLogic} from "./CoreVaultIncomeLogic.sol";
 
 /// @title CoreVaultBase
 /// @notice Wiring, storage, value-base views and Operating Cash of the Core Vault. See ICoreVault.
@@ -26,7 +26,6 @@ import {CoreVaultLogic} from "./CoreVaultLogic.sol";
 ///      libraries' included, is declared in ICoreVault or an interface it inherits (ICoreVaultPayouts,
 ///      ICoreVaultIncome, ICoreVaultLifecycle).
 abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGuardTransient {
-    using IncomeAccumulator for IncomeAccumulator.State;
     using TransientSlot for *;
 
     /// @dev Kind tag of the Operating Cash top-up expense (DEC-041, DEC-096).
@@ -115,15 +114,13 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
         _copyMandate(m);
         _pinBridgeAdapters(m);
 
-        // Q60: closed list of income tokens; USDC always, then the Mandate's other hub tokens (WP-07 B2).
-        _s.incomeBook.index.registerToken(c.usdc);
         for (uint256 i; i < m.tokens.length; ++i) {
             TokenConfig memory t = m.tokens[i];
-            bool hubToken = t.chainId == m.hubChainId;
-            if (hubToken && t.token == c.usdc) continue;
+            if (t.chainId == m.hubChainId && t.token == c.usdc) continue;
             _requirePriced(c.priceSource, t);
-            if (hubToken) _s.incomeBook.index.registerToken(t.token);
         }
+        // DEC-161: one income source per chain (the Hub, then each spoke) over the Mandate's tokens of that chain.
+        CoreVaultIncomeLogic.initialize(_s);
 
         // Q59 OPEN: name and symbol are factory strings; the Core Vault deploys and owns its Share token.
         shareToken = address(new ShareToken(c.shareName, c.shareSymbol, address(this)));
@@ -367,13 +364,13 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
     }
 
     /// @notice Every amount of `token` the Core Vault's ledger holds.
-    /// @dev DEC-080, DEC-096, DEC-101: Idle, Operating Cash and unmatched arrivals (USDC only) plus the collected income
-    ///      and the owed fees (S-12) of the token. Attributed Income is a claim paid out of the collected balance, so it is inside it and is not
-    ///      added a second time; no fee is ever owed here (ruling 2026-09-29: fees leave at collection).
+    /// @dev DEC-080, DEC-096, DEC-101: Idle, Operating Cash, unmatched arrivals and the USDC held for holders' income
+    ///      (converted and not taken, plus Income credited and not converted yet, DEC-161) plus the owed transfers (S-12)
+    ///      of the token. Income is held in USDC only (DEC-124); no fee waits here (it leaves at the collection).
     function _ledger(address token) internal view returns (uint256 amount) {
         // Security review S-12: fees whose transfer failed are owed to their recipient, never swept.
-        amount = _s.incomeBook.collectedIncome[token] + _s.owedFeesTotal[token];
-        if (token == usdc) amount += _s.idle + _s.operatingCash + _s.unmatchedArrivals;
+        amount = _s.owedFeesTotal[token];
+        if (token == usdc) amount += _s.idle + _s.operatingCash + _s.unmatchedArrivals + _s.incomeBook.heldDollars;
     }
 
     /// @notice Balance of `token` above the ledger: donations, dust, or value transferred just before a credit call.

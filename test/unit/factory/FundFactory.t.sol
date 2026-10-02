@@ -259,10 +259,8 @@ contract FundFactoryTest is Test, FactoryDeployment, FundMandate, FundSeed {
         assertEq(core.excessRecipient(), recipient, "DEC-101: sweeps to the fee wallet");
         assertEq(core.flowFeeBps(), 25);
         assertEq(core.escrowImplementation(), factory.transitEscrowImplementation());
-        address[] memory incomeTokens = core.incomeTokens();
-        assertEq(incomeTokens.length, 2, "CV-OQ-3: USDC then WETH from the hub pools");
-        assertEq(incomeTokens[0], address(usdc));
-        assertEq(incomeTokens[1], address(weth));
+        assertTrue(core.incomeToken(0, address(usdc)).registered, "the Hub income source: USDC");
+        assertTrue(core.incomeToken(0, address(weth)).registered, "and WETH, the hub's Mandate tokens");
 
         assertEq(ShareToken(a.shareToken).symbol(), "PP-1");
         assertEq(ShareToken(a.shareToken).name(), "Pool Party Fund 1");

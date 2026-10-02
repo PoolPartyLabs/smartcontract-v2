@@ -179,7 +179,7 @@ contract TransitStateMachineInvariantTest is FundSystemFixture {
         handler.sweepExcess(0);
         handler.withdrawIncome(0, false);
 
-        string[14] memory paths = [
+        string[13] memory paths = [
             "deposit",
             "claimPayout",
             "sendToSpoke",
@@ -192,7 +192,6 @@ contract TransitStateMachineInvariantTest is FundSystemFixture {
             "refundHomeSend",
             "recognizeRefundOnSpoke",
             "forwardIncome",
-            "spokeSwapIncome",
             "sweepExcess"
         ];
         for (uint256 i; i < paths.length; ++i) {

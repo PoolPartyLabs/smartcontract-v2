@@ -31,7 +31,8 @@ contract Measure_ReportBloat is SpokeBFixture {
     {
         _dustArrivals(arrivals);
         _dustSendsHome(principalSends, TransferKind.Principal);
-        _dustSendsHome(incomeSends, TransferKind.Income);
+        // WP-10: the manager sends only Principal home (income goes through a collection order, DEC-122).
+        _dustSendsHome(incomeSends, TransferKind.Principal);
         _dustPositions(pos);
 
         (bytes memory payload, uint64 seq, uint256 reportGas) = _publishMeasured();

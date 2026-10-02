@@ -129,25 +129,25 @@ contract SpokeVaultHubTest is SpokeVaultTestBase {
         vault.returnToCoreVault(601e6);
     }
 
-    function test_DEC092_forwardIncomeToCoreVaultIsPermissionlessWithFixedDestination() public {
+    /// @dev DEC-172: the hub collection collects every position's income and hands the USDC to the Core Vault; only the
+    ///      Core Vault runs it (it recognizes the income first, DEC-138), and the destination is fixed.
+    function test_DEC172_hubCollectionIsCoreVaultOnlyWithAFixedDestination() public {
         core.allocate(vault, 1000e6);
         vm.prank(manager);
         (bytes32 key,,) = vault.openPosition(address(hubAave), AAVE_USDC, 500e6, 0, "");
         _earnIncome(hubAave, key, 7e6, 0);
-        vm.prank(manager);
-        vault.collectIncome(address(hubAave), key);
-        assertEq(vault.collectedIncome(address(usdc)), 7e6);
 
-        vm.expectEmit(address(vault));
-        emit ISpokeVaultIncome.IncomeForwardedToCoreVault(address(usdc), 7e6);
         vm.prank(stranger);
-        assertEq(vault.forwardIncomeToCoreVault(address(usdc)), 7e6);
+        vm.expectRevert(abi.encodeWithSelector(ISpokeVault.NotCoreVault.selector, stranger));
+        vault.collectIncomeAll(0);
+
+        (address[] memory tokens, uint256[] memory sold, uint256[] memory obtained) = core.collectIncome(vault, 0);
+        assertEq(tokens[0], address(usdc), "USDC first");
+        assertEq(sold[0], 7e6);
+        assertEq(obtained[0], 7e6);
         assertEq(core.incomeReceived(address(usdc)), 7e6);
         assertEq(vault.collectedIncome(address(usdc)), 0);
-        assertEq(vault.unallocatedBalance(address(usdc)), 500e6);
-
-        vm.expectRevert(ISpokeVault.ZeroAmount.selector);
-        vault.forwardIncomeToCoreVault(address(usdc));
+        assertEq(vault.unallocatedBalance(address(usdc)), 500e6, "principal untouched (DEC-092)");
     }
 
     // ---------------------------------------------------------------------------------------------------------------
