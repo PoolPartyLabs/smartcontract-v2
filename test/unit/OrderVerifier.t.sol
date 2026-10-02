@@ -147,7 +147,7 @@ contract OrderVerifierTest is Test {
         assertEq(spokeVault.executedCount(), 1);
     }
 
-    /// @dev D-13: the register's rule drops an older order delivered after a newer one; the request's retry
+    /// @dev The register's rule (DEC-093) drops an older order delivered after a newer one; the request's retry
     ///      (DEC-151) republishes it.
     function test_DEC093_rejectsAnOlderOrderDeliveredAfterANewerOne() public {
         (bytes memory older,) = _publish(_unwind(1)); // sequence 0

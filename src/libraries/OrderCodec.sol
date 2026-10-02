@@ -50,7 +50,7 @@ library OrderCodec {
     /// @param fracNum Numerator of the share of every position to unwind, the 2% margin included (DEC-137, DEC-081).
     /// @param fracDen Denominator of that share; nonzero and at least `fracNum` for `UNWIND`.
     /// @param maxLossBps The requester's optional maximum loss per sale, in bps (DEC-140, DEC-148, DEC-156 item 2).
-    ///        Not interpreted here: the executor applies the "0 or >= 10,000 means none" reading (D-23).
+    ///        Not interpreted here; the executor reads 0 and values from 10,000 up as "no maximum" (DEC-140: optional).
     /// @param payoutMode `ICoreVault.PayoutMode` of the request, which decides who bears the Market Costs (DEC-118,
     ///        DEC-141). 0 for orders that serve no payout.
     /// @param data Extension field the order kinds may use; empty unless an order kind defines it.

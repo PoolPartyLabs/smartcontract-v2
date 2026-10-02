@@ -188,7 +188,7 @@ contract OrderChannelForkTest is Test {
         spokeVault.execute(vaa);
     }
 
-    /// @dev D-13: the register's rule; the older order's request is served by its retry (DEC-151).
+    /// @dev The register's rule (DEC-093); the older order's request is served by its retry (DEC-151).
     function test_DEC093_forkRejectsAnOlderOrderDeliveredAfterANewerOne() public {
         VaaBody memory first = _publishOnArbitrum(coreVault, _unwind(FUND, 1));
         VaaBody memory second = _publishOnArbitrum(coreVault, _unwind(FUND, 2));
