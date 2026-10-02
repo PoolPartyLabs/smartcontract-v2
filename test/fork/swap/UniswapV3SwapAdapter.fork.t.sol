@@ -161,6 +161,23 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
         adapter.swapDirect(t1, t0, amountIn, 10_000, 100);
     }
 
+    /// @dev Open for the founder (review round 2): the same trap without a maximum. It wins on output (the fund gets
+    ///      about 100.55 instead of 99.94), but `spotOut` is its own mid (1,000), so the sale reports a loss of about
+    ///      899 it did not have. Until the founder rules, a vault must not charge a cost measured against it.
+    function test_arbitrum_noApi_withoutAMaximumAThirdPartyTierStillSetsSpotOut() public {
+        V3Chain memory c = _arbitrum();
+        (address t0, address t1) = _trappedPair(c);
+        uint256 amountIn = 100e18;
+        (uint256 trapOut,) = _assertTheTrapQuotesMore(c, t1, t0, amountIn);
+
+        _setUpWithBase(c, t0, _tokens2(t0, t1));
+        (uint24 fee,) = adapter.bestDirectFee(t1, t0, amountIn, NO_MAX);
+        assertEq(uint256(fee), 10_000, "chosen on output alone");
+        (uint256 out, uint256 spot,) = _swap(t1, t0, amountIn, NO_MAX, "", "no API, no maximum, a trap 1% tier");
+        assertEq(out, trapOut, "more than the honest tier pays");
+        assertApproxEqRel(spot, 10 * amountIn, 1e9, "but valued at the trap's own mid");
+    }
+
     /// @dev DEC-153 accepted consequence: a Mandate token without a direct V3 pool against the base token has no route
     ///      without the API.
     function test_arbitrum_noApi_tokenWithoutADirectPoolHasNoRoute() public {

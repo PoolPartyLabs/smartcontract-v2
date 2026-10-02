@@ -37,6 +37,15 @@ import {ISwapRouter02} from "../interfaces/external/ISwapRouter02.sol";
 ///      intermediate hop that stops at a price limit leaves its unspent intermediate token in the router, where anyone
 ///      can take it with `sweepToken`. For such a route DEC-136 item 2 (the output always returns to the fund) holds
 ///      only up to the output minimum. Only signed API routes have more than one hop; a direct swap has one.
+/// @dev Open, for the founder (review round 2): without a maximum loss the tier is chosen on output alone, and `spotOut`
+///      is that tier's own mid (DEC-153 consequence, D-19). A third party can create a missing or dust tier at a mid
+///      price it chose and, inside the sale's transaction (a permissionless unwind), fill the whole input there at a
+///      better output than the honest tier: the fund receives more, but `spotOut` is the third party's price and the
+///      sale reports a loss it did not have (899 on a sale worth 100 on a fork), which a vault would charge to the leaver
+///      (DEC-118 item 2, DEC-141) or the manager (D-29). With a maximum, a tier competes only within it against its own
+///      mid, so such a tier reports at most the loss the caller accepted. Proposed ruling: without a maximum, value
+///      `spotOut` at the mid of the tier with the most in-range liquidity. Until then a vault must not charge a cost
+///      measured against the `spotOut` of an empty-route sale without a maximum.
 contract UniswapV3SwapAdapter is AdapterGuard, EIP712, ISwapAdapter {
     using SafeERC20 for IERC20;
 

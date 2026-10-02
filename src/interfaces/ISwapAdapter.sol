@@ -24,7 +24,9 @@ import {IAdapterGuard} from "./IAdapterGuard.sol";
 ///      measured against `spotOut`, the mid value of `amountIn` along the route's pools read before any leg trades
 ///      (pool fee plus price impact, DEC-118; the "value sold" of DEC-141). 0 or >= 10,000 means no maximum. With an
 ///      API route the stricter of that bound and the API's minimum applies (DEC-142). No oracle floor (DEC-129,
-///      DEC-132); no protocol cap on the maximum (DEC-140 item 3, DEC-142 item 2).
+///      DEC-132); no protocol cap on the maximum (DEC-140 item 3, DEC-142 item 2). Open (founder): without a maximum,
+///      the `spotOut` of an empty-route swap can be the mid of a tier a third party created in the same transaction;
+///      do not charge a cost against it until ruled (see `UniswapV3SwapAdapter`).
 /// @dev Custody: the vault approves exactly `amountIn` of `tokenIn` before calling `swap` or `swapDirect`; the adapter
 ///      pulls it, approves the router for exactly that amount, has every leg pay the vault directly, clears the
 ///      approval and keeps nothing. A swap that does not spend the whole input reverts with `PartialFill`.
