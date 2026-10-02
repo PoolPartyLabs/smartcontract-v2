@@ -82,6 +82,7 @@ abstract contract CoreVaultIncome is CoreVaultBase {
     /// @inheritdoc ICoreVault
     /// @dev DEC-110: the manager fee only decreases, with immediate effect. Ruling 2026-09-29: fees are charged at
     ///      collection only, so nothing has accrued at the old rate. DEC-108, LC-144: the management fee must stay 0.
+    ///      DEC-115, DEC-125 item 3 (D-36): never below the registry's minimum manager fee in force at creation.
     function decreaseManagerFee(uint16 newPerformanceFeeBps, uint16 newManagementFeeBps)
         external
         onlyManager
@@ -90,6 +91,9 @@ abstract contract CoreVaultIncome is CoreVaultBase {
         if (newManagementFeeBps != 0) revert ManagementFeeNotSupported(newManagementFeeBps);
         uint16 previous = _s.performanceFeeBps;
         if (newPerformanceFeeBps >= previous) revert ManagerFeeNotDecreasing();
+        if (newPerformanceFeeBps < minPerformanceFeeBps) {
+            revert ManagerFeeBelowMinimum(newPerformanceFeeBps, minPerformanceFeeBps);
+        }
         _s.performanceFeeBps = newPerformanceFeeBps;
         emit ManagerFeeDecreased(previous, newPerformanceFeeBps, _s.managementFeeBps, newManagementFeeBps);
     }

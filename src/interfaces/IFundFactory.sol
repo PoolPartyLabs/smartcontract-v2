@@ -142,6 +142,9 @@ interface IFundFactory {
     /// @notice The flow fee is above the DEC-110 cap.
     error FlowFeeAboveCap(uint16 bps);
 
+    /// @notice The Mandate's performance fee is below the registry's minimum manager fee (DEC-115, DEC-125 item 3).
+    error ManagerFeeBelowMinimum(uint16 bps, uint16 minBps);
+
     /// @notice A linked library address has no code.
     error LibraryHasNoCode(address library_);
 
@@ -206,9 +209,10 @@ interface IFundFactory {
     ///      `ICoreVaultLifecycle.seed`, which pays the flow fee and mints the first shares to the manager at 1.00. A seed
     ///      below `m.minFirstDeposit` reverts (`BelowMinFirstDeposit`), so no fund exists without its seed.
     /// @dev Reverts unless `msg.sender == m.manager` (DEC-001), `m.hubChainId == block.chainid`, `m.usdc` is this
-    ///      chain's base token, `p.creationNumber` is the next fund number, the Core Vault code hashes to the pinned
-    ///      hash, and every address in the Mandate (adapters, bridge adapters and Spoke Vaults on every chain) is the
-    ///      fund's predicted one.
+    ///      chain's base token, `m.performanceFeeBps` is at least the ManagerRegistry's `minManagerFeeBps` (DEC-115,
+    ///      DEC-125 item 3; the Core Vault keeps that minimum as the floor of `decreaseManagerFee`), `p.creationNumber`
+    ///      is the next fund number, the Core Vault code hashes to the pinned hash, and every address in the Mandate
+    ///      (adapters, bridge adapters and Spoke Vaults on every chain) is the fund's predicted one.
     function createFund(Mandate memory m, HubParams memory p) external returns (FundAddresses memory addresses);
 
     /// @notice Creates the Spoke Vault and adapters of fund number `creationNumber` of the Mandate's Hub Chain on this

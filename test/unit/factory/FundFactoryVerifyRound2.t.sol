@@ -28,6 +28,7 @@ import {MockWormholeCore} from "../../mocks/spoke/MockWormholeCore.sol";
 import {FactoryDeployment} from "../../../script/FactoryDeployment.sol";
 import {FundMandate} from "../../../script/FundMandate.sol";
 import {AnyPriceSource} from "../../mocks/core/AnyPriceSource.sol";
+import {MockManagerRegistry} from "../../mocks/core/MockManagerRegistry.sol";
 import {FundSeed} from "../../utils/FundSeed.sol";
 
 /// @notice Adversarial verification of the factory stage (round 2), after the fund id bound the Manager and
@@ -54,7 +55,7 @@ contract FundFactoryVerifyRound2Test is Test, FactoryDeployment, FundMandate, Fu
     address internal attacker = makeAddr("attacker");
     address internal recipient = makeAddr("protocolRecipient");
     address internal guardian = makeAddr("guardian");
-    address internal registry = makeAddr("managerRegistry");
+    address internal registry = address(new MockManagerRegistry());
     address internal prices = address(new AnyPriceSource());
 
     uint256 internal cleanState;

@@ -18,11 +18,13 @@ import {MockAcrossSpokePool} from "../../mocks/across/MockAcrossSpokePool.sol";
 import {MockAaveV3Pool} from "../../mocks/aave/MockAaveV3Pool.sol";
 import {MockWormholeCore} from "../../mocks/spoke/MockWormholeCore.sol";
 import {AnyPriceSource} from "../../mocks/core/AnyPriceSource.sol";
+import {MockManagerRegistry} from "../../mocks/core/MockManagerRegistry.sol";
 import {FactoryDeployment} from "../../../script/FactoryDeployment.sol";
 import {FundMandate} from "../../../script/FundMandate.sol";
 
 /// @notice DEC-127, DEC-061, DEC-113: `FundFactory.createFund` seeds the fund with the manager's own capital in the
-///         creation transaction: no fund exists without its seed, and the first shares are the manager's.
+///         creation transaction: no fund exists without its seed, and the first shares are the manager's. DEC-115,
+///         DEC-125 item 3: the performance fee is at least the registry's minimum manager fee at creation.
 contract FundFactorySeedTest is Test, FactoryDeployment, FundMandate {
     uint256 internal constant HUB = 42_161;
     uint256 internal constant SPOKE = 4663;
@@ -35,7 +37,7 @@ contract FundFactorySeedTest is Test, FactoryDeployment, FundMandate {
 
     address internal manager = makeAddr("manager");
     address internal recipient = makeAddr("protocolRecipient");
-    address internal registry = makeAddr("managerRegistry");
+    address internal registry = address(new MockManagerRegistry());
 
     FundFactory internal factory;
     Deployment internal hubDeployment;
@@ -96,7 +98,15 @@ contract FundFactorySeedTest is Test, FactoryDeployment, FundMandate {
         internal
         returns (IFundFactory.FundAddresses memory a, IFundFactory.HubParams memory p, Mandate memory m)
     {
+        (a, p, m) = _createWithFee(seedAmount, approved, 2000);
+    }
+
+    function _createWithFee(uint256 seedAmount, uint256 approved, uint16 performanceFeeBps)
+        internal
+        returns (IFundFactory.FundAddresses memory a, IFundFactory.HubParams memory p, Mandate memory m)
+    {
         FundPlan memory plan = _plan(seedAmount);
+        plan.performanceFeeBps = performanceFeeBps;
         m = _buildMandate(factory, factory.fundIdOf(HUB, 1, manager), plan);
         p = _hubParams(1, plan, _coreVaultCreationCode(hubDeployment.coreVaultLogic));
         usdc.mint(manager, approved);
@@ -185,5 +195,58 @@ contract FundFactorySeedTest is Test, FactoryDeployment, FundMandate {
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(ICoreVaultLifecycle.NotFactory.selector, manager));
         CoreVault(a.coreVault).seed(100e6);
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Minimum manager fee (DEC-115, DEC-125 item 3, D-36)
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// @dev A Mandate below the registry's minimum is refused at creation; at the minimum it is created and the Core
+    ///      Vault records the minimum as the floor of `decreaseManagerFee`.
+    function test_DEC125_createFundRequiresTheMinimumManagerFee() public {
+        MockManagerRegistry(registry).setMinManagerFeeBps(1000);
+        FundPlan memory plan = _plan(100e6);
+        plan.performanceFeeBps = 999;
+        Mandate memory m = _buildMandate(factory, factory.fundIdOf(HUB, 1, manager), plan);
+        IFundFactory.HubParams memory p = _hubParams(1, plan, _coreVaultCreationCode(hubDeployment.coreVaultLogic));
+        vm.prank(manager);
+        vm.expectRevert(abi.encodeWithSelector(IFundFactory.ManagerFeeBelowMinimum.selector, 999, 1000));
+        factory.createFund(m, p);
+
+        (IFundFactory.FundAddresses memory a,,) = _createWithFee(100e6, 100e6, 1000);
+        assertEq(CoreVault(a.coreVault).minPerformanceFeeBps(), 1000);
+        assertEq(CoreVault(a.coreVault).performanceFeeBps(), 1000);
+    }
+
+    /// @dev D-36: the creation-time minimum floors `decreaseManagerFee`; a later registry change never binds the fund.
+    function test_DEC125_minimumAtCreationFloorsDecreaseManagerFee() public {
+        MockManagerRegistry(registry).setMinManagerFeeBps(1000);
+        (IFundFactory.FundAddresses memory a,,) = _createWithFee(100e6, 100e6, 2000);
+        CoreVault core = CoreVault(a.coreVault);
+
+        vm.prank(manager);
+        vm.expectRevert(abi.encodeWithSelector(ICoreVaultLifecycle.ManagerFeeBelowMinimum.selector, 999, 1000));
+        core.decreaseManagerFee(999, 0);
+
+        MockManagerRegistry(registry).setMinManagerFeeBps(0); // the registry lowers its minimum: the fund keeps 1,000
+        vm.prank(manager);
+        vm.expectRevert(abi.encodeWithSelector(ICoreVaultLifecycle.ManagerFeeBelowMinimum.selector, 500, 1000));
+        core.decreaseManagerFee(500, 0);
+
+        MockManagerRegistry(registry).setMinManagerFeeBps(1000); // and raising it again never forces the fund
+        vm.prank(manager);
+        core.decreaseManagerFee(1000, 0);
+        assertEq(core.performanceFeeBps(), 1000);
+        MockManagerRegistry(registry).setMinManagerFeeBps(1500);
+        assertEq(core.performanceFeeBps(), 1000, "a live fund is never forced up");
+        assertEq(core.minPerformanceFeeBps(), 1000);
+    }
+
+    /// @dev With the minimum at its 0 start the manager may go down to 0 (DEC-115: the minimum starts at 0).
+    function test_DEC115_zeroMinimumLetsTheFeeReachZero() public {
+        (IFundFactory.FundAddresses memory a,,) = _create(100e6, 100e6);
+        vm.prank(manager);
+        CoreVault(a.coreVault).decreaseManagerFee(0, 0);
+        assertEq(CoreVault(a.coreVault).performanceFeeBps(), 0);
     }
 }

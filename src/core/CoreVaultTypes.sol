@@ -21,6 +21,8 @@ import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 /// @param flowFeeBps Protocol flow fee in bps, capped at 100 (DEC-106, DEC-110; LC-143 OPEN as to storage).
 /// @param factory The only caller of `seed` (DEC-127). A field, not `msg.sender`: the factory deploys through CREATE3,
 ///        so the constructor's `msg.sender` is the one-use proxy.
+/// @param minPerformanceFeeBps The ManagerRegistry's minimum manager fee when the fund was created; floor of
+///        `decreaseManagerFee` (DEC-115, DEC-125 item 3, D-36).
 /// @param incomeTokens Hub income tokens besides USDC: the tokens of the Mandate's hub pools, which the factory reads
 ///        from the hub adapters (`IAdapter.poolTokens`) because a Mandate pool key is a hash and the Core Vault never
 ///        calls an adapter (DEC-054).
@@ -39,6 +41,7 @@ struct CoreVaultConfig {
     address escrowImplementation;
     uint16 flowFeeBps;
     address factory;
+    uint16 minPerformanceFeeBps;
     address[] incomeTokens;
     string shareName;
     string shareSymbol;
