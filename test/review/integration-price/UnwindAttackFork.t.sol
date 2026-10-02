@@ -151,7 +151,8 @@ contract UnwindAttackFork is IntegrationPriceBase {
                 IAdapter.Amounts memory a = abi.decode(logs[i].data, (IAdapter.Amounts));
                 (exitWeth, exitUsdc, exitSeen) = (a.principal0, a.principal1, true);
             } else if (!swapSeen && t == ISpokeVault.Swapped.selector) {
-                (,, swapIn, swapOut) = abi.decode(logs[i].data, (address, address, uint256, uint256));
+                // Doc 15, gap 4: tokens indexed; amounts, spot value, maximum loss and minimum in the data.
+                (swapIn, swapOut,,,) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint16, uint256));
                 swapSeen = true;
             }
         }
