@@ -178,6 +178,22 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
         assertApproxEqRel(spot, 10 * amountIn, 1e9, "but valued at the trap's own mid");
     }
 
+    /// @dev DEC-129 item 3 ("em qualquer quantia"): 1e5 wei of WETH is worth less than 1 USDC unit, so every tier fills
+    ///      it at zero. It still sells, through the empty route with a maximum and through `swapDirect`, instead of
+    ///      reverting `NoRoute` (review round 2).
+    function test_arbitrum_noApi_dustInputSellsAtZero() public {
+        _setUp(_arbitrum(), _tokens2(ARB_WETH, ARB_USDC));
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(ARB_WETH, ARB_USDC, 1e5, 100);
+        assertGt(uint256(fee), 0, "a tier");
+        assertEq(quoted, 0, "every tier quotes zero");
+        (uint256 out, uint256 spot,) = _swap(ARB_WETH, ARB_USDC, 1e5, 100, "", "no API, 1e5 wei WETH -> USDC");
+        assertEq(out, 0);
+        assertEq(spot, 0);
+        _fund(ARB_WETH, 1e5);
+        (out,) = adapter.swapDirect(ARB_WETH, ARB_USDC, 1e5, 500, 100);
+        assertEq(out, 0, "swapDirect sells it too");
+    }
+
     /// @dev DEC-153 accepted consequence: a Mandate token without a direct V3 pool against the base token has no route
     ///      without the API.
     function test_arbitrum_noApi_tokenWithoutADirectPoolHasNoRoute() public {
