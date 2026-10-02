@@ -20,7 +20,7 @@ stop() {
     return 0
   fi
   local command
-  command="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+  command="$(ps -p "$pid" -o comm= 2>/dev/null || true)"
   if [[ "$command" != *"$expected"* ]]; then
     echo "$name: pid $pid is not the harness's $expected process ($command); leaving it alone"
     rm -f "$pid_file"
@@ -42,7 +42,7 @@ stop() {
 }
 
 mkdir -p "$STATE"
-stop keeper keeper
+stop keeper node
 stop arbitrum anvil
 stop robinhood anvil
 rm -f "$STATE/deployment.json"
