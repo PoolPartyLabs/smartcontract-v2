@@ -123,7 +123,8 @@ function namedReturn(script: string, returns: ForgeRun["broadcast"]["returns"]):
   const { abi } = forgeArtifact(`${script}.s.sol`, script);
   const output = abi.find((item): item is AbiFunction => item.type === "function" && item.name === "run")?.outputs[0];
   const components = output && "components" in output ? output.components : undefined;
-  const tuple = output?.name ? returns[output.name]?.value : undefined;
+  // forge keys an unnamed return value by its position.
+  const tuple = output ? returns[output.name || "0"]?.value : undefined;
   if (!components || !tuple) throw new Error(`${script}.run() returned no struct: ${JSON.stringify(returns)}`);
   const values = tupleValues(tuple);
   if (values.length !== components.length) {
