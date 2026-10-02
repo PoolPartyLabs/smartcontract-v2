@@ -17,8 +17,17 @@ import {CoreVaultFixture} from "../../unit/core/CoreVaultFixture.sol";
 /// @notice FIX (S-9, then DEC-158 / DEC-162): the manager passes no bridge parameter at all. The Across adapter fixes
 ///         every term of the deposit: no exclusive relayer, no exclusivity, the quote time, the deadline and the amount
 ///         to arrive by its fee rule (0.08% plus 0.03 on a first send). A quote in `bridgeData` is refused, so the
-///         self-relay quote FAILS; whoever fills first keeps the rule's fee, never a gap the manager chose. The S-9
+///         self-relay quote FAILS; whoever fills first keeps the rule's fee, never a gap the manager chose. The old S-9
 ///         residual (an over-quote up to the Mandate bound handed to the first relayer) is gone.
+/// @notice REMAINING RESIDUAL (review round 1): the manager can still force expiries, with oversize sends above the
+///         route's maximum or dust sends no relayer fills, and every noted expiry steps the rule one band up: about 7
+///         rounds of about 7.4 h (about 2 days) reach the 1% cap (`test_DEC162_ratchetStopsAtTheCap`); the manager
+///         then pre-fills its own sends at the cap, and with three parallel sends per round (each noted expiry steps
+///         one send) the whole window, so the reference, sits at the cap. Without signed quotes nothing brings the
+///         rate back down (`test_DEC162_withoutQuotesTheRateNeverFalls`), and the adapter is immutable per fund
+///         (DEC-058), so a ratcheted route, or one raised by an Across outage (D-09), stays high for the fund's life.
+///         Bounded by the cap per send (doc 12 §5: the band and the mean only delay the climb; the class DEC-129
+///         accepts). Signed API quotes (WP-11, R-162-B) are the rule's only way down.
 /// @dev Real Core Vault on the repository's unit fixture, with the real Across adapter over the SpokePool stand-in.
 contract BridgeFeeChurnPoC is CoreVaultFixture {
     function test_SEC_S9_managerCanNoLongerSelfRelayExclusively() public {
