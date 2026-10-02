@@ -291,14 +291,15 @@ library CoreVaultIncomeCollectionLogic {
         CoreVaultIncomeTypes.SpokeResult storage res = b.results[spokeIndex][c.resultId];
         if (res.closed || c.resultId == 0) return;
         if (!res.seen) {
+            if (c.sold.length != c.tokens.length || c.obtained.length != c.tokens.length) return;
             res.seen = true;
             res.round = c.round;
             if (c.transitId == bytes32(0)) {
                 _finish(b, spokeIndex, res, false);
                 return;
             }
-            if (c.sold.length != c.tokens.length || c.obtained.length != c.tokens.length) return;
             (res.sold, res.obtained,) = _align(b.sources[spokeIndex + 1].index.tokens, c.tokens, c.sold, c.obtained);
+            _freezeResult(b.sources[spokeIndex + 1], res);
             ++b.openResults;
         } else if (res.transitId == c.transitId || c.transitId == bytes32(0)) {
             return;
@@ -310,6 +311,20 @@ library CoreVaultIncomeCollectionLogic {
         if (credited != 0 && _fullyCredited(s, spokeIndex, c.transitId)) {
             _closeSpokeResult(s, w, spokeIndex, res, credited);
         }
+    }
+
+    function _freezeResult(CoreVaultIncomeTypes.Source storage source, CoreVaultIncomeTypes.SpokeResult storage result)
+        private
+    {
+        uint256[] memory holders = result.sold;
+        for (uint256 index; index < holders.length; ++index) {
+            uint256 sold = holders[index];
+            (uint256 holderSold,,) = _splitFee(source, source.index.tokens[index], sold, 0);
+            result.totalSold.push(sold);
+            result.feeSold.push(sold - holderSold);
+            holders[index] = holderSold;
+        }
+        result.frozen = source.index.freeze(holders);
     }
 
     function _fullyCredited(CoreVaultState storage s, uint256 spokeIndex, bytes32 transitId)
@@ -355,7 +370,28 @@ library CoreVaultIncomeCollectionLogic {
             shares[last] += dollars - assigned;
         }
         _finish(b, spokeIndex, res, true);
-        _convert(s, w, spokeIndex + 1, res.sold, shares, transitId, dollars);
+        _finalizeResult(s, w, spokeIndex + 1, res, shares, dollars);
+    }
+
+    function _finalizeResult(
+        CoreVaultState storage s,
+        CoreVaultWiring memory w,
+        uint256 source,
+        CoreVaultIncomeTypes.SpokeResult storage res,
+        uint256[] memory shares,
+        uint256 dollars
+    ) private {
+        uint256 fee;
+        for (uint256 index; index < shares.length; ++index) {
+            uint256 feeDollars =
+                res.totalSold[index] == 0 ? 0 : Math.mulDiv(shares[index], res.feeSold[index], res.totalSold[index]);
+            fee += feeDollars;
+            shares[index] -= feeDollars;
+        }
+        uint256 attributed = s.incomeBook.sources[source].index.finalizeFrozen(res.frozen, shares);
+        s.incomeBook.heldDollars += attributed;
+        (uint256 slice, uint16 sliceBps) = _payFee(s, w, fee);
+        emit ICoreVaultIncome.IncomeCollectionClosed(source, res.transitId, dollars, attributed, fee, slice, sliceBps);
     }
 
     /// @dev Marks a result converted; it no longer holds its spoke's part of the current round.

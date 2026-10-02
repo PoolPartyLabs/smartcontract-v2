@@ -105,6 +105,18 @@ library DollarIncomeIndex {
         uint64 interval;
         bool adjusted;
         mapping(address token => Adjustment) adjustment;
+        uint64 captured;
+        uint64 paid;
+        mapping(uint64 collection => uint256[]) claims;
+    }
+
+    struct FrozenCollection {
+        uint256[] indices;
+        uint256[] fractions;
+        uint64[] intervals;
+        uint256[] sold;
+        uint256[] rates;
+        bool finalized;
     }
 
     /// @notice Index storage of one source class.
@@ -131,6 +143,9 @@ library DollarIncomeIndex {
         uint256 dollarsObtained;
         uint256 dollarsAttributed;
         uint256 dollarsTaken;
+        uint64 frozenCount;
+        uint256 deferredIndex;
+        mapping(uint64 collection => FrozenCollection) frozen;
     }
 
     /// @notice An income token was added to the closed list.
@@ -275,6 +290,101 @@ library DollarIncomeIndex {
         emit IncomeIntervalClosed(s.source, closing, dollarIndex, obtainedTotal, unattributed);
     }
 
+    function freeze(State storage s, uint256[] memory sold) internal returns (uint64 id) {
+        id = ++s.frozenCount;
+        FrozenCollection storage frozen = s.frozen[id];
+        for (uint256 index; index < s.tokens.length; ++index) {
+            IncomeToken storage token = s.token[s.tokens[index]];
+            uint256 recognized = token.recognized;
+            uint256 claimed = sold[index] < recognized ? sold[index] : recognized;
+            uint256 fraction = recognized == 0 ? 0 : Math.mulDiv(claimed, Q128, recognized);
+            uint256 sealedIndex = Math.mulDiv(token.openIndex, fraction, Q128);
+            frozen.indices.push(sealedIndex);
+            frozen.fractions.push(fraction);
+            frozen.intervals.push(token.interval);
+            frozen.sold.push(sold[index]);
+            if (claimed == 0) continue;
+            uint256 carried = recognized - claimed;
+            s.carry[token.interval][s.tokens[index]] = Math.mulDiv(carried, Q128, recognized);
+            token.openIndex = Math.mulDiv(token.openIndex, carried, recognized);
+            token.recognized = carried;
+            token.remainder = 0;
+            ++token.interval;
+        }
+        ++s.interval;
+    }
+
+    function finalizeFrozen(State storage s, uint64 id, uint256[] memory obtained)
+        internal
+        returns (uint256 attributed)
+    {
+        FrozenCollection storage frozen = s.frozen[id];
+        uint256 increment;
+        uint256 total;
+        for (uint256 index; index < obtained.length; ++index) {
+            uint256 rate = frozen.sold[index] == 0 ? 0 : Math.mulDiv(obtained[index], Q128, frozen.sold[index]);
+            frozen.rates.push(rate);
+            increment += Math.mulDiv(frozen.indices[index], rate, Q128);
+            total += obtained[index];
+            if (frozen.indices[index] != 0) attributed += obtained[index];
+        }
+        frozen.finalized = true;
+        s.dollarIndex += increment;
+        s.deferredIndex += increment;
+        s.dollarsObtained += total;
+        s.dollarsAttributed += attributed;
+        emit IncomeIntervalClosed(s.source, id, s.dollarIndex, total, total - attributed);
+    }
+
+    function _frozenClaim(
+        State storage s,
+        Holder storage holder,
+        FrozenCollection storage frozen,
+        uint256 shares,
+        uint256 index
+    ) private view returns (uint256 claim) {
+        claim = Math.mulDiv(shares, frozen.indices[index], Q128);
+        address token = s.tokens[index];
+        Adjustment storage adjustment = holder.adjustment[token];
+        int256 amount = adjustment.amount;
+        uint64 closing = frozen.intervals[index];
+        if (amount == 0 || adjustment.interval > closing || frozen.fractions[index] == 0) return claim;
+        if (adjustment.interval != closing) {
+            (, amount,) = _carryForward(s, token, amount, adjustment.interval, closing, type(uint256).max);
+        }
+        uint256 correction = Math.mulDiv(
+            _abs(amount), frozen.fractions[index], Q128, amount < 0 ? Math.Rounding.Ceil : Math.Rounding.Floor
+        );
+        if (amount >= 0) return claim + correction;
+        return claim > correction ? claim - correction : 0;
+    }
+
+    function _settleFrozen(State storage s, Holder storage holder, uint256 shares) private returns (bool complete) {
+        uint256 budget = MAX_SETTLE_STEPS;
+        while (holder.captured < s.frozenCount && budget != 0) {
+            uint64 id = ++holder.captured;
+            FrozenCollection storage frozen = s.frozen[id];
+            for (uint256 index; index < s.tokens.length; ++index) {
+                holder.claims[id].push(_frozenClaim(s, holder, frozen, shares, index));
+            }
+            --budget;
+        }
+        complete = holder.captured == s.frozenCount;
+        budget = MAX_SETTLE_STEPS;
+        while (holder.paid < holder.captured && budget != 0) {
+            uint64 id = holder.paid + 1;
+            FrozenCollection storage frozen = s.frozen[id];
+            if (!frozen.finalized) break;
+            for (uint256 index; index < s.tokens.length; ++index) {
+                holder.dollars += Math.mulDiv(holder.claims[id][index], frozen.rates[index], Q128);
+            }
+            delete holder.claims[id];
+            holder.paid = id;
+            --budget;
+        }
+        if (holder.paid < holder.captured && s.frozen[holder.paid + 1].finalized) complete = false;
+    }
+
     /// @notice Brings `holder` to the open interval: converts every adjustment of a closed token interval at the rate
     ///         stored for it, then adds `shares * (dollarIndex - mark)`.
     /// @dev DEC-014, DEC-161. Call before every change to the holder's balance, with the balance BEFORE the change,
@@ -288,6 +398,7 @@ library DollarIncomeIndex {
     /// @return settled Whether every adjustment reached its token's open interval (the hooks and `take` may run).
     function settle(State storage s, address holder, uint256 shares) internal returns (bool settled) {
         Holder storage h = s.holders[holder];
+        if (!_settleFrozen(s, h, shares)) return false;
         uint256 dollars = h.dollars + _indexed(s, h, shares);
         settled = true;
         if (h.adjusted && h.interval != s.interval) {
@@ -303,7 +414,7 @@ library DollarIncomeIndex {
             dollars = dollars > run.debit ? dollars - run.debit : 0;
         }
         if (settled) h.interval = s.interval;
-        h.mark = s.dollarIndex;
+        h.mark = s.dollarIndex - s.deferredIndex;
         h.dollars = dollars;
     }
 
@@ -339,6 +450,14 @@ library DollarIncomeIndex {
     function owedDollars(State storage s, address holder, uint256 shares) internal view returns (uint256 dollars) {
         Holder storage h = s.holders[holder];
         dollars = h.dollars + _indexed(s, h, shares);
+        for (uint64 id = h.paid + 1; id <= s.frozenCount; ++id) {
+            FrozenCollection storage frozen = s.frozen[id];
+            if (!frozen.finalized) break;
+            for (uint256 index; index < s.tokens.length; ++index) {
+                uint256 claim = id <= h.captured ? h.claims[id][index] : _frozenClaim(s, h, frozen, shares, index);
+                dollars += Math.mulDiv(claim, frozen.rates[index], Q128);
+            }
+        }
         if (!h.adjusted || h.interval == s.interval) return dollars;
         uint256 debit;
         address[] storage tokens = s.tokens;
@@ -375,7 +494,7 @@ library DollarIncomeIndex {
     /// @dev Dollars of the dollar index since `h`'s mark for `shares`.
     function _indexed(State storage s, Holder storage h, uint256 shares) private view returns (uint256) {
         uint256 mark = h.mark;
-        uint256 index = s.dollarIndex;
+        uint256 index = s.dollarIndex - s.deferredIndex;
         if (shares == 0 || index == mark) return 0;
         return Math.mulDiv(shares, index - mark, Q128);
     }
@@ -465,7 +584,9 @@ library DollarIncomeIndex {
 
     /// @dev Reverts unless `h` was completely settled in the open collection interval.
     function _requireSettled(State storage s, Holder storage h, address holder) private view {
-        if (h.interval != s.interval || h.mark != s.dollarIndex) revert HolderNotSettled(holder);
+        if (h.interval != s.interval || h.mark != s.dollarIndex - s.deferredIndex || h.captured != s.frozenCount) {
+            revert HolderNotSettled(holder);
+        }
     }
 
     /// @dev Converts `token`'s open interval for the collection (see `collect`): returns the dollar index increment
