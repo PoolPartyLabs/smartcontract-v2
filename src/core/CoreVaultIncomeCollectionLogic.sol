@@ -308,11 +308,34 @@ library CoreVaultIncomeCollectionLogic {
         if (res.transitId != bytes32(0)) delete b.resultOf[spokeIndex][res.transitId];
         res.transitId = c.transitId;
         b.resultOf[spokeIndex][c.transitId] = c.resultId;
+        _authenticateArrival(s, spokeIndex, c);
         _reconcileRecovery(s, spokeIndex, c);
         uint256 credited = b.credited[spokeIndex][c.transitId];
         if (credited != 0 && _fullyCredited(s, spokeIndex, c.transitId)) {
             _closeSpokeResult(s, w, spokeIndex, res, credited);
         }
+    }
+
+    function _authenticateArrival(
+        CoreVaultState storage s,
+        uint256 spokeIndex,
+        SpokeIncomeTypes.CollectionResult memory result
+    ) private {
+        if (result.amountToArrive == 0) return;
+        bytes32 key = CoreVaultLogic.hubBoundKey(s.mandate.spokes[spokeIndex].chainId, result.transitId);
+        if (s.hubBound[key].listed == 0) {
+            s.hubBound[key].listed = result.amountToArrive;
+            s.hubBound[key].kind = TransferKind.Income;
+        }
+        uint256 room =
+            s.hubBound[key].listed > s.hubBound[key].credited ? s.hubBound[key].listed - s.hubBound[key].credited : 0;
+        uint256 credit = s.hubBound[key].pending < room ? s.hubBound[key].pending : room;
+        if (credit == 0) return;
+        s.hubBound[key].pending -= credit;
+        s.hubBound[key].credited += credit;
+        s.unmatchedArrivals -= credit;
+        s.incomeBook.credited[spokeIndex][result.transitId] += credit;
+        s.incomeBook.heldDollars += credit;
     }
 
     function _reconcileRecovery(
