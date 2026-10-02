@@ -33,6 +33,7 @@ abstract contract FactoryDeployment is CommonBase {
     string internal constant CORE_VAULT_LOGIC_ID = "src/core/CoreVaultLogic.sol:CoreVaultLogic";
     string internal constant SPOKE_VAULT_ARTIFACT = "out/SpokeVault.sol/SpokeVault.json";
     string internal constant SPOKE_CROSS_CHAIN_LIB_ID = "src/spoke/SpokeCrossChainLib.sol:SpokeCrossChainLib";
+    string internal constant SPOKE_UNWIND_LIB_ID = "src/spoke/SpokeUnwindLib.sol:SpokeUnwindLib";
 
     // Chains (docs/INTEGRATIONS.md).
     uint256 internal constant ARBITRUM = 42_161;
@@ -90,6 +91,7 @@ abstract contract FactoryDeployment is CommonBase {
         address create3Deployer;
         address coreVaultLogic;
         address spokeCrossChainLib;
+        address spokeUnwindLib;
         address managerRegistry;
         address priceSource;
         FundFactory factory;
@@ -176,6 +178,7 @@ abstract contract FactoryDeployment is CommonBase {
     ///         code is the same everywhere; `CoreVaultLogic` only to the hub.
     function _deployLibraries(bool hub, Deployment memory d) internal {
         d.spokeCrossChainLib = _deterministic(LIBRARY_SALT, vm.getCode("SpokeCrossChainLib.sol:SpokeCrossChainLib"));
+        d.spokeUnwindLib = _deterministic(LIBRARY_SALT, vm.getCode("SpokeUnwindLib.sol:SpokeUnwindLib"));
         if (hub) d.coreVaultLogic = _deterministic(LIBRARY_SALT, vm.getCode("CoreVaultLogic.sol:CoreVaultLogic"));
     }
 
@@ -244,9 +247,10 @@ abstract contract FactoryDeployment is CommonBase {
     /// @notice The Spoke Vault creation code linked to the deployment's Spoke Vault libraries (the code the factory
     ///         stores and pins by hash).
     function _spokeVaultCreationCode(Deployment memory d) internal view returns (bytes memory) {
-        string[] memory ids = new string[](1);
-        address[] memory libraries = new address[](1);
+        string[] memory ids = new string[](2);
+        address[] memory libraries = new address[](2);
         (ids[0], libraries[0]) = (SPOKE_CROSS_CHAIN_LIB_ID, d.spokeCrossChainLib);
+        (ids[1], libraries[1]) = (SPOKE_UNWIND_LIB_ID, d.spokeUnwindLib);
         return _linked(SPOKE_VAULT_ARTIFACT, ids, libraries);
     }
 

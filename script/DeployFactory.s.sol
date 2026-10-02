@@ -25,6 +25,7 @@ contract DeployFactory is Script, FactoryDeployment {
         console.log("chain id", block.chainid);
         console.log("Create3Deployer", d.create3Deployer);
         console.log("SpokeCrossChainLib", d.spokeCrossChainLib);
+        console.log("SpokeUnwindLib", d.spokeUnwindLib);
         console.log("CoreVaultLogic", d.coreVaultLogic);
         console.log("ManagerRegistry", d.managerRegistry);
         console.log("ChainlinkPriceSource", d.priceSource);

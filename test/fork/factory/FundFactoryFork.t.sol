@@ -174,6 +174,7 @@ contract FundFactoryForkTest is Test, FactoryDeployment, FundMandate {
         Deployment memory rd = _deployProtocol(recipient, guardian, registryOwner);
         assertEq(address(rd.factory), address(d.factory), "same factory address on both chains");
         assertEq(rd.spokeCrossChainLib, d.spokeCrossChainLib, "chain-independent library address");
+        assertEq(rd.spokeUnwindLib, d.spokeUnwindLib, "chain-independent unwind library address");
 
         // A Mandate whose spoke entry is not the prediction is refused on the spoke too.
         Mandate memory forged = _buildMandate(rd.factory, predicted.fundId, plan);

@@ -15,6 +15,8 @@ contract FactoryDeploymentLinkingTest is Test, FactoryDeployment {
         string memory code = vm.toString(_spokeVaultCreationCode(d));
         assertTrue(d.spokeCrossChainLib.code.length != 0, "SpokeCrossChainLib deployed");
         assertTrue(vm.contains(code, _bareHex(d.spokeCrossChainLib)), "SpokeCrossChainLib linked");
+        assertTrue(d.spokeUnwindLib.code.length != 0, "SpokeUnwindLib deployed");
+        assertTrue(vm.contains(code, _bareHex(d.spokeUnwindLib)), "SpokeUnwindLib linked");
         assertFalse(vm.contains(code, "__$"), "no placeholder left");
     }
 

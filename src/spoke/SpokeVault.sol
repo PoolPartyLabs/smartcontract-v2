@@ -4,21 +4,20 @@ pragma solidity 0.8.28;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ICoreBridge} from "wormhole-sdk/interfaces/ICoreBridge.sol";
 
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {IAdapter} from "../interfaces/IAdapter.sol";
 import {IBridgeAdapter} from "../interfaces/IBridgeAdapter.sol";
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
-import {IPriceSource} from "../interfaces/IPriceSource.sol";
 import {Transit, TransferKind, ExpensePayer, BridgeQuote} from "../interfaces/FundTypes.sol";
-import {Mandate, MandateLib, SpokeConfig, PoolConfig, UnwindStep, BridgeAdapterConfig} from "../mandate/Mandate.sol";
+import {Mandate, MandateLib, SpokeConfig, PoolConfig, BridgeAdapterConfig} from "../mandate/Mandate.sol";
 import {ReportCodec} from "../libraries/ReportCodec.sol";
 import {TransitMessage} from "../libraries/TransitMessage.sol";
 import {SpokeVaultTypes} from "./SpokeVaultTypes.sol";
 import {SpokeCrossChainLib} from "./SpokeCrossChainLib.sol";
 import {SpokeLedger} from "./SpokeLedger.sol";
+import {SpokeUnwindLib} from "./SpokeUnwindLib.sol";
 
 /// @title SpokeVault
 /// @notice The fund's account on one chain, the Hub Chain included. See ISpokeVault.
@@ -28,11 +27,13 @@ import {SpokeLedger} from "./SpokeLedger.sol";
 /// @dev DEC-022, DEC-058: no proxy, no upgrade path, no selfdestruct. The constructor takes everything it needs, so the
 ///      FundFactory deploys it at a CREATE3 address that depends only on the factory and the salt (fund id, role,
 ///      chain id), never on this creation code (DEC-054). The Spoke Chain half (send home, refunds, report) lives in the
-///      linked external library `SpokeCrossChainLib`, which runs by DELEGATECALL over this vault's storage and holds
-///      none of its own: its address is part of this vault's creation code and trust surface (immutable, no upgrade
-///      path). The operator deploys it once per chain at a chain-independent address (so the linked creation code and
-///      its hash are the same on every chain) and the factory stores that code with its hash fixed at construction.
-///      This is the only DELEGATECALL the vault makes; adapters are always called with a plain CALL.
+///      linked external library `SpokeCrossChainLib` and the automatic unwind in `SpokeUnwindLib` (DEC-131); both run
+///      by DELEGATECALL over this vault's storage and hold none of their own: their addresses are part of this vault's
+///      creation code and trust surface (immutable, no upgrade path). The operator deploys them once per chain at
+///      chain-independent addresses (so the linked creation code and its hash are the same on every chain) and the
+///      factory stores that code with its hash fixed at construction. These are the only DELEGATECALLs the vault
+///      makes; adapters are always called with a plain CALL. The registry and ledger helpers both sides use are the
+///      internal library `SpokeLedger`.
 /// @dev DEC-080: every value that reaches a base comes from the internal ledger (`unallocated`, `collectedIncome`,
 ///      `operatingCash`), never from `balanceOf`. `balanceOf` is read only to assert the ledger is backed, to verify
 ///      an exact bridge debit and to size the excess sweep.
@@ -54,8 +55,9 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
     ///         swap's minimum output is at least the route's `IAdapter.spotQuote` less this share.
     /// @dev OPEN parameter (QA3: the price guard of hub positions is undecided; final verification). Measured from the
     ///      higher of the route's spot quote and the Core Vault's price-source value (security review S-2: a spot price
-    ///      can be moved within a block by the claimant); a claimant hint may only raise the minimum.
-    uint256 public constant MAX_UNWIND_SLIPPAGE_BPS = 500;
+    ///      can be moved within a block by the claimant); a claimant hint may only raise the minimum. Applied by the
+    ///      linked `SpokeUnwindLib`, whose constant this is (DEC-131).
+    uint256 public constant MAX_UNWIND_SLIPPAGE_BPS = SpokeUnwindLib.MAX_UNWIND_SLIPPAGE_BPS;
 
     // ---------------------------------------------------------------------------------------------------------------
     // Identity and wiring (immutable, DEC-053, DEC-058)
@@ -499,23 +501,8 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
     }
 
     /// @inheritdoc ISpokeVault
-    /// @dev DEC-069: walks the Mandate unwind order restricted to this chain; within a step, every open position of
-    ///      that (adapter, pool) in registry order. An illiquid step reverts (no try/catch, a position is never
-    ///      skipped). The stop condition (USDC Unallocated Balance at `usdcTarget`) is re-evaluated before every
-    ///      position.
-    /// @dev Final verification (DEC-069, DEC-081, DEC-097, QA3 OPEN): the vault, not the claimant, sizes every step.
-    ///      For each position it values the principal in USDC (`IAdapter.positionValue`, non-USDC legs at the route's
-    ///      `spotQuote`), takes the shortfall still needed (`usdcTarget` minus the USDC Unallocated Balance so far)
-    ///      and asks the adapter for the exit that removes only that share (`IAdapter.unwindExitParams`); the whole
-    ///      position is closed only when its whole value is needed. A position with no principal value is skipped.
-    /// @dev DEC-059, DEC-067: Unallocated USDC (exact value) is used first; every position, Exact-Value ones included
-    ///      (`isExactValue`), is only exited while the target is not reached, so an Exact-Value position is read, not
-    ///      exited, when what comes before it covers the target.
-    /// @dev Non-USDC principal an exit returns is swapped to USDC through `swapExactInput` with a minimum output of
-    ///      at least the route's spot quote less `MAX_UNWIND_SLIPPAGE_BPS` (DEC-081: `usdcTarget` already holds the 2%
-    ///      margin; DEC-097: its Market Costs are the fund's). The claimant's hints can only raise that minimum or
-    ///      restrict the swap; they never size an exit. Income from the exits goes to the collected income bucket,
-    ///      never to the proceeds (DEC-092).
+    /// @dev DEC-069, DEC-081, DEC-097, DEC-131: the body lives in the linked library `SpokeUnwindLib` (see
+    ///      `SpokeUnwindLib.unwindForPayout`); the vault keeps the chain, caller and reentrancy checks.
     /// @param unwindHints `abi.encode(SpokeVaultTypes.UnwindHint[])`, optional, one per position visited in order.
     function unwindForPayout(uint256 usdcTarget, bytes calldata unwindHints)
         external
@@ -524,22 +511,7 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
         returns (uint256 usdcProceeds)
     {
         if (msg.sender != coreVault) revert NotCoreVault(msg.sender);
-        if (usdcTarget == 0) revert ZeroAmount();
-        SpokeVaultTypes.UnwindHint[] memory hints = unwindHints.length == 0
-            ? new SpokeVaultTypes.UnwindHint[](0)
-            : abi.decode(unwindHints, (SpokeVaultTypes.UnwindHint[]));
-
-        uint256 visited;
-        for (uint256 s; s < _s.unwindOrder.length && _s.unallocated[baseToken] < usdcTarget; ++s) {
-            visited = _unwindStep(_s.unwindOrder[s], hints, visited, usdcTarget);
-        }
-
-        usdcProceeds = Math.min(_s.unallocated[baseToken], usdcTarget);
-        if (usdcProceeds != 0) {
-            _s.unallocated[baseToken] -= usdcProceeds;
-            SpokeLedger.payCoreVaultIdle(baseToken, coreVault, usdcProceeds);
-        }
-        emit UnwoundForPayout(usdcTarget, usdcProceeds);
+        usdcProceeds = SpokeUnwindLib.unwindForPayout(_s, _config(), usdcTarget, unwindHints);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -669,9 +641,10 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // Internal: adapters and positions
+    // Internal
     // ---------------------------------------------------------------------------------------------------------------
 
+    /// @dev The vault's immutable wiring for its linked libraries.
     function _config() internal view returns (SpokeVaultTypes.Config memory) {
         return SpokeVaultTypes.Config({
             fundId: fundId,
@@ -686,131 +659,6 @@ contract SpokeVault is ISpokeVault, ReentrancyGuard {
             maxReportAge: maxReportAge
         });
     }
-
-    /// @dev Every open position of one Mandate unwind step, in registry order, while the target is not reached; the
-    ///      `visited`-th position takes the `visited`-th hint, if any. Returns the positions visited so far.
-    function _unwindStep(
-        UnwindStep memory step,
-        SpokeVaultTypes.UnwindHint[] memory hints,
-        uint256 visited,
-        uint256 usdcTarget
-    ) internal returns (uint256) {
-        bytes32[] memory keys = _s.positionKeysOf(step.adapter, step.poolKey);
-        for (uint256 k; k < keys.length; ++k) {
-            uint256 held = _s.unallocated[baseToken];
-            if (held >= usdcTarget) break;
-            SpokeVaultTypes.UnwindSwap[] memory swaps;
-            if (visited < hints.length) swaps = hints[visited].swaps;
-            ++visited;
-            _unwindPosition(step.adapter, step.poolKey, keys[k], usdcTarget - held, swaps);
-        }
-        return visited;
-    }
-
-    /// @dev One unwind step on one position (final verification): value the principal in USDC, exit only the share
-    ///      of it the `shortfall` needs (the whole position when its whole value is needed), then swap the non-USDC
-    ///      principal the exit returned into USDC above the vault's floor.
-    function _unwindPosition(
-        address adapter,
-        bytes32 poolKey,
-        bytes32 positionKey,
-        uint256 shortfall,
-        SpokeVaultTypes.UnwindSwap[] memory swaps
-    ) internal {
-        IAdapter a = _s.positionAdapter(adapter);
-        SpokeVaultTypes.PoolTokens memory p = _s.pool(adapter, poolKey);
-        SpokeVaultTypes.UnwindSwap memory r0 = _unwindRoute(adapter, poolKey, p, p.token0, swaps);
-        SpokeVaultTypes.UnwindSwap memory r1 = _unwindRoute(adapter, poolKey, p, p.token1, swaps);
-        uint256 value;
-        {
-            IAdapter.PositionValue memory v = a.positionValue(positionKey);
-            value = _unwindValue(r0, v.principal0) + _unwindValue(r1, v.principal1);
-        }
-        if (value == 0) return;
-        (bool close, bytes memory params) = a.unwindExitParams(positionKey, Math.min(shortfall, value), value);
-        (IAdapter.Amounts memory amounts,) = _s.exit(
-            baseToken,
-            adapter,
-            positionKey,
-            close ? SpokeVaultTypes.ExitKind.Close : SpokeVaultTypes.ExitKind.Decrease,
-            params
-        );
-        _unwindSwap(r0, amounts.principal0);
-        _unwindSwap(r1, amounts.principal1);
-    }
-
-    /// @dev The swap route of `token` into USDC for an unwind exit: none for USDC (or a missing token1); the
-    ///      position's own pool when it pairs `token` with USDC (a hint for `token` must then name that same route);
-    ///      otherwise the hint's route, which must be a Mandate pool of a Mandate adapter pairing `token` with USDC.
-    ///      The hint entry's `minAmountOut` and `params` travel with the route.
-    /// @dev Independent verification plan T14: a single-asset position (`token1` zero, an Aave reserve) has no pair of
-    ///      its own, so a non-USDC one takes the hint's route; asking its one-token pool for the other token reverted
-    ///      every unwind that reached the step.
-    function _unwindRoute(
-        address adapter,
-        bytes32 poolKey,
-        SpokeVaultTypes.PoolTokens memory p,
-        address token,
-        SpokeVaultTypes.UnwindSwap[] memory swaps
-    ) internal view returns (SpokeVaultTypes.UnwindSwap memory r) {
-        address usdc = baseToken;
-        if (token == usdc || token == address(0)) return r;
-        for (uint256 i; i < swaps.length; ++i) {
-            if (swaps[i].tokenIn == token) r = swaps[i];
-        }
-        if (p.token1 != address(0) && SpokeLedger.otherToken(p, token) == usdc) {
-            if (r.adapter != address(0) && (r.adapter != adapter || r.poolKey != poolKey)) {
-                revert SpokeVaultTypes.InvalidUnwindSwap(r.adapter, r.poolKey, token);
-            }
-            (r.adapter, r.poolKey, r.tokenIn) = (adapter, poolKey, token);
-        } else {
-            if (r.adapter == address(0)) revert SpokeVaultTypes.MissingUnwindSwap(token);
-            _s.positionAdapter(r.adapter);
-            if (SpokeLedger.otherToken(_s.pool(r.adapter, r.poolKey), token) != usdc) {
-                revert SpokeVaultTypes.InvalidUnwindSwap(r.adapter, r.poolKey, token);
-            }
-        }
-    }
-
-    /// @dev USDC value of `amount` of a route's token at the route's spot price; USDC itself (no route) at par.
-    function _unwindValue(SpokeVaultTypes.UnwindSwap memory r, uint256 amount) internal view returns (uint256) {
-        if (amount == 0 || r.adapter == address(0)) return amount;
-        return IAdapter(r.adapter).spotQuote(r.poolKey, r.tokenIn, amount);
-    }
-
-    /// @dev Swaps `amountIn` along route `r` into USDC with a minimum output of at least the higher of the route's
-    ///      spot quote and the Core Vault's price-source value, less `MAX_UNWIND_SLIPPAGE_BPS`; the hint's minimum
-    ///      only when it is higher (final verification, QA3 OPEN).
-    /// @dev Security review S-2: the claimant runs this inside its own transaction and can move `slot0` first, so a
-    ///      floor measured against the spot quote alone followed the moved price. The price-source value (Chainlink
-    ///      for WETH, the price Share Assets use) cannot be moved in the same block; a pushed-down spot now makes the
-    ///      swap revert, the whole unwind reverts and the claim is paid from Idle only (DEC-068). A reverting price
-    ///      source reverts the unwind the same way (the claim itself never reverts, `CoreVault._unwindForPayout`).
-    function _unwindSwap(SpokeVaultTypes.UnwindSwap memory r, uint256 amountIn) internal {
-        if (amountIn == 0 || r.adapter == address(0)) return;
-        IAdapter a = IAdapter(r.adapter);
-        (uint256 oracleValue,) = IPriceSource(ICoreVault(coreVault).priceSource()).usdcValue(r.tokenIn, amountIn);
-        uint256 floor = Math.mulDiv(
-            Math.max(a.spotQuote(r.poolKey, r.tokenIn, amountIn), oracleValue),
-            MandateLib.BPS - MAX_UNWIND_SLIPPAGE_BPS,
-            MandateLib.BPS
-        );
-        _s.swap(
-            baseToken,
-            a,
-            _s.pool(r.adapter, r.poolKey),
-            r.poolKey,
-            r.tokenIn,
-            amountIn,
-            Math.max(floor, r.minAmountOut),
-            r.params,
-            false
-        );
-    }
-
-    // ---------------------------------------------------------------------------------------------------------------
-    // Internal: ledger (DEC-080)
-    // ---------------------------------------------------------------------------------------------------------------
 
     /// @dev DEC-096, DEC-100: below the floor, the next value-moving operation adds `operatingCashTopUp` (or what
     ///      Unallocated Balance of the base token holds, if less) to Operating Cash; the Share Price drop is accepted.
