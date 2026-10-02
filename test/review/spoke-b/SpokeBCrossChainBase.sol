@@ -13,7 +13,7 @@ import {ManagerRegistry} from "../../../src/core/ManagerRegistry.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {ValueReportReceiver} from "../../../src/report/ValueReportReceiver.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
-import {BridgeQuote, TransferKind} from "../../../src/interfaces/FundTypes.sol";
+import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {MockBridgeNextArrive} from "../../mocks/across/MockBridgeNextArrive.sol";
 import {
     Mandate,
@@ -226,11 +226,10 @@ abstract contract SpokeBCrossChainBase is Test, FundSeed {
         return abi.encode(outputAmount);
     }
 
-    /// @dev The spoke's mock bridge adapter delivers `outputAmount` on the next send home; the returned quote is the
-    ///      Spoke Vault's vestigial argument, which it ignores (DEC-158, DEC-162).
-    function _homeQuote(uint256 outputAmount) internal returns (BridgeQuote memory q) {
+    /// @dev The spoke's mock bridge adapter delivers `outputAmount` on the next send home (DEC-158, DEC-162: the
+    ///      manager passes no bridge parameter).
+    function _willArrive(uint256 outputAmount) internal {
         MockBridgeNextArrive.set(address(spokeBridge), outputAmount);
-        q.outputAmount = outputAmount;
     }
 
     /// @dev Manager: hub -> spoke send of `amount` USDC, `output` USDG to arrive.

@@ -5,10 +5,11 @@ import {Test} from "forge-std/Test.sol";
 import {SpokeVaultTestBase} from "./SpokeVaultTestBase.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
-import {Transit, TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
+import {Transit, TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {MockSpokeToken} from "../../mocks/spoke/MockSpokeToken.sol";
 import {MockPositionAdapter} from "../../mocks/spoke/MockPositionAdapter.sol";
+import {MockSwapAdapter} from "../../mocks/swap/MockSwapAdapter.sol";
 import {MockAcrossSpokePool} from "../../mocks/spoke/MockAcrossSpokePool.sol";
 
 /// @notice Drives a spoke-chain Spoke Vault through random sequences of every verb, donations included. Every action
@@ -22,6 +23,7 @@ contract SpokeVaultHandler is Test {
     MockSpokeToken internal usdg;
     MockSpokeToken internal weth;
     MockPositionAdapter internal adapter;
+    MockSwapAdapter internal swapAdapter;
     MockAcrossSpokePool internal pool;
     address internal manager;
 
@@ -40,6 +42,7 @@ contract SpokeVaultHandler is Test {
         MockSpokeToken usdg_,
         MockSpokeToken weth_,
         MockPositionAdapter adapter_,
+        MockSwapAdapter swapAdapter_,
         MockAcrossSpokePool pool_,
         address manager_
     ) {
@@ -47,6 +50,7 @@ contract SpokeVaultHandler is Test {
         usdg = usdg_;
         weth = weth_;
         adapter = adapter_;
+        swapAdapter = swapAdapter_;
         pool = pool_;
         manager = manager_;
     }
@@ -123,10 +127,8 @@ contract SpokeVaultHandler is Test {
         uint256 available = usdgIn ? _usdgAfterTopUp() : vault.unallocatedBalance(address(weth));
         if (available == 0) return;
         amount = bound(amount, 1, available);
-        tokenOut.mint(address(adapter), amount);
-        adapter.addLiquidity(address(tokenOut), amount);
         vm.prank(manager);
-        vault.swapExactInput(address(adapter), SPOKE_POOL, tokenIn, amount, 0, "");
+        vault.swap(address(swapAdapter), tokenIn, address(tokenOut), amount, 0, "");
         _check();
     }
 
@@ -145,11 +147,8 @@ contract SpokeVaultHandler is Test {
         uint256 available = _usdgAfterTopUp();
         if (available < 10_000) return;
         amount = bound(amount, 10_000, available);
-        uint256 outputAmount = amount - amount * 50 / 10_000;
         vm.prank(manager);
-        bytes32 id = vault.sendToHub(
-            amount, TransferKind.Principal, 0, BridgeQuote(outputAmount, uint32(block.timestamp), 0, address(0))
-        );
+        bytes32 id = vault.sendToHub(amount, TransferKind.Principal, 0);
         sent.push(id);
         _check();
     }
@@ -211,8 +210,8 @@ contract SpokeVaultInvariantTest is SpokeVaultTestBase {
     function setUp() public {
         _setUpMocks();
         _deploySpoke();
-        spokeUni.setSwapRate(1, 1);
-        handler = new SpokeVaultHandler(vault, usdg, weth, spokeUni, spokePool, manager);
+        spokeSwap.setPrice(address(weth), address(usdg), 1, 1);
+        handler = new SpokeVaultHandler(vault, usdg, weth, spokeUni, spokeSwap, spokePool, manager);
         targetContract(address(handler));
     }
 

@@ -163,6 +163,9 @@ library SpokeUnwindLib {
     ///      swap revert, the whole unwind reverts and the claim is paid from Idle only (DEC-068). A reverting price
     ///      source reverts the unwind the same way (the claim itself never reverts,
     ///      `CoreVaultPayoutLogic._unwindForPayout`).
+    /// @dev Checklist doc 15, gap 4: the sale's `Swapped` event carries the route's spot quote, the vault's
+    ///      `MAX_UNWIND_SLIPPAGE_BPS` and the minimum applied (interim mapping until WP-09 sells through the swap
+    ///      adapter, DEC-136 item 4).
     function _unwindSwap(
         SpokeVaultTypes.State storage s,
         SpokeVaultTypes.Config memory c,
@@ -171,13 +174,15 @@ library SpokeUnwindLib {
     ) private {
         if (amountIn == 0 || r.adapter == address(0)) return;
         IAdapter a = IAdapter(r.adapter);
-        (uint256 oracleValue,) = IPriceSource(ICoreVault(c.coreVault).priceSource()).usdcValue(r.tokenIn, amountIn);
-        uint256 floor = Math.mulDiv(
-            Math.max(a.spotQuote(r.poolKey, r.tokenIn, amountIn), oracleValue),
-            MandateLib.BPS - MAX_UNWIND_SLIPPAGE_BPS,
-            MandateLib.BPS
-        );
-        SpokeLedger.swap(
+        uint256 spot = a.spotQuote(r.poolKey, r.tokenIn, amountIn);
+        uint256 minOut;
+        {
+            (uint256 oracleValue,) = IPriceSource(ICoreVault(c.coreVault).priceSource()).usdcValue(r.tokenIn, amountIn);
+            uint256 floor =
+                Math.mulDiv(Math.max(spot, oracleValue), MandateLib.BPS - MAX_UNWIND_SLIPPAGE_BPS, MandateLib.BPS);
+            minOut = Math.max(floor, r.minAmountOut);
+        }
+        uint256 amountOut = SpokeLedger.poolSwap(
             s,
             c.baseToken,
             a,
@@ -185,9 +190,11 @@ library SpokeUnwindLib {
             r.poolKey,
             r.tokenIn,
             amountIn,
-            Math.max(floor, r.minAmountOut),
-            r.params,
-            false
+            minOut,
+            r.params
+        );
+        emit ISpokeVault.Swapped(
+            r.adapter, r.tokenIn, c.baseToken, amountIn, amountOut, spot, uint16(MAX_UNWIND_SLIPPAGE_BPS), minOut
         );
     }
 }

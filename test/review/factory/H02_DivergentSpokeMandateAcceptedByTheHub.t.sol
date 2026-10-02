@@ -8,7 +8,7 @@ import {CoreVault} from "../../../src/core/CoreVault.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {ValueReportReceiver} from "../../../src/report/ValueReportReceiver.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
-import {TransferKind, BridgeQuote, Transit} from "../../../src/interfaces/FundTypes.sol";
+import {TransferKind, Transit} from "../../../src/interfaces/FundTypes.sol";
 import {Mandate} from "../../../src/mandate/Mandate.sol";
 import {FactoryReviewFixture} from "./FactoryReviewFixture.sol";
 
@@ -20,8 +20,8 @@ import {FactoryReviewFixture} from "./FactoryReviewFixture.sol";
 ///         - a divergent Mandate inside the bounds can still be created (FF-OQ-1: the factory only checks the
 ///           Mandate against the hash the same caller passes), but its reports carry its own `mandateHash` and every
 ///           delivery reverts `WrongMandate` (S-6), so the hub never has a report of it and never funds it (S-14);
-///         - the drain quote itself no longer exists: since DEC-158 / DEC-162 the Spoke Vault ignores the quote
-///           argument and the Across adapter fixes the amount to arrive, with no exclusive relayer.
+///         - the drain quote itself no longer exists: since DEC-158 / DEC-162 `sendToHub` takes no bridge parameter
+///           (WP-07 C3) and the Across adapter fixes the amount to arrive, with no exclusive relayer.
 contract H02_DivergentSpokeMandateAcceptedByTheHub is FactoryReviewFixture {
     uint256 internal constant DEPOSIT = 1_000_000e6;
     uint256 internal constant SEND = 200_000e6; // the whole Spoke Cap of the hub's Mandate
@@ -101,12 +101,10 @@ contract H02_DivergentSpokeMandateAcceptedByTheHub is FactoryReviewFixture {
         uint256 ruleFee = (all * 8e14 + 1e18 - 1) / 1e18 + 30_000;
 
         vm.prank(manager);
-        bytes32 id = spoke.sendToHub(
-            all, TransferKind.Principal, 0, BridgeQuote(1, uint32(block.timestamp), 21_600, managerRelayer)
-        );
+        bytes32 id = spoke.sendToHub(all, TransferKind.Principal, 0);
         Transit memory t = spoke.hubBoundTransit(id);
         assertEq(t.amountSent, all);
-        assertEq(t.amountToArrive, all - ruleFee, "the adapter's amount, not the quote's one base unit");
+        assertEq(t.amountToArrive, all - ruleFee, "the adapter's amount");
         assertEq(spokeAcross.lastRecipient(), spoke.coreVault(), "to the Core Vault");
     }
 }

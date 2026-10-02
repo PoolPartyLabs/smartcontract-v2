@@ -17,12 +17,13 @@ contract L01_UnwindCannotReach is SpokeAHubFixture {
     function test_POC_REVIEW_L05_nonUsdcUnallocatedBalanceIsNeverUnwound() public {
         _deposit(alice, 1_000_000e6);
         _deposit(mallory, 50_000e6);
-        // The manager allocates and swaps it into WETH, leaving it in Unallocated Balance (no position).
+        // The manager allocates and swaps it into WETH through the swap adapter (DEC-136), leaving it in Unallocated
+        // Balance (no position).
         vm.prank(manager);
         vault.allocateToHubSpokeVault(1_000_000e6);
-        v4.setSwap(4e26, 10_000); // USDC -> WETH at the oracle price
+        hubSwap.setPrice(address(usdc), address(weth), 1e18, 2500e6); // USDC -> WETH at the oracle price
         vm.prank(manager);
-        hubVault.swapExactInput(address(adapter), poolId, address(usdc), 1_000_000e6, 0, "");
+        hubVault.swap(address(hubSwap), address(usdc), address(weth), 1_000_000e6, 0, "");
         _unwindSwapsAtOracle();
 
         // Share Assets still count the 400 WETH at the oracle price, so Mallory's shares are worth 49,875 USDC ...
@@ -83,9 +84,9 @@ contract L05_SingleAssetNonUsdcStep is SpokeAHubFixture {
         // 10,000 USDC -> 4 WETH supplied to the single-asset WETH reserve (second step).
         vm.prank(manager);
         vault.allocateToHubSpokeVault(10_000e6);
-        v4.setSwap(4e26, 10_000);
+        hubSwap.setPrice(address(usdc), address(weth), 1e18, 2500e6);
         vm.prank(manager);
-        uint256 wethIn = hubVault.swapExactInput(address(adapter), poolId, address(usdc), 10_000e6, 0, "");
+        uint256 wethIn = hubVault.swap(address(hubSwap), address(usdc), address(weth), 10_000e6, 0, "");
         vm.prank(manager);
         hubVault.openPosition(address(exact), EXACT_WETH, wethIn, 0, "");
         _managerSuppliesExact(1_140_000e6); // exact-value USDC third

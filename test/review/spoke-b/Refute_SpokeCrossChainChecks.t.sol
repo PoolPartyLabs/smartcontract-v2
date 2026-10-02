@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
-import {Transit, TransitState, TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
+import {Transit, TransitState, TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {SpokeBFixture} from "./SpokeBFixture.sol";
@@ -23,9 +23,11 @@ contract Refute_SpokeCrossChainChecks is SpokeBFixture {
     function test_refute_buildReportAndReportDisagree() public {
         vm.startPrank(manager);
         spoke.openPosition(address(spokeAdapter), SPOKE_POOL, 0, 5000e6, "");
-        bytes32 a = spoke.sendToHub(1000e6, TransferKind.Principal, 0, _homeQuote(999e6));
+        _willArrive(999e6);
+        bytes32 a = spoke.sendToHub(1000e6, TransferKind.Principal, 0);
+        _willArrive(1998e6);
         vm.warp(block.timestamp + 1 days); // `a` still within retention
-        spoke.sendToHub(2000e6, TransferKind.Principal, 0, _homeQuote(1998e6));
+        spoke.sendToHub(2000e6, TransferKind.Principal, 0);
         vm.stopPrank();
         _dustArrivals(3);
         // Past `a`'s retention but within `b`'s, with no send or report since, so the eager sweep has not run: `a` is
@@ -80,8 +82,9 @@ contract Refute_SpokeCrossChainChecks is SpokeBFixture {
     ///         listing the send; a second call, a call before the deadline, and (new on main, S-3) a call before the
     ///         refund has landed in the escrow all revert.
     function test_refute_refundDoubleCreditOrLostAfterPruning() public {
+        _willArrive(39_980e6);
         vm.prank(manager);
-        bytes32 id = spoke.sendToHub(40_000e6, TransferKind.Principal, 0, _homeQuote(39_980e6));
+        bytes32 id = spoke.sendToHub(40_000e6, TransferKind.Principal, 0);
         Transit memory t = spoke.hubBoundTransit(id);
         vm.expectRevert(abi.encodeWithSelector(ISpokeVault.FillDeadlineNotReached.selector, id, t.fillDeadline));
         spoke.recognizeRefund(id);

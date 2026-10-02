@@ -263,6 +263,7 @@ abstract contract IntegrationPriceBase is EndToEndBase {
         hubUniswap = a.chains[0].uniswapV4Adapter;
         hubAave = a.chains[0].aaveV3Adapter;
         hubAcross = a.chains[0].acrossBridgeAdapter;
+        hubSwapAdapter = a.chains[0].uniswapV3SwapAdapter;
 
         hubKey = plan.hubPool;
         hubPoolId = PoolId.unwrap(hubKey.toId());
@@ -321,20 +322,21 @@ abstract contract IntegrationPriceBase is EndToEndBase {
         assertEq(now_, target, "arbitrage restored the price");
     }
 
-    /// @notice The manager buys WETH with `usdcTotal` of hub Unallocated USDC through `key`, in `chunks`; after each
-    ///         chunk the arbitrageur restores the pool to the price it had before.
+    /// @notice The manager buys WETH with `usdcTotal` of hub Unallocated USDC through the fund's Uniswap V3 swap
+    ///         adapter, in `chunks`, each within the price source's tolerance. DEC-136: never in a fund pool, so the
+    ///         price of `key` stays where it was.
     function _buyWethInChunks(PoolKey memory key, uint256 usdcTotal, uint256 chunks) internal returns (uint256 weth) {
-        bytes32 id = PoolId.unwrap(key.toId());
-        (uint160 start,,,) = IStateView(ARB_V4_STATE_VIEW).getSlot0(PoolId.wrap(id));
+        (uint160 start,,,) = IStateView(ARB_V4_STATE_VIEW).getSlot0(key.toId());
         uint256 chunk = usdcTotal / chunks;
         for (uint256 i; i < chunks; ++i) {
             uint256 amount = i == chunks - 1 ? usdcTotal - chunk * (chunks - 1) : chunk;
-            uint256 minOut = _minWethFor(amount);
-            bytes memory params = _swapParams();
             vm.prank(manager);
-            weth += hubSpoke.swapExactInput(hubUniswap, id, ARB_USDC, amount, minOut, params);
-            _arbTo(arbitrumRouter, key, ARB_V4_STATE_VIEW, start);
+            uint256 out = hubSpoke.swap(hubSwapAdapter, ARB_USDC, ARB_WETH, amount, uint16(SWAP_TOLERANCE_BPS), "");
+            assertGe(out, _minWethFor(amount), "within the tolerance of the price source");
+            weth += out;
         }
+        (uint160 end,,,) = IStateView(ARB_V4_STATE_VIEW).getSlot0(key.toId());
+        assertEq(end, start, "DEC-136: the fund's pool never traded");
     }
 
     /// @notice Ticks of the range [price * (1 - down), price * (1 + up)] around the current price, on the spacing.

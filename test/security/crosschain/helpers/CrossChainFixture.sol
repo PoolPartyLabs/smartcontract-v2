@@ -13,7 +13,7 @@ import {SpokeVault} from "../../../../src/spoke/SpokeVault.sol";
 import {ValueReportReceiver} from "../../../../src/report/ValueReportReceiver.sol";
 import {AcrossBridgeAdapter} from "../../../../src/adapters/AcrossBridgeAdapter.sol";
 import {ICoreVault} from "../../../../src/interfaces/ICoreVault.sol";
-import {BridgeQuote, TransferKind} from "../../../../src/interfaces/FundTypes.sol";
+import {TransferKind} from "../../../../src/interfaces/FundTypes.sol";
 import {TransitMessage} from "../../../../src/libraries/TransitMessage.sol";
 import {
     Mandate,
@@ -271,14 +271,13 @@ abstract contract CrossChainFixture is Test, FundSeed {
     // Spoke actions
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @dev Manager send home; returns the transit id and the Across deposit id on the spoke pool. The quote argument
-    ///      is vestigial (ignored since DEC-158 / DEC-162); the Across adapter fixes the amount to arrive.
+    /// @dev Manager send home; returns the transit id and the Across deposit id on the spoke pool. The manager passes
+    ///      no bridge parameter (DEC-158 / DEC-162); the Across adapter fixes the amount to arrive.
     function _sendToHub(uint256 amount, TransferKind kind) internal returns (bytes32 transitId, uint256 depositId) {
         vm.chainId(SPOKE);
         depositId = spokePool.numberOfDeposits();
-        BridgeQuote memory none;
         vm.prank(manager);
-        transitId = spoke.sendToHub(amount, kind, 0, none);
+        transitId = spoke.sendToHub(amount, kind, 0);
         vm.chainId(HUB);
     }
 

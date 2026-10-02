@@ -37,12 +37,11 @@ contract M01_UnpriceableSpokeToken is SpokeBFixture {
 
         prices.setReverts(address(spokeWeth), true); // the price source has no entry for it
 
-        // The manager swaps 60,000 USDG into the Mandate pool's other token on the spoke (a Mandate verb).
-        spokeWeth.mint(address(spokeAdapter), TOKENS);
-        spokeAdapter.addLiquidity(address(spokeWeth), TOKENS);
-        spokeAdapter.setSwapRate(TOKENS, SWAPPED);
+        // The manager swaps 60,000 USDG into the spoke's other Mandate token through the swap adapter (a Mandate verb,
+        // DEC-136).
+        spokeSwap.setPrice(address(usdg), address(spokeWeth), TOKENS, SWAPPED);
         vm.prank(manager);
-        spoke.swapExactInput(address(spokeAdapter), SPOKE_POOL, address(usdg), SWAPPED, TOKENS, "");
+        spoke.swap(address(spokeSwap), address(usdg), address(spokeWeth), SWAPPED, 0, "");
         _reportNow();
     }
 

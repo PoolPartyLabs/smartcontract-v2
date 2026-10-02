@@ -8,6 +8,7 @@ import {IAdapterGuard} from "../../../src/interfaces/IAdapterGuard.sol";
 import {CoreVault} from "../../../src/core/CoreVault.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {UniswapV4Adapter} from "../../../src/adapters/UniswapV4Adapter.sol";
+import {UniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
 import {AccessFundFixture} from "./AccessFundFixture.sol";
 
 /// @title Regression (security review S-10): deprecating the Uniswap V4 adapter no longer traps the fund's non-base
@@ -18,11 +19,13 @@ import {AccessFundFixture} from "./AccessFundFixture.sol";
 ///         unwinding claim to Idle and left closed WETH unreachable while Share Assets kept counting it.
 /// @notice FIX (S-10, `UniswapV4Adapter.swapExactInput`): a deprecated adapter still runs a swap INTO the vault's base
 ///         token (an exit, DEC-056, DEC-058); a swap out of it and every entry stay blocked. Both tests assert the
-///         attack now FAILS.
+///         attack now FAILS. Since DEC-136 the manager's sale runs through the fund's swap adapter, never in the
+///         position's pool; the same exit rule holds there (`UniswapV3SwapAdapter`), and the test deprecates both.
 contract DeprecationTrapsNonBaseTokensPoC is AccessFundFixture {
     CoreVault internal core;
     SpokeVault internal hub;
     address internal adapter;
+    address internal swapAdapter;
     bytes32 internal poolId;
     bytes32 internal positionKey;
 
@@ -32,19 +35,22 @@ contract DeprecationTrapsNonBaseTokensPoC is AccessFundFixture {
         core = CoreVault(a.coreVault);
         hub = _hubVault(a);
         adapter = a.chains[0].uniswapV4Adapter;
+        swapAdapter = a.chains[0].uniswapV3SwapAdapter;
         poolId = _hubPoolId();
+        _v3WethUsdcPool();
 
         _deposit(core, alice, 500_000e6);
         _deposit(core, bob, 500_000e6);
-        // The manager puts 800,000 USDC to work in the Mandate's WETH / USDC pool: half swapped into WETH, then one
-        // position around the current price. 197,500 USDC stay in Idle.
+        // The manager puts 800,000 USDC to work in the Mandate's WETH / USDC pool: half swapped into WETH through the
+        // swap adapter (its 0.01% pool keeps 40 USDC), then one position around the current price. 197,500 USDC stay
+        // in Idle.
         vm.startPrank(manager);
         core.allocateToHubSpokeVault(800_000e6);
-        hub.swapExactInput(adapter, poolId, address(usdc), 400_000e6, 0, "");
-        (positionKey,,) = hub.openPosition(adapter, poolId, 400_000e6, 400_000e6, _openParams(400_000e6, 400_000e6));
+        uint128 wethOut = uint128(hub.swap(swapAdapter, address(usdc), address(weth), 400_000e6, 0, ""));
+        (positionKey,,) = hub.openPosition(adapter, poolId, wethOut, wethOut, _openParams(wethOut, wethOut));
         vm.stopPrank();
         assertApproxEqAbs(
-            core.shareAssets(), SEED_IDLE + 997_500e6, 10, "Idle plus the position, WETH at the oracle price"
+            core.shareAssets(), SEED_IDLE + 997_460e6, 10, "Idle plus the position, WETH at the oracle price"
         );
     }
 
@@ -71,8 +77,10 @@ contract DeprecationTrapsNonBaseTokensPoC is AccessFundFixture {
 
     /// @dev After the flag the manager closes the position and sells the WETH into USDC; nothing is trapped.
     function test_SEC_S10_deprecationNoLongerTrapsTheWethPrincipal() public {
-        vm.prank(guardian);
+        vm.startPrank(guardian);
         UniswapV4Adapter(adapter).deprecate();
+        UniswapV3SwapAdapter(swapAdapter).deprecate();
+        vm.stopPrank();
 
         vm.startPrank(manager);
         hub.closePosition(adapter, positionKey, abi.encode(UniswapV4Adapter.CloseParams(0, 0, block.timestamp)));
@@ -82,7 +90,9 @@ contract DeprecationTrapsNonBaseTokensPoC is AccessFundFixture {
         // Entries stay blocked; the exit swap into USDC runs.
         vm.expectRevert(IAdapterGuard.AdapterIsDeprecated.selector);
         hub.openPosition(adapter, poolId, wethHeld, wethHeld, _openParams(uint128(wethHeld), uint128(wethHeld)));
-        hub.swapExactInput(adapter, poolId, address(weth), wethHeld, 0, "");
+        vm.expectRevert(IAdapterGuard.AdapterIsDeprecated.selector);
+        hub.swap(swapAdapter, address(usdc), address(weth), 1e6, 0, "");
+        hub.swap(swapAdapter, address(weth), address(usdc), wethHeld, 0, "");
         assertEq(hub.unallocatedBalance(address(weth)), 0, "S-10: no WETH left behind");
         hub.returnToCoreVault(hub.unallocatedBalance(address(usdc)));
         vm.stopPrank();

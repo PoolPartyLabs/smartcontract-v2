@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
-import {TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
+import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {CrossChainFixture} from "./helpers/CrossChainFixture.sol";
 
 /// @title Regression (security review S-11): dust transfers home can no longer bloat the report past a hub block
@@ -26,15 +26,14 @@ contract DustSendsReportBloatPoC is CrossChainFixture {
         // The manager tries 500 dust sends: the list stops at the bound. Since DEC-162 the dust is the smallest send
         // the Across adapter's fee rule lets through (0.030026 USDG: one base unit arrives).
         uint256 dust = 30_026;
-        BridgeQuote memory none;
         uint256 limit = SpokeVaultTypes.MAX_HUB_BOUND_IN_FLIGHT;
         vm.chainId(SPOKE);
         vm.startPrank(manager);
         for (uint256 i; i < limit; ++i) {
-            spoke.sendToHub(dust, TransferKind.Principal, 0, none);
+            spoke.sendToHub(dust, TransferKind.Principal, 0);
         }
         vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.HubBoundInFlightLimit.selector, limit));
-        spoke.sendToHub(dust, TransferKind.Principal, 0, none);
+        spoke.sendToHub(dust, TransferKind.Principal, 0);
         vm.stopPrank();
         vm.chainId(HUB);
 

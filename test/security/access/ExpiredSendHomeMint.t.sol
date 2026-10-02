@@ -117,7 +117,7 @@ contract ExpiredSendHomeMintPoC is AccessFundFixture {
         s.reportAfterArrival = spokeWormhole.published(1).payload;
 
         vm.prank(manager);
-        bytes32 homeTransitId = spoke.sendToHub(HOME_SEND, TransferKind.Principal, 0, _noQuote());
+        bytes32 homeTransitId = spoke.sendToHub(HOME_SEND, TransferKind.Principal, 0);
         assertEq(spoke.hubBoundTransit(homeTransitId).amountToArrive, HOME_ARRIVES);
         spoke.report();
         s.reportWhileInFlight = spokeWormhole.published(2).payload;

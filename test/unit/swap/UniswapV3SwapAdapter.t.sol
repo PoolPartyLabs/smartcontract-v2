@@ -103,7 +103,7 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
         _fund(address(weth), AMOUNT);
         vm.expectEmit(address(adapter));
         emit ISwapAdapter.Swapped(address(weth), address(base), AMOUNT, expected, AMOUNT, 500, bytes32(0));
-        (uint256 out, uint256 spot) = adapter.swap(address(weth), address(base), AMOUNT, NO_MAX, "");
+        (uint256 out, uint256 spot,) = adapter.swap(address(weth), address(base), AMOUNT, NO_MAX, "");
         assertEq(out, expected, "0.05% tier");
         assertEq(spot, AMOUNT, "mid value at price 1");
         assertEq(base.balanceOf(address(this)), expected, "output reached the vault");
@@ -216,7 +216,7 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
         vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.InsufficientOutput.selector, trapOut, AMOUNT * 396 / 100));
         adapter.swap(address(weth), address(base), AMOUNT, 100, "");
 
-        (uint256 out, uint256 spot) = adapter.swapDirect(address(weth), address(base), AMOUNT, 500, 100);
+        (uint256 out, uint256 spot,) = adapter.swapDirect(address(weth), address(base), AMOUNT, 500, 100);
         assertEq(out, _out(AMOUNT, 500, 0), "the 0.05% tier fills it within the maximum");
         assertEq(spot, AMOUNT);
     }
@@ -241,7 +241,7 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
         );
         adapter.swap(address(weth), address(base), AMOUNT, 4, "");
 
-        (uint256 out, uint256 spot) = adapter.swap(address(weth), address(base), AMOUNT, 10, "");
+        (uint256 out, uint256 spot,) = adapter.swap(address(weth), address(base), AMOUNT, 10, "");
         assertEq(out, quoted, "a maximum the honest tier meets sells there");
         assertEq(spot, AMOUNT);
         _assertNothingKept(address(weth));
@@ -310,7 +310,7 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
         wethBase[0].setMode(MockV3Pool.Mode.QuoteBurnsGas);
         _fund(address(weth), AMOUNT);
         uint256 g = gasleft();
-        (uint256 out,) = adapter.swap(address(weth), address(base), AMOUNT, NO_MAX, "");
+        (uint256 out,,) = adapter.swap(address(weth), address(base), AMOUNT, NO_MAX, "");
         uint256 used = g - gasleft();
         console2.log("swap gas with a griefed tier", used);
         assertEq(out, _out(AMOUNT, 500, 0), "the 0.05% tier filled");
@@ -349,7 +349,7 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
             )
         );
         adapter.swap(address(weth), address(base), AMOUNT, 4, "");
-        (uint256 out,) = adapter.swap(address(weth), address(base), AMOUNT, 5, "");
+        (uint256 out,,) = adapter.swap(address(weth), address(base), AMOUNT, 5, "");
         assertEq(out, _out(AMOUNT, 500, 0));
     }
 
@@ -368,7 +368,7 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
         _fund(address(weth), AMOUNT);
         vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.InsufficientOutput.selector, expected, AMOUNT / 2));
         adapter.swap(address(weth), address(base), AMOUNT, 5000, "");
-        (uint256 passed,) = adapter.swap(address(weth), address(base), AMOUNT, 5001, "");
+        (uint256 passed,,) = adapter.swap(address(weth), address(base), AMOUNT, 5001, "");
         assertEq(passed, expected);
     }
 
@@ -385,7 +385,7 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
             vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.InsufficientOutput.selector, expected, minOut));
             adapter.swap(address(weth), address(base), AMOUNT, maxLossBps, "");
         } else {
-            (uint256 out, uint256 spot) = adapter.swap(address(weth), address(base), AMOUNT, maxLossBps, "");
+            (uint256 out, uint256 spot,) = adapter.swap(address(weth), address(base), AMOUNT, maxLossBps, "");
             assertEq(out, expected);
             assertEq(spot, AMOUNT);
             assertGe(out, minOut);
@@ -554,7 +554,7 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
         vm.expectRevert(IAdapterGuard.AdapterPaused.selector);
         adapter.swap(address(weth), address(stock), AMOUNT, NO_MAX, "");
 
-        (uint256 out,) = adapter.swap(address(weth), address(base), AMOUNT, NO_MAX, "");
+        (uint256 out,,) = adapter.swap(address(weth), address(base), AMOUNT, NO_MAX, "");
         assertGt(out, 0, "exit open while paused");
         (out,) = _directSwap(address(stock), address(base), AMOUNT, 500);
         assertGt(out, 0, "swapDirect exit open while paused");
@@ -579,7 +579,7 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
         _fund(address(weth), AMOUNT);
         vm.expectEmit(address(adapter));
         emit ISwapAdapter.Swapped(address(weth), address(base), AMOUNT, _out(AMOUNT, 3000, 0), AMOUNT, 3000, bytes32(0));
-        (uint256 out, uint256 spot) = adapter.swapDirect(address(weth), address(base), AMOUNT, 3000, NO_MAX);
+        (uint256 out, uint256 spot,) = adapter.swapDirect(address(weth), address(base), AMOUNT, 3000, NO_MAX);
         assertEq(out, _out(AMOUNT, 3000, 0));
         assertEq(spot, AMOUNT);
         assertEq(quoter.quotes(address(wethBase[2])), 0, "no quote: the tier was chosen before");
@@ -590,7 +590,7 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
         _fund(address(weth), AMOUNT);
         vm.expectPartialRevert(ISwapAdapter.InsufficientOutput.selector);
         adapter.swapDirect(address(weth), address(base), AMOUNT, 3000, 29);
-        (uint256 out,) = adapter.swapDirect(address(weth), address(base), AMOUNT, 3000, 30);
+        (uint256 out,,) = adapter.swapDirect(address(weth), address(base), AMOUNT, 3000, 30);
         assertEq(out, _out(AMOUNT, 3000, 0));
     }
 
@@ -607,10 +607,10 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
 
     function _directSwap(address tokenIn, address tokenOut, uint256 amountIn, uint24 fee)
         internal
-        returns (uint256, uint256)
+        returns (uint256 amountOut, uint256 spotOut)
     {
         _fund(tokenIn, amountIn);
-        return adapter.swapDirect(tokenIn, tokenOut, amountIn, fee, NO_MAX);
+        (amountOut, spotOut,) = adapter.swapDirect(tokenIn, tokenOut, amountIn, fee, NO_MAX);
     }
 
     function _assertSpotValueMatchesTheMid(uint160 sqrtPriceX96, uint256 amount) internal {

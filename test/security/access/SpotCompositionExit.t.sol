@@ -28,14 +28,16 @@ contract SpotCompositionExitPoC is AccessFundFixture {
 
         _deposit(core, alice, 800_000e6);
         _deposit(core, stranger, 200_000e6);
-        // The manager holds 800,000 USDC in one wide position (ticks -6000 to 6000) around the price.
+        // The manager holds about 800,000 USDC in one wide position (ticks -6000 to 6000) around the price; the WETH
+        // leg is bought through the fund's swap adapter (DEC-136), whose 0.01% pool keeps 40 USDC.
+        _v3WethUsdcPool();
         vm.startPrank(manager);
         core.allocateToHubSpokeVault(800_000e6);
-        hub.swapExactInput(adapter, poolId, address(usdc), 400_000e6, 0, "");
-        hub.openPosition(adapter, poolId, 400_000e6, 400_000e6, _wideOpenParams());
+        uint256 wethOut = hub.swap(a.chains[0].uniswapV3SwapAdapter, address(usdc), address(weth), 400_000e6, 0, "");
+        hub.openPosition(adapter, poolId, wethOut, wethOut, _wideOpenParams(uint128(wethOut)));
         vm.stopPrank();
         uint256 fairAssets = core.shareAssets();
-        assertApproxEqAbs(fairAssets, SEED_IDLE + 997_500e6, 10);
+        assertApproxEqAbs(fairAssets, SEED_IDLE + 997_460e6, 10);
 
         // Control: an honest Instant Payout of 190,000 USDC burns 190,000 shares.
         uint256 snapshot = vm.snapshotState();
@@ -64,14 +66,14 @@ contract SpotCompositionExitPoC is AccessFundFixture {
         vm.stopPrank();
     }
 
-    function _wideOpenParams() internal view returns (bytes memory) {
+    function _wideOpenParams(uint128 amount) internal view returns (bytes memory) {
         return abi.encode(
             UniswapV4Adapter.OpenParams({
                 tickLower: -6000,
                 tickUpper: 6000,
                 liquidity: 0,
-                amount0Max: 400_000e6,
-                amount1Max: 400_000e6,
+                amount0Max: amount,
+                amount1Max: amount,
                 amount0Min: 0,
                 amount1Min: 0,
                 deadline: block.timestamp

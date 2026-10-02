@@ -32,11 +32,12 @@ contract H02_SpokeOperatingCashSink is SpokeVaultTestBase {
         // The sweep counts it as ledger, a send home finds no Unallocated Balance, and resetting the parameters alone
         // leaves the cash where it is.
         assertEq(vault.sweepExcess(address(usdg)), 0);
+        _willArrive(1e6);
         vm.prank(manager);
         vm.expectRevert(
             abi.encodeWithSelector(ISpokeVault.InsufficientUnallocatedBalance.selector, address(usdg), 0, 1e6)
         );
-        vault.sendToHub(1e6, TransferKind.Principal, 0, _quote(1e6));
+        vault.sendToHub(1e6, TransferKind.Principal, 0);
         vm.prank(manager);
         vault.setOperatingCashParameters(0, 0);
         assertEq(vault.operatingCash(), 100_000e6 + 1);

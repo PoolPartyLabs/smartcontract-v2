@@ -19,7 +19,9 @@ import {EndToEndScenario} from "../../fork/e2e/EndToEnd.t.sol";
 /// @notice Ported to fix/pp-sc-fix-independent-review (review H-07, security sweep S-10): FIXED. A deprecated V4
 ///         adapter still runs a swap whose output is the vault's base token, so the automatic unwind completes and no
 ///         WETH is stranded on either chain; swaps out of the base token stay blocked. e5c778a: Bruno asked 9,947.05 and
-///         was paid 8,946.71; 0.551 WETH (16.5% of Share Assets) stranded on the hub, 0.5366 WETH on Robinhood.
+///         was paid 8,946.71; 0.551 WETH (16.5% of Share Assets) stranded on the hub, 0.5366 WETH on Robinhood. Since
+///         DEC-136 the manager's sale of closed WETH runs through the fund's Uniswap V3 swap adapter; the guardian
+///         deprecates it too, and the same exit rule holds there (DEC-056).
 /// @dev Run: ARBITRUM_RPC_URL=https://arb1.arbitrum.io/rpc ROBINHOOD_RPC_URL=https://rpc.mainnet.chain.robinhood.com
 ///      ARBITRUM_FORK_BLOCK=<head - 300> ROBINHOOD_FORK_BLOCK=<head - 300>
 ///      forge test -j 1 --match-path 'test/review/integration-price/DeprecatedAdapterFork.t.sol' -vv
@@ -84,24 +86,28 @@ contract DeprecatedAdapterFork is EndToEndScenario {
         console2.log("  worth at the oracle (USDC)", Math.mulDiv(weth, _wethPrice(), 1e18));
         assertGt(weth, 0);
 
-        // 3. That WETH becomes USDC through the deprecated adapter (an exit into the base token); the way back stays
-        //    gated, so no new exposure can be taken through it.
-        bytes memory params = _swapParams();
+        // 3. That WETH becomes USDC through the deprecated swap adapter (an exit into the base token); the way back
+        //    stays gated, so no new exposure can be taken through it.
+        vm.prank(guardian);
+        IAdapterGuard(hubSwapAdapter).deprecate();
         uint256 minOut = Math.mulDiv(weth, _wethPrice(), 1e18) * 95 / 100;
         vm.prank(manager);
-        uint256 usdcOut = hubSpoke.swapExactInput(hubUniswap, ARB_WETH_USDC_POOL_ID, ARB_WETH, weth, minOut, params);
-        console2.log("USDC from the WETH through the deprecated adapter", usdcOut);
+        uint256 usdcOut = hubSpoke.swap(hubSwapAdapter, ARB_WETH, ARB_USDC, weth, 500, "");
+        console2.log("USDC from the WETH through the deprecated swap adapter", usdcOut);
+        assertGe(usdcOut, minOut, "within 5% of the oracle");
         assertEq(hubSpoke.unallocatedBalance(ARB_WETH), 0, "nothing stranded");
         vm.prank(manager);
         vm.expectRevert(IAdapterGuard.AdapterIsDeprecated.selector);
-        hubSpoke.swapExactInput(hubUniswap, ARB_WETH_USDC_POOL_ID, ARB_USDC, 1000e6, 0, params);
+        hubSpoke.swap(hubSwapAdapter, ARB_USDC, ARB_WETH, 1000e6, 0, "");
     }
 
     function test_REVIEW_H07_deprecatedSpokeV4StillSwapsWethIntoUsdg() public {
         _fundAfterPhase7();
         _onRobinhood();
-        vm.prank(guardian);
+        vm.startPrank(guardian);
         IAdapterGuard(spokeUniswap).deprecate();
+        IAdapterGuard(spokeSwapAdapter).deprecate();
+        vm.stopPrank();
 
         // Exits work: collect, then close; WETH principal lands in Unallocated, WETH income in the collected bucket.
         vm.startPrank(manager);
@@ -114,21 +120,20 @@ contract DeprecatedAdapterFork is EndToEndScenario {
         console2.log("WETH principal / WETH income after the close", wethPrincipal, wethIncome);
         assertGt(wethPrincipal, 0);
 
-        // Both become USDG through the deprecated adapter and can go home; the way back stays gated.
-        bytes memory params = _swapParams();
+        // Both become USDG through the deprecated swap adapter and can go home; the way back stays gated.
         vm.prank(manager);
-        uint256 usdg = spokeVault.swapExactInput(spokeUniswap, RH_WETH_USDG_POOL_ID, RH_WETH, wethPrincipal, 0, params);
+        uint256 usdg = spokeVault.swap(spokeSwapAdapter, RH_WETH, RH_USDG, wethPrincipal, 0, "");
         console2.log("USDG from the WETH principal", usdg);
         assertGt(usdg, 0);
         assertEq(spokeVault.unallocatedBalance(RH_WETH), 0, "no WETH principal stranded");
         if (wethIncome != 0) {
             vm.prank(manager);
-            spokeVault.swapCollectedIncome(spokeUniswap, RH_WETH_USDG_POOL_ID, RH_WETH, wethIncome, 0, params);
+            spokeVault.swapCollectedIncome(spokeSwapAdapter, RH_WETH, wethIncome, 0, "");
             assertEq(spokeVault.collectedIncome(RH_WETH), 0, "no WETH income stranded");
         }
         vm.prank(manager);
         vm.expectRevert(IAdapterGuard.AdapterIsDeprecated.selector);
-        spokeVault.swapExactInput(spokeUniswap, RH_WETH_USDG_POOL_ID, RH_USDG, 100e6, 0, params);
+        spokeVault.swap(spokeSwapAdapter, RH_USDG, RH_WETH, 100e6, 0, "");
         assertGt(IERC20(RH_USDG).balanceOf(address(spokeVault)), usdg, "the USDG is held by the vault");
     }
 }

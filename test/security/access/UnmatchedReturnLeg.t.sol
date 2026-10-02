@@ -109,7 +109,7 @@ contract UnmatchedReturnLegPoC is AccessFundFixture {
 
         // The manager sends 299,000 USDG home (the Across adapter's fee) and a report lists it while it is in flight.
         vm.prank(manager);
-        s.homeTransitId = spoke.sendToHub(SENT_HOME, TransferKind.Principal, 0, _noQuote());
+        s.homeTransitId = spoke.sendToHub(SENT_HOME, TransferKind.Principal, 0);
         assertEq(spoke.hubBoundTransit(s.homeTransitId).amountToArrive, ARRIVES_HOME);
         spoke.report();
         s.reportInsideWindow = spokeWormhole.published(2).payload;

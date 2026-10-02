@@ -26,12 +26,14 @@ import {IntegrationPriceBase} from "./IntegrationPriceBase.sol";
 ///         slice the registry's default 50%. e5c778a: the factory accepted it; one swap of 198,000 USDC returned 0, the
 ///         manager withdrew 19,800 and the protocol took 19,800.
 /// @notice Ported to fix/pp-sc-fix-independent-review (review M-02): the V4 adapter's constructor refuses the pool
-///         (`PoolFeeTooHigh`) and the factory bubbles it, so `createFund` reverts. At the 1% cap the channel stays: the
-///         second test washes the fund's own Unallocated USDC through a 1% Mandate pool in which it is the only LP.
+///         (`PoolFeeTooHigh`) and the factory bubbles it, so `createFund` reverts. At the 1% cap the channel stayed
+///         until DEC-136 (founder, 2026-10-02: "swaps are not done in the fund pools"): the manager's swaps now run
+///         through the fund's Uniswap V3 swap adapter, so the second test's round trips never reach the 1% Mandate
+///         pool in which the fund is the only LP.
 /// @dev Run: ARBITRUM_RPC_URL=https://arb1.arbitrum.io/rpc ARBITRUM_FORK_BLOCK=<head - 300>
 ///      forge test -j 1 --match-path 'test/review/integration-price/FeeTierFork.t.sol' -vv
 contract FeeTierFork is IntegrationPriceBase {
-    uint256 internal constant ROUND_TRIPS = 50;
+    uint256 internal constant ROUND_TRIPS = 3;
     uint256 internal constant LEG = 20_000e6;
 
     function _initialize(uint24 fee) internal returns (PoolKey memory key) {
@@ -69,10 +71,10 @@ contract FeeTierFork is IntegrationPriceBase {
         factory.createFund(m, p);
     }
 
-    /// @dev STILL PRESENT at the cap (performance fee net of the fund's own swap fees is open): the manager washes its
-    ///      own Unallocated USDC through a 1% Mandate pool where the fund is the only LP; nothing bounds the number of
-    ///      round trips, so the one-shot effect of the 100% pool is reached in about fifty calls.
-    function test_POC_REVIEW_M02_onePercentPoolWashThroughTheFactory() public {
+    /// @dev FIXED by DEC-136: the manager's round trips of its own Unallocated USDC run through the factory-deployed
+    ///      Uniswap V3 swap adapter, never in the 1% Mandate pool where the fund is the only LP; the position earns
+    ///      nothing from them and no performance fee is charged.
+    function test_REVIEW_M02_DEC136_onePercentPoolWashNoLongerReachesTheFundsPool() public {
         _arbitrumOnly();
         PoolKey memory onePct = _initialize(10_000);
         PoolKey[] memory extra = new PoolKey[](1);
@@ -103,40 +105,33 @@ contract FeeTierFork is IntegrationPriceBase {
         vm.prank(manager);
         (bytes32 pk,,) = hubSpoke.openPosition(hubUniswap, onePctId, wethBought, 50_000e6, params);
 
-        uint256 holdersBefore =
-            core.shareAssets() + _usd(core.collectedIncome(ARB_WETH), core.collectedIncome(ARB_USDC));
+        (, int24 tickBefore,,) = IStateView(ARB_V4_STATE_VIEW).getSlot0(onePct.toId());
         uint256 protocolBefore = _usd(IERC20(ARB_WETH).balanceOf(recipient), IERC20(ARB_USDC).balanceOf(recipient));
-        bytes memory swapParams = _swapParams();
         for (uint256 i; i < ROUND_TRIPS; ++i) {
             vm.prank(manager);
-            uint256 wethOut = hubSpoke.swapExactInput(hubUniswap, onePctId, ARB_USDC, LEG, 0, swapParams);
+            uint256 wethOut = hubSpoke.swap(hubSwapAdapter, ARB_USDC, ARB_WETH, LEG, 0, "");
             vm.prank(manager);
-            hubSpoke.swapExactInput(hubUniswap, onePctId, ARB_WETH, wethOut, 0, swapParams);
+            hubSpoke.swap(hubSwapAdapter, ARB_WETH, ARB_USDC, wethOut, 0, "");
         }
         vm.prank(manager);
         IAdapter.Amounts memory income = hubSpoke.collectIncome(hubUniswap, pk);
-        vm.startPrank(makeAddr("anyone"));
-        if (hubSpoke.collectedIncome(ARB_WETH) != 0) hubSpoke.forwardIncomeToCoreVault(ARB_WETH);
-        if (hubSpoke.collectedIncome(ARB_USDC) != 0) hubSpoke.forwardIncomeToCoreVault(ARB_USDC);
-        vm.stopPrank();
-        uint256 managerCut =
-            _usd(IERC20(ARB_WETH).balanceOf(managerFeeVault), IERC20(ARB_USDC).balanceOf(managerFeeVault));
-        uint256 protocolCut =
-            _usd(IERC20(ARB_WETH).balanceOf(recipient), IERC20(ARB_USDC).balanceOf(recipient)) - protocolBefore;
-        uint256 holdersAfter = core.shareAssets() + _usd(core.collectedIncome(ARB_WETH), core.collectedIncome(ARB_USDC));
-        uint256 incomeUsd = _usd(income.income0, income.income1);
+        (, int24 tickAfter,,) = IStateView(ARB_V4_STATE_VIEW).getSlot0(onePct.toId());
 
-        console2.log("===== factory-created fund, 1% Mandate pool, fund the only LP");
-        console2.log("wash volume (USDC)", 2 * LEG * ROUND_TRIPS);
+        console2.log("===== factory-created fund, 1% Mandate pool, fund the only LP, swaps through the V3 adapter");
         console2.log("income reported by the adapter, WETH / USDC", income.income0, income.income1);
-        console2.log("income (USDC at the oracle)", incomeUsd);
-        console2.log("holders' value lost (Share Assets + Attributed Income)", holdersBefore - holdersAfter);
-        console2.log("manager fee vault", managerCut);
-        console2.log("protocol slice", protocolCut);
-        assertGt(incomeUsd, 2 * LEG * ROUND_TRIPS * 95 / 10_000, "over 0.95% of the volume came back as income");
-        assertApproxEqRel(managerCut, incomeUsd / 10, 0.01e18, "the manager took 10% of it (20% fee, 50% slice)");
-        assertApproxEqRel(protocolCut, incomeUsd / 10, 0.01e18, "the protocol took 10%");
-        assertApproxEqRel(holdersBefore - holdersAfter, managerCut + protocolCut, 0.05e18, "the holders paid both");
+        assertEq(tickAfter, tickBefore, "DEC-136: the fund's 1% pool never traded");
+        assertEq(income.income0, 0);
+        assertEq(income.income1, 0);
+        assertEq(
+            _usd(IERC20(ARB_WETH).balanceOf(managerFeeVault), IERC20(ARB_USDC).balanceOf(managerFeeVault)),
+            0,
+            "nothing for the manager"
+        );
+        assertEq(
+            _usd(IERC20(ARB_WETH).balanceOf(recipient), IERC20(ARB_USDC).balanceOf(recipient)),
+            protocolBefore,
+            "nothing for the protocol"
+        );
     }
 
     function _usd(uint256 weth, uint256 usdc) internal view returns (uint256) {

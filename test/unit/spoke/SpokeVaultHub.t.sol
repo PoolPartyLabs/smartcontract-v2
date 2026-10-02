@@ -73,9 +73,10 @@ contract SpokeVaultHubTest is SpokeVaultTestBase {
     function test_DEC054_spokeVerbsRevertOnHub() public {
         vm.expectRevert(ISpokeVault.NotOnSpokeChain.selector);
         vault.report();
+        _willArrive(1);
         vm.prank(manager);
         vm.expectRevert(ISpokeVault.NotOnSpokeChain.selector);
-        vault.sendToHub(1, TransferKind.Principal, 0, _quote(1));
+        vault.sendToHub(1, TransferKind.Principal, 0);
         vm.expectRevert(ISpokeVault.NotOnSpokeChain.selector);
         vault.recognizeRefund(bytes32(0));
         vm.prank(vault.acrossSpokePool());
@@ -291,7 +292,8 @@ contract SpokeVaultHubTest is SpokeVaultTestBase {
         bytes32 key = _wethPosition();
         SpokeVaultTypes.UnwindHint[] memory hints = _wethHint(390e6);
         vm.expectEmit(address(vault));
-        emit ISpokeVault.Swapped(address(hubUni), HUB_POOL, address(weth), address(usdc), 0.2e18, 400e6);
+        // Checklist doc 15, gap 4: the pool's spot quote, the vault's 5% bound and the hint's higher minimum.
+        emit ISpokeVault.Swapped(address(hubUni), address(weth), address(usdc), 0.2e18, 400e6, 400e6, 500, 390e6);
         assertEq(core.unwind(vault, 400e6, SpokeVaultTypes.encodeHints(hints)), 400e6);
         assertEq(vault.unallocatedBalance(address(weth)), 0);
         assertEq(vault.unallocatedBalance(address(usdc)), 0);
@@ -386,16 +388,22 @@ contract SpokeVaultHubTest is SpokeVaultTestBase {
         vm.stopPrank();
     }
 
-    /// @dev 400 USDC allocated, swapped into 0.2 WETH, all of it in a WETH-only Uniswap position.
+    /// @dev 400 USDC allocated, swapped into 0.2 WETH through the swap adapter, all of it in a WETH-only Uniswap
+    ///      position.
     function _wethPosition() internal returns (bytes32 key) {
         core.allocate(vault, 400e6);
-        weth.mint(address(hubUni), 1e18);
-        hubUni.addLiquidity(address(weth), 1e18);
-        hubUni.setSwapRate(1e18, 2000e6);
         vm.startPrank(manager);
-        vault.swapExactInput(address(hubUni), HUB_POOL, address(usdc), 400e6, 0, "");
+        vault.swap(address(hubSwap), address(usdc), address(weth), 400e6, 0, "");
         (key,,) = vault.openPosition(address(hubUni), HUB_POOL, 0.2e18, 0, "");
         vm.stopPrank();
+        _poolSellsWethAt2000();
+    }
+
+    /// @dev The automatic unwind still sells in the position's pool until WP-09 (DEC-136 item 4): USDC liquidity for
+    ///      its WETH sale at 2,000.
+    function _poolSellsWethAt2000() internal {
+        usdc.mint(address(hubUni), 10_000e6);
+        hubUni.addLiquidity(address(usdc), 10_000e6);
         hubUni.setSwapRate(2000e6, 1e18);
     }
 
@@ -403,15 +411,12 @@ contract SpokeVaultHubTest is SpokeVaultTestBase {
     ///      (400 at spot), 500 USDC supplied to Aave, 100 Unallocated.
     function _mixedPositions() internal returns (bytes32 uniKey, bytes32 aaveKey) {
         core.allocate(vault, 1000e6);
-        weth.mint(address(hubUni), 1e18);
-        hubUni.addLiquidity(address(weth), 1e18);
-        hubUni.setSwapRate(1e18, 2000e6);
         vm.startPrank(manager);
-        vault.swapExactInput(address(hubUni), HUB_POOL, address(usdc), 200e6, 0, "");
+        vault.swap(address(hubSwap), address(usdc), address(weth), 200e6, 0, "");
         (uniKey,,) = vault.openPosition(address(hubUni), HUB_POOL, 0.1e18, 200e6, "");
         (aaveKey,,) = vault.openPosition(address(hubAave), AAVE_USDC, 500e6, 0, "");
         vm.stopPrank();
-        hubUni.setSwapRate(2000e6, 1e18);
+        _poolSellsWethAt2000();
     }
 
     function _aave(bytes32 key)

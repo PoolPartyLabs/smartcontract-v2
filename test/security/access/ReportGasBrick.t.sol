@@ -65,10 +65,10 @@ contract ReportGasBrickPoC is AccessFundFixture {
         uint256 limit = SpokeVaultTypes.MAX_HUB_BOUND_IN_FLIGHT;
         vm.startPrank(manager);
         for (uint256 i; i < limit; ++i) {
-            spoke.sendToHub(dust, TransferKind.Principal, 0, _noQuote());
+            spoke.sendToHub(dust, TransferKind.Principal, 0);
         }
         vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.HubBoundInFlightLimit.selector, limit));
-        spoke.sendToHub(dust, TransferKind.Principal, 0, _noQuote());
+        spoke.sendToHub(dust, TransferKind.Principal, 0);
         vm.stopPrank();
         assertEq(spoke.inFlightTransitIds().length, limit, "S-11: bounded");
 
@@ -83,6 +83,6 @@ contract ReportGasBrickPoC is AccessFundFixture {
 
         // The manager can send home again.
         vm.prank(manager);
-        spoke.sendToHub(1000e6, TransferKind.Principal, 0, _noQuote());
+        spoke.sendToHub(1000e6, TransferKind.Principal, 0);
     }
 }

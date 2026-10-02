@@ -20,7 +20,6 @@ import {IFundFactory} from "../../../src/interfaces/IFundFactory.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
-import {BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
 import {UniswapV4Adapter} from "../../../src/adapters/UniswapV4Adapter.sol";
 import {Mandate} from "../../../src/mandate/Mandate.sol";
 import {ShareMath} from "../../../src/libraries/ShareMath.sol";
@@ -89,6 +88,7 @@ contract SpokeReportSpotFork is IntegrationPriceBase {
             rd.factory.createSpoke(creationNumber, m, _spokeParams(mandateHash, plan));
         spokeVault = ISpokeVault(s.spokeVault);
         spokeUniswap = s.uniswapV4Adapter;
+        spokeSwapAdapter = s.uniswapV3SwapAdapter;
         spokeAcross = s.acrossBridgeAdapter;
         spokeKey = _spokePoolKey();
     }
@@ -135,18 +135,20 @@ contract SpokeReportSpotFork is IntegrationPriceBase {
             spokeVault.openPosition(spokeUniswap, RH_WETH_USDG_POOL_ID, weth, value - usdgForWeth, params);
     }
 
+    /// @dev DEC-136: through the spoke's Uniswap V3 swap adapter, never in the fund's V4 pool, whose price stays put.
     function _spokeBuyWeth(uint256 usdgTotal) internal returns (uint256 weth) {
         (uint160 start,,,) = IStateView(RH_V4_STATE_VIEW).getSlot0(spokeKey.toId());
         uint256 chunks = 1 + usdgTotal / 5000e6;
         uint256 chunk = usdgTotal / chunks;
         for (uint256 i; i < chunks; ++i) {
             uint256 amount = i == chunks - 1 ? usdgTotal - chunk * (chunks - 1) : chunk;
-            uint256 minOut = Math.mulDiv(amount, 1e18, oracleCached) * 97 / 100;
-            bytes memory params = _swapParams();
             vm.prank(manager);
-            weth += spokeVault.swapExactInput(spokeUniswap, RH_WETH_USDG_POOL_ID, RH_USDG, amount, minOut, params);
-            _arbTo(robinhoodRouter, spokeKey, RH_V4_STATE_VIEW, start);
+            uint256 out = spokeVault.swap(spokeSwapAdapter, RH_USDG, RH_WETH, amount, 300, "");
+            assertGe(out, Math.mulDiv(amount, 1e18, oracleCached) * 97 / 100, "within 3% of the oracle");
+            weth += out;
         }
+        (uint160 end,,,) = IStateView(RH_V4_STATE_VIEW).getSlot0(spokeKey.toId());
+        assertEq(end, start, "DEC-136: the fund's pool never traded");
     }
 
     // ------------------------------------------------------------------ reports

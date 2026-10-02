@@ -82,8 +82,9 @@ contract SpokeVaultFinalVerifyRound1Test is SpokeVaultTestBase {
         _deploySpoke();
         _disableOperatingCash();
         _arrive(1000e6, ARRIVAL, TransferKind.Principal);
+        _willArrive(499e6);
         vm.prank(manager);
-        bytes32 id = vault.sendToHub(500e6, TransferKind.Principal, 0, _quote(499e6));
+        bytes32 id = vault.sendToHub(500e6, TransferKind.Principal, 0);
         Transit memory t = vault.hubBoundTransit(id);
         vm.warp(uint256(t.fillDeadline) + 1);
 

@@ -13,7 +13,7 @@ import {
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {TransitEscrow} from "../../../src/core/TransitEscrow.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
-import {TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
+import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {MockSpokeToken} from "../../mocks/spoke/MockSpokeToken.sol";
 import {MockPositionAdapter} from "../../mocks/spoke/MockPositionAdapter.sol";
 import {MockBridgeAdapter} from "../../mocks/spoke/MockBridgeAdapter.sol";
@@ -75,8 +75,11 @@ abstract contract SpokeVaultTestBase is Test {
         hubUni.addPool(HUB_POOL, address(weth), address(usdc));
         hubAave.addPool(AAVE_USDC, address(usdc), address(0));
         spokeUni.addPool(SPOKE_POOL, address(weth), address(usdg));
+        // DEC-136: every swap runs through a Mandate swap adapter; the stand-ins swap at 2,000 USDC (USDG) per WETH.
         hubSwap = new MockSwapAdapter();
         spokeSwap = new MockSwapAdapter();
+        hubSwap.setPrice(address(weth), address(usdc), 2000e6, 1e18);
+        spokeSwap.setPrice(address(weth), address(usdg), 2000e6, 1e18);
         spokePool = new MockAcrossSpokePool();
         spokeBridge = new MockBridgeAdapter(guardian, address(spokePool));
         spokeBridgeFallback = new MockBridgeAdapter(guardian, address(spokePool));
@@ -180,11 +183,11 @@ abstract contract SpokeVaultTestBase is Test {
         vault.setOperatingCashParameters(0, 0);
     }
 
-    /// @dev DEC-158, DEC-162: the Spoke Vault ignores its vestigial quote argument and the bridge adapter fixes the
-    ///      amount to arrive, so the primary mock adapter is set to deliver `outputAmount` on the next send home.
-    function _quote(uint256 outputAmount) internal returns (BridgeQuote memory q) {
+    /// @dev DEC-158, DEC-162: the manager passes no bridge parameter and the bridge adapter fixes the amount to arrive,
+    ///      so the primary mock adapter is set to deliver `outputAmount` on the next send home (a cheatcode write: it
+    ///      consumes no pending prank or expected revert).
+    function _willArrive(uint256 outputAmount) internal {
         MockBridgeNextArrive.set(address(spokeBridge), outputAmount);
-        q.outputAmount = outputAmount;
     }
 
     /// @dev Income for a position: the tokens reach the adapter and are booked as uncollected.

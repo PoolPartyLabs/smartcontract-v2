@@ -58,6 +58,11 @@ contract MockV3Pool {
         fillableIn = fillableIn_;
     }
 
+    /// @notice Moves the mid price, as a trade pushing the pool would.
+    function setSqrtPriceX96(uint160 sqrtPriceX96_) external {
+        sqrtPriceX96 = sqrtPriceX96_;
+    }
+
     /// @notice The part of `amountIn` an exact-input swap spends before the price reaches the limit.
     function filled(uint256 amountIn) public view returns (uint256) {
         return fillableIn != 0 && amountIn > fillableIn ? fillableIn : amountIn;

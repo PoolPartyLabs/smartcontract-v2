@@ -15,7 +15,7 @@ import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
 import {FundFactory} from "../../../src/factory/FundFactory.sol";
 import {Mandate, MandateLib} from "../../../src/mandate/Mandate.sol";
 import {IAcrossSpokePool} from "../../../src/interfaces/external/IAcrossSpokePool.sol";
-import {TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
+import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {EndToEndScenario} from "../../fork/e2e/EndToEnd.t.sol";
@@ -156,13 +156,12 @@ abstract contract XChainBase is EndToEndScenario {
     }
 
     /// @dev Manager: `sendToHub` through the live Robinhood SpokePool; returns the transit id and its relay data. The
-    ///      quote argument is vestigial (ignored by the Spoke Vault since DEC-158 / DEC-162); a zero quote is passed.
+    ///      manager passes no bridge parameter (DEC-158 / DEC-162).
     function _sendToHub(uint256 amount, TransferKind kind) internal returns (bytes32 id, LiveRelayData memory relay) {
         _onRobinhood();
-        BridgeQuote memory none;
         vm.recordLogs();
         vm.prank(manager);
-        id = spokeVault.sendToHub(amount, kind, 0, none);
+        id = spokeVault.sendToHub(amount, kind, 0);
         relay = _one(_relaysFrom(vm.getRecordedLogs(), RH_ACROSS_SPOKE_POOL, ROBINHOOD));
     }
 
@@ -432,6 +431,7 @@ abstract contract XChainBase is EndToEndScenario {
         hubUniswap = a.chains[0].uniswapV4Adapter;
         hubAave = a.chains[0].aaveV3Adapter;
         hubAcross = a.chains[0].acrossBridgeAdapter;
+        hubSwapAdapter = a.chains[0].uniswapV3SwapAdapter;
         predictedSpokeVault = predicted.chains[1].spokeVault;
         spokeVault = ISpokeVault(predictedSpokeVault);
     }
@@ -459,6 +459,7 @@ abstract contract XChainBase is EndToEndScenario {
         spokeVault = ISpokeVault(s.spokeVault);
         spokeUniswap = s.uniswapV4Adapter;
         spokeAcross = s.acrossBridgeAdapter;
+        spokeSwapAdapter = s.uniswapV3SwapAdapter;
     }
 
     // -----------------------------------------------------------------------------------------------------------------

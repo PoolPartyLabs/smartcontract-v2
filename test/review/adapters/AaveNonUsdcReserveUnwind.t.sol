@@ -118,15 +118,16 @@ contract AaveNonUsdcReserveUnwindTest is Test {
         assertTrue(aave.isExactValue(), "an aWETH supply is still declared exact-value");
         MockPriceSource(core.priceSource()).setPrice(address(weth), 2000e6);
 
-        // 1,000 USDC allocated; the manager buys 0.5 WETH through the Mandate WETH/USDC route and supplies it to Aave.
+        // 1,000 USDC allocated; the manager buys 0.5 WETH through the Mandate swap adapter (DEC-136) and supplies it
+        // to Aave. The unwind's hinted route still sells in the Mandate WETH/USDC pool until WP-09: USDC liquidity.
         core.allocate(ISpokeVault(address(vault)), 1000e6);
-        weth.mint(address(hubUni), 1e18);
-        hubUni.addLiquidity(address(weth), 1e18);
-        hubUni.setSwapRate(1e18, 2000e6);
+        hubSwap.setPrice(address(weth), address(usdc), 2000e6, 1e18);
         vm.startPrank(manager);
-        vault.swapExactInput(address(hubUni), HUB_POOL, address(usdc), 1000e6, 0, "");
+        vault.swap(address(hubSwap), address(usdc), address(weth), 1000e6, 0, "");
         vault.openPosition(address(aave), aaveWeth, 0.5e18, 0, abi.encode(uint256(0.5e18)));
         vm.stopPrank();
+        usdc.mint(address(hubUni), 10_000e6);
+        hubUni.addLiquidity(address(usdc), 10_000e6);
         hubUni.setSwapRate(2000e6, 1e18);
         assertEq(vault.positions().length, 1);
 

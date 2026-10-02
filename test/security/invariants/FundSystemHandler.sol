@@ -6,7 +6,7 @@ import {CoreBridgeVM, GuardianSignature} from "wormhole-sdk/interfaces/ICoreBrid
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
-import {Transit, TransitState, TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
+import {Transit, TransitState, TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
@@ -464,9 +464,9 @@ contract FundSystemHandler is Test {
         if (output == 0) return;
         TransferKind kind = income ? TransferKind.Income : TransferKind.Principal;
         uint256 depositIndex = s.spokePool.numberOfDeposits();
-        BridgeQuote memory none = _homeQuote(output);
+        _willArrive(output);
         vm.prank(s.manager);
-        bytes32 id = s.spokeVault.sendToHub(amount, kind, 0, none);
+        bytes32 id = s.spokeVault.sendToHub(amount, kind, 0);
         Transit memory t = s.spokeVault.hubBoundTransit(id);
         _homeSends.push(HomeSend(id, depositIndex, amount, output, t.fillDeadline, kind, PENDING, false, 0));
         ++done["sendHome"];
@@ -519,12 +519,9 @@ contract FundSystemHandler is Test {
             uint256 available = s.spokeVault.collectedIncome(address(s.spokeWeth));
             if (available == 0) return;
             amount = bound(amount, 1, available);
-            // The mock swaps one base unit for one base unit; the adapter needs the output on its books.
-            s.usdg.mint(address(s.spokeUni), amount);
-            s.spokeUni.addLiquidity(address(s.usdg), amount);
+            // The swap adapter stand-in swaps one base unit for one base unit (DEC-136).
             vm.prank(s.manager);
-            uint256 out =
-                s.spokeVault.swapCollectedIncome(address(s.spokeUni), SPOKE_POOL, address(s.spokeWeth), amount, 0, "");
+            uint256 out = s.spokeVault.swapCollectedIncome(address(s.spokeSwap), address(s.spokeWeth), amount, 0, "");
             spokeIncomeSwappedIn += amount;
             spokeIncomeSwappedOut += out;
             ++done["spokeSwapIncome"];
@@ -914,11 +911,10 @@ contract FundSystemHandler is Test {
         return abi.encode(outputAmount);
     }
 
-    /// @dev The spoke's mock adapter delivers `outputAmount` on the next send home; the returned quote is the Spoke
-    ///      Vault's vestigial argument, which it ignores.
-    function _homeQuote(uint256 outputAmount) internal returns (BridgeQuote memory q) {
+    /// @dev The spoke's mock adapter delivers `outputAmount` on the next send home (DEC-158, DEC-162: the manager
+    ///      passes no bridge parameter).
+    function _willArrive(uint256 outputAmount) internal {
         MockBridgeNextArrive.set(_spokeBridge, outputAmount);
-        q.outputAmount = outputAmount;
     }
 
     function _sharePrice() internal view returns (uint256) {

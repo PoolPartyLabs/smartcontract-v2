@@ -200,8 +200,8 @@ abstract contract HubStackFixture is Test, FundSeed {
     }
 
     /// @dev Manager allocates `usdcAmount` to the hub Spoke Vault, swaps `usdcToSwap` of it into WETH at the pool
-    ///      price and opens one position of about 5% each side of the current tick with everything swapped plus
-    ///      `usdcInPosition`. Returns the position key.
+    ///      price through the Mandate swap adapter (DEC-136) and opens one position of about 5% each side of the
+    ///      current tick with everything swapped plus `usdcInPosition`. Returns the position key.
     function _openHubPosition(uint256 usdcAmount, uint256 usdcToSwap, uint256 usdcInPosition)
         internal
         returns (bytes32 positionKey)
@@ -209,8 +209,8 @@ abstract contract HubStackFixture is Test, FundSeed {
         vm.startPrank(manager);
         vault.allocateToHubSpokeVault(usdcAmount);
         // USDC -> WETH at the true price: 1e6 USDC base units buy 4e14 wei.
-        v4.setSwap(4e26, 10_000);
-        uint256 wethOut = hubSpoke.swapExactInput(address(adapter), poolId, address(usdc), usdcToSwap, 0, "");
+        hubSwap.setPrice(address(usdc), address(weth), 4e26, 1e18);
+        uint256 wethOut = hubSpoke.swap(address(hubSwap), address(usdc), address(weth), usdcToSwap, 0, "");
         UniswapV4Adapter.OpenParams memory p = UniswapV4Adapter.OpenParams({
             tickLower: TRUE_TICK - HALF_RANGE,
             tickUpper: TRUE_TICK + HALF_RANGE,

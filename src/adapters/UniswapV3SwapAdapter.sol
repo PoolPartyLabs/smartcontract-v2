@@ -125,7 +125,8 @@ contract UniswapV3SwapAdapter is AdapterGuard, EIP712, ISwapAdapter {
     /// @param guardian_ Immutable guardian of the quarantine and deprecation flags (DEC-021, DEC-058; R128-31: the
     ///        factory's guardian).
     /// @param baseToken_ The vault's base token; must be one of `mandateTokens_`.
-    /// @param mandateTokens_ This chain's Mandate tokens (DEC-136 item 2): the only tokens a swap or a route hop may use.
+    /// @param mandateTokens_ This chain's Mandate tokens (DEC-136 item 2): the only tokens a swap may take in or pay
+    ///        out; an API route's intermediate hops may be any token (DEC-173).
     /// @param v3Factory_ The chain's Uniswap V3 factory.
     /// @param swapRouter_ The chain's SwapRouter02.
     /// @param quoterV2_ The chain's QuoterV2.
@@ -167,7 +168,7 @@ contract UniswapV3SwapAdapter is AdapterGuard, EIP712, ISwapAdapter {
     ///      caller's maximum loss and the API minimum, scaled to the amount actually sold.
     function swap(address tokenIn, address tokenOut, uint256 amountIn, uint16 maxLossBps, bytes calldata route)
         external
-        returns (uint256 amountOut, uint256 spotOut)
+        returns (uint256 amountOut, uint256 spotOut, uint256 minOut)
     {
         _requireSwap(tokenIn, tokenOut, amountIn);
         if (route.length == 0) {
@@ -182,7 +183,7 @@ contract UniswapV3SwapAdapter is AdapterGuard, EIP712, ISwapAdapter {
         for (uint256 i; i < amounts.length; ++i) {
             spotOut += _spotAlong(r.paths[i], amounts[i], tokenIn, tokenOut);
         }
-        uint256 minOut = _minOut(spotOut, maxLossBps, Math.mulDiv(r.minAmountOut, amountIn, r.quotedAmountIn));
+        minOut = _minOut(spotOut, maxLossBps, Math.mulDiv(r.minAmountOut, amountIn, r.quotedAmountIn));
         amountOut = _execute(tokenIn, r.paths, amounts, amountIn, minOut);
         emit Swapped(tokenIn, tokenOut, amountIn, amountOut, spotOut, 0, legsHash);
     }
@@ -190,7 +191,7 @@ contract UniswapV3SwapAdapter is AdapterGuard, EIP712, ISwapAdapter {
     /// @inheritdoc ISwapAdapter
     function swapDirect(address tokenIn, address tokenOut, uint256 amountIn, uint24 fee, uint16 maxLossBps)
         external
-        returns (uint256 amountOut, uint256 spotOut)
+        returns (uint256 amountOut, uint256 spotOut, uint256 minOut)
     {
         _requireSwap(tokenIn, tokenOut, amountIn);
         return _swapDirect(tokenIn, tokenOut, amountIn, fee, maxLossBps);
@@ -242,14 +243,15 @@ contract UniswapV3SwapAdapter is AdapterGuard, EIP712, ISwapAdapter {
     /// @dev One hop in the direct pool of `fee`; the pool must exist (checked while reading its spot price).
     function _swapDirect(address tokenIn, address tokenOut, uint256 amountIn, uint24 fee, uint16 maxLossBps)
         private
-        returns (uint256 amountOut, uint256 spotOut)
+        returns (uint256 amountOut, uint256 spotOut, uint256 minOut)
     {
         bytes[] memory paths = new bytes[](1);
         paths[0] = abi.encodePacked(tokenIn, fee, tokenOut);
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = amountIn;
         spotOut = _spotAlong(paths[0], amountIn, tokenIn, tokenOut);
-        amountOut = _execute(tokenIn, paths, amounts, amountIn, _minOut(spotOut, maxLossBps, 0));
+        minOut = _minOut(spotOut, maxLossBps, 0);
+        amountOut = _execute(tokenIn, paths, amounts, amountIn, minOut);
         emit Swapped(tokenIn, tokenOut, amountIn, amountOut, spotOut, fee, bytes32(0));
     }
 
@@ -353,9 +355,11 @@ contract UniswapV3SwapAdapter is AdapterGuard, EIP712, ISwapAdapter {
         if (amountOut < minOut) revert InsufficientOutput(amountOut, minOut);
     }
 
-    /// @dev Validates `path` (from `tokenIn` to `tokenOut`, 1 to `MAX_HOPS` hops, Mandate tokens only, the four tiers
-    ///      only, every pool deployed by `v3Factory`) and returns `amountIn` valued along it at each pool's current
-    ///      `sqrtPriceX96`, without fee or price impact (DEC-118, D-19, D-20).
+    /// @dev Validates `path` (from `tokenIn` to `tokenOut`, 1 to `MAX_HOPS` hops, the four tiers only, every pool
+    ///      deployed by `v3Factory`) and returns `amountIn` valued along it at each pool's current `sqrtPriceX96`,
+    ///      without fee or price impact (DEC-118, D-19, D-20). DEC-173: only the first and last tokens must be Mandate
+    ///      tokens, and the caller checked both (`_requirePair`); an intermediate hop token may be any token, since it
+    ///      enters and leaves the route within the swap and never stays in the fund.
     function _spotAlong(bytes memory path, uint256 amountIn, address tokenIn, address tokenOut)
         private
         view
@@ -371,7 +375,6 @@ contract UniswapV3SwapAdapter is AdapterGuard, EIP712, ISwapAdapter {
         for (uint256 off = ADDR_SIZE; off < len; off += HOP_SIZE) {
             uint24 fee = _readFee(path, off);
             address b = _readAddress(path, off + 3);
-            if (!isMandateToken[b]) revert TokenNotInMandate(b);
             if (fee != 100 && fee != 500 && fee != 3000 && fee != 10_000) revert InvalidFee(fee);
             address pool = v3Factory.getPool(a, b, fee);
             if (pool == address(0)) revert PoolNotFound(a, b, fee);

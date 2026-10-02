@@ -5,7 +5,7 @@ import {IFundFactory} from "../../../src/interfaces/IFundFactory.sol";
 import {FundFactory} from "../../../src/factory/FundFactory.sol";
 import {CoreVault} from "../../../src/core/CoreVault.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
-import {TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
+import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {ValueReportReceiver} from "../../../src/report/ValueReportReceiver.sol";
@@ -41,17 +41,16 @@ contract RogueSpokeMandatePoC is AccessFundFixture {
         assertEq(spokeFactory.fundIdOf(HUB, 1, manager), hub.fundId, "same factory address, same fund id");
 
         // The manager's spoke Mandate differs from the hub's (DEC-156: no Mandate field bounds the bridge fee any
-        // more). A send of everything quoted at 1 base unit with the manager as exclusive relayer carries the Across
-        // adapter's terms instead (DEC-158, DEC-162: the Spoke Vault ignores the quote argument): the amount to arrive
-        // is the rule's, whatever the Mandate or the quote say.
+        // more). A send of everything carries the Across adapter's terms (DEC-158, DEC-162: the manager passes no
+        // bridge parameter, so no amount of 1 base unit and no exclusive relayer): the amount to arrive is the rule's,
+        // whatever the Mandate says.
         FundPlan memory roguePlan = _plan();
         roguePlan.spokeCap = type(uint256).max;
         SpokeVault spoke = _createSpoke(spokeFactory, hub.fundId, roguePlan);
         _arrive(spoke, hub.fundId, 500_000e6);
         uint256 amount = spoke.unallocatedBalance(address(usdg));
         vm.prank(manager);
-        bytes32 id =
-            spoke.sendToHub(amount, TransferKind.Principal, 0, BridgeQuote(1, uint32(block.timestamp), 3600, manager));
+        bytes32 id = spoke.sendToHub(amount, TransferKind.Principal, 0);
         assertEq(spoke.hubBoundTransit(id).amountToArrive, amount - _ruleFee(amount), "the rule's amount");
         assertEq(spokeAcross.lastRecipient(), spoke.coreVault(), "to the Core Vault");
     }

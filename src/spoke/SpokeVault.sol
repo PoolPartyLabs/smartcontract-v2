@@ -7,7 +7,7 @@ import {ICoreBridge} from "wormhole-sdk/interfaces/ICoreBridge.sol";
 
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {IAdapter} from "../interfaces/IAdapter.sol";
-import {Transit, TransferKind, BridgeQuote} from "../interfaces/FundTypes.sol";
+import {Transit, TransferKind} from "../interfaces/FundTypes.sol";
 import {Mandate} from "../mandate/Mandate.sol";
 import {ReportCodec} from "../libraries/ReportCodec.sol";
 import {TransitMessage} from "../libraries/TransitMessage.sol";
@@ -171,20 +171,23 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
     }
 
     /// @inheritdoc ISpokeVault
-    /// @dev OQ-04 stance: manager only; the adapter reverts when deprecated, never when paused. Debits Unallocated
-    ///      Balance of `tokenIn` and credits what the adapter returns in the other pool token (DEC-079, DEC-080).
-    function swapExactInput(
-        address adapter,
-        bytes32 poolKey,
+    /// @dev DEC-136, DEC-142, DEC-143, DEC-153; founder, 2026-10-02 ("swaps are not done in the fund pools"). The
+    ///      custody and ledger checks are `SpokeLedger.swapThrough`; the swap adapter applies the route, the maximum
+    ///      loss and its own pause and deprecation (DEC-056: a swap into the base token always runs).
+    function swap(
+        address swapAdapter,
         address tokenIn,
+        address tokenOut,
         uint256 amountIn,
-        uint256 minAmountOut,
-        bytes calldata params
+        uint16 maxLossBps,
+        bytes calldata route
     ) external onlyManager nonReentrant returns (uint256 amountOut) {
-        IAdapter a = _s.positionAdapter(adapter);
-        SpokeVaultTypes.PoolTokens memory p = _s.pool(adapter, poolKey);
         _topUpOperatingCash();
-        amountOut = _s.swap(baseToken, a, p, poolKey, tokenIn, amountIn, minAmountOut, params, false);
+        uint256 spotOut;
+        uint256 minOut;
+        (amountOut, spotOut, minOut) =
+            _s.swapThrough(swapAdapter, tokenIn, tokenOut, amountIn, maxLossBps, route, false);
+        emit Swapped(swapAdapter, tokenIn, tokenOut, amountIn, amountOut, spotOut, maxLossBps, minOut);
     }
 
     /// @inheritdoc ISpokeVault
@@ -201,11 +204,12 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
     // ---------------------------------------------------------------------------------------------------------------
 
     /// @inheritdoc ISpokeVault
-    /// @dev See `SpokeCrossChainLib.sendToHub`: DEC-056, DEC-066, DEC-085, DEC-087, DEC-088, QA6, QA19. Security review
-    ///      S-3: the transit stays in `inFlightToHub` until its refund is recognized (by anyone, or at the next report
-    ///      or send once it landed) or until `fillDeadline + ReportCodec.HUB_BOUND_RETENTION` has passed.
+    /// @dev See `SpokeCrossChainLib.sendHome`: DEC-056, DEC-066, DEC-085, DEC-087, DEC-088, DEC-158, DEC-162, QA6, QA19.
+    ///      No bridge data: the Across adapter refuses any (DEC-176: no signed quote in the MVP). Security review S-3:
+    ///      the transit stays in `inFlightToHub` until its refund is recognized (by anyone, or at the next report or
+    ///      send once it landed) or until `fillDeadline + ReportCodec.HUB_BOUND_RETENTION` has passed.
     ///      `cumulativeSentHome` grows by `amount`.
-    function sendToHub(uint256 amount, TransferKind kind, uint256 bridgeRank, BridgeQuote calldata quote)
+    function sendToHub(uint256 amount, TransferKind kind, uint256 bridgeRank)
         external
         onlyOnSpokeChain
         onlyManager
@@ -213,7 +217,7 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
         returns (bytes32 transitId)
     {
         _topUpOperatingCash();
-        transitId = SpokeCrossChainLib.sendToHub(_s, _config(), amount, kind, bridgeRank, quote);
+        transitId = SpokeCrossChainLib.sendHome(_s, _config(), amount, kind, bridgeRank, "");
     }
 
     /// @inheritdoc ISpokeVault
