@@ -29,17 +29,25 @@ contract ManagerRegistryAdversarialTest is Test {
         assertFalse(registry.hasEntry(manager));
     }
 
-    /// @dev Whatever sequence of sets and clears the owner performs, the effective slice never exceeds the cap.
+    /// @dev Whatever sequence of sets and clears the owner performs, the effective slice stays within [min, cap]
+    ///      (DEC-112).
     function testFuzz_LC142_effectiveSliceNeverExceedsCap(address manager, uint16[8] memory values, uint8 clearMask)
         public
     {
         vm.assume(manager != address(0));
         uint16 maxBps = registry.MAX_PROTOCOL_SLICE_BPS();
+        uint16 minBps = registry.MIN_PROTOCOL_SLICE_BPS();
         uint16 defaultBps = registry.DEFAULT_PROTOCOL_SLICE_BPS();
         for (uint256 i; i < values.length; ++i) {
             if (values[i] > maxBps) {
                 vm.expectRevert(
                     abi.encodeWithSelector(IManagerRegistry.ProtocolSliceAboveMax.selector, values[i], maxBps)
+                );
+                vm.prank(ADMIN);
+                registry.setProtocolSliceBps(manager, values[i]);
+            } else if (values[i] < minBps) {
+                vm.expectRevert(
+                    abi.encodeWithSelector(IManagerRegistry.ProtocolSliceBelowMin.selector, values[i], minBps)
                 );
                 vm.prank(ADMIN);
                 registry.setProtocolSliceBps(manager, values[i]);
@@ -54,6 +62,7 @@ contract ManagerRegistryAdversarialTest is Test {
                 assertEq(registry.protocolSliceBps(manager), defaultBps);
             }
             assertLe(registry.protocolSliceBps(manager), maxBps);
+            assertGe(registry.protocolSliceBps(manager), minBps);
         }
     }
 
@@ -70,7 +79,7 @@ contract ManagerRegistryAdversarialTest is Test {
         vm.prank(address(0x3B));
         registry.renounceOwnership();
         vm.prank(ADMIN);
-        registry.setProtocolSliceBps(address(0x3A), 0);
-        assertEq(registry.protocolSliceBps(address(0x3A)), 0);
+        registry.setProtocolSliceBps(address(0x3A), 500);
+        assertEq(registry.protocolSliceBps(address(0x3A)), 500);
     }
 }
