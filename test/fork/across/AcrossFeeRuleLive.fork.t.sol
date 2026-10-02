@@ -185,8 +185,11 @@ contract AcrossFeeRuleLiveForkTest is Test {
             message: req.message
         });
         _forkRobinhood();
-        // The exact relay data of the deposit (the recipient is an EOA stand-in, so no handler runs). The fill
-        // deadline is hours after the Robinhood pin, so the live pool accepts the fill.
+        // The relayer fills a minute after the deposit's quote time (the Arbitrum clock), well inside its 6 h fill
+        // deadline. The Robinhood fork's own clock is not used: the two pins are independent, and `forge test` hands
+        // every fork of one url and block the block env last left on any of them, other suites' warps included.
+        vm.warp(uint256(d.quoteTimestamp) + 1 minutes);
+        // The exact relay data of the deposit (the recipient is an EOA stand-in, so no handler runs).
         deal(RH_USDG, relayer, d.outputAmount);
         vm.startPrank(relayer);
         IERC20(RH_USDG).approve(RH_SPOKE_POOL, d.outputAmount);
