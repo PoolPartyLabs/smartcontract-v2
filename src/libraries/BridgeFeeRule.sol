@@ -16,9 +16,14 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 ///        `initialRate`, clamped to [floorRate, capRate]. An expired send leaves the window when it is still the
 ///        route's latest send (the window rewinds, so the retry takes its place); an older send's expiry leaves the
 ///        window as it is (research prototype semantics, which reproduce checklist doc 12 §5's tables);
-///      - next send: the reference; after an expiry was noted,
+///      - next send: the reference; while a noted expiry's step is pending,
 ///        `max(reference, min(capRate, max(expiredRate, floorRate) * (1 + band)))` instead (one step up, never below
-///        the reference), consumed by that send;
+///        the reference). Each noted expiry owes one send the step and each send consumes one, so a transfer split
+///        into several deposits (the normal case above a route's per-deposit limit, DEC-066) retries every expired
+///        deposit one band up, as doc 12's model keeps the step until a delivery. The cost: expiries that were not
+///        about the fee (oversize sends, a relayer outage, D-09) step as many sends as expired, and a manager who
+///        forces parallel expiries fills the whole window with stepped rates in one round, which only the cap bounds
+///        (doc 12 §5: the band and the mean only delay the climb);
 ///      - fee: `ceil(amount * rate) + fixedFee`, which must stay below the amount (a dust send waits in the vault).
 ///      Without signed API quotes (R-162-B, under evaluation) the rate never falls: it only rises through expiries, up
 ///      to the cap.
@@ -47,13 +52,15 @@ library BridgeFeeRule {
     /// @param rates Ring of the window's rates; zero marks an empty slot (a rate is never zero: the floor is above it).
     /// @param sends Sends recorded on the route; send `n` gets serial `n` (1-based), never reused.
     /// @param latest Serial of the route's latest send while it may still leave the window; zero once it left.
-    /// @param expiredRate Highest rate among the expiries noted since the last send; zero when none is pending.
+    /// @param expiredRate Highest rate among the expiries whose steps are pending; zero when none is.
+    /// @param steps Sends still owed the step: one per noted expiry, one consumed by each send.
     /// @param next Ring slot the next send writes.
     struct Route {
         uint64[3] rates;
         uint64 sends;
         uint64 latest;
         uint64 expiredRate;
+        uint32 steps;
         uint8 next;
     }
 
@@ -92,7 +99,7 @@ library BridgeFeeRule {
         if (total >= amount) revert FeeNotBelowAmount(total, amount);
     }
 
-    /// @notice Records a send's rate in the window and consumes a pending step.
+    /// @notice Records a send's rate in the window and consumes a pending step; the last one clears the expired rate.
     /// @return serial The send's 1-based number on the route, which `noteExpiry` needs.
     function record(Route storage r, uint256 rate) internal returns (uint64 serial) {
         uint8 slot = r.next;
@@ -101,11 +108,18 @@ library BridgeFeeRule {
         serial = r.sends + 1;
         r.sends = serial;
         r.latest = serial;
-        r.expiredRate = 0;
+        uint32 steps = r.steps;
+        if (steps > 1) {
+            r.steps = steps - 1;
+        } else {
+            r.steps = 0;
+            r.expiredRate = 0;
+        }
     }
 
-    /// @notice Notes that send `serial`, priced at `rate`, expired: the next send steps one band above the highest
-    ///         expired rate, and the send leaves the window if it is still the route's latest (the window rewinds).
+    /// @notice Notes that send `serial`, priced at `rate`, expired: one more send steps one band above the highest
+    ///         pending expired rate, and the send leaves the window if it is still the route's latest (the window
+    ///         rewinds).
     function noteExpiry(Route storage r, uint64 serial, uint64 rate) internal {
         if (serial == r.latest) {
             uint8 slot = uint8((r.next + WINDOW - 1) % WINDOW);
@@ -113,6 +127,7 @@ library BridgeFeeRule {
             r.next = slot;
             r.latest = 0;
         }
+        ++r.steps;
         if (rate > r.expiredRate) r.expiredRate = rate;
     }
 }

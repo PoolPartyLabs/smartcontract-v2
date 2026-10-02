@@ -111,7 +111,7 @@ contract AcrossFeeRuleTest is Test {
     function test_DEC162_expiryStepsTheNextSendOneBandUp() public {
         (IBridgeAdapter.BridgeCall memory first,) = _send();
         _expire(first);
-        (uint64[3] memory rates, uint8 slot, uint64 sends) = adapter.feeWindow(HUB_CHAIN);
+        (uint64[3] memory rates, uint8 slot, uint64 sends,) = adapter.feeWindow(HUB_CHAIN);
         assertEq(sends, 1);
         assertEq(rates[0], 0, "the expired rate left the window");
         assertEq(slot, 0, "the window rewound");
@@ -135,7 +135,7 @@ contract AcrossFeeRuleTest is Test {
         vm.warp(block.timestamp + 60);
         _send();
         _expire(older);
-        (uint64[3] memory rates, uint8 next, uint64 sends) = adapter.feeWindow(HUB_CHAIN);
+        (uint64[3] memory rates, uint8 next, uint64 sends,) = adapter.feeWindow(HUB_CHAIN);
         assertEq(sends, 2);
         assertEq(next, 2);
         assertEq(rates[0], 8e14, "the older send stays in the window");
@@ -152,7 +152,7 @@ contract AcrossFeeRuleTest is Test {
             _send();
         }
         _expire(oldest);
-        (uint64[3] memory rates,,) = adapter.feeWindow(HUB_CHAIN);
+        (uint64[3] memory rates,,,) = adapter.feeWindow(HUB_CHAIN);
         assertEq(rates[0], 8e14, "the window is the three newer sends");
         assertEq(rates[1], 8e14);
         assertEq(rates[2], 8e14);
@@ -238,7 +238,7 @@ contract AcrossFeeRuleTest is Test {
         _send(); // 0.12% delivered
         _send(); // (0.12 + 0.08 + 0.08) / 3
         _send();
-        (uint64[3] memory rates,, uint64 sends) = adapter.feeWindow(HUB_CHAIN);
+        (uint64[3] memory rates,, uint64 sends,) = adapter.feeWindow(HUB_CHAIN);
         assertEq(sends, 4);
         uint256 mean = (uint256(rates[0]) + rates[1] + rates[2]) / 3;
         (, uint256 ref,) = adapter.feeState(HUB_CHAIN);

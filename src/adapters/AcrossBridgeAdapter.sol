@@ -107,7 +107,7 @@ contract AcrossBridgeAdapter is AdapterGuard, IBridgeAdapter {
     /// @notice A send was priced by the rule (DEC-162).
     event SendPriced(uint256 indexed destinationChainId, bytes32 indexed transitRef, uint256 rateWad, uint256 fee);
 
-    /// @notice The vault reported a send that will never arrive; the next send on the route steps up (DEC-162).
+    /// @notice The vault reported a send that will never arrive; one more send on the route steps up (DEC-162).
     event ExpiryNoted(uint256 indexed destinationChainId, bytes32 indexed transitRef, uint256 rateWad);
 
     /// @param vault_ The vault this adapter builds calls for (Core Vault on the hub, Spoke Vault on a spoke).
@@ -194,8 +194,9 @@ contract AcrossBridgeAdapter is AdapterGuard, IBridgeAdapter {
     }
 
     /// @inheritdoc IBridgeAdapter
-    /// @dev The route's next send steps up one band above the highest expired rate (never below the route's
-    ///      reference), and the send leaves its route's window if it is still the latest (`BridgeFeeRule.noteExpiry`). Reverts `UnknownSend` for a send this
+    /// @dev One more send on the route steps up one band above the highest pending expired rate (never below the
+    ///      route's reference), and the send leaves its route's window if it is still the latest
+    ///      (`BridgeFeeRule.noteExpiry`). Reverts `UnknownSend` for a send this
     ///      adapter did not price or already noted; the vaults call it in try/catch (DEC-056).
     function noteExpiry(bytes32 transitRef) external {
         if (msg.sender != vault) revert NotVault(msg.sender);
@@ -217,15 +218,15 @@ contract AcrossBridgeAdapter is AdapterGuard, IBridgeAdapter {
         return (BridgeFeeRule.nextRate(route, p), BridgeFeeRule.referenceRate(route, p), route.expiredRate);
     }
 
-    /// @notice The route's window (ring order, zero for an empty slot), the ring slot the next send writes, and how
-    ///         many sends the route has recorded.
+    /// @notice The route's window (ring order, zero for an empty slot), the ring slot the next send writes, how many
+    ///         sends the route has recorded, and how many sends are still owed the step after noted expiries.
     function feeWindow(uint256 destinationChainId)
         external
         view
-        returns (uint64[3] memory rates, uint8 next, uint64 sends)
+        returns (uint64[3] memory rates, uint8 next, uint64 sends, uint32 steps)
     {
         BridgeFeeRule.Route storage route = _routes[destinationChainId];
-        return (route.rates, route.next, route.sends);
+        return (route.rates, route.next, route.sends, route.steps);
     }
 
     /// @notice The fixed part of the fee for `inputToken`: 0.03 units (`3 * 10 ** decimals / 100`).

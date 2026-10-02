@@ -315,10 +315,10 @@ contract AcrossBridgeAdapterTest is Test {
         (uint256 arrives, uint256 rate) = adapter.quoteSend(address(usdc), SPOKE_CHAIN, AMOUNT, "");
         assertEq(rate, 8e14);
         assertEq(arrives, AMOUNT - INITIAL_FEE);
-        (,, uint64 sends) = adapter.feeWindow(SPOKE_CHAIN);
+        (,, uint64 sends,) = adapter.feeWindow(SPOKE_CHAIN);
         assertEq(sends, 0, "a quote records nothing");
         assertEq(_build(_request(), escrow).amountToArrive, arrives);
-        (,, sends) = adapter.feeWindow(SPOKE_CHAIN);
+        (,, sends,) = adapter.feeWindow(SPOKE_CHAIN);
         assertEq(sends, 1, "a build records the send");
     }
 
