@@ -28,6 +28,8 @@ import {FundMandate} from "./FundMandate.sol";
 ///      `MANAGEMENT_FEE_BPS` (default 0, at most 500: DEC-184, DEC-186), `SPOKE_OPERATING_CASH_FLOOR` and
 ///      `SPOKE_OPERATING_CASH_TOP_UP` (Robinhood USDG base units, default 0; DEC-096), `SEED_AMOUNT` (default
 ///      `MIN_FIRST_DEPOSIT`).
+/// @dev Optional hookless pool inputs: `HUB_POOL_TOKEN0`, `HUB_POOL_TOKEN1`, `HUB_POOL_FEE`,
+///      `HUB_POOL_TICK_SPACING` and the matching `SPOKE_POOL_*`; `HUB_AAVE_ASSET` selects the reserve or zero for none.
 /// @dev Operating Cash is out of the MVP (ruling 2026-10-02): nothing spends it, and native Operating Cash (DEC-130,
 ///      DEC-144) and the gas refund come after the buildathon, so a fund locks no value there by default. The hub has
 ///      no Operating Cash entry in the Mandate, so its floor and top-up are 0 as well.
@@ -37,7 +39,7 @@ contract CreateFund is Script, FactoryDeployment, FundMandate {
     /// @notice Ruling 2026-09-29: Robinhood report lifetime 1,587 s plus one block, rounded up.
     uint32 internal constant ROBINHOOD_MAX_REPORT_AGE = 1588;
 
-    function run() external {
+    function run() external virtual {
         FundFactory factory = FundFactory(vm.envAddress("FUND_FACTORY"));
         address manager = vm.envAddress("MANAGER");
         FundPlan memory plan = _plan(manager);
@@ -87,12 +89,12 @@ contract CreateFund is Script, FactoryDeployment, FundMandate {
         plan.hubChainId = ARBITRUM;
         plan.hubWormholeChainId = WORMHOLE_ARBITRUM;
         plan.usdc = ARB_USDC;
-        plan.hubPool = PoolKey(Currency.wrap(ARB_WETH), Currency.wrap(ARB_USDC), 500, 10, IHooks(address(0)));
-        plan.hubAaveAsset = ARB_USDC;
+        plan.hubPool = _pool("HUB", ARB_WETH, ARB_USDC);
+        plan.hubAaveAsset = vm.envOr("HUB_AAVE_ASSET", ARB_USDC);
         plan.spokeChainId = ROBINHOOD;
         plan.spokeWormholeChainId = WORMHOLE_ROBINHOOD;
         plan.spokeToken = RH_USDG;
-        plan.spokePool = PoolKey(Currency.wrap(RH_WETH), Currency.wrap(RH_USDG), 500, 10, IHooks(address(0)));
+        plan.spokePool = _pool("SPOKE", RH_WETH, RH_USDG);
         plan.spokeCap = vm.envOr("SPOKE_CAP", uint256(10_000e6));
         plan.maxReportAge = ROBINHOOD_MAX_REPORT_AGE;
         plan.spokeOperatingCashFloor = vm.envOr("SPOKE_OPERATING_CASH_FLOOR", uint256(0));
@@ -101,5 +103,19 @@ contract CreateFund is Script, FactoryDeployment, FundMandate {
         plan.performanceFeeBps = SafeCast.toUint16(vm.envOr("PERFORMANCE_FEE_BPS", uint256(2000)));
         plan.managementFeeBps = SafeCast.toUint16(vm.envOr("MANAGEMENT_FEE_BPS", uint256(0)));
         plan.seedAmount = vm.envOr("SEED_AMOUNT", plan.minFirstDeposit);
+    }
+
+    function _pool(string memory prefix, address token0, address token1) private view returns (PoolKey memory) {
+        uint256 fee = vm.envOr(string.concat(prefix, "_POOL_FEE"), uint256(500));
+        int256 spacing = vm.envOr(string.concat(prefix, "_POOL_TICK_SPACING"), int256(10));
+        require(fee <= type(uint24).max, "pool fee overflow");
+        require(spacing > 0 && spacing <= type(int24).max, "invalid tick spacing");
+        return PoolKey(
+            Currency.wrap(vm.envOr(string.concat(prefix, "_POOL_TOKEN0"), token0)),
+            Currency.wrap(vm.envOr(string.concat(prefix, "_POOL_TOKEN1"), token1)),
+            uint24(fee),
+            int24(spacing),
+            IHooks(address(0))
+        );
     }
 }

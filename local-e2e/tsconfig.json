@@ -4,6 +4,7 @@
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "strict": true,
+    "types": ["node"],
     "noEmit": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
