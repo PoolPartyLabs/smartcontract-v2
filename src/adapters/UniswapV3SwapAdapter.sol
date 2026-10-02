@@ -49,10 +49,14 @@ import {ISwapRouter02} from "../interfaces/external/ISwapRouter02.sol";
 ///        market). Without a maximum the overstatement has no bound (899 on a sale worth 100 on a fork). None of this
 ///        needs a transaction from the third party at sale time: it hits the leaver's own sale, and a vault would
 ///        charge the overstatement to the leaver (DEC-118 item 2, DEC-141) or the manager (D-29).
-///      - A tier below the market cannot outbid an honest tier that fills. Ranking the tiers by the maximum against
-///        each tier's own mid (review round 2) let it win every sale whose maximum no honest tier meets: holding only
-///        the output token below its price, it offers no arbitrage, waits in place at almost no cost, and buys the
-///        input at its own price (a tenth of the market on a fork). That ranking was withdrawn (review round 3).
+///      - A tier below the market that holds only the output token below its price offers no arbitrage either. It
+///        outbids the honest tier whenever its discount is smaller than the honest tier's loss on the sale, then meets
+///        the maximum against its own mid, so it buys a sale beyond the caller's maximum that DEC-148 would refuse
+///        (5.3% below the market under a 1% maximum on a fork, reported as a 0.35% loss). Ranked by output, the fund
+///        still receives at least what the honest tier pays, so the loss the maximum misses is bounded by the honest
+///        tier's own loss. Ranking the tiers by the maximum against each tier's own mid (review round 2) removed that
+///        bound: such a tier won every sale whose maximum no honest tier meets, at its own price (a tenth of the
+///        market on a fork), so that ranking was withdrawn (review round 3).
 ///      - When the sale exceeds what every honest tier can fill, such a tier below the market is the only one that
 ///        fills, so it is chosen, meets the maximum against its own mid, and buys the input at its own price.
 ///      Proposed ruling (review round 2): measure every empty-route sale against the mid of the pair's tier with the
