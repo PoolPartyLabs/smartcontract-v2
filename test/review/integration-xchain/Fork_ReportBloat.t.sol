@@ -238,18 +238,19 @@ contract Fork_ReportBloat is XChainBase {
     }
 
     /// @notice FIXED. The worst report the caps allow, built for real: a stranger fills the whole 256-id arrival window,
-    ///         the manager adds 64 dust sends home and 32 dust positions. The sends home are Income: the hub's first
-    ///         listing of an Income id writes its kind to a fresh slot, about 20,000 gas more per entry than Principal.
-    ///         Its first delivery over the small stored report goes through the real Arbitrum Core within one 32M
-    ///         transaction.
+    ///         the manager adds 64 dust sends home and 32 dust positions. As reviewed the sends home were Income (the
+    ///         hub's first listing of an Income id writes its kind to a fresh slot, about 20,000 gas more per entry);
+    ///         since WP-10 the manager can send only Principal (income goes home through a collection order, DEC-122),
+    ///         so the manager's worst case is Principal. Its first delivery over the small stored report goes through the
+    ///         real Arbitrum Core within one 32M transaction.
     function test_REVIEW_H04_worstCaseReportDeliversThroughTheRealCores() public {
         _setUpFund();
         _strangerIncomeArrival();
         _strangerArrivals(256);
         (, bool fits) = _measure("stranger arrivals (window)", 256);
         assertTrue(fits);
-        _dustSendsHome(SpokeVaultTypes.MAX_HUB_BOUND_IN_FLIGHT, TransferKind.Income);
-        (, fits) = _measure("256 arrivals + Income sends home", SpokeVaultTypes.MAX_HUB_BOUND_IN_FLIGHT);
+        _dustSendsHome(SpokeVaultTypes.MAX_HUB_BOUND_IN_FLIGHT, TransferKind.Principal);
+        (, fits) = _measure("256 arrivals + sends home", SpokeVaultTypes.MAX_HUB_BOUND_IN_FLIGHT);
         assertTrue(fits);
         _dustPositions(SpokeVaultTypes.MAX_OPEN_POSITIONS);
         uint256 total;
@@ -259,11 +260,10 @@ contract Fork_ReportBloat is XChainBase {
         assertLt(total, MAX_TX_GAS);
     }
 
-    /// @notice Re-attack of the caps: the same worst report, except that the 64 Income sends home (10 base units to
-    ///         arrive each, so the performance fee and the protocol slice are both non-zero) are filled on Arbitrum
-    ///         before the report
-    ///         that first lists them. Its delivery then also credits 64 held-apart Income arrivals, each with a fee split
-    ///         and two USDC transfers.
+    /// @notice Re-attack of the caps: the same worst report, except that the 64 sends home (10 base units to arrive
+    ///         each) are filled on Arbitrum before the report that first lists them. Its delivery then also credits 64
+    ///         held-apart arrivals. As reviewed they were Income (each with a fee split and two USDC transfers); since
+    ///         WP-10 the manager's sends home are Principal only (DEC-122).
     function test_REVIEW_H04_worstCaseWithHeldApartIncomeArrivals() public {
         _setUpFund();
         _strangerIncomeArrival();
@@ -273,7 +273,7 @@ contract Fork_ReportBloat is XChainBase {
         vm.recordLogs();
         vm.startPrank(manager);
         for (uint256 i; i < SpokeVaultTypes.MAX_HUB_BOUND_IN_FLIGHT; ++i) {
-            spokeVault.sendToHub(DUST_HOME, TransferKind.Income, 0);
+            spokeVault.sendToHub(DUST_HOME, TransferKind.Principal, 0);
         }
         vm.stopPrank();
         LiveRelayData[] memory homes = _relaysFrom(vm.getRecordedLogs(), RH_ACROSS_SPOKE_POOL, ROBINHOOD);
@@ -284,10 +284,10 @@ contract Fork_ReportBloat is XChainBase {
         deal(ARB_USDC, address(mine), 10 * homes.length);
         vm.prank(manager);
         mine.fillAll(ARB_ACROSS_SPOKE_POOL, ARB_USDC, homes, ROBINHOOD);
-        assertEq(core.unmatchedArrivals(), 10 * homes.length, "every Income send home held apart");
+        assertEq(core.unmatchedArrivals(), 10 * homes.length, "every send home held apart");
 
         (uint256 total, bool fits) =
-            _measure("256 arrivals + 64 held-apart Income sends + positions", SpokeVaultTypes.MAX_OPEN_POSITIONS);
+            _measure("256 arrivals + 64 held-apart sends + positions", SpokeVaultTypes.MAX_OPEN_POSITIONS);
         _log("delivery gas with the held-apart arrivals credited (execution + intrinsic)", total);
         assertTrue(fits, "delivers in one transaction");
     }

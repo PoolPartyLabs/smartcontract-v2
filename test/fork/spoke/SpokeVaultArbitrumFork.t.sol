@@ -7,14 +7,16 @@ import {SpokeVaultForkBase} from "./SpokeVaultForkBase.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
+import {ISpokeVaultUnwind} from "../../../src/interfaces/ISpokeVaultUnwind.sol";
 import {TransitEscrow} from "../../../src/core/TransitEscrow.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {MockPositionAdapter} from "../../mocks/spoke/MockPositionAdapter.sol";
 import {MockCoreVault} from "../../mocks/spoke/MockCoreVault.sol";
 import {MockSwapAdapter} from "../../mocks/swap/MockSwapAdapter.sol";
+import {UniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
 
 /// @notice Hub role on a pinned Arbitrum One fork with native USDC: allocation from the Core Vault, positions, the
-///         automatic unwind in Mandate order back to Idle, income forwarding and the same-chain report reader.
+///         proportional automatic unwind back to Idle, income forwarding and the same-chain report reader.
 contract SpokeVaultArbitrumForkTest is SpokeVaultForkBase {
     MockPositionAdapter internal hubUni;
     MockPositionAdapter internal hubAave;
@@ -41,6 +43,22 @@ contract SpokeVaultArbitrumForkTest is SpokeVaultForkBase {
             hubSwap: address(new MockSwapAdapter()),
             spokeSwap: makeAddr("spokeSwap")
         });
+        TransitEscrow escrow = new TransitEscrow();
+        address[] memory tokens = new address[](2);
+        tokens[0] = ARB_USDC;
+        tokens[1] = ARB_WETH;
+        a.hubSwap = address(
+            new UniswapV3SwapAdapter(
+                vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1),
+                guardian,
+                ARB_USDC,
+                tokens,
+                0x1F98431c8aD98523631AE4a59f267346ea31F984,
+                0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45,
+                0x61fFE014bA17989E743c5F6cB21bF9697530B21e,
+                address(0)
+            )
+        );
         vault = new SpokeVault(
             _mandate(a),
             FUND_ID,
@@ -49,7 +67,7 @@ contract SpokeVaultArbitrumForkTest is SpokeVaultForkBase {
             ARB_USDC,
             ARB_SPOKE_POOL,
             address(0),
-            address(new TransitEscrow()),
+            address(escrow),
             excessRecipient
         );
         hubUni.setVault(address(vault));
@@ -57,7 +75,7 @@ contract SpokeVaultArbitrumForkTest is SpokeVaultForkBase {
         deal(ARB_USDC, address(core), 10_000e6);
     }
 
-    function test_DEC069_forkArbitrum_hubUnwindInMandateOrderBackToIdle() public {
+    function test_DEC137_forkArbitrum_hubProportionalUnwindBackToIdle() public {
         core.allocate(vault, 1000e6);
         vm.startPrank(manager);
         (bytes32 uniKey,,) = vault.openPosition(address(hubUni), HUB_POOL, 0, 400e6, "");
@@ -69,29 +87,32 @@ contract SpokeVaultArbitrumForkTest is SpokeVaultForkBase {
         assertEq(r.unallocated[0].amount, 100e6);
         assertEq(r.positions.length, 2);
 
-        // Final verification (DEC-069): the vault sizes each step itself, no hint needed for USDC principal.
-        assertEq(core.unwind(vault, 800e6, ""), 800e6);
-        assertEq(core.idleReturned(), 800e6);
-        assertEq(USDC.balanceOf(address(core)), 9000e6 + 800e6);
+        // DEC-137: the same fraction of every position (three quarters here), plus the Unallocated USDC (D-11).
+        ISpokeVaultUnwind.UnwindRequest memory request;
+        request.requestId = keccak256("request");
+        request.fracNum = 3;
+        request.fracDen = 4;
+        assertEq(core.unwind(vault, request).proceeds, 100e6 + 300e6 + 375e6);
+        assertEq(core.idleReturned(), 775e6);
+        assertEq(USDC.balanceOf(address(core)), 9000e6 + 775e6);
         assertEq(vault.unallocatedBalance(ARB_USDC), 0);
-        (,,,,, bool uniOpen) = hubUni.position(uniKey);
+        (,, uint256 uniUsdc,,, bool uniOpen) = hubUni.position(uniKey);
         (, uint256 aavePrincipal,,,, bool aaveOpen) = hubAave.position(aaveKey);
-        assertFalse(uniOpen);
-        assertTrue(aaveOpen);
-        assertEq(aavePrincipal, 200e6);
+        assertTrue(uniOpen && aaveOpen);
+        assertEq(uniUsdc, 100e6);
+        assertEq(aavePrincipal, 125e6);
     }
 
-    function test_DEC092_forkArbitrum_incomeForwardedAndDonationSwept() public {
+    function test_DEC172_forkArbitrum_incomeCollectedForTheCoreVaultAndDonationSwept() public {
         core.allocate(vault, 1000e6);
         vm.prank(manager);
         (bytes32 key,,) = vault.openPosition(address(hubAave), AAVE_USDC, 500e6, 0, "");
         deal(ARB_USDC, address(hubAave), USDC.balanceOf(address(hubAave)) + 3e6);
         hubAave.earnIncome(key, 3e6, 0);
         assertEq(vault.cumulativeIncome(ARB_USDC), 3e6);
-        vm.prank(manager);
-        vault.collectIncome(address(hubAave), key);
-        assertEq(vault.forwardIncomeToCoreVault(ARB_USDC), 3e6);
+        core.collectIncome(vault, 0); // DEC-172: the Core Vault's collection, USDC to the Core Vault
         assertEq(core.incomeReceived(ARB_USDC), 3e6);
+        assertEq(vault.collectedIncome(ARB_USDC), 0);
         assertEq(vault.cumulativeIncome(ARB_USDC), 3e6);
 
         deal(ARB_USDC, address(vault), USDC.balanceOf(address(vault)) + 42e6);
@@ -101,5 +122,26 @@ contract SpokeVaultArbitrumForkTest is SpokeVaultForkBase {
 
         vm.expectRevert(ISpokeVault.NotOnSpokeChain.selector);
         vault.report();
+    }
+
+    function test_DEC172_forkArbitrum_hubWethIncomeSoldThroughLiveV3Adapter() public {
+        core.allocate(vault, 1000e6);
+        vm.prank(manager);
+        (bytes32 key,,) = vault.openPosition(address(hubUni), HUB_POOL, 0, 500e6, "");
+        deal(ARB_WETH, address(hubUni), 0.1e18);
+        deal(ARB_USDC, address(hubUni), USDC.balanceOf(address(hubUni)) + 10e6);
+        hubUni.earnIncome(key, 0.1e18, 10e6);
+        uint256 before = USDC.balanceOf(address(core));
+        (address[] memory tokens, uint256[] memory sold, uint256[] memory obtained) = core.collectIncome(vault, 0);
+        assertEq(tokens[0], ARB_USDC);
+        assertEq(sold[0], 10e6);
+        assertEq(tokens[1], ARB_WETH);
+        assertEq(sold[1], 0.1e18);
+        assertGt(obtained[1], 0);
+        assertEq(USDC.balanceOf(address(core)) - before, obtained[0] + obtained[1]);
+        assertEq(vault.collectedIncome(ARB_WETH), 0);
+        assertEq(vault.collectedIncome(ARB_USDC), 0);
+        assertEq(vault.cumulativeIncome(ARB_WETH), 0.1e18);
+        assertEq(vault.unallocatedBalance(ARB_USDC), 500e6);
     }
 }

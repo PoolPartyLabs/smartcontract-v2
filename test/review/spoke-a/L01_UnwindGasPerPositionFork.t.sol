@@ -25,11 +25,9 @@ contract L01_UnwindGasPerPositionFork is SpokeAForkBase {
             _openRangeOrder(5e6, int24(int256(i)) * 10);
         }
         _openRangeOrder(1_000_000e6 - dust * 5e6, 0);
-        vm.prank(mallory);
-        vault.requestPayout(49_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         uint256 g = gasleft();
         vm.prank(mallory);
-        ICoreVault.PayoutReceipt memory r = vault.claimPayout("");
+        ICoreVault.PayoutReceipt memory r = vault.requestPayout(49_000e6, ICoreVaultPayouts.PayoutMode.Instant, 0);
         gasUsed = g - gasleft();
         proceeds = r.unwindProceeds;
     }

@@ -282,12 +282,6 @@ contract AaveV3Adapter is IAdapter, AdapterGuard, ReentrancyGuard {
         emit IncomeCollected(positionKey, amounts.income0, 0);
     }
 
-    /// @inheritdoc IAdapter
-    /// @dev DEC-018, DEC-028: Aave V3 supply has no swap; always reverts.
-    function swapExactInput(bytes32, address, uint256, uint256, bytes calldata) external pure returns (uint256) {
-        revert UnsupportedOperation();
-    }
-
     // ---------------------------------------------------------------------------------------------------------------
     // Views
     // ---------------------------------------------------------------------------------------------------------------
@@ -347,12 +341,6 @@ contract AaveV3Adapter is IAdapter, AdapterGuard, ReentrancyGuard {
         uint256 part = Math.mulDiv(principalNow, numerator, denominator, Math.Rounding.Ceil);
         if (part >= principalNow) return (true, "");
         return (false, abi.encode(part));
-    }
-
-    /// @inheritdoc IAdapter
-    /// @dev DEC-018, DEC-028: an Aave V3 supply has no price; always reverts.
-    function spotQuote(bytes32, address, uint256) external pure returns (uint256) {
-        revert UnsupportedOperation();
     }
 
     /// @notice The ledger of `asset` (DEC-068).

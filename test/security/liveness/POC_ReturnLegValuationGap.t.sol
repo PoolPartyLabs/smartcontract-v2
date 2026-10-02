@@ -126,16 +126,14 @@ contract POC_ReturnLegValuationGap is CoreVaultFixture {
         uint256 snapshot = vm.snapshotState();
         _closeTheGap(homebound);
         _deposit(bob, 1_000_000e6);
-        _request(bob, 2_000_000e6, ICoreVaultPayouts.PayoutMode.Instant);
-        uint256 honestPaid = _claim(bob).usdcPaid;
+        uint256 honestPaid = _request(bob, 2_000_000e6, ICoreVaultPayouts.PayoutMode.Instant).usdcPaid;
         uint256 aliceValueHonest = _valueOf(aliceShares);
         vm.revertToState(snapshot);
 
         // Bob deposits inside what used to be the window.
         _deposit(bob, 1_000_000e6);
         _closeTheGap(homebound);
-        _request(bob, 2_000_000e6, ICoreVaultPayouts.PayoutMode.Instant);
-        ICoreVault.PayoutReceipt memory r = _claim(bob);
+        ICoreVault.PayoutReceipt memory r = _request(bob, 2_000_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         assertLt(r.usdcPaid, 1_000_000e6, "S-3: bob leaves with less than he deposited");
         // The only difference left is the 200 USDC bridge fee the refund returns on top of the 399,800 counted in
         // flight (DEC-085 counts the amount that will arrive; Across refunds the full input, DEC-063), shared pro rata.

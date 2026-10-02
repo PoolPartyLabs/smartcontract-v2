@@ -435,23 +435,25 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         assertEq(vault.shareAssets(), assets, "DEC-104: in flight to Idle, same value");
     }
 
-    function test_DEC107_incomeArrivalIsSplitAtCollection() public {
+    /// @dev DEC-161: an Income arrival is held for the collection result it carries (converted when the Hub reads
+    ///      it), never Idle.
+    function test_DEC161_incomeArrivalIsHeldForItsCollection() public {
         bytes32 homeId = keccak256("income-1");
         _deliver(_inFlightToHub(_spokeReport(0, 0), homeId, 100e6, TransferKind.Income));
         uint256 protocol0 = usdc.balanceOf(protocol);
         pool.fill(address(vault), address(usdc), 100e6, _homeMessage(homeId, TransferKind.Income));
-        assertEq(vault.collectedIncome(address(usdc)), 80e6);
+        assertEq(_heldIncome(), 100e6);
         assertEq(vault.idle(), SEED_IDLE + 9975e6);
-        assertEq(usdc.balanceOf(protocol) - protocol0, 10e6);
-        assertEq(usdc.balanceOf(vault.managerFeeVault()), 10e6);
+        assertEq(usdc.balanceOf(protocol), protocol0, "no fee before the conversion");
+        assertEq(usdc.balanceOf(address(vault)), _ledgerUsdc());
     }
 
     function test_OQ01_heldApartAndIncomeStateReadableThroughICoreVault() public {
         pool.fill(address(vault), address(usdc), 7e6, _homeMessage(keccak256("stray"), TransferKind.Principal));
         ICoreVault core = ICoreVault(address(vault));
         assertEq(core.unmatchedArrivals(), 7e6);
-        hubVault.forwardIncome(address(usdc), 100e6);
-        assertEq(core.incomeState(address(usdc)).distributed, 80e6);
+        _hubIncomeCollected(address(usdc), 100e6);
+        assertEq(core.incomeCollection().heldDollars, 80e6);
     }
 
     function test_OQ01_fabricatedIdNeverReachesABase() public {
@@ -484,7 +486,7 @@ contract CoreVaultTransitTest is CoreVaultFixture {
     function test_DEC101_sweepExcessSendsOnlyUnledgeredBalance() public {
         usdc.mint(address(vault), 123e6);
         weth.mint(address(vault), 2e18);
-        hubVault.forwardIncome(address(usdc), 50e6);
+        _hubIncomeCollected(address(usdc), 50e6);
         vm.expectEmit(address(vault));
         emit ICoreVault.ExcessSwept(address(usdc), excess, 123e6);
         assertEq(vault.sweepExcess(address(usdc)), 123e6);

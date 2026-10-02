@@ -68,12 +68,11 @@ contract M01_UnpriceableSpokeToken is SpokeBFixture {
         // The seed's 1 + 1,000,000 deposited - 2,500 flow fee - 50 bridge fee; the swap was at par.
         uint256 fairAssets = SEED_IDLE + 997_450e6;
         uint256 fairValue = bobShares * fairAssets / shares.totalSupply();
-        vm.prank(bob);
-        vault.requestPayout(fairValue, ICoreVaultPayouts.PayoutMode.Instant);
         vm.expectEmit(address(vault));
         emit ICoreVault.PriceFallback(address(spokeWeth), 0);
         vm.prank(bob);
-        ICoreVault.PayoutReceipt memory receipt = vault.claimPayout("");
+        ICoreVault.PayoutReceipt memory receipt =
+            vault.requestPayout(fairValue, ICoreVaultPayouts.PayoutMode.Instant, 0);
 
         console2.log("fair value of Bob's shares   ", fairValue);
         console2.log("gross paid for all his shares", receipt.usdcGross);

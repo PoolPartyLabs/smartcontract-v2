@@ -19,6 +19,7 @@ import {IStateView} from "@uniswap/v4-periphery/src/interfaces/IStateView.sol";
 import {LiquidityAmounts} from "@uniswap/v4-periphery/src/libraries/LiquidityAmounts.sol";
 import {IFundFactory} from "../../../src/interfaces/IFundFactory.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
 import {IAdapter} from "../../../src/interfaces/IAdapter.sol";
 import {IPriceSource} from "../../../src/interfaces/IPriceSource.sol";
@@ -69,12 +70,27 @@ contract PoolActor is IUnlockCallback {
         (shares,) = core.deposit(amount, 0);
     }
 
+    /// @notice An Instant request of this holder waiting for its claim: since DEC-120 item 1 the Instant request is
+    ///         its own claim, so the actor sends it when it claims (inside `attack`, `claim`), where the PoCs ran the
+    ///         claim before.
+    uint256 public pendingInstant;
+
+    /// @dev A Standard request is opened now; an Instant one is kept for the next claim (see `pendingInstant`).
     function requestPayout(ICoreVault core, uint256 amount, ICoreVault.PayoutMode mode) external {
-        core.requestPayout(amount, mode);
+        if (mode == ICoreVaultPayouts.PayoutMode.Instant) pendingInstant = amount;
+        else core.requestPayout(amount, mode, 0);
     }
 
-    function claim(ICoreVault core, bytes calldata hints) external returns (ICoreVault.PayoutReceipt memory) {
-        return core.claimPayout(hints);
+    function claim(ICoreVault core, bytes calldata) external returns (ICoreVault.PayoutReceipt memory) {
+        return _claim(core);
+    }
+
+    /// @dev The pending Instant request (its own claim), or the claim of the open Standard request.
+    function _claim(ICoreVault core) internal returns (ICoreVault.PayoutReceipt memory) {
+        uint256 amount = pendingInstant;
+        if (amount == 0) return core.claimPayout(0);
+        pendingInstant = 0;
+        return core.requestPayout(amount, ICoreVaultPayouts.PayoutMode.Instant, 0);
     }
 
     // ------------------------------------------------------------------ pool verbs, each in its own unlock
@@ -94,7 +110,7 @@ contract PoolActor is IUnlockCallback {
     {
         push(legs);
         (sqrtAtCall,,,) = pm.getSlot0(legs[0].key.toId());
-        receipt = core.claimPayout(hints);
+        receipt = _claim(core);
         restore(legs);
     }
 

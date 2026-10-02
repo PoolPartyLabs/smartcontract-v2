@@ -21,7 +21,7 @@ contract FeeRecipientBlocklistTest is HubFundFixture {
         _deposit(alice, 500_000e6);
         _deposit(bob, 300_000e6);
         vm.prank(alice);
-        core.requestPayout(100_000e6, ICoreVaultPayouts.PayoutMode.Standard);
+        core.requestPayout(100_000e6, ICoreVaultPayouts.PayoutMode.Standard, 0);
         vm.warp(block.timestamp + 72 hours);
         // The fund goes on working until the fee wallet is blocklisted.
         prices.setPrice(address(weth), WETH_PRICE_1E18);
@@ -39,13 +39,11 @@ contract FeeRecipientBlocklistTest is HubFundFixture {
         vm.stopPrank();
 
         vm.prank(alice);
-        ICoreVault.PayoutReceipt memory standard = core.claimPayout("");
+        ICoreVault.PayoutReceipt memory standard = core.claimPayout(0);
         assertEq(standard.usdcOutstanding, 0, "S-12: the matured Standard Payout completes");
 
         vm.prank(bob);
-        core.requestPayout(50_000e6, ICoreVaultPayouts.PayoutMode.Instant);
-        vm.prank(bob);
-        ICoreVault.PayoutReceipt memory instant = core.claimPayout("");
+        ICoreVault.PayoutReceipt memory instant = core.requestPayout(50_000e6, ICoreVaultPayouts.PayoutMode.Instant, 0);
         assertEq(instant.usdcOutstanding, 0, "S-12: the Instant Payout completes");
 
         assertEq(usdc.balanceOf(protocol), protocolBefore, "nothing reached the blocklisted wallet");

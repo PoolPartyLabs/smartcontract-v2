@@ -53,8 +53,7 @@ contract POC_OperatingCashFreeze is CoreVaultFixture {
         assertLt(assetsAfter, assetsBefore);
 
         // Alice's full exit is priced at the reduced Share Assets: her 100,000 USDC deposit pays back under half.
-        _request(alice, 200_000e6, ICoreVaultPayouts.PayoutMode.Instant);
-        ICoreVault.PayoutReceipt memory r = _claim(alice);
+        ICoreVault.PayoutReceipt memory r = _request(alice, 200_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         assertEq(r.sharesBurned, 99_750e18);
         assertLt(r.usdcGross, 50_000e6);
         assertEq(r.usdcOutstanding, 0);

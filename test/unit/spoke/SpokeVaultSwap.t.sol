@@ -89,7 +89,7 @@ contract SpokeVaultSwapTest is SpokeVaultTestBase {
         vm.expectRevert(abi.encodeWithSelector(ISpokeVault.AdapterNotInMandate.selector, address(hubSwap)));
         vault.swap(address(hubSwap), address(usdg), address(weth), 1e6, 0, "");
         vm.expectRevert(abi.encodeWithSelector(ISpokeVault.AdapterNotInMandate.selector, stranger));
-        vault.swapCollectedIncome(stranger, address(weth), 1, 0, "");
+        vault.swap(stranger, address(usdg), address(weth), 1e6, 0, "");
         vm.stopPrank();
     }
 
@@ -127,8 +127,6 @@ contract SpokeVaultSwapTest is SpokeVaultTestBase {
         vm.startPrank(stranger);
         vm.expectRevert(abi.encodeWithSelector(ISpokeVault.NotManager.selector, stranger));
         vault.swap(address(spokeSwap), address(usdg), address(weth), 1e6, 0, "");
-        vm.expectRevert(abi.encodeWithSelector(ISpokeVault.NotManager.selector, stranger));
-        vault.swapCollectedIncome(address(spokeSwap), address(weth), 1, 0, "");
         vm.stopPrank();
     }
 
@@ -184,24 +182,19 @@ contract SpokeVaultSwapTest is SpokeVaultTestBase {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // Collected income (DEC-092, CV-OQ-2)
+    // Collected income (DEC-092; DEC-178 item 5: converted by the collection order, never by the manager)
     // ---------------------------------------------------------------------------------------------------------------
 
-    function test_DEC092_incomeSwapStaysInTheCollectedIncomeBucket() public {
+    /// @dev The manager's swap spends Unallocated Balance only: collected income never mixes with principal (DEC-092)
+    ///      and is sold only by a collection (`SpokeIncomeCollection.t.sol`).
+    function test_DEC092_theManagersSwapNeverSpendsCollectedIncome() public {
         _arriveWethIncome(0.01e18);
-        uint256 usdgBefore = vault.unallocatedBalance(address(usdg));
-        vm.expectEmit(address(vault));
-        emit ISpokeVaultIncome.IncomeSwapped(
-            address(spokeSwap), address(weth), address(usdg), 0.01e18, 20e6, 20e6, 0, 0
-        );
         vm.prank(manager);
-        uint256 out = vault.swapCollectedIncome(address(spokeSwap), address(weth), 0.01e18, 0, "");
-        assertEq(out, 20e6);
-        assertEq(vault.collectedIncome(address(weth)), 0);
-        assertEq(vault.collectedIncome(address(usdg)), 20e6);
-        assertEq(vault.unallocatedBalance(address(usdg)), usdgBefore, "Unallocated Balance untouched");
-        assertEq(vault.unallocatedBalance(address(weth)), 0);
-        assertEq(IERC20(address(weth)).allowance(address(vault), address(spokeSwap)), 0);
+        vm.expectRevert(
+            abi.encodeWithSelector(ISpokeVault.InsufficientUnallocatedBalance.selector, address(weth), 0, 0.01e18)
+        );
+        vault.swap(address(spokeSwap), address(weth), address(usdg), 0.01e18, 0, "");
+        assertEq(vault.collectedIncome(address(weth)), 0.01e18);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -269,7 +262,7 @@ contract SpokeVaultSwapTest is SpokeVaultTestBase {
     }
 
     /// @dev DEC-056, DEC-058: while the swap adapter is paused or deprecated a swap out of the base token (an entry) is
-    ///      refused; a swap into it (an exit: the manager's sale or the income conversion) always runs.
+    ///      refused; a swap into it (an exit: the manager's sale, or a collection's income sale) always runs.
     function test_DEC056_pauseAndDeprecationBlockEntriesNeverExits() public {
         _deployWithV3Adapter();
         vm.prank(manager);
@@ -290,10 +283,8 @@ contract SpokeVaultSwapTest is SpokeVaultTestBase {
         vm.expectRevert(IAdapterGuard.AdapterIsDeprecated.selector);
         vault.swap(v3SwapAdapter, address(usdg), address(weth), 1e6, 0, "");
         vault.swap(v3SwapAdapter, address(weth), address(usdg), weth0 - weth0 / 2, 0, "");
-        vault.swapCollectedIncome(v3SwapAdapter, address(weth), 0.01e18, 0, "");
         vm.stopPrank();
         assertEq(vault.unallocatedBalance(address(weth)), 0, "nothing stranded");
-        assertEq(vault.collectedIncome(address(weth)), 0, "no income stranded");
     }
 
     // ---------------------------------------------------------------------------------------------------------------

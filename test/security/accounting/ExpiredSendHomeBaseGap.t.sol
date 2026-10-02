@@ -63,8 +63,7 @@ contract ExpiredSendHomeBaseGapPoC is AccountingPocFixture {
         assertEq(core.shareAssets(), core.idle() + ARRIVES_ON_SPOKE, "the refund replaced the return leg");
 
         vm.startPrank(mallory);
-        core.requestPayout(1_000_000e6, ICoreVaultPayouts.PayoutMode.Instant);
-        ICoreVault.PayoutReceipt memory r = core.claimPayout("");
+        ICoreVault.PayoutReceipt memory r = core.requestPayout(1_000_000e6, ICoreVaultPayouts.PayoutMode.Instant, 0);
         vm.stopPrank();
         assertEq(shares.balanceOf(mallory), 0, "full exit");
         assertLt(r.usdcPaid, charged, "S-3: Mallory leaves with less than she paid");

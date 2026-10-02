@@ -53,10 +53,8 @@ contract CoreVaultSetupTest is CoreVaultFixture {
         assertEq(vault.standardPayoutTerm(), 72 hours, "DEC-154: a protocol constant");
         assertEq(vault.performanceFeeBps(), 2000);
         assertEq(vault.managementFeeBps(), 0);
-        address[] memory tokens = vault.incomeTokens();
-        assertEq(tokens.length, 2);
-        assertEq(tokens[0], address(usdc));
-        assertEq(tokens[1], address(weth));
+        assertTrue(vault.incomeToken(0, address(usdc)).registered);
+        assertTrue(vault.incomeToken(0, address(weth)).registered);
     }
 
     function test_Q59_deploysAndOwnsItsShareToken() public view {
@@ -212,8 +210,7 @@ contract CoreVaultSetupTest is CoreVaultFixture {
         _deposit(alice, 1000e6);
         vm.prank(manager);
         vault.setOperatingCashParameters(1e6, 3e6);
-        _request(alice, 100e6, ICoreVaultPayouts.PayoutMode.Instant);
-        ICoreVault.PayoutReceipt memory r = _claim(alice);
+        ICoreVault.PayoutReceipt memory r = _request(alice, 100e6, ICoreVaultPayouts.PayoutMode.Instant);
         // Topped up 3 first (below floor); the 2% Payout Fee of the amount paid out stays in Idle.
         assertEq(r.payoutFee, r.usdcGross * 200 / 10_000);
         assertEq(vault.operatingCash(), 3e6);
@@ -262,12 +259,11 @@ contract CoreVaultSetupTest is CoreVaultFixture {
 
     function test_DEC098_grossAssetsAddsCashAndIncome() public {
         _deposit(alice, 1000e6);
-        hubVault.forwardIncome(address(usdc), 100e6); // 80 net to holders at 20% performance
+        _hubIncomeCollected(address(usdc), 100e6); // 80 net to holders at 20% performance
         hubVault.setPositionIncome(7e6);
         vm.prank(manager);
         vault.setOperatingCashParameters(1e6, 2e6);
         _request(alice, 10e6, ICoreVaultPayouts.PayoutMode.Instant);
-        _claim(alice);
         assertEq(vault.grossAssets(), vault.shareAssets() + vault.operatingCash() + 80e6 + 7e6);
     }
 }

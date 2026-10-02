@@ -1,21 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {console2} from "forge-std/Test.sol";
 
 import {AdaptersForkBase} from "./AdaptersForkBase.sol";
 
-/// @notice (adapters review) Measurement on the live Arbitrum WETH/USDC 0.05% V4 pool: the automatic unwind closes a
-///         fund position and sells its WETH leg in the same pool with a floor of 95% of the spot quote
-///         (`SpokeVault._unwindSwap`, `MAX_UNWIND_SLIPPAGE_BPS = 500`): how much WETH the pool absorbs within that
-///         floor (refutes, at these sizes, that the unwind cannot sell into the pool it just left).
-/// @notice Ported to fix/pp-sc-fix-independent-review: MEASUREMENT, kept. Since S-2 the floor is
-///         `max(spot, price source) - 5%`; with the pool at the oracle the two coincide. The extra column is the
-///         liveness side of the OPEN `MAX_UNWIND_SLIPPAGE_BPS` decision: whether the honest sale would clear a 1% floor
-///         (the review's recommendation) in the live pool, before the fund's own liquidity leaves it. e5c778a: 20 WETH
-///         returned 97.04% of the spot quote, 1 WETH 99.79%.
-/// @dev Run: ARBITRUM_RPC_URL=https://arb1.arbitrum.io/rpc ARBITRUM_FORK_BLOCK=<head - 300>
-///      forge test -j 1 --match-path 'test/review/adapters/UnwindSwapDepthFork.t.sol' -vv
+/// @notice Live V3 sale-depth measurement through the Mandate swap adapter, never the fund's V4 pool (DEC-136/153).
 contract UnwindSwapDepthFork is AdaptersForkBase {
     function _secondFee() internal pure override returns (uint24) {
         return 7777;
@@ -28,10 +19,13 @@ contract UnwindSwapDepthFork is AdaptersForkBase {
         uint256 largestUnderOnePercent;
         for (uint256 i; i < sizes.length; ++i) {
             uint256 snap = vm.snapshotState();
-            uint256 spotUsdc = adapter.spotQuote(livePool, WETH, sizes[i]);
-            deal(WETH, address(adapter), sizes[i]);
-            vm.prank(address(hubVault));
-            uint256 out = adapter.swapExactInput(livePool, WETH, sizes[i], 0, "");
+            deal(WETH, address(hubSwap), 0);
+            deal(WETH, address(hubVault), sizes[i]);
+            vm.startPrank(address(hubVault));
+            IERC20(WETH).approve(address(hubSwap), sizes[i]);
+            (uint24 fee,) = hubSwap.bestDirectFee(WETH, USDC, sizes[i]);
+            (uint256 out, uint256 spotUsdc,) = hubSwap.swapDirect(WETH, USDC, sizes[i], fee, 0);
+            vm.stopPrank();
             console2.log("WETH sold (milli-WETH)", sizes[i] / 1e15);
             console2.log("  output / spot quote (bps)", out * 10_000 / spotUsdc);
             assertGe(out * 10_000 / spotUsdc, 9500, "the honest sale clears today's 5% floor");

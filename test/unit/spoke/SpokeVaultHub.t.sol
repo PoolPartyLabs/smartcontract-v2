@@ -5,6 +5,7 @@ import {SpokeVaultTestBase} from "./SpokeVaultTestBase.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
 import {SpokeUnwindTypes} from "../../../src/spoke/SpokeUnwindTypes.sol";
+import {ISwapAdapter} from "../../../src/interfaces/ISwapAdapter.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
 import {ISpokeVaultIncome} from "../../../src/interfaces/ISpokeVaultIncome.sol";
 import {ISpokeVaultUnwind} from "../../../src/interfaces/ISpokeVaultUnwind.sol";
@@ -128,135 +129,251 @@ contract SpokeVaultHubTest is SpokeVaultTestBase {
         vault.returnToCoreVault(601e6);
     }
 
-    function test_DEC092_forwardIncomeToCoreVaultIsPermissionlessWithFixedDestination() public {
+    /// @dev DEC-172: the hub collection collects every position's income and hands the USDC to the Core Vault; only the
+    ///      Core Vault runs it (it recognizes the income first, DEC-138), and the destination is fixed.
+    function test_DEC172_hubCollectionIsCoreVaultOnlyWithAFixedDestination() public {
         core.allocate(vault, 1000e6);
         vm.prank(manager);
         (bytes32 key,,) = vault.openPosition(address(hubAave), AAVE_USDC, 500e6, 0, "");
         _earnIncome(hubAave, key, 7e6, 0);
-        vm.prank(manager);
-        vault.collectIncome(address(hubAave), key);
-        assertEq(vault.collectedIncome(address(usdc)), 7e6);
 
-        vm.expectEmit(address(vault));
-        emit ISpokeVaultIncome.IncomeForwardedToCoreVault(address(usdc), 7e6);
         vm.prank(stranger);
-        assertEq(vault.forwardIncomeToCoreVault(address(usdc)), 7e6);
+        vm.expectRevert(abi.encodeWithSelector(ISpokeVault.NotCoreVault.selector, stranger));
+        vault.collectIncomeAll(0);
+
+        (address[] memory tokens, uint256[] memory sold, uint256[] memory obtained) = core.collectIncome(vault, 0);
+        assertEq(tokens[0], address(usdc), "USDC first");
+        assertEq(sold[0], 7e6);
+        assertEq(obtained[0], 7e6);
         assertEq(core.incomeReceived(address(usdc)), 7e6);
         assertEq(vault.collectedIncome(address(usdc)), 0);
-        assertEq(vault.unallocatedBalance(address(usdc)), 500e6);
-
-        vm.expectRevert(ISpokeVault.ZeroAmount.selector);
-        vault.forwardIncomeToCoreVault(address(usdc));
+        assertEq(vault.unallocatedBalance(address(usdc)), 500e6, "principal untouched (DEC-092)");
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // Automatic unwind (DEC-059, DEC-067, DEC-068, DEC-069, DEC-081, DEC-092, DEC-097)
+    // Automatic unwind (DEC-137, DEC-140, DEC-141, DEC-148, DEC-151, DEC-118, DEC-092, DEC-136 item 4)
     // ---------------------------------------------------------------------------------------------------------------
+
+    bytes32 internal constant REQUEST = keccak256("ana's request");
 
     function test_DEC054_unwindOnlyCoreVault() public {
         vm.prank(stranger);
         vm.expectRevert(abi.encodeWithSelector(ISpokeVault.NotCoreVault.selector, stranger));
-        vault.unwindForPayout(1, "");
+        vault.unwindForPayout(_unwindRequest(REQUEST, 1, 2, 0, true));
     }
 
-    function test_DEC059_unallocatedUsdcPaysFirstWithoutUnwinding() public {
-        (bytes32 uniKey, bytes32 aaveKey) = _twoPositions();
-        vm.expectEmit(address(vault));
-        emit ISpokeVaultUnwind.UnwoundForPayout(80e6, 80e6);
-        assertEq(core.unwind(vault, 80e6, ""), 80e6);
-        assertEq(core.idleReturned(), 80e6);
-        assertEq(vault.unallocatedBalance(address(usdc)), 20e6);
-        assertEq(vault.positions().length, 2);
-        (,,,,, bool uniOpen) = hubUni.position(uniKey);
-        (,,,,, bool aaveOpen) = hubAave.position(aaveKey);
-        assertTrue(uniOpen && aaveOpen);
+    /// @dev DEC-148: the step is the vault calling itself, so that a revert undoes the step alone; nobody else may.
+    function test_DEC148_unwindStepOnlyByTheVaultItself() public {
+        bytes memory step = abi.encode(SpokeUnwindTypes.Step(address(hubAave), bytes32(0), 1, 1, 0, true));
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(SpokeUnwindTypes.UnwindStepNotSelf.selector, stranger));
+        vault.unwindStep(step);
+        vm.prank(address(core));
+        vm.expectRevert(abi.encodeWithSelector(SpokeUnwindTypes.UnwindStepNotSelf.selector, address(core)));
+        vault.unwindStep(step);
     }
 
-    /// @dev Final verification (DEC-069): the vault sizes the step from the shortfall, never from a hint. 100
-    ///      Unallocated + 350 of the 400 in the Uniswap position (opened first) covers 450; the Aave position is not
-    ///      visited. DEC-137 interim: the walk is the registry's order, the Mandate holds no unwind order.
-    function test_DEC137_unwindFollowsRegistryOrderSizesTheStepAndStopsAtTarget() public {
+    /// @dev D-11: with a zero fraction only the base token's Unallocated Balance is paid into Idle (DEC-067: Idle and
+    ///      that balance cover the request, no position is touched).
+    function test_D11_zeroFractionPaysOnlyTheUnallocatedUsdc() public {
         (bytes32 uniKey, bytes32 aaveKey) = _twoPositions();
-        assertEq(core.unwind(vault, 450e6, ""), 450e6);
-        assertEq(core.idleReturned(), 450e6);
+        ISpokeVaultUnwind.UnwindResult memory r = core.unwind(vault, _unwindRequest(REQUEST, 0, 0, 0, true));
+        assertEq(r.proceeds, 100e6);
+        assertEq(core.idleReturned(), 100e6);
         assertEq(vault.unallocatedBalance(address(usdc)), 0);
-        assertEq(vault.positions().length, 2, "no position closed: only the shortfall left");
-        (,, uint256 uniUsdc,,, bool uniOpen) = hubUni.position(uniKey);
-        assertTrue(uniOpen);
-        assertEq(uniUsdc, 50e6);
-        (, uint256 aavePrincipal,,,,) = hubAave.position(aaveKey);
+        assertEq(r.delivered + r.excluded, 0);
+        assertEq(vault.positions().length, 2);
+        (,, uint256 uniUsdc,,,) = hubUni.position(uniKey);
+        (, uint256 aavePrincipal,,,) = _aave(aaveKey);
+        assertEq(uniUsdc, 400e6);
         assertEq(aavePrincipal, 500e6);
     }
 
-    /// @dev DEC-137, DEC-139 (Mandate v2): with no unwind order in the Mandate the unwind walks the open positions in
-    ///      registry order until the proportional unwind (WP-09). Aave opened first is visited first: 100 Unallocated
-    ///      plus 350 of its 500 cover 450, and the Uniswap position, opened second, is untouched.
-    function test_DEC137_interimUnwindWalksTheRegistryInOpeningOrder() public {
-        core.allocate(vault, 1000e6);
-        vm.startPrank(manager);
-        (bytes32 aaveKey,,) = vault.openPosition(address(hubAave), AAVE_USDC, 500e6, 0, "");
-        (bytes32 uniKey,,) = vault.openPosition(address(hubUni), HUB_POOL, 0, 400e6, "");
-        vm.stopPrank();
-        assertEq(vault.positions()[0].adapter, address(hubAave), "Aave first in the registry");
-
-        assertEq(core.unwind(vault, 450e6, ""), 450e6);
-        (, uint256 aavePrincipal,,, bool aaveOpen) = _aave(aaveKey);
-        assertTrue(aaveOpen);
-        assertEq(aavePrincipal, 150e6, "the first registry entry paid the shortfall");
-        (,, uint256 uniUsdc,,, bool uniOpen) = hubUni.position(uniKey);
-        assertTrue(uniOpen);
-        assertEq(uniUsdc, 400e6, "the second one was never visited");
-    }
-
-    function test_DEC067_exactValuePositionReadNotExitedWhenCovered() public {
+    /// @dev DEC-137: the same fraction of every position, sized by the vault from the fraction (never from a value or
+    ///      a hint), plus the whole Unallocated USDC (D-11): 100 + 25% of 400 + 25% of 500.
+    function test_DEC137_theSameFractionOfEveryPosition() public {
         (bytes32 uniKey, bytes32 aaveKey) = _twoPositions();
-        core.unwind(vault, 500e6, "");
-        (,,,,, bool uniOpen) = hubUni.position(uniKey);
-        assertFalse(uniOpen, "the whole Uniswap value was needed, so it closed");
-        (, uint256 principal0,,,, bool open) = hubAave.position(aaveKey);
-        assertTrue(open);
-        assertEq(principal0, 500e6, "the Exact-Value position was only read");
+        vm.expectEmit(address(vault));
+        emit ISpokeVaultUnwind.UnwoundForPayout(REQUEST, 1, 4, ISpokeVaultUnwind.UnwindResult(325e6, 0, 0, 0, 2, 0));
+        ISpokeVaultUnwind.UnwindResult memory r = core.unwind(vault, _unwindRequest(REQUEST, 1, 4, 0, true));
+        assertEq(r.proceeds, 325e6);
+        assertEq(core.idleReturned(), 325e6);
+        (,, uint256 uniUsdc,,, bool uniOpen) = hubUni.position(uniKey);
+        (, uint256 aavePrincipal,,, bool aaveOpen) = _aave(aaveKey);
+        assertTrue(uniOpen && aaveOpen);
+        assertEq(uniUsdc, 300e6);
+        assertEq(aavePrincipal, 375e6);
+        assertTrue(vault.unwindDelivered(REQUEST, address(hubUni), uniKey));
+        assertTrue(vault.unwindDelivered(REQUEST, address(hubAave), aaveKey));
     }
 
-    function test_DEC067_exactValuePositionExitedOnlyForTheShortfall() public {
-        (, bytes32 aaveKey) = _twoPositions();
-        assertEq(core.unwind(vault, 800e6, ""), 800e6);
-        (, uint256 principal0,,, bool open) = _aave(aaveKey);
-        assertTrue(open);
-        assertEq(principal0, 200e6);
+    function test_DEC137_aWholeFractionClosesEveryPosition() public {
+        _twoPositions();
+        ISpokeVaultUnwind.UnwindResult memory r = core.unwind(vault, _unwindRequest(REQUEST, 1, 1, 0, true));
+        assertEq(r.proceeds, 1000e6);
+        assertEq(vault.positions().length, 0);
         assertEq(vault.unallocatedBalance(address(usdc)), 0);
     }
 
-    /// @dev Final verification (DEC-069, DEC-081): the stop condition is re-evaluated after every step. The swap of
-    ///      the Uniswap step loses 4% to price impact, so 2 USDC are still missing and the next position in Mandate
-    ///      order is decreased by exactly that.
-    function test_DEC069_stopConditionReevaluatedAfterEveryStep() public {
-        (bytes32 uniKey, bytes32 aaveKey) = _mixedPositions();
-        hubUni.setSwapHaircutBps(400);
-        assertEq(core.unwind(vault, 200e6, ""), 200e6);
-        (, uint256 weth0, uint256 usdc1,,, bool uniOpen) = hubUni.position(uniKey);
-        assertTrue(uniOpen);
-        assertEq(weth0, 0.075e18, "25% of the position covered the 100 USDC shortfall at spot");
-        assertEq(usdc1, 150e6);
-        (, uint256 aavePrincipal,,, bool aaveOpen) = _aave(aaveKey);
-        assertTrue(aaveOpen);
-        assertEq(aavePrincipal, 498e6, "then only the 2 USDC the swap fell short");
+    /// @dev DEC-136 item 4: the WETH an exit returns is sold through the Mandate swap adapter, never in the position's
+    ///      pool, in the tier `bestDirectFee` chose (D-21); doc 15 gap 4: the sale event carries the requester's maximum
+    ///      and the minimum applied. Half of 0.1 WETH + 200 USDC, half of 500 and the 100 Unallocated: 550.
+    function test_DEC136_nonBasePrincipalIsSoldThroughTheSwapAdapter() public {
+        (bytes32 uniKey,) = _mixedPositions();
+        vm.expectEmit(address(vault));
+        emit ISpokeVault.Swapped(address(hubSwap), address(weth), address(usdc), 0.05e18, 100e6, 100e6, 150, 98.5e6);
+        ISpokeVaultUnwind.UnwindResult memory r = core.unwind(vault, _unwindRequest(REQUEST, 1, 2, 150, true));
+        assertEq(r.proceeds, 550e6);
+        assertEq(r.spotOut, 100e6);
+        assertEq(r.marketCost, 0);
+        assertEq(hubSwap.lastFee(), hubSwap.directFee(), "the tier bestDirectFee chose");
+        assertEq(vault.unallocatedBalance(address(weth)), 0, "every WETH the exit returned was sold");
+        (, uint256 weth0, uint256 usdc1,,,) = hubUni.position(uniKey);
+        assertEq(weth0, 0.05e18);
+        assertEq(usdc1, 100e6);
     }
 
-    /// @dev Final verification (DEC-081, DEC-097, QA3 OPEN): the swap's minimum output is at least the spot quote less
-    ///      MAX_UNWIND_SLIPPAGE_BPS; a claimant hint below the floor cannot widen it, a hint above it tightens it.
-    function test_QA3_unwindSwapFloorFromSpotPriceAndHintsOnlyTighten() public {
-        _wethPosition();
-        assertEq(vault.MAX_UNWIND_SLIPPAGE_BPS(), 500);
-        hubUni.setSwapHaircutBps(600); // 400 at spot, 376 after impact; the floor is 380
-        vm.expectRevert(abi.encodeWithSelector(IAdapter.InsufficientOutput.selector, 376e6, 380e6));
-        core.unwind(vault, 400e6, SpokeUnwindTypes.encodeHints(_wethHint(0)));
+    /// @dev DEC-118: in an Instant Payout the requester bears the sale's whole loss against its mid value. The register's
+    ///      0.3%: 100 of WETH sold for 99.70.
+    function test_DEC118_instantRequesterBearsTheWholeSaleLoss() public {
+        _mixedPositions();
+        hubSwap.setHaircutBps(30);
+        ISpokeVaultUnwind.UnwindResult memory r = core.unwind(vault, _unwindRequest(REQUEST, 1, 2, 0, true));
+        assertEq(r.spotOut, 100e6);
+        assertEq(r.marketCost, 0.3e6);
+        assertEq(r.leaverCost, 0.3e6);
+        assertEq(r.proceeds, 549.7e6);
+    }
 
-        hubUni.setSwapHaircutBps(400); // 384 after impact, above the floor
-        vm.expectRevert(abi.encodeWithSelector(IAdapter.InsufficientOutput.selector, 384e6, 390e6));
-        core.unwind(vault, 400e6, SpokeUnwindTypes.encodeHints(_wethHint(390e6)));
+    /// @dev DEC-141: in a Standard Payout the fund absorbs each sale's loss up to 1% of its value; the requester bears
+    ///      the rest. 4% on 100: the fund 1, the requester 3; 0.35%: all the fund's; exactly 1%: all the fund's.
+    function test_DEC141_standardFundAbsorbsUpToOnePercentPerSale() public {
+        _mixedPositions();
+        uint256 snap = vm.snapshotState();
+        hubSwap.setHaircutBps(400);
+        ISpokeVaultUnwind.UnwindResult memory r = core.unwind(vault, _unwindRequest(REQUEST, 1, 2, 0, false));
+        assertEq(r.marketCost, 4e6);
+        assertEq(r.leaverCost, 3e6, "the excess over 1% of the value sold");
+        assertEq(vault.STANDARD_SALE_LOSS_ABSORB_BPS(), 100);
 
-        assertEq(core.unwind(vault, 400e6, ""), 384e6, "no hint: the vault's own floor");
+        vm.revertToState(snap);
+        hubSwap.setHaircutBps(35);
+        r = core.unwind(vault, _unwindRequest(REQUEST, 1, 2, 0, false));
+        assertEq(r.marketCost, 0.35e6);
+        assertEq(r.leaverCost, 0, "a normal sale is absorbed whole");
+
+        vm.revertToState(snap);
+        hubSwap.setHaircutBps(100);
+        r = core.unwind(vault, _unwindRequest(REQUEST, 1, 2, 0, false));
+        assertEq(r.marketCost, 1e6);
+        assertEq(r.leaverCost, 0, "exactly 1% is still the fund's");
+    }
+
+    /// @dev DEC-148: a sale above the requester's maximum leaves only that position out, with the swap adapter's
+    ///      error as the reason (doc 15); the Aave position, which returns only USDC, delivers (D-24).
+    function test_DEC148_aSaleAboveTheMaximumLeavesOnlyThatPositionOut() public {
+        (bytes32 uniKey, bytes32 aaveKey) = _mixedPositions();
+        hubSwap.setHaircutBps(600);
+        vm.expectEmit(address(vault));
+        emit ISpokeVaultUnwind.UnwindStepExcluded(
+            REQUEST,
+            address(hubUni),
+            uniKey,
+            abi.encodeWithSelector(ISwapAdapter.InsufficientOutput.selector, 94e6, 99e6)
+        );
+        ISpokeVaultUnwind.UnwindResult memory r = core.unwind(vault, _unwindRequest(REQUEST, 1, 2, 100, true));
+        assertEq(r.excluded, 1);
+        assertEq(r.delivered, 1);
+        assertEq(r.proceeds, 350e6, "the 100 Unallocated and half of Aave");
+        (, uint256 weth0, uint256 usdc1,,, bool uniOpen) = hubUni.position(uniKey);
+        assertTrue(uniOpen);
+        assertEq(weth0, 0.1e18, "the step was undone whole");
+        assertEq(usdc1, 200e6);
+        assertFalse(vault.unwindDelivered(REQUEST, address(hubUni), uniKey));
+        assertTrue(vault.unwindDelivered(REQUEST, address(hubAave), aaveKey));
+    }
+
+    /// @dev DEC-151: the next attempt of the same request unwinds only what has not delivered, at the same fraction;
+    ///      Aave, which delivered, is not touched again.
+    function test_DEC151_theNextAttemptUnwindsOnlyWhatHasNotDelivered() public {
+        (bytes32 uniKey, bytes32 aaveKey) = _mixedPositions();
+        hubSwap.setHaircutBps(600);
+        core.unwind(vault, _unwindRequest(REQUEST, 1, 2, 100, true));
+        (, uint256 aaveAfterFirst,,,) = _aave(aaveKey);
+        assertEq(aaveAfterFirst, 250e6);
+
+        // A higher maximum at the retry: the Uniswap position now delivers its half.
+        ISpokeVaultUnwind.UnwindResult memory r = core.unwind(vault, _unwindRequest(REQUEST, 1, 2, 700, true));
+        assertEq(r.delivered, 1);
+        assertEq(r.excluded, 0);
+        assertEq(r.proceeds, 100e6 + 94e6, "half the USDC leg and half the WETH sold at 6% below its mid");
+        (, uint256 aaveAfterRetry,,,) = _aave(aaveKey);
+        assertEq(aaveAfterRetry, 250e6, "Aave delivered at the first attempt");
+        (, uint256 weth0,,,,) = hubUni.position(uniKey);
+        assertEq(weth0, 0.05e18);
+        // A third attempt finds nothing left to deliver.
+        r = core.unwind(vault, _unwindRequest(REQUEST, 1, 2, 0, true));
+        assertEq(r.delivered + r.excluded, 0);
+        assertEq(r.proceeds, 0);
+    }
+
+    /// @dev D-21: the tier is chosen once per token per unwind and reused for the next sale of the same token.
+    function test_D21_theTierIsChosenOncePerTokenPerUnwind() public {
+        _mixedPositions();
+        // A second WETH/USDC position, WETH only.
+        core.allocate(vault, 200e6);
+        vm.startPrank(manager);
+        vault.swap(address(hubSwap), address(usdc), address(weth), 200e6, 0, "");
+        vault.openPosition(address(hubUni), HUB_POOL, 0.1e18, 0, "");
+        vm.stopPrank();
+        uint256 choicesBefore = hubSwap.tierChoices();
+        core.unwind(vault, _unwindRequest(REQUEST, 1, 2, 0, true));
+        assertEq(hubSwap.tierChoices() - choicesBefore, 1, "one bestDirectFee for two WETH sales");
+        // A later unwind chooses again (the choice lives in transient storage, cleared at the end).
+        core.unwind(vault, _unwindRequest(keccak256("another request"), 1, 2, 0, true));
+        assertEq(hubSwap.tierChoices() - choicesBefore, 2);
+    }
+
+    function test_DEC178_retryFractionUsesTheUndeliveredPositionsCurrentSize() public {
+        (bytes32 uniKey, bytes32 aaveKey) = _mixedPositions();
+        hubSwap.setHaircutBps(600);
+        core.unwind(vault, _unwindRequest(REQUEST, 1, 2, 100, true));
+        vm.prank(manager);
+        vault.decreasePosition(address(hubUni), uniKey, abi.encode(uint256(5000)));
+        (, uint256 principalBefore,,,,) = hubUni.position(uniKey);
+        ISpokeVaultUnwind.UnwindResult memory retry = core.unwind(vault, _unwindRequest(REQUEST, 1, 2, 700, true));
+        assertEq(retry.delivered, 2, "the resized position and newly Unallocated WETH deliver");
+        (, uint256 principalAfter,,,,) = hubUni.position(uniKey);
+        assertEq(principalAfter, principalBefore / 2);
+        (, uint256 aavePrincipal,,,) = _aave(aaveKey);
+        assertEq(aavePrincipal, 250e6, "already-delivered Aave is unchanged");
+    }
+
+    /// @dev DEC-137 (D-11): a non-base Unallocated Balance is sold at the same fraction, like a position.
+    function test_DEC137_nonBaseUnallocatedIsSoldAtTheFraction() public {
+        core.allocate(vault, 400e6);
+        vm.prank(manager);
+        vault.swap(address(hubSwap), address(usdc), address(weth), 400e6, 0, "");
+        assertEq(vault.unallocatedBalance(address(weth)), 0.2e18);
+        ISpokeVaultUnwind.UnwindResult memory r = core.unwind(vault, _unwindRequest(REQUEST, 1, 2, 0, true));
+        assertEq(r.proceeds, 200e6);
+        assertEq(vault.unallocatedBalance(address(weth)), 0.1e18);
+        assertTrue(vault.unwindDelivered(REQUEST, address(0), bytes32(uint256(uint160(address(weth))))));
+    }
+
+    /// @dev DEC-148, DEC-068: an exit that reverts (a reserve without liquidity) leaves that position out; the others
+    ///      deliver.
+    function test_DEC148_aFailingExitLeavesThePositionOut() public {
+        (bytes32 uniKey,) = _twoPositions();
+        hubUni.setRevertOnExit(true);
+        vm.expectEmit(address(vault));
+        emit ISpokeVaultUnwind.UnwindStepExcluded(
+            REQUEST, address(hubUni), uniKey, abi.encodeWithSelector(MockPositionAdapter.ExitReverted.selector)
+        );
+        ISpokeVaultUnwind.UnwindResult memory r = core.unwind(vault, _unwindRequest(REQUEST, 1, 1, 0, true));
+        assertEq(r.excluded, 1);
+        assertEq(r.proceeds, 600e6);
+        assertEq(vault.positions().length, 1);
     }
 
     /// Independent review H-04 (S-11 residual): about 145 dust positions made every report undeliverable within
@@ -282,77 +399,14 @@ contract SpokeVaultHubTest is SpokeVaultTestBase {
         assertEq(vault.positions().length, cap);
     }
 
-    function test_DEC069_illiquidStepRevertsInsteadOfSkipping() public {
-        _twoPositions();
-        hubUni.setRevertOnExit(true);
-        vm.expectRevert(MockPositionAdapter.ExitReverted.selector);
-        core.unwind(vault, 800e6, "");
-    }
-
-    function test_DEC081_unwindSwapsNonUsdcPrincipalWithMinimumOutput() public {
-        bytes32 key = _wethPosition();
-        SpokeUnwindTypes.UnwindHint[] memory hints = _wethHint(390e6);
-        vm.expectEmit(address(vault));
-        // Checklist doc 15, gap 4: the pool's spot quote, the vault's 5% bound and the hint's higher minimum.
-        emit ISpokeVault.Swapped(address(hubUni), address(weth), address(usdc), 0.2e18, 400e6, 400e6, 500, 390e6);
-        assertEq(core.unwind(vault, 400e6, SpokeUnwindTypes.encodeHints(hints)), 400e6);
-        assertEq(vault.unallocatedBalance(address(weth)), 0);
-        assertEq(vault.unallocatedBalance(address(usdc)), 0);
-        (,,,,, bool open) = hubUni.position(key);
-        assertFalse(open);
-    }
-
-    function test_DEC081_unwindSwapBelowMinimumReverts() public {
-        _wethPosition();
-        SpokeUnwindTypes.UnwindHint[] memory hints = _wethHint(401e6);
-        vm.expectRevert(abi.encodeWithSelector(IAdapter.InsufficientOutput.selector, 400e6, 401e6));
-        core.unwind(vault, 400e6, SpokeUnwindTypes.encodeHints(hints));
-    }
-
-    /// @dev Final verification: when the position's own pool pairs the token with USDC the vault swaps there; a hint
-    ///      naming another route is refused rather than followed.
-    function test_DEC069_unwindSwapHintCannotChooseAnotherRoute() public {
-        _wethPosition();
-        SpokeUnwindTypes.UnwindHint[] memory hints = _wethHint(0);
-        hints[0].swaps[0].poolKey = AAVE_USDC;
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                SpokeUnwindTypes.InvalidUnwindSwap.selector, address(hubUni), AAVE_USDC, address(weth)
-            )
-        );
-        core.unwind(vault, 400e6, SpokeUnwindTypes.encodeHints(hints));
-
-        hints = _wethHint(0);
-        hints[0].swaps[0].adapter = address(hubAave);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                SpokeUnwindTypes.InvalidUnwindSwap.selector, address(hubAave), HUB_POOL, address(weth)
-            )
-        );
-        core.unwind(vault, 400e6, SpokeUnwindTypes.encodeHints(hints));
-    }
-
-    function test_DEC081_unwindSwapHintWithNothingToSwapIsSkipped() public {
-        _twoPositions();
-        SpokeUnwindTypes.UnwindHint[] memory hints = _wethHint(0);
-        // The USDC-only Uniswap position returns no WETH, so the WETH swap has nothing to take.
-        assertEq(core.unwind(vault, 500e6, SpokeUnwindTypes.encodeHints(hints)), 500e6);
-    }
-
     function test_DEC092_unwindIncomeGoesToCollectedBucketNotProceeds() public {
         (bytes32 uniKey,) = _twoPositions();
         _earnIncome(hubUni, uniKey, 0, 7e6);
-        assertEq(core.unwind(vault, 500e6, ""), 500e6);
+        ISpokeVaultUnwind.UnwindResult memory r = core.unwind(vault, _unwindRequest(REQUEST, 1, 1, 0, true));
+        assertEq(r.proceeds, 1000e6);
         assertEq(vault.collectedIncome(address(usdc)), 7e6);
         assertEq(vault.unallocatedBalance(address(usdc)), 0);
         assertEq(usdc.balanceOf(address(vault)), 7e6, "only the collected income stays in the vault");
-    }
-
-    function test_DEC068_unwindReturnsWhatItHasWhenPositionsAreExhausted() public {
-        _twoPositions();
-        assertEq(core.unwind(vault, 5000e6, ""), 1000e6);
-        assertEq(vault.positions().length, 0);
-        assertEq(vault.unallocatedBalance(address(usdc)), 0);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -389,25 +443,6 @@ contract SpokeVaultHubTest is SpokeVaultTestBase {
         vm.stopPrank();
     }
 
-    /// @dev 400 USDC allocated, swapped into 0.2 WETH through the swap adapter, all of it in a WETH-only Uniswap
-    ///      position.
-    function _wethPosition() internal returns (bytes32 key) {
-        core.allocate(vault, 400e6);
-        vm.startPrank(manager);
-        vault.swap(address(hubSwap), address(usdc), address(weth), 400e6, 0, "");
-        (key,,) = vault.openPosition(address(hubUni), HUB_POOL, 0.2e18, 0, "");
-        vm.stopPrank();
-        _poolSellsWethAt2000();
-    }
-
-    /// @dev The automatic unwind still sells in the position's pool until WP-09 (DEC-136 item 4): USDC liquidity for
-    ///      its WETH sale at 2,000.
-    function _poolSellsWethAt2000() internal {
-        usdc.mint(address(hubUni), 10_000e6);
-        hubUni.addLiquidity(address(usdc), 10_000e6);
-        hubUni.setSwapRate(2000e6, 1e18);
-    }
-
     /// @dev 1000 USDC allocated; 200 USDC swapped into 0.1 WETH at 2,000; a Uniswap position of 0.1 WETH + 200 USDC
     ///      (400 at spot), 500 USDC supplied to Aave, 100 Unallocated.
     function _mixedPositions() internal returns (bytes32 uniKey, bytes32 aaveKey) {
@@ -417,7 +452,6 @@ contract SpokeVaultHubTest is SpokeVaultTestBase {
         (uniKey,,) = vault.openPosition(address(hubUni), HUB_POOL, 0.1e18, 200e6, "");
         (aaveKey,,) = vault.openPosition(address(hubAave), AAVE_USDC, 500e6, 0, "");
         vm.stopPrank();
-        _poolSellsWethAt2000();
     }
 
     function _aave(bytes32 key)
@@ -426,11 +460,5 @@ contract SpokeVaultHubTest is SpokeVaultTestBase {
         returns (bytes32 poolKey, uint256 principal0, uint256 uncollected0, uint256 uncollected1, bool open)
     {
         (poolKey, principal0,, uncollected0, uncollected1, open) = hubAave.position(key);
-    }
-
-    function _wethHint(uint256 minUsdcOut) internal view returns (SpokeUnwindTypes.UnwindHint[] memory hints) {
-        hints = new SpokeUnwindTypes.UnwindHint[](1);
-        hints[0].swaps = new SpokeUnwindTypes.UnwindSwap[](1);
-        hints[0].swaps[0] = SpokeUnwindTypes.UnwindSwap(address(hubUni), HUB_POOL, address(weth), minUsdcOut, "");
     }
 }

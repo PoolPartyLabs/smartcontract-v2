@@ -120,7 +120,7 @@ contract Fork_RelayerAndOperatingCash is XChainBase {
         _phase2AnaDeposits();
         uint256 brunoShares = _depositAs(bruno, 10_000e6);
         vm.prank(bruno);
-        core.requestPayout(5000e6, ICoreVaultPayouts.PayoutMode.Standard);
+        core.requestPayout(5000e6, ICoreVaultPayouts.PayoutMode.Standard, 0);
         uint256 free = core.freeIdle();
         uint256 assets = core.shareAssets();
 
@@ -139,7 +139,7 @@ contract Fork_RelayerAndOperatingCash is XChainBase {
         _advance(72 hours);
         uint256 before = IERC20(ARB_USDC).balanceOf(bruno);
         vm.prank(bruno);
-        ICoreVault.PayoutReceipt memory receipt = core.claimPayout("");
+        ICoreVault.PayoutReceipt memory receipt = core.claimPayout(0);
         _log("Free Idle sunk into hub Operating Cash", free - 1);
         _log("shares burned for the reserved 5,000", receipt.sharesBurned);
         _log("Bruno's shares before", brunoShares);

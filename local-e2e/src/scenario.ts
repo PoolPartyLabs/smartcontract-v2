@@ -933,33 +933,27 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     const sliceBps = BigInt(await view<number>("arbitrum", state.protocol.arbitrum.managerRegistry, managerRegistryAbi, "protocolSliceBps", [A.manager.address]));
     run.eq(sliceBps, 5000n, "DEC-106: 50% protocol slice");
     const feeVault = fund.hub.managerFeeVault;
-    const split = async (token: Address, amount: bigint) => {
-      const managerFee = bps(amount, 2000n);
-      const slice = bps(managerFee, sliceBps);
-      const net = amount - managerFee;
-      const recipientBefore = await balance("arbitrum", token, recipient);
-      const vaultBefore = await balance("arbitrum", token, feeVault);
-      const collectedBefore = await view<bigint>("arbitrum", core, coreVaultAbi, "collectedIncome", [token]);
-      const forwarded = await tx<bigint>("arbitrum", "stranger", hubSpoke, spokeVaultAbi, "forwardIncomeToCoreVault", [token]);
-      run.eq(forwarded.result, amount, "permissionless forward");
-      run.eq((await balance("arbitrum", token, recipient)) - recipientBefore, slice, "DEC-106: protocol slice");
-      run.eq((await balance("arbitrum", token, feeVault)) - vaultBefore, managerFee - slice, "DEC-109: ManagerFeeVault");
-      run.eq((await view<bigint>("arbitrum", core, coreVaultAbi, "collectedIncome", [token])) - collectedBefore, net, "the net to the accumulator");
-      return { managerFee, slice, net };
-    };
-    const usdcSplit = await split(ARBITRUM.usdc, usdcIncome);
-    const wethSplit = await split(ARBITRUM.weth, wethIncome);
-    // DEC-014: the holders while it was earned, Ana and the manager's seed (DEC-127), pro rata to their shares.
+    const recipientBeforeCollection = await balance("arbitrum", ARBITRUM.usdc, recipient);
+    const feeVaultBeforeCollection = await balance("arbitrum", ARBITRUM.usdc, feeVault);
+    const requestedIncome = await tx("arbitrum", "ana", core, coreVaultAbi, "requestIncomeWithdrawal", [0]);
+    const collectionEvents = events(requestedIncome.receipt, core, coreVaultAbi, "IncomeCollectionClosed");
+    const hubCollection = collectionEvents.find((event) => event.source === 0n);
+    run.true(!!hubCollection, "DEC-172: Hub income converted in the collection");
+    if (!hubCollection) throw new Error("missing Hub income collection event");
+    run.true(hubCollection.dollars > usdcIncome, "DEC-124: WETH income sold for USDC");
+    run.eq(hubCollection.fee + hubCollection.attributed, hubCollection.dollars, "DEC-161: collection dollars split");
+    run.eq((await balance("arbitrum", ARBITRUM.usdc, recipient)) - recipientBeforeCollection, hubCollection.protocolSlice, "protocol fee paid in USDC");
+    run.eq((await balance("arbitrum", ARBITRUM.usdc, feeVault)) - feeVaultBeforeCollection, hubCollection.fee - hubCollection.protocolSlice, "manager fee paid in USDC");
+    run.eq(await balance("arbitrum", ARBITRUM.weth, feeVault), 0n, "no in-kind fee retained");
+    run.eq(await view("arbitrum", hubSpoke, spokeVaultAbi, "collectedIncome", [ARBITRUM.weth]), 0n, "all Hub WETH income sold");
+    await waitFor("income collection on every spoke", async () => {
+      const collection = await view<any>("arbitrum", core, coreVaultAbi, "incomeCollection");
+      return collection.pendingSpokes === 0n && collection.openResults === 0n;
+    });
     const supplyAtCollection = await view<bigint>("arbitrum", share, shareTokenAbi, "totalSupply");
     run.eq(supplyAtCollection, seedShares + anaShares, "the seed's and Ana's shares");
-    const proRata = (net: bigint, shares: bigint) => mulDiv(net, shares, supplyAtCollection);
-    run.approx(await view("arbitrum", core, coreVaultAbi, "attributedIncome", [A.ana.address, ARBITRUM.usdc]), proRata(usdcSplit.net, anaShares), 1n, "DEC-014: Ana held while it was earned");
-    run.approx(await view("arbitrum", core, coreVaultAbi, "attributedIncome", [A.ana.address, ARBITRUM.weth]), proRata(wethSplit.net, anaShares), 1n, "DEC-014: Ana's WETH");
-    run.approx(await view("arbitrum", core, coreVaultAbi, "attributedIncome", [fund.manager, ARBITRUM.usdc]), proRata(usdcSplit.net, seedShares), 1n, "DEC-127: the seed earns its part");
-    run.ok(
-      `a stranger forwards it: 20% fee split 50/50 at collection, USDC ${units(usdcSplit.slice)} to the Protocol Recipient, ` +
-        `${units(usdcSplit.managerFee - usdcSplit.slice)} to the ManagerFeeVault, ${units(usdcSplit.net)} to holders (WETH likewise)`,
-    );
+    run.true(await view<bigint>("arbitrum", core, coreVaultAbi, "incomeOwed", [A.ana.address]) > 0n, "DEC-161: Ana has converted dollars");
+    run.ok("income collected on every chain, sold to dollars, and attributed at each collection's rate");
 
     // ------------------------------------------------------------------------------------------------------------
     // Phase 9: Bruno enters at the new Share Price (DEC-014, DEC-035, DEC-061, OQ-10)
@@ -968,7 +962,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     await ensureFeedFresh(log.child("chainlink"), 600n);
     const priceBeforeBruno = await sharePrice();
     const assetsBeforeBruno = await shareAssets();
-    const anaUsdcIncome = await view<bigint>("arbitrum", core, coreVaultAbi, "attributedIncome", [A.ana.address, ARBITRUM.usdc]);
+    const anaUsdcIncome = await view<bigint>("arbitrum", core, coreVaultAbi, "incomeOwed", [A.ana.address]);
     const brunoUsdcBefore = await balance("arbitrum", ARBITRUM.usdc, A.bruno.address);
     await tx("arbitrum", "bruno", ARBITRUM.usdc, erc20Abi, "approve", [core, BRUNO_DEPOSIT]);
     const brunoDeposit = await tx("arbitrum", "bruno", core, coreVaultAbi, "deposit", [BRUNO_DEPOSIT, 0n]);
@@ -991,35 +985,31 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     run.approx(await shareAssets(), (minted.shareAssets as bigint) + forShares, AAVE_ROUNDING, "Share Assets grow by what the shares cost");
     run.approx(assetsBeforeBruno, minted.shareAssets, AAVE_ROUNDING, "the mint valued the fund as the view did");
     run.approx(await sharePrice(), priceBeforeBruno, priceBeforeBruno / 10n ** 9n, "DEC-061: rounding only");
-    run.eq(await view("arbitrum", core, coreVaultAbi, "attributedIncome", [A.bruno.address, ARBITRUM.usdc]), 0n, "DEC-014: none of the income already generated");
-    run.eq(await view("arbitrum", core, coreVaultAbi, "attributedIncome", [A.bruno.address, ARBITRUM.weth]), 0n, "DEC-014: none of the WETH income");
-    run.eq(await view("arbitrum", core, coreVaultAbi, "attributedIncome", [A.ana.address, ARBITRUM.usdc]), anaUsdcIncome, "DEC-014: Ana keeps hers");
+    run.eq(await view("arbitrum", core, coreVaultAbi, "incomeOwed", [A.bruno.address]), 0n, "DEC-014: none of the income already generated");
+    run.eq(await view("arbitrum", core, coreVaultAbi, "unconvertedIncome", [A.bruno.address, 0n, ARBITRUM.weth]), 0n, "DEC-014: none of the WETH income");
+    run.eq(await view("arbitrum", core, coreVaultAbi, "incomeOwed", [A.ana.address]), anaUsdcIncome, "DEC-014: Ana keeps hers");
     run.ok(`Bruno deposits 11,000 USDC: ${units(brunoShares, 18, 0)} shares at ${price(priceBeforeBruno)}, charged ${units(brunoCharged)} USDC`);
 
     // ------------------------------------------------------------------------------------------------------------
     // Phase 10: Ana's Income Withdrawal (DEC-025, DEC-073, DEC-109, LC-143)
     // ------------------------------------------------------------------------------------------------------------
     await run.phase("Phase 10: Ana withdraws her income (DEC-025, DEC-073, LC-143)");
-    const anaUsdc = await view<bigint>("arbitrum", core, coreVaultAbi, "attributedIncome", [A.ana.address, ARBITRUM.usdc]);
-    const anaWeth = await view<bigint>("arbitrum", core, coreVaultAbi, "attributedIncome", [A.ana.address, ARBITRUM.weth]);
-    const anaUsdcBefore = await balance("arbitrum", ARBITRUM.usdc, A.ana.address);
-    const anaWethBefore = await balance("arbitrum", ARBITRUM.weth, A.ana.address);
+    const anaUsdc = await view<bigint>("arbitrum", core, coreVaultAbi, "incomeOwed", [A.ana.address]);
+    const anaUsdcBeforeWithdrawal = await balance("arbitrum", ARBITRUM.usdc, A.ana.address);
     const anaSharesBefore = await balance("arbitrum", share, A.ana.address);
-    run.eq((await tx<bigint>("arbitrum", "ana", core, coreVaultAbi, "withdrawIncome", [ARBITRUM.usdc])).result, anaUsdc, "DEC-073: Income Withdrawal pays Attributed Income");
-    run.eq((await tx<bigint>("arbitrum", "ana", core, coreVaultAbi, "withdrawIncome", [ARBITRUM.weth])).result, anaWeth, "WETH income");
-    run.eq((await balance("arbitrum", ARBITRUM.usdc, A.ana.address)) - anaUsdcBefore, anaUsdc, "LC-143: no flow fee on Income Withdrawal");
-    run.eq((await balance("arbitrum", ARBITRUM.weth, A.ana.address)) - anaWethBefore, anaWeth, "DEC-109: paid in kind");
-    run.eq(await balance("arbitrum", share, A.ana.address), anaSharesBefore, "DEC-025: no share is burned");
-    run.eq(await view("arbitrum", core, coreVaultAbi, "attributedIncome", [A.ana.address, ARBITRUM.usdc]), 0n, "nothing left owed");
-    run.eq((await tx<bigint>("arbitrum", "bruno", core, coreVaultAbi, "withdrawIncome", [ARBITRUM.usdc])).result, 0n, "DEC-014: Bruno has nothing to withdraw");
-    run.ok(`Ana withdraws ${units(anaUsdc)} USDC + ${units(anaWeth, 18, 6)} WETH of income without burning shares; Bruno gets 0`);
+    run.eq((await tx<bigint>("arbitrum", "ana", core, coreVaultAbi, "settleIncomeWithdrawal", [A.ana.address])).result, anaUsdc, "DEC-124: Income Withdrawal pays converted USDC");
+    run.eq((await balance("arbitrum", ARBITRUM.usdc, A.ana.address)) - anaUsdcBeforeWithdrawal, anaUsdc, "USDC received without Payout Fee or flow fee");
+    run.eq(await balance("arbitrum", share, A.ana.address), anaSharesBefore, "no shares burned");
+    run.eq(await view("arbitrum", core, coreVaultAbi, "incomeOwed", [A.ana.address]), 0n, "nothing left owed");
+    run.eq((await tx<bigint>("arbitrum", "bruno", core, coreVaultAbi, "withdrawIncome", [])).result, 0n, "DEC-014: Bruno has no earlier income");
+    run.ok("Income Withdrawal pays only USDC and leaves the shares unchanged");
 
     // ------------------------------------------------------------------------------------------------------------
     // Phase 11: Ana's Standard Payout of 3,000 USDC (DEC-024, DEC-060, DEC-067, DEC-072, DEC-077, DEC-105, DEC-106)
     // ------------------------------------------------------------------------------------------------------------
     await run.phase("Phase 11: Ana's Standard Payout of 3,000 USDC (DEC-060, DEC-067, DEC-072, DEC-077, DEC-105)");
     const idleBeforePayout = await idle();
-    const request = await tx("arbitrum", "ana", core, coreVaultAbi, "requestPayout", [ANA_PAYOUT, STANDARD]);
+    const request = await tx("arbitrum", "ana", core, coreVaultAbi, "requestPayout", [ANA_PAYOUT, STANDARD, 0]);
     const requestBlock = await nodes.arbitrum.client.getBlock({ blockNumber: request.receipt.blockNumber });
     const anaRequest = await view<any>("arbitrum", core, coreVaultAbi, "payoutRequest", [A.ana.address]);
     run.eq(anaRequest.reserved, ANA_PAYOUT, "DEC-072: reserved as USDC");
@@ -1027,7 +1017,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     run.eq(anaRequest.termEndsAt, requestBlock.timestamp + 72n * 3600n, "DEC-060: 72 h term");
     run.eq(await balance("arbitrum", share, A.ana.address), anaSharesBefore, "DEC-077: nothing burned at request");
     run.eq(
-      await simulateRevert("arbitrum", "ana", { address: core, abi: coreVaultAbi, functionName: "claimPayout", args: ["0x"] }),
+      await simulateRevert("arbitrum", "ana", { address: core, abi: coreVaultAbi, functionName: "claimPayout", args: [0] }),
       "PayoutTermNotEnded",
       "DEC-060: no claim before the term ends",
     );
@@ -1038,7 +1028,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     const payoutPrice = await sharePrice();
     const recipientBeforePayout = await balance("arbitrum", ARBITRUM.usdc, recipient);
     const anaBeforeClaim = await balance("arbitrum", ARBITRUM.usdc, A.ana.address);
-    const anaClaim = await tx<any>("arbitrum", "ana", core, coreVaultAbi, "claimPayout", ["0x"]);
+    const anaClaim = await tx<any>("arbitrum", "ana", core, coreVaultAbi, "claimPayout", [0]);
     const r1 = payoutReceipt(anaClaim.receipt, core);
     const anaBurn = sharesFor(ANA_PAYOUT, r1.sharePrice);
     const anaGross = usdcFor(anaBurn, r1.sharePrice);
@@ -1069,104 +1059,34 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     const brunoRequest = free + BRUNO_ABOVE_FREE_IDLE;
     const brunoBalance = await balance("arbitrum", share, A.bruno.address);
     run.true(usdcFor(brunoBalance, instantPrice) > brunoRequest, "Bruno holds more than he asks");
-    const burnable = sharesFor(brunoRequest, instantPrice);
-    const wanted = usdcFor(burnable < brunoBalance ? burnable : brunoBalance, instantPrice);
-    const shortfall = wanted - free;
-    const target = shortfall + (shortfall * 200n) / 10_000n;
     const supply = await view<bigint>("arbitrum", share, shareTokenAbi, "totalSupply");
     const operatingCashBefore = await view<bigint>("arbitrum", core, coreVaultAbi, "operatingCash");
     const aavePrincipalBefore = (await view<any>("arbitrum", hubAave, aaveV3AdapterAbi, "positionValue", [hubAavePosition])).principal0 as bigint;
+    const v4LiquidityBefore = (await view<any>("arbitrum", hubUni, uniswapV4AdapterAbi, "positionValue", [hubUniPosition])).liquidity as bigint;
     const brunoUsdcBeforeClaim = await balance("arbitrum", ARBITRUM.usdc, A.bruno.address);
-    const hubUnallocated = await view<bigint>("arbitrum", hubSpoke, spokeVaultAbi, "unallocatedBalance", [ARBITRUM.usdc]);
-    const v4 = await view<any>("arbitrum", hubUni, uniswapV4AdapterAbi, "positionValue", [hubUniPosition]);
-    const spotValue = async (p: any) =>
-      (p.principal1 as bigint) + (await view<bigint>("arbitrum", hubUni, uniswapV4AdapterAbi, "spotQuote", [HUB_POOL_ID, ARBITRUM.weth, p.principal0]));
-    const v4Value = await spotValue(v4);
-    const v4Liquidity = v4.liquidity as bigint;
-
-    await tx("arbitrum", "bruno", core, coreVaultAbi, "requestPayout", [brunoRequest, INSTANT]);
-    run.eq((await view<any>("arbitrum", core, coreVaultAbi, "payoutRequest", [A.bruno.address])).reserved, 0n, "DEC-095: no reserve for an Instant Payout");
-    run.ok(`Bruno requests an Instant Payout of ${units(brunoRequest)} USDC, 1,000 above Free Idle (${units(free)})`);
-
-    // One hint per position the unwind may visit, in registry order (DEC-137 interim: Mandate v2 has no unwind order,
-    // and Aave was opened first): Aave needs none; the V4 step's WETH swap gets a Chainlink-based minimum stricter than
-    // the vault's own floor, sized on what Unallocated USDC and Aave leave it to cover (EndToEnd.t.sol `_unwindHints`).
-    const coveredBeforeV4 = hubUnallocated + aavePrincipalBefore;
-    const hintShortfall = target > coveredBeforeV4 ? target - coveredBeforeV4 : 0n;
-    const wethOut = v4Value <= hintShortfall ? (v4.principal0 as bigint) : mulDiv(v4.principal0, hintShortfall, v4Value);
-    const hints = encodeAbiParameters(
-      [
-        {
-          type: "tuple[]",
-          components: [
-            {
-              name: "swaps",
-              type: "tuple[]",
-              components: [
-                { name: "adapter", type: "address" },
-                { name: "poolKey", type: "bytes32" },
-                { name: "tokenIn", type: "address" },
-                { name: "minAmountOut", type: "uint256" },
-                { name: "params", type: "bytes" },
-              ],
-            },
-          ],
-        },
-      ],
-      [
-        [
-          { swaps: [] },
-          {
-            swaps: [
-              {
-                adapter: hubUni,
-                poolKey: HUB_POOL_ID,
-                tokenIn: ARBITRUM.weth,
-                minAmountOut: ((await usdcValue(ARBITRUM.weth, wethOut)) * (10_000n - SWAP_TOLERANCE_BPS)) / 10_000n,
-                params: swapParams(await deadline("arbitrum")),
-              },
-            ],
-          },
-        ],
-      ],
-    );
     const idleBeforeClaim = await idle();
-    const brunoClaim = await tx<any>("arbitrum", "bruno", core, coreVaultAbi, "claimPayout", [hints]);
+    const brunoClaim = await tx<any>("arbitrum", "bruno", core, coreVaultAbi, "requestPayout", [brunoRequest, INSTANT, 0]);
     const r2 = payoutReceipt(brunoClaim.receipt, core);
     const unwound = events(brunoClaim.receipt, hubSpoke, spokeVaultAbi, "UnwoundForPayout");
-    run.eq(unwound.length, 1, "one automatic unwind");
-    run.approx(unwound[0].usdcTarget, target, AAVE_ROUNDING, "DEC-081: the shortfall plus 2%");
-    run.eq(unwound[0].usdcProceeds, r2.unwindProceeds, "DEC-080: proceeds reached Idle through returnToIdle");
-    run.true(unwound[0].usdcProceeds > 0n, "the unwind produced USDC");
-    const positionsAfter = await view<readonly { adapter: Address }[]>("arbitrum", hubSpoke, spokeVaultAbi, "positions");
-    // DEC-137 interim (DEC-139): the unwind walks the hub positions in registry order, Aave (opened first) then V4,
-    // until WP-09's proportional unwind; the vault exits only what the shortfall needs (EndToEnd.t.sol
-    // `_assertRegistryOrderUnwind`).
-    const unwindShortfall = target - hubUnallocated;
+    run.eq(unwound.length, 1, "one automatic proportional unwind");
+    run.true(unwound[0].fracNum > 0n && unwound[0].fracNum <= unwound[0].fracDen, "DEC-137: bounded proportional fraction");
+    run.eq(unwound[0].result.proceeds, r2.unwindProceeds, "DEC-080: proceeds reached Idle");
+    run.true(r2.unwindProceeds > 0n, "the unwind produced USDC");
+    const aavePrincipalAfter = (await view<any>("arbitrum", hubAave, aaveV3AdapterAbi, "positionValue", [hubAavePosition])).principal0 as bigint;
     const v4LiquidityAfter = (await view<any>("arbitrum", hubUni, uniswapV4AdapterAbi, "positionValue", [hubUniPosition])).liquidity as bigint;
-    if (aavePrincipalBefore > unwindShortfall) {
-      // Aave alone covered the shortfall: it was only decreased, so it keeps its first place in the registry.
-      const aavePrincipalAfter = (await view<any>("arbitrum", hubAave, aaveV3AdapterAbi, "positionValue", [hubAavePosition])).principal0 as bigint;
-      run.eq(positionsAfter[0].adapter, hubAave, "DEC-137 interim: Aave is first in the registry");
-      run.eq(positionsAfter.length, 2, "final verification: the Aave position was only decreased");
-      run.true(aavePrincipalAfter <= aavePrincipalBefore, "Aave principal never grows in an unwind");
-      run.approx(aavePrincipalBefore - aavePrincipalAfter, unwindShortfall, AAVE_ROUNDING, "DEC-059: Aave paid the shortfall at par");
-      run.eq(v4LiquidityAfter, v4Liquidity, "the V4 position, second in the registry, was not exited");
-    } else {
-      // PR #12 review L-1: Aave fell short, so the unwind closed it and it left the registry (SpokeLedger removes a
-      // closed position and moves the last one into its place); the V4 position paid the rest.
-      run.true(!positionsAfter.some((p) => p.adapter.toLowerCase() === hubAave.toLowerCase()), "Aave fell short: its position was closed and left the registry");
-      run.eq(positionsAfter.length, 1, "only the V4 position is left");
-      run.true(v4LiquidityAfter < v4Liquidity, "Aave fell short, so the V4 position paid the rest");
-    }
+    run.true(aavePrincipalAfter < aavePrincipalBefore, "DEC-137: Aave delivers its proportional share");
+    run.true(v4LiquidityAfter < v4LiquidityBefore, "DEC-137: V4 also delivers, regardless of registry order");
+    run.approx(v4LiquidityBefore - v4LiquidityAfter, mulDiv(v4LiquidityBefore, unwound[0].fracNum, unwound[0].fracDen), 1n, "V4 liquidity exits at the stored fraction");
+    run.eq(r2.marketCost, unwound[0].result.marketCost, "Market Cost recorded");
+    run.eq(r2.leaverCost, r2.marketCost, "DEC-118: Instant requester pays Market Costs");
     run.eq(r2.totalShares, supply, "total shares at the claim");
-    run.eq(r2.sharePrice, r2.totalShares === 0n ? INITIAL_SHARE_PRICE : mulDiv(r2.shareAssets, 10n ** 36n, r2.totalShares), "DEC-105: the burn at the Share Price read after the unwind");
+    run.eq(r2.sharePrice, r2.totalShares === 0n ? INITIAL_SHARE_PRICE : mulDiv(r2.shareAssets + r2.leaverCost, 10n ** 36n, r2.totalShares), "DEC-105: the burn at the Share Price read after the unwind");
     run.eq(r2.usdcGross, usdcFor(r2.sharesBurned, r2.sharePrice), "gross");
     run.eq(r2.payoutFee, bps(r2.usdcGross, 200n), "DEC-102: 2% Payout Fee");
     run.eq(await view<bigint>("arbitrum", core, coreVaultAbi, "operatingCash"), operatingCashBefore, "DEC-144: not into Operating Cash");
-    run.eq(await idle(), idleBeforeClaim + r2.unwindProceeds - r2.usdcGross + r2.payoutFee, "DEC-102, DEC-144: the Payout Fee stays in Idle");
+    run.eq(await idle(), idleBeforeClaim + r2.unwindProceeds - r2.usdcGross + r2.payoutFee + r2.leaverCost, "DEC-102, DEC-144: the Payout Fee stays in Idle");
     run.eq(r2.flowFee, bps(r2.usdcGross, FLOW_FEE_BPS), "DEC-106: flow fee");
-    run.eq(r2.usdcPaid, r2.usdcGross - r2.payoutFee - r2.flowFee, "paid");
+    run.eq(r2.usdcPaid, r2.usdcGross - r2.payoutFee - r2.flowFee - r2.leaverCost, "paid");
     run.eq((await balance("arbitrum", ARBITRUM.usdc, A.bruno.address)) - brunoUsdcBeforeClaim, r2.usdcPaid, "Bruno received it");
     run.eq(r2.payoutSettlementPrice, mulDiv(r2.unwindProceeds, 10n ** 36n, r2.sharesBurned), "DEC-084, DEC-105: Settlement Price recorded only");
     run.eq(await balance("arbitrum", share, A.bruno.address), brunoBalance - r2.sharesBurned, "shares burned");
@@ -1180,7 +1100,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
       run.eq(brunoRequestAfter.usdcOutstanding, brunoRequest - r2.usdcGross, "DEC-068: the rest stays open");
     }
     run.ok(
-      `Bruno claims: unwind target ${units(target)} USDC (shortfall + 2%), registry order (Aave, then V4), proceeds ${units(r2.unwindProceeds)}; ` +
+      `Bruno exits inline: proportional Hub unwind, proceeds ${units(r2.unwindProceeds)}; ` +
         `${units(r2.sharesBurned, 18, 0)} shares burned at ${price(r2.sharePrice)}, ${units(r2.usdcPaid)} USDC paid, Payout Fee ${units(r2.payoutFee)} kept in Idle` +
         (r2.usdcOutstanding > 0n ? `, ${units(r2.usdcOutstanding)} outstanding (Partial Payout)` : ""),
     );
@@ -1365,12 +1285,12 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     const overBase = usdcFor(managerShares - base + WHOLE, closePrice); // leaves less than half of the peak
     const withinBase = usdcFor(((managerShares - base) / WHOLE) * WHOLE, closePrice);
     run.eq(
-      await simulateRevert("arbitrum", "manager", { address: core, abi: coreVaultAbi, functionName: "requestPayout", args: [overBase, INSTANT] }),
+      await simulateRevert("arbitrum", "manager", { address: core, abi: coreVaultAbi, functionName: "requestPayout", args: [overBase, INSTANT, 0] }),
       "ManagerMustCloseFund",
       "DEC-146, DEC-147 item 1: below half of the peak the manager must close the fund",
     );
     run.eq(
-      await simulateRevert("arbitrum", "manager", { address: core, abi: coreVaultAbi, functionName: "requestPayout", args: [withinBase, INSTANT] }),
+      await simulateRevert("arbitrum", "manager", { address: core, abi: coreVaultAbi, functionName: "requestPayout", args: [withinBase, INSTANT, 0] }),
       undefined,
       "DEC-146: down to half of the peak the manager may request",
     );
@@ -1391,12 +1311,12 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
       "DEC-147 item 2: no deposit while Closing",
     );
     run.eq(
-      await simulateRevert("arbitrum", "ana", { address: core, abi: coreVaultAbi, functionName: "requestPayout", args: [100n * USD, STANDARD] }),
+      await simulateRevert("arbitrum", "ana", { address: core, abi: coreVaultAbi, functionName: "requestPayout", args: [100n * USD, STANDARD, 0] }),
       "FundNotOpen",
       "DEC-147 item 2: no new Payout Request while Closing",
     );
     run.eq(
-      await simulateRevert("arbitrum", "ana", { address: core, abi: coreVaultAbi, functionName: "claimPayout", args: ["0x"] }),
+      await simulateRevert("arbitrum", "ana", { address: core, abi: coreVaultAbi, functionName: "claimPayout", args: [0] }),
       "FundNotOpen",
       "D-26: no claim while Closing",
     );
@@ -1405,8 +1325,8 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
       "FundNotOpen",
       "DEC-149: closing is irreversible and happens once",
     );
-    const managerIncome = await view<bigint>("arbitrum", core, coreVaultAbi, "attributedIncome", [fund.manager, ARBITRUM.usdc]);
-    const withdrawn = await tx<bigint>("arbitrum", "manager", core, coreVaultAbi, "withdrawIncome", [ARBITRUM.usdc]);
+    const managerIncome = await view<bigint>("arbitrum", core, coreVaultAbi, "incomeOwed", [fund.manager]);
+    const withdrawn = await tx<bigint>("arbitrum", "manager", core, coreVaultAbi, "withdrawIncome", []);
     run.eq(withdrawn.result, managerIncome, "DEC-117 item 4: Income Withdrawal stays open while Closing");
     run.ok(
       `while Closing: deposits, new requests, claims and a second closeFund revert FundNotOpen; ` +

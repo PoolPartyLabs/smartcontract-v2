@@ -36,8 +36,7 @@ contract CoreVaultFinalVerifyTest is CoreVaultFixture {
         vault.allocateToHubSpokeVault(1e6);
 
         // DEC-095: another holder's Instant Payout is paid from Free Idle, no unwind.
-        _request(alice, 100e6, INSTANT);
-        ICoreVault.PayoutReceipt memory a = _claim(alice);
+        ICoreVault.PayoutReceipt memory a = _request(alice, 100e6, INSTANT);
         assertEq(a.usdcGross, 100e6);
         assertEq(a.unwindProceeds, 0);
 

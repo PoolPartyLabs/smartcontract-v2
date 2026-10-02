@@ -245,9 +245,10 @@ abstract contract SpokeAHubFixture is Test, FundSeed {
         (positionKey,,) = hubVault.openPosition(address(adapter), poolId, a0, a1, params);
     }
 
-    /// @dev MockV4 swaps at one fixed rate in both directions: set it to WETH -> USDC at the oracle price (2,500), the
-    ///      direction every unwind swap takes.
+    /// @dev The automatic unwind sells through the Mandate swap adapter (DEC-136 item 4): its stand-in sells WETH into
+    ///      USDC at the oracle price (2,500). MockV4 keeps that rate too, for the tests that trade in the pool.
     function _unwindSwapsAtOracle() internal {
+        hubSwap.setPrice(address(weth), address(usdc), 2500e6, 1e18);
         v4.setSwap(2500e6, 10_000);
     }
 
@@ -259,14 +260,20 @@ abstract contract SpokeAHubFixture is Test, FundSeed {
         (exactKey,,) = hubVault.openPosition(address(exact), EXACT_USDC, usdcAmount, 0, "");
     }
 
-    function _request(address who, uint256 amount, ICoreVault.PayoutMode mode) internal {
+    /// @dev `who` opens a Payout Request with no maximum loss; an Instant one is its own claim (DEC-120 item 1), so its
+    ///      receipt comes back here.
+    function _request(address who, uint256 amount, ICoreVault.PayoutMode mode)
+        internal
+        returns (ICoreVault.PayoutReceipt memory)
+    {
         vm.prank(who);
-        vault.requestPayout(amount, mode);
+        return vault.requestPayout(amount, mode, 0);
     }
 
+    /// @dev `who` claims its open request (a Standard one after its term, or the next attempt of a partial one).
     function _claim(address who) internal returns (ICoreVault.PayoutReceipt memory) {
         vm.prank(who);
-        return vault.claimPayout("");
+        return vault.claimPayout(0);
     }
 
     /// @dev The pool state a swap leaves: the WETH spot price is divided by `factor` (the Chainlink price does not

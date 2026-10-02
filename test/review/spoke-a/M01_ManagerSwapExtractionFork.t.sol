@@ -24,7 +24,7 @@ contract M01_ManagerSwapExtractionFork is SpokeAForkBase {
         _depositAs(alice, 200_000e6);
         vm.prank(manager);
         vault.allocateToHubSpokeVault(100_000e6);
-        uint256 price1e18 = adapter.spotQuote(poolId, WETH, 1e18);
+        uint256 price1e18 = _poolPrice();
         uint256 assetsBefore = vault.shareAssets();
 
         // The accomplice: 1,000 WETH and 1,000,000 USDC of flash capital.

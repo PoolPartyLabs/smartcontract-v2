@@ -134,13 +134,13 @@ contract CoreVaultConsolidateVerifyRound2Test is CoreVaultFixture {
         vm.prank(manager);
         vault.allocateToHubSpokeVault(SENT);
         hubVault.moveToPosition(SENT); // the hub Spoke Vault holds a 1,000 USDC position
-        _deposit(bob, 1000e6); // last successful valuation: lastHubValue = 1,000
+        _deposit(bob, 500e6); // last successful valuation: lastHubValue = 1,000
         uint256 idle0 = vault.idle();
         assertEq(vault.shareAssets(), idle0 + SENT);
 
         hubVault.setBuildReverts(true);
-        _request(alice, 9975e6, ICoreVaultPayouts.PayoutMode.Instant); // above Free Idle: the unwind runs
-        ICoreVault.PayoutReceipt memory r = _claim(alice);
+        // Above Free Idle: the unwind runs.
+        ICoreVault.PayoutReceipt memory r = _request(alice, 9975e6, ICoreVaultPayouts.PayoutMode.Instant);
 
         assertGt(r.unwindProceeds, 0, "the unwind moved USDC to Idle");
         assertEq(hubVault.positionPrincipal(), SENT - r.unwindProceeds);

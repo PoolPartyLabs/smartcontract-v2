@@ -21,15 +21,13 @@ contract Measure_SteadyStateReadVsWrite is SpokeBFixture {
         _fillOnSpoke(out, 99_950e6);
         _dustPositions(SpokeVaultTypes.MAX_OPEN_POSITIONS);
         _incomeArrival(64);
-        _dustSendsHome(64, TransferKind.Income);
+        _dustSendsHome(64, TransferKind.Principal); // WP-10: the manager's sends home are Principal only
         _dustArrivals(256);
         {
             (bytes memory payload, uint64 seq) = _publishPayload();
             vm.prank(keeper);
             receiver.deliver(_vaa(payload, seq));
         }
-        vm.prank(alice);
-        vault.requestPayout(10_000e6, ICoreVaultPayouts.PayoutMode.Instant);
     }
 
     function test_measure_steadyStateDeliveryVersusPayoutRead() public {
@@ -41,7 +39,7 @@ contract Measure_SteadyStateReadVsWrite is SpokeBFixture {
         vm.cool(address(vault));
         vm.prank(alice);
         uint256 g = gasleft();
-        vault.claimPayout("");
+        vault.requestPayout(10_000e6, ICoreVaultPayouts.PayoutMode.Instant, 0); // its own claim (DEC-120 item 1)
         uint256 claimGas = g - gasleft();
         uint256 depositGas = _depositMeasured(bob, 10_000e6);
 

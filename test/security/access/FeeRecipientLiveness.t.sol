@@ -127,10 +127,10 @@ contract FeeRecipientLivenessPoC is AccessFundFixture {
         address feeVault = core.managerFeeVault();
         fiatUsdc.blacklist(feeVault);
 
-        // The hand-off to the Core Vault goes through; the manager's portion is owed to its fee vault.
-        hub.forwardIncomeToCoreVault(address(usdc));
+        // The collection goes through (DEC-161, DEC-172); the manager's portion is owed to its fee vault.
+        core.requestIncomeWithdrawal(0);
         assertEq(hub.collectedIncome(address(usdc)), 0);
-        assertGt(core.collectedIncome(address(usdc)), 0, "S-12: the holders' share reached the accumulator");
+        assertGt(core.incomeCollection().heldDollars, 0, "S-12: the holders' share was converted");
         uint256 owed = core.owedFees(address(usdc), feeVault);
         assertGt(owed, 0, "S-12: the manager's portion is owed, not lost");
         assertEq(core.performanceFeeBps(), 2000, "no need to give up the fee");
@@ -145,9 +145,11 @@ contract FeeRecipientLivenessPoC is AccessFundFixture {
     function _exitAll(CoreVault core_, address who, ICoreVault.PayoutMode mode) internal returns (uint256 paid) {
         uint256 before = _balance(usdc, who);
         vm.startPrank(who);
-        core_.requestPayout(1_000_000e6, mode);
-        if (mode == ICoreVaultPayouts.PayoutMode.Standard) vm.warp(block.timestamp + core_.standardPayoutTerm());
-        core_.claimPayout("");
+        core_.requestPayout(1_000_000e6, mode, 0); // an Instant request is its own claim (DEC-120 item 1)
+        if (mode == ICoreVaultPayouts.PayoutMode.Standard) {
+            vm.warp(block.timestamp + core_.standardPayoutTerm());
+            core_.claimPayout(0);
+        }
         vm.stopPrank();
         paid = _balance(usdc, who) - before;
     }

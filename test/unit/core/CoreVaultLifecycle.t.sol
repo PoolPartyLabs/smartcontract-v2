@@ -68,9 +68,9 @@ contract CoreVaultLifecycleTest is CoreVaultFixture {
         _close();
         vm.startPrank(alice);
         vm.expectRevert(abi.encodeWithSelector(ICoreVaultLifecycle.FundNotOpen.selector, CLOSING));
-        vault.requestPayout(100e6, ICoreVaultPayouts.PayoutMode.Instant);
+        vault.requestPayout(100e6, ICoreVaultPayouts.PayoutMode.Instant, 0);
         vm.expectRevert(abi.encodeWithSelector(ICoreVaultLifecycle.FundNotOpen.selector, CLOSING));
-        vault.requestPayout(100e6, ICoreVaultPayouts.PayoutMode.Standard);
+        vault.requestPayout(100e6, ICoreVaultPayouts.PayoutMode.Standard, 0);
         vm.stopPrank();
     }
 
@@ -84,7 +84,7 @@ contract CoreVaultLifecycleTest is CoreVaultFixture {
         vm.warp(block.timestamp + 72 hours);
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(ICoreVaultLifecycle.FundNotOpen.selector, CLOSING));
-        vault.claimPayout("");
+        vault.claimPayout(0);
         assertTrue(vault.payoutRequest(alice).open, "the request stays open");
         assertEq(vault.payoutReserve(), reserve, "and so does its reserve");
     }
@@ -92,12 +92,12 @@ contract CoreVaultLifecycleTest is CoreVaultFixture {
     /// @dev DEC-117 item 4: Income Withdrawal works in every state of the fund.
     function test_DEC117_incomeWithdrawalWorksWhileClosing() public {
         _deposit(alice, 10_000e6);
-        hubVault.forwardIncome(address(usdc), 1000e6);
+        _hubIncomeCollected(address(usdc), 1000e6);
         _close();
-        uint256 owed = vault.attributedIncome(alice, address(usdc));
+        uint256 owed = _incomeOf(alice);
         assertGt(owed, 0);
         vm.prank(alice);
-        assertEq(vault.withdrawIncome(address(usdc)), owed);
+        assertEq(vault.withdrawIncome(), owed);
     }
 
     /// @dev DEC-147 item 4: while Closing the manager still moves value with the existing verbs (here Idle to the hub

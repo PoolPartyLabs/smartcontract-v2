@@ -48,22 +48,25 @@ contract POC_ProtocolRecipientBlocklist is CoreVaultFixture {
         _deposit(bob, 5000e6);
         _request(alice, 4000e6, ICoreVaultPayouts.PayoutMode.Standard);
         vm.warp(block.timestamp + 72 hours + 1);
-        _request(bob, 1000e6, ICoreVaultPayouts.PayoutMode.Instant);
 
         blocklistUsdc.setBlocklisted(protocol, true);
         uint256 protocolBefore = usdc.balanceOf(protocol);
 
-        // 1. Both payouts complete.
+        // 1. Both payouts complete (an Instant request is its own claim, DEC-120 item 1).
         assertEq(_claim(alice).usdcOutstanding, 0, "S-12: the Standard Payout completes");
-        assertEq(_claim(bob).usdcOutstanding, 0, "S-12: the Instant Payout completes");
+        assertEq(
+            _request(bob, 1000e6, ICoreVaultPayouts.PayoutMode.Instant).usdcOutstanding,
+            0,
+            "S-12: the Instant Payout completes"
+        );
 
         // 2. A deposit enters.
         _deposit(ana, 1000e6);
         assertGt(shares.balanceOf(ana), 0, "S-12: the deposit minted");
 
         // 3. Hub income is collected; the protocol slice is owed.
-        hubVault.forwardIncome(address(usdc), 1000e6);
-        assertGt(vault.collectedIncome(address(usdc)), 0, "S-12: the holders' income reached the accumulator");
+        _hubIncomeCollected(address(usdc), 1000e6);
+        assertGt(_heldIncome(), 0, "S-12: the holders' income was converted");
 
         // 4. Nothing reached the blocklisted wallet; everything it is owed waits, and is paid when it can receive.
         assertEq(usdc.balanceOf(protocol), protocolBefore);

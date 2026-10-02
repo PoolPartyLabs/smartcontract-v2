@@ -342,30 +342,6 @@
   },
   {
     "type": "function",
-    "name": "attributedIncome",
-    "inputs": [
-      {
-        "name": "shareholder",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "token",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "claimOwedFees",
     "inputs": [
       {
@@ -393,9 +369,9 @@
     "name": "claimPayout",
     "inputs": [
       {
-        "name": "unwindHints",
-        "type": "bytes",
-        "internalType": "bytes"
+        "name": "maxLossBps",
+        "type": "uint16",
+        "internalType": "uint16"
       }
     ],
     "outputs": [
@@ -473,6 +449,46 @@
             "name": "closedBelowOneShare",
             "type": "bool",
             "internalType": "bool"
+          },
+          {
+            "name": "requestId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "cappedByManagerBase",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "marketCost",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "marketCostAbsorbed",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "leaverCost",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "excludedPositions",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "fracNum",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "fracDen",
+            "type": "uint256",
+            "internalType": "uint256"
           }
         ]
       }
@@ -495,25 +511,6 @@
         "name": "",
         "type": "uint64",
         "internalType": "uint64"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "collectedIncome",
-    "inputs": [
-      {
-        "name": "token",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -738,47 +735,41 @@
   },
   {
     "type": "function",
-    "name": "incomeState",
-    "inputs": [
-      {
-        "name": "token",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
+    "name": "incomeCollection",
+    "inputs": [],
     "outputs": [
       {
-        "name": "",
+        "name": "c",
         "type": "tuple",
-        "internalType": "struct IncomeAccumulator.TokenIncome",
+        "internalType": "struct ICoreVaultIncome.IncomeCollectionState",
         "components": [
           {
-            "name": "registered",
-            "type": "bool",
-            "internalType": "bool"
+            "name": "round",
+            "type": "uint64",
+            "internalType": "uint64"
           },
           {
-            "name": "index",
+            "name": "attempt",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "deadline",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "pendingSpokes",
             "type": "uint256",
             "internalType": "uint256"
           },
           {
-            "name": "remainder",
+            "name": "openResults",
             "type": "uint256",
             "internalType": "uint256"
           },
           {
-            "name": "ownerless",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "distributed",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "taken",
+            "name": "heldDollars",
             "type": "uint256",
             "internalType": "uint256"
           }
@@ -789,13 +780,99 @@
   },
   {
     "type": "function",
-    "name": "incomeTokens",
-    "inputs": [],
+    "name": "incomeOwed",
+    "inputs": [
+      {
+        "name": "shareholder",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
     "outputs": [
       {
         "name": "",
-        "type": "address[]",
-        "internalType": "address[]"
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "incomeToken",
+    "inputs": [
+      {
+        "name": "source",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "v",
+        "type": "tuple",
+        "internalType": "struct ICoreVaultIncome.IncomeTokenState",
+        "components": [
+          {
+            "name": "registered",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "interval",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "openIndex",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "recognized",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "counter",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "feeUnits",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "incomeWithdrawalRequest",
+    "inputs": [
+      {
+        "name": "shareholder",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "round",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "open",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "stateMutability": "view"
@@ -1178,25 +1255,6 @@
   },
   {
     "type": "function",
-    "name": "ownerlessIncome",
-    "inputs": [
-      {
-        "name": "token",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "payoutFeeBps",
     "inputs": [],
     "outputs": [
@@ -1256,6 +1314,36 @@
           },
           {
             "name": "reserved",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "requestId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "maxLossBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "attempt",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "fracNum",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "fracDen",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "pendingLeaverCost",
             "type": "uint256",
             "internalType": "uint256"
           }
@@ -1318,24 +1406,6 @@
   },
   {
     "type": "function",
-    "name": "receiveCollectedIncome",
-    "inputs": [
-      {
-        "name": "token",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "amount",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "recognizeRefund",
     "inputs": [
       {
@@ -1392,6 +1462,25 @@
   },
   {
     "type": "function",
+    "name": "requestIncomeWithdrawal",
+    "inputs": [
+      {
+        "name": "maxLossBps",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "round",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
     "name": "requestPayout",
     "inputs": [
       {
@@ -1403,9 +1492,132 @@
         "name": "mode",
         "type": "uint8",
         "internalType": "enum ICoreVaultPayouts.PayoutMode"
+      },
+      {
+        "name": "maxLossBps",
+        "type": "uint16",
+        "internalType": "uint16"
       }
     ],
-    "outputs": [],
+    "outputs": [
+      {
+        "name": "receipt",
+        "type": "tuple",
+        "internalType": "struct ICoreVaultPayouts.PayoutReceipt",
+        "components": [
+          {
+            "name": "mode",
+            "type": "uint8",
+            "internalType": "enum ICoreVaultPayouts.PayoutMode"
+          },
+          {
+            "name": "usdcRequested",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "sharesBurned",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "usdcGross",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "payoutFee",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "flowFee",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "usdcPaid",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "usdcOutstanding",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "sharePrice",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "shareAssets",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "totalShares",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "unwindProceeds",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "payoutSettlementPrice",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "closedBelowOneShare",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "requestId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "cappedByManagerBase",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "marketCost",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "marketCostAbsorbed",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "leaverCost",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "excludedPositions",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "fracNum",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "fracDen",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
     "stateMutability": "nonpayable"
   },
   {
@@ -1490,6 +1702,25 @@
       }
     ],
     "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "settleIncomeWithdrawal",
+    "inputs": [
+      {
+        "name": "shareholder",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
     "stateMutability": "nonpayable"
   },
   {
@@ -1699,6 +1930,35 @@
   },
   {
     "type": "function",
+    "name": "unconvertedIncome",
+    "inputs": [
+      {
+        "name": "shareholder",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "source",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "unmatchedArrivals",
     "inputs": [],
     "outputs": [
@@ -1726,13 +1986,7 @@
   {
     "type": "function",
     "name": "withdrawIncome",
-    "inputs": [
-      {
-        "name": "token",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
+    "inputs": [],
     "outputs": [
       {
         "name": "amount",
@@ -1814,43 +2068,6 @@
         "type": "address",
         "indexed": true,
         "internalType": "address"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "CollectedIncomeReceived",
-    "inputs": [
-      {
-        "name": "token",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "amount",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "managerFee",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "protocolSlice",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "protocolSliceBps",
-        "type": "uint16",
-        "indexed": false,
-        "internalType": "uint16"
       }
     ],
     "anonymous": false
@@ -2033,6 +2250,12 @@
   },
   {
     "type": "event",
+    "name": "HubIncomeCollectionFailed",
+    "inputs": [],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "HubValuationFallback",
     "inputs": [
       {
@@ -2046,13 +2269,167 @@
   },
   {
     "type": "event",
-    "name": "IncomeTokenRegistered",
+    "name": "IncomeCollectionClosed",
     "inputs": [
+      {
+        "name": "source",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "ref",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "dollars",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "attributed",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "fee",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "protocolSlice",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "protocolSliceBps",
+        "type": "uint16",
+        "indexed": false,
+        "internalType": "uint16"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "IncomeCounterSkipped",
+    "inputs": [
+      {
+        "name": "source",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
       {
         "name": "token",
         "type": "address",
         "indexed": true,
         "internalType": "address"
+      },
+      {
+        "name": "last",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "reported",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "IncomeRecognized",
+    "inputs": [
+      {
+        "name": "source",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "cumulative",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "fee",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "entered",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "IncomeTransferOwed",
+    "inputs": [
+      {
+        "name": "shareholder",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "IncomeWithdrawalRequested",
+    "inputs": [
+      {
+        "name": "shareholder",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "round",
+        "type": "uint64",
+        "indexed": true,
+        "internalType": "uint64"
       }
     ],
     "anonymous": false
@@ -2379,6 +2756,46 @@
             "name": "closedBelowOneShare",
             "type": "bool",
             "internalType": "bool"
+          },
+          {
+            "name": "requestId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "cappedByManagerBase",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "marketCost",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "marketCostAbsorbed",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "leaverCost",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "excludedPositions",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "fracNum",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "fracDen",
+            "type": "uint256",
+            "internalType": "uint256"
           }
         ]
       },
@@ -2503,6 +2920,46 @@
             "name": "closedBelowOneShare",
             "type": "bool",
             "internalType": "bool"
+          },
+          {
+            "name": "requestId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "cappedByManagerBase",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "marketCost",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "marketCostAbsorbed",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "leaverCost",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "excludedPositions",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "fracNum",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "fracDen",
+            "type": "uint256",
+            "internalType": "uint256"
           }
         ]
       },
@@ -2559,6 +3016,12 @@
         "internalType": "enum ICoreVaultPayouts.PayoutMode"
       },
       {
+        "name": "requestId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
         "name": "usdcRequested",
         "type": "uint256",
         "indexed": false,
@@ -2575,6 +3038,12 @@
         "type": "uint64",
         "indexed": false,
         "internalType": "uint64"
+      },
+      {
+        "name": "maxLossBps",
+        "type": "uint16",
+        "indexed": false,
+        "internalType": "uint16"
       }
     ],
     "anonymous": false
@@ -2889,10 +3358,16 @@
     "name": "UnwindForPayoutFailed",
     "inputs": [
       {
-        "name": "usdcTarget",
-        "type": "uint256",
+        "name": "requestId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "reason",
+        "type": "bytes",
         "indexed": false,
-        "internalType": "uint256"
+        "internalType": "bytes"
       }
     ],
     "anonymous": false
@@ -3215,12 +3690,12 @@
   },
   {
     "type": "error",
-    "name": "IncomeTokenAlreadyRegistered",
+    "name": "IncomeCollectionPending",
     "inputs": [
       {
-        "name": "token",
-        "type": "address",
-        "internalType": "address"
+        "name": "round",
+        "type": "uint64",
+        "internalType": "uint64"
       }
     ]
   },
@@ -3306,6 +3781,17 @@
   },
   {
     "type": "error",
+    "name": "MessageFeeNotUsed",
+    "inputs": [
+      {
+        "name": "value",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "MissingBaseToken",
     "inputs": [
       {
@@ -3344,6 +3830,17 @@
         "name": "chainId",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "NoIncomeWithdrawalRequest",
+    "inputs": [
+      {
+        "name": "shareholder",
+        "type": "address",
+        "internalType": "address"
       }
     ]
   },
@@ -3679,11 +4176,6 @@
   },
   {
     "type": "error",
-    "name": "TooManyIncomeTokens",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "TooManyTokens",
     "inputs": [
       {
@@ -3743,12 +4235,12 @@
   },
   {
     "type": "error",
-    "name": "UnknownIncomeToken",
+    "name": "UnknownIncomeSource",
     "inputs": [
       {
-        "name": "token",
-        "type": "address",
-        "internalType": "address"
+        "name": "source",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ]
   },
@@ -3861,11 +4353,6 @@
   },
   {
     "type": "error",
-    "name": "ZeroIncomeToken",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "ZeroManager",
     "inputs": []
   },
@@ -3897,8 +4384,56 @@
   },
   {
     "type": "error",
+    "name": "CollectionLengthMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "FailedDeployment",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "HolderNotSettled",
+    "inputs": [
+      {
+        "name": "holder",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "IncomeTokenAlreadyAdded",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "IncomeTokenListFull",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "IncomeTokenZero",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InconsistentCollection",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
   },
   {
     "type": "error",
@@ -3917,83 +4452,184 @@
     ]
   },
   {
-    "type": "event",
-    "name": "DistributionSkipped",
+    "type": "error",
+    "name": "InvalidOrderFraction",
     "inputs": [
       {
-        "name": "token",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "amount",
+        "name": "fracNum",
         "type": "uint256",
-        "indexed": false,
         "internalType": "uint256"
       },
       {
-        "name": "index",
+        "name": "fracDen",
         "type": "uint256",
-        "indexed": false,
         "internalType": "uint256"
       }
-    ],
-    "anonymous": false
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InvalidPayoutMode",
+    "inputs": [
+      {
+        "name": "payoutMode",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SafeCastOverflowedIntDowncast",
+    "inputs": [
+      {
+        "name": "bits",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "value",
+        "type": "int256",
+        "internalType": "int256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SafeCastOverflowedUintToInt",
+    "inputs": [
+      {
+        "name": "value",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnknownOrderKind",
+    "inputs": [
+      {
+        "name": "kind",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ]
   },
   {
     "type": "event",
-    "name": "IncomeDistributed",
-    "inputs": [
-      {
-        "name": "token",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "amount",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "index",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "OwnerlessIncome",
-    "inputs": [
-      {
-        "name": "token",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "amount",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "UnknownIncomeToken",
+    "name": "IncomeIntervalClosed",
     "inputs": [
       {
         "name": "source",
-        "type": "bytes32",
+        "type": "uint8",
         "indexed": true,
-        "internalType": "bytes32"
+        "internalType": "uint8"
+      },
+      {
+        "name": "interval",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "dollarIndex",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "obtained",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "unattributed",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "IncomeTokenAdded",
+    "inputs": [
+      {
+        "name": "source",
+        "type": "uint8",
+        "indexed": true,
+        "internalType": "uint8"
+      },
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "IntervalIncomeConverted",
+    "inputs": [
+      {
+        "name": "source",
+        "type": "uint8",
+        "indexed": true,
+        "internalType": "uint8"
+      },
+      {
+        "name": "interval",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "sold",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "obtained",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "rate",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "carried",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "IntervalIncomeRecognized",
+    "inputs": [
+      {
+        "name": "source",
+        "type": "uint8",
+        "indexed": true,
+        "internalType": "uint8"
       },
       {
         "name": "token",
@@ -4003,6 +4639,68 @@
       },
       {
         "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "openIndex",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "IntervalIncomeSkipped",
+    "inputs": [
+      {
+        "name": "source",
+        "type": "uint8",
+        "indexed": true,
+        "internalType": "uint8"
+      },
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "IntervalIncomeUnsold",
+    "inputs": [
+      {
+        "name": "source",
+        "type": "uint8",
+        "indexed": true,
+        "internalType": "uint8"
+      },
+      {
+        "name": "interval",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "recognized",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"

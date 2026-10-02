@@ -8,8 +8,8 @@ import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
 import {AccountingPocFixture} from "./AccountingPocFixture.sol";
 
-/// @notice Enters, triggers the attribution of income that was earned before it entered, takes its cut and queues
-///         its exit, in one transaction.
+/// @notice Enters, triggers the collection and conversion of income that was earned before it entered, takes its cut
+///         and queues its exit, in one transaction.
 contract JitIncomeAttacker {
     ICoreVault internal immutable core;
     ISpokeVault internal immutable hubVault;
@@ -24,49 +24,35 @@ contract JitIncomeAttacker {
     function enterAndCapture(uint256 amount) external returns (uint256 income) {
         usdc.approve(address(core), amount);
         core.deposit(amount, 0);
-        // Permissionless: the attacker, not the Manager, decides when the collected bucket is attributed.
-        hubVault.forwardIncomeToCoreVault(address(usdc));
-        income = core.withdrawIncome(address(usdc));
+        // Permissionless: the attacker, not the Manager, decides when the hub income is collected and converted.
+        core.requestIncomeWithdrawal(0);
+        income = core.withdrawIncome();
         // DEC-077: nothing is locked at request; the Standard Payout carries no Payout Fee.
-        core.requestPayout(1_000_000_000e6, ICoreVaultPayouts.PayoutMode.Standard);
+        core.requestPayout(1_000_000_000e6, ICoreVaultPayouts.PayoutMode.Standard, 0);
     }
 
     function exit() external returns (uint256 usdcPaid) {
-        usdcPaid = core.claimPayout("").usdcPaid;
+        usdcPaid = core.claimPayout(0).usdcPaid;
     }
 }
 
-/// @title PoC: income earned before an entrant's deposit is captured by the entrant through the permissionless
-///        forward (DEC-014 against the 2026-09-29 ruling, CS-OQ-1)
-/// @notice Severity: MEDIUM (bounded value leak from the holders who earned the income to a just-in-time entrant).
+/// @title PoC (closed): income earned before an entrant's deposit is no longer captured by the entrant through a
+///        permissionless collection (DEC-014; security review S-15, CS-OQ-1)
+/// @notice Severity when found: MEDIUM (bounded value leak from the holders who earned the income to a just-in-time
+///         entrant). FIXED by DEC-138 and the Hub dollar index (DEC-161, WP-10): the hub income is recognized from the
+///         hub Spoke Vault's monotonic counters at every mint and burn, inside the valuation the mint already runs, so
+///         the entrant's deposit attributes the income earned before it to the holders of that moment; a collection the
+///         entrant triggers afterwards only converts it to dollars for them.
 ///
-/// Status: the rule is an OPEN item the repository already records (docs/OPEN-QUESTIONS.md CS-OQ-1: "income generated
-/// before an entrant's deposit but collected after it is shared with the entrant"; pinned for the mock hub vault by
-/// `test_DEC014_OPEN_incomeGeneratedBeforeEntryIsSharedWhenCollectedAfterIt`). It is reported because the stated
-/// mitigation ("frequent collection narrows the window") does not hold against the real hub Spoke Vault: the income
-/// index only advances in `CoreVault.receiveCollectedIncome`, and the call that reaches it,
-/// `SpokeVault.forwardIncomeToCoreVault`, is permissionless. Whatever the Manager already collected out of the
-/// positions waits in the hub Spoke Vault's bucket until somebody forwards it, and the entrant chooses that moment:
-/// after its own mint, in the same transaction. The same holds for spoke income: a matched Income arrival is
-/// attributed when a report is delivered, and delivery is permissionless too.
-///
-/// Attack sequence:
+/// Attack sequence (as found):
 ///  1. the fund's hub position earns fees over weeks; the Manager collects them (`SpokeVault.collectIncome`), which
 ///     parks them in the hub Spoke Vault's collected bucket (DEC-092);
-///  2. the attacker, in one transaction: `deposit`, `forwardIncomeToCoreVault(usdc)`, `withdrawIncome(usdc)`,
-///     `requestPayout(Standard)`;
+///  2. the attacker, in one transaction: `deposit`, a collection (then `forwardIncomeToCoreVault(usdc)`, now an Income
+///     Withdrawal request), `withdrawIncome`, `requestPayout(Standard)`;
 ///  3. 72 hours later it claims the Standard Payout (no Payout Fee) and leaves.
 ///
-/// Impact: with 30,000 USDC of collected fees in a 1,000,000 USDC fund and an equal-sized deposit, the entrant takes
-/// 12,000 USDC of income it never earned and pays about 5,000 USDC of flow fees for the round trip; Alice, who held
-/// every share while the income was generated, receives half of what DEC-014 gives her. The entry and exit flow fees
-/// are the only cost, so the capture pays whenever the bucket exceeds about 0.5 % of the fund.
-///
-/// Fix: attribute at collection to the holders of the generation period, not of the forwarding moment. The cheapest
-/// step is to advance the index inside the Manager's `collectIncome` on the hub (forward in the same call, no
-/// permissionless window), and to checkpoint an entrant against income already collected but not yet forwarded (the
-/// hub Spoke Vault's bucket and the matched spoke Income in flight). The complete fix is a generation-time accrual
-/// (Q60 alternative (c)).
+/// Impact as found: with 30,000 USDC of collected fees in a 1,000,000 USDC fund and an equal-sized deposit, the entrant
+/// took 12,000 USDC of income it never earned. Now it takes none, and the round trip costs it both flow fees.
 contract JitIncomeCapturePoC is AccountingPocFixture {
     uint256 internal constant FUND = 1_000_000e6;
     uint256 internal constant FEES_EARNED = 30_000e6;
@@ -75,7 +61,7 @@ contract JitIncomeCapturePoC is AccountingPocFixture {
         _deployFund(2000, 25);
     }
 
-    function test_POC_jitEntrantCapturesIncomeEarnedBeforeEntry() public {
+    function test_POC_FIXED_jitEntrantNoLongerCapturesIncomeEarnedBeforeEntry() public {
         _deposit(alice, FUND);
         bytes32 positionKey = _openHubPosition(800_000e6, 4050);
 
@@ -95,23 +81,16 @@ contract JitIncomeCapturePoC is AccountingPocFixture {
         _refreshPrices();
         uint256 captured = mallory.enterAndCapture(FUND);
 
-        // Net income after the 20 % performance fee is 24,000 USDC; DEC-014 gives all of it to Alice.
+        // Net income after the 20 % performance fee is 24,000 USDC; DEC-014 gives all of it to Alice (and the seed).
         uint256 net = bucket - bucket * 2000 / 10_000;
-        assertApproxEqAbs(captured, net / 2, 1e6, "the entrant took half of income generated before its entry");
-        assertApproxEqAbs(
-            core.attributedIncome(alice, address(usdc)), net / 2, 1e6, "Alice keeps only half of what she earned"
-        );
+        assertEq(captured, 0, "DEC-138: the entrant takes nothing of income generated before its entry");
+        assertApproxEqAbs(core.incomeOwed(alice), net, 1e6, "Alice keeps all she earned");
 
-        // The entrant leaves through a Standard Payout: flow fee only.
+        // The entrant leaves through a Standard Payout: both flow fees are its cost.
         vm.warp(block.timestamp + 72 hours);
         uint256 paid = mallory.exit();
         assertEq(shares.balanceOf(address(mallory)), 0, "full exit");
-        uint256 endBalance = usdc.balanceOf(address(mallory));
-        assertGt(endBalance, FUND, "the round trip is profitable after both flow fees");
-        assertGt(endBalance - FUND, 6000e6, "more than 6,000 USDC for a 72 hour round trip");
+        assertLt(usdc.balanceOf(address(mallory)), FUND, "the round trip now only costs the entrant");
         assertGt(paid, 0);
-
-        emit log_named_decimal_uint("income captured by the entrant (USDC)", captured, 6);
-        emit log_named_decimal_uint("entrant net profit after flow fees (USDC)", endBalance - FUND, 6);
     }
 }

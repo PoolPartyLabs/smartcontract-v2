@@ -152,19 +152,20 @@ contract StaticReviewFindingsTest is CoreVaultFixture {
         assertLt(vault.shareAssets(), assetsBefore);
         assertEq(vault.sweepExcess(address(usdc)), 0, "Operating Cash is ledger value, never swept");
 
-        // The holder's whole balance is now worth 1 USDC, and nothing is left in Idle to pay even that.
-        _request(alice, 9975e6, ICoreVaultPayouts.PayoutMode.Instant);
-        vm.expectPartialRevert(ICoreVault.InsufficientFreeIdle.selector);
+        // The holder's whole balance is now worth 1 USDC, which only the hub Spoke Vault's Unallocated USDC can pay
+        // (D-11): the claim takes it and stays open for the rest.
         vm.prank(alice);
-        vault.claimPayout("");
+        ICoreVault.PayoutReceipt memory r = vault.requestPayout(9975e6, ICoreVaultPayouts.PayoutMode.Instant, 0);
+        assertEq(r.unwindProceeds, 1e6);
+        assertLe(r.usdcGross, 1e6);
+        assertFalse(vault.payoutRequest(alice).open, "the balance cap closes the request");
     }
 
     /// @dev SA-03, fixed by DEC-144 (corrects DEC-102 items 2-4): the Payout Fee of an Instant Payout used to go
     ///      whole to Operating Cash, which nothing spends; it now stays in Idle and in Share Assets.
     function test_DEC144_SA03_payoutFeeStaysInShareAssets() public {
         uint256 idleBefore = vault.idle();
-        _request(alice, 5000e6, ICoreVaultPayouts.PayoutMode.Instant);
-        ICoreVault.PayoutReceipt memory receipt = _claim(alice);
+        ICoreVault.PayoutReceipt memory receipt = _request(alice, 5000e6, ICoreVaultPayouts.PayoutMode.Instant);
         assertEq(receipt.payoutFee, 100e6, "2% of 5,000");
         assertEq(vault.operatingCash(), 0);
         assertEq(vault.idle(), idleBefore - receipt.usdcGross + receipt.payoutFee);

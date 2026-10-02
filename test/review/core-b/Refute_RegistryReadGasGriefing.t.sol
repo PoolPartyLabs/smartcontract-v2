@@ -3,7 +3,6 @@ pragma solidity 0.8.28;
 
 import {console2} from "forge-std/console2.sol";
 import {ManagerRegistry} from "../../../src/core/ManagerRegistry.sol";
-import {MockHubSpokeVault} from "../../mocks/core/MockHubSpokeVault.sol";
 import {CoreVaultFixture} from "../../unit/core/CoreVaultFixture.sol";
 
 /// @notice Refutation: the registry read in CoreVaultIncomeLogic.protocolSliceBps is wrapped in try/catch and falls
@@ -22,7 +21,10 @@ import {CoreVaultFixture} from "../../unit/core/CoreVaultFixture.sol";
 ///      and the management fee accrual (DEC-114) changed the libraries' code: 1,005 successful limits, lowest 149,000;
 ///      every successful one still read the registry. WP-07 D2 runs the income hooks around every mint, so the
 ///      deposit before the sweep reaches the income library and leaves it warm: 1,015 successful limits, lowest
-///      146,500.
+///      146,500. WP-10 (DEC-161, DEC-172): the collection is an Income Withdrawal request that recognizes the hub
+///      income, runs the hub Spoke Vault's collection in try/catch and converts; a gas limit can now also make the
+///      request skip the hub collection (caught, `HubIncomeCollectionFailed`, the income waits for the next one), never
+///      take the default slice. The counts are logged, not pinned.
 contract Refute_RegistryReadGasGriefing is CoreVaultFixture {
     function test_refute_noGasLimitForcesTheDefaultSlice() public {
         ManagerRegistry real = new ManagerRegistry(address(this));
@@ -34,29 +36,38 @@ contract Refute_RegistryReadGasGriefing is CoreVaultFixture {
         assertEq(ManagerRegistry(address(registry)).protocolSliceBps(manager), 1000);
 
         _deposit(alice, 10_000e6);
+        hubVault.earn(address(usdc), 100e6);
         address feeVault = vault.managerFeeVault();
+        address keeper = makeAddr("keeper");
         uint256 successes;
+        uint256 converted;
         uint256 minGas;
-        for (uint256 g = 60_000; g <= 400_000; g += 250) {
+        for (uint256 g = 60_000; g <= 600_000; g += 250) {
             uint256 snap = vm.snapshotState();
             uint256 before = usdc.balanceOf(protocol);
             uint256 feeVaultBefore = usdc.balanceOf(feeVault);
-            (bool ok,) =
-                address(hubVault).call{gas: g}(abi.encodeCall(MockHubSpokeVault.forwardIncome, (address(usdc), 100e6)));
+            vm.prank(keeper);
+            (bool ok,) = address(vault).call{gas: g}(abi.encodeCall(vault.requestIncomeWithdrawal, (0)));
             if (ok) {
                 ++successes;
                 if (minGas == 0) minGas = g;
-                // 20% performance fee on 100 = 20; a 10% slice of it = 2. The default would give 10.
-                assertEq(usdc.balanceOf(protocol) - before, 2e6, "a successful collection always read the registry");
-                assertEq(usdc.balanceOf(feeVault) - feeVaultBefore, 18e6, "and paid the manager fee in full");
-                assertEq(vault.owedFees(address(usdc), protocol), 0, "no slice booked as owed (S-12)");
-                assertEq(vault.owedFees(address(usdc), feeVault), 0, "no manager fee booked as owed (S-12)");
+                uint256 slice = usdc.balanceOf(protocol) - before;
+                if (slice != 0) {
+                    ++converted;
+                    // 20% performance fee on 100 = 20; a 10% slice of it = 2. The default would give 10.
+                    assertEq(slice, 2e6, "a successful collection always read the registry");
+                    assertEq(usdc.balanceOf(feeVault) - feeVaultBefore, 18e6, "and paid the manager fee in full");
+                    assertEq(vault.owedFees(address(usdc), protocol), 0, "no slice booked as owed (S-12)");
+                    assertEq(vault.owedFees(address(usdc), feeVault), 0, "no manager fee booked as owed (S-12)");
+                } else {
+                    assertEq(usdc.balanceOf(feeVault), feeVaultBefore, "a skipped collection pays nothing");
+                }
             }
             vm.revertToState(snap);
         }
         console2.log("successful gas limits tried", successes);
+        console2.log("of which converted          ", converted);
         console2.log("lowest successful gas limit ", minGas);
-        assertEq(successes, 1015);
-        assertEq(minGas, 146_500);
+        assertGt(converted, 0);
     }
 }

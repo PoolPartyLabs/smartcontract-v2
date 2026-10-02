@@ -1,71 +1,45 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-
 import {ISpokeVaultIncome} from "../interfaces/ISpokeVaultIncome.sol";
-import {ICoreVault} from "../interfaces/ICoreVault.sol";
 import {OrderCodec} from "../libraries/OrderCodec.sol";
-import {SpokeVaultTypes} from "./SpokeVaultTypes.sol";
-import {SpokeLedger} from "./SpokeLedger.sol";
 import {SpokeIncomeLib} from "./SpokeIncomeLib.sol";
 import {SpokeVaultBase} from "./SpokeVaultBase.sol";
 
 /// @title SpokeVaultIncome
-/// @notice The Spoke Vault's collected income verbs: the swap of collected income into the base token (Spoke Chains)
-///         and the forward of collected income to the Core Vault (Hub Chain), and the executor of the Core Vault's
-///         income collection orders on a spoke. See ISpokeVault.
-/// @dev Split out of SpokeVault (WP-07 A3, DEC-131 pattern) so the income verbs have their own source file; DEC-092:
-///      collected income stays in its own bucket, outside Share Assets.
+/// @notice The Spoke Vault's income collection: the hub Spoke Vault's collection for the Core Vault and the executor of
+///         the Core Vault's collection orders on a spoke (DEC-122, DEC-124, DEC-161, DEC-172). See ISpokeVaultIncome.
+/// @dev Split out of SpokeVault (WP-07 A3, DEC-131 pattern) so the income verbs have their own source file; the bodies
+///      run in the linked library `SpokeIncomeLib`. DEC-092: collected income stays in its own bucket, outside Share
+///      Assets, until a collection sells it and hands the dollars to the Core Vault. DEC-178 item 5 (supersedes DEC-122
+///      item 4): the conversion happens at the collection, so the manager's income swap and the forward of collected
+///      income in kind are gone.
 abstract contract SpokeVaultIncome is SpokeVaultBase {
-    using SafeERC20 for IERC20;
-    using SpokeLedger for SpokeVaultTypes.State;
-
-    // ---------------------------------------------------------------------------------------------------------------
-    // Collected income (DEC-092; CV-OQ-2, ruling 2026-09-29)
-    // ---------------------------------------------------------------------------------------------------------------
-
-    /// @inheritdoc ISpokeVaultIncome
-    /// @dev CV-OQ-2, ruling 2026-09-29, DEC-092: collected income in, base token out, both inside the collected income
-    ///      bucket, through a Mandate swap adapter (DEC-136; founder, 2026-10-02: never in a fund pool). Same custody
-    ///      and ledger checks as the manager's swap (`SpokeLedger.swapThrough`); a swap into the base token is an exit
-    ///      and runs while the adapter is paused or deprecated (DEC-056).
-    function swapCollectedIncome(
-        address swapAdapter,
-        address tokenIn,
-        uint256 amountIn,
-        uint16 maxLossBps,
-        bytes calldata route
-    ) external onlyOnSpokeChain onlyManager nonReentrant returns (uint256 amountOut) {
-        _topUpOperatingCash();
-        uint256 spotOut;
-        uint256 minOut;
-        (amountOut, spotOut, minOut) =
-            _s.swapThrough(swapAdapter, tokenIn, baseToken, amountIn, maxLossBps, route, true);
-        emit IncomeSwapped(swapAdapter, tokenIn, baseToken, amountIn, amountOut, spotOut, maxLossBps, minOut);
+    function refreshIncomeResults(uint64[] calldata resultIds) external nonReentrant {
+        SpokeIncomeLib.refreshResults(_s.income, resultIds);
     }
 
     /// @inheritdoc ISpokeVaultIncome
-    /// @dev DEC-092: collected income is handed to the Core Vault's Attributed Income bucket; the destination is fixed.
-    function forwardIncomeToCoreVault(address token) external onlyOnHubChain nonReentrant returns (uint256 amount) {
-        amount = _s.collectedIncome[token];
-        if (amount == 0) revert ZeroAmount();
-        _s.collectedIncome[token] = 0;
-        IERC20(token).safeTransfer(coreVault, amount);
-        ICoreVault(coreVault).receiveCollectedIncome(token, amount);
-        emit IncomeForwardedToCoreVault(token, amount);
+    /// @dev DEC-172: the Hub positions' income is sold in the same collection as the spokes'; the Core Vault recognizes
+    ///      it first (DEC-138) and converts it with what this returns.
+    function collectIncomeAll(uint16 maxLossBps)
+        external
+        onlyOnHubChain
+        nonReentrant
+        returns (address[] memory tokens, uint256[] memory sold, uint256[] memory obtained)
+    {
+        if (msg.sender != coreVault) revert NotCoreVault(msg.sender);
+        return SpokeIncomeLib.collectHub(_s, baseToken, coreVault, maxLossBps);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
     // Orders (DEC-122, DEC-124, DEC-161; WP-07 D4)
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @notice Executes an accepted income collection order (`OrderCodec.COLLECT`): collect the positions' income and
-    ///         send it home (DEC-122 item 5, DEC-124, DEC-161). `SpokeVault.executeOrder` calls it after the order
-    ///         checks and publishes the report after it.
-    /// @dev The body runs in the linked library `SpokeIncomeLib` (WP-07 D5), which refuses the order until the
-    ///      collection orders are built (the order is refused whole and the cursor does not move).
+    /// @notice Executes an accepted income collection order (`OrderCodec.COLLECT`): collect the positions' income, sell
+    ///         it for the base token and send it home with what each token sold for (DEC-122 item 5, DEC-124, DEC-161).
+    ///         `SpokeVault.executeOrder` calls it after the order checks and publishes the report after it.
+    /// @dev The body runs in the linked library `SpokeIncomeLib` (WP-07 D5).
     function _executeCollectOrder(OrderCodec.Order memory o) internal virtual {
         SpokeIncomeLib.executeCollectOrder(_s, _config(), o);
     }

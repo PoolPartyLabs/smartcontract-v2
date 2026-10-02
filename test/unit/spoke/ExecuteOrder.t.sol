@@ -177,10 +177,10 @@ contract ExecuteOrderTest is SpokeVaultTestBase {
     ///      the order it runs (or any other) is refused, and the outer order still completes.
     function test_DEC093_aReenteredDeliveryIsRefused() public {
         bytes memory vaa = _vaa(_order(OrderCodec.UNWIND, 1), 0);
-        harness.setReentry(vaa);
+        harness.setReentry(true);
         _deliver(harness, vaa);
         bytes memory reentrancyRefused = abi.encodeWithSelector(ReentrancyGuard.ReentrancyGuardReentrantCall.selector);
-        assertEq(harness.reentryRevert(), reentrancyRefused);
+        assertEq(harness.reentryRevertHash(), keccak256(reentrancyRefused));
         assertEq(harness.executed().length, 1, "executed once");
         assertEq(harness.reportSequence(), 1);
     }
@@ -327,7 +327,7 @@ contract ExecuteOrderTest is SpokeVaultTestBase {
 
     /// @dev Every kind is refused whole by the production Spoke Vault (`OrderKindNotSupported`): nothing executes and
     ///      nothing is published.
-    function test_WP07D4_theStubsRefuseEveryKind() public {
+    function test_WP07D4_theRemainingStubsRefuseUnwindAndClose() public {
         vm.chainId(SPOKE);
         SpokeVault v = new SpokeVault(
             _mandate(),
@@ -340,7 +340,7 @@ contract ExecuteOrderTest is SpokeVaultTestBase {
             address(escrowImplementation),
             excessRecipient
         );
-        uint8[3] memory kinds = [OrderCodec.UNWIND, OrderCodec.CLOSE, OrderCodec.COLLECT];
+        uint8[2] memory kinds = [OrderCodec.UNWIND, OrderCodec.CLOSE];
         for (uint256 i; i < kinds.length; ++i) {
             bytes memory vaa = _vaa(_order(kinds[i], 1), uint64(i));
             vm.expectRevert(abi.encodeWithSelector(ISpokeVault.OrderKindNotSupported.selector, kinds[i]));

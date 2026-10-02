@@ -4,10 +4,11 @@ pragma solidity 0.8.28;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
+import {ISpokeVaultUnwind} from "../../../src/interfaces/ISpokeVaultUnwind.sol";
 import {MockPriceSource} from "../core/MockPriceSource.sol";
 
-/// @notice Core Vault mock for the hub Spoke Vault: records `returnToIdle` and `receiveCollectedIncome`, and drives the
-///         Core Vault-only verbs of the vault.
+/// @notice Core Vault mock for the hub Spoke Vault: records `returnToIdle` and the hub collection's USDC
+///         (`ISpokeVaultIncome.collectIncomeAll`), and drives the Core Vault-only verbs of the vault.
 contract MockCoreVault {
     using SafeERC20 for IERC20;
 
@@ -33,9 +34,21 @@ contract MockCoreVault {
         require(lastReturnBalance >= idleReturned, "not transferred first");
     }
 
-    function receiveCollectedIncome(address token, uint256 amount) external {
-        incomeReceived[token] += amount;
-        require(IERC20(token).balanceOf(address(this)) >= incomeReceived[token], "not transferred first");
+    /// @dev Runs the hub collection (DEC-172) and records the USDC it transferred, which must equal the sum of what
+    ///      the vault reports each token obtained.
+    function collectIncome(ISpokeVault vault, uint16 maxLossBps)
+        external
+        returns (address[] memory tokens, uint256[] memory sold, uint256[] memory obtained)
+    {
+        uint256 before = IERC20(usdc).balanceOf(address(this));
+        (tokens, sold, obtained) = vault.collectIncomeAll(maxLossBps);
+        uint256 total;
+        for (uint256 i; i < obtained.length; ++i) {
+            total += obtained[i];
+        }
+        uint256 received = IERC20(usdc).balanceOf(address(this)) - before;
+        require(received == total, "collection USDC mismatch");
+        incomeReceived[usdc] += received;
     }
 
     /// @dev Transfers USDC it holds to the vault and credits it (DEC-017, DEC-072).
@@ -48,7 +61,11 @@ contract MockCoreVault {
         vault.receiveFromCoreVault(amount);
     }
 
-    function unwind(ISpokeVault vault, uint256 usdcTarget, bytes calldata hints) external returns (uint256) {
-        return vault.unwindForPayout(usdcTarget, hints);
+    /// @dev Runs the hub Spoke Vault's automatic unwind as the Core Vault (DEC-137).
+    function unwind(ISpokeVault vault, ISpokeVaultUnwind.UnwindRequest calldata request)
+        external
+        returns (ISpokeVaultUnwind.UnwindResult memory)
+    {
+        return vault.unwindForPayout(request);
     }
 }

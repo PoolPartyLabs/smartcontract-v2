@@ -23,14 +23,18 @@ contract H01_DeprecatedAdapterStrandsWeth is SpokeAHubFixture {
         _managerOpensHubPosition(500_000e6); // V4 WETH/USDC, first in the unwind order
         exactKey = _managerSuppliesExact(500_000e6); // exact-value USDC, second in the unwind order
         _unwindSwapsAtOracle();
-        // Free Idle ~47,372 USDC; Mallory's shares are worth ~49,875 USDC.
-        _request(mallory, 49_000e6, ICoreVaultPayouts.PayoutMode.Instant);
+    }
+
+    /// @dev Free Idle ~47,372 USDC; Mallory's shares are worth ~49,875 USDC. Her Instant request is its own claim
+    ///      (DEC-120 item 1).
+    function _mallorysClaim() internal returns (ICoreVault.PayoutReceipt memory) {
+        return _request(mallory, 49_000e6, ICoreVaultPayouts.PayoutMode.Instant);
     }
 
     /// @dev Control: before the deprecation the claim needs ~1,580 USDC of unwind and is paid in full.
     function test_REVIEW_H07_control_unwindPaysBeforeDeprecation() public {
         _setUpFund();
-        ICoreVault.PayoutReceipt memory r = _claim(mallory);
+        ICoreVault.PayoutReceipt memory r = _mallorysClaim();
         assertGt(r.unwindProceeds, 1500e6);
         assertFalse(vault.payoutRequest(mallory).open, "paid in full");
     }
@@ -40,13 +44,13 @@ contract H01_DeprecatedAdapterStrandsWeth is SpokeAHubFixture {
         ICoreVault.PayoutReceipt memory control;
         {
             uint256 snap = vm.snapshotState();
-            control = _claim(mallory);
+            control = _mallorysClaim();
             vm.revertToState(snap);
         }
         vm.prank(guardian);
         IAdapterGuard(address(adapter)).deprecate();
 
-        ICoreVault.PayoutReceipt memory r = _claim(mallory);
+        ICoreVault.PayoutReceipt memory r = _mallorysClaim();
         console2.log("unwind proceeds (deprecated)", r.unwindProceeds);
         console2.log("usdc gross paid", r.usdcGross);
 
@@ -83,11 +87,10 @@ contract H01_DeprecatedAdapterStrandsWeth is SpokeAHubFixture {
         assertEq(usdcOut, wethHeld * 2500e6 / 1e18);
 
         // Mallory, then Alice for her whole value, are paid in full.
-        _claim(mallory);
+        _mallorysClaim();
         assertFalse(vault.payoutRequest(mallory).open);
         uint256 aliceValue = _valueOf(alice);
-        _request(alice, aliceValue, ICoreVaultPayouts.PayoutMode.Instant);
-        ICoreVault.PayoutReceipt memory r = _claim(alice);
+        ICoreVault.PayoutReceipt memory r = _request(alice, aliceValue, ICoreVaultPayouts.PayoutMode.Instant);
         console2.log("alice asked", aliceValue);
         console2.log("alice paid (gross)", r.usdcGross);
         assertEq(r.usdcOutstanding, 0, "e5c778a: 249,125.25 outstanding for good");

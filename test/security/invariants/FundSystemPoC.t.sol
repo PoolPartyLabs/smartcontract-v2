@@ -73,8 +73,7 @@ contract FundSystemPoCTest is FundSystemFixture {
         // The entrant exits at once (Instant Payout from Idle), paying the 2% Payout Fee and the flow fee.
         uint256 worth = ShareMath.usdcFor(attackerShares, sys.core.sharePrice());
         vm.startPrank(attacker);
-        sys.core.requestPayout(worth, ICoreVaultPayouts.PayoutMode.Instant);
-        sys.core.claimPayout("");
+        sys.core.requestPayout(worth, ICoreVaultPayouts.PayoutMode.Instant, 0);
         vm.stopPrank();
         assertLt(sys.usdc.balanceOf(attacker), 50_000e6, "S-3: the entrant leaves with less than it deposited");
 
@@ -98,8 +97,8 @@ contract FundSystemPoCTest is FundSystemFixture {
         _report();
 
         vm.startPrank(bruno);
-        sys.core.requestPayout(fairValue, ICoreVaultPayouts.PayoutMode.Instant);
-        ICoreVault.PayoutReceipt memory receipt = sys.core.claimPayout("");
+        ICoreVault.PayoutReceipt memory receipt =
+            sys.core.requestPayout(fairValue, ICoreVaultPayouts.PayoutMode.Instant, 0);
         vm.stopPrank();
         assertEq(sys.shares.balanceOf(bruno), 0, "every share burned");
         assertGe(receipt.usdcGross + 1e6, fairValue, "S-3: paid the shares' value");
@@ -173,8 +172,8 @@ contract FundSystemPoCTest is FundSystemFixture {
         // Ana's 99,999 shares, bought for 99,999 USDC, are worth nothing: a payout burns them all and pays zero.
         assertEq(ShareMath.usdcFor(sys.shares.balanceOf(ana), sys.core.sharePrice()), 0);
         vm.startPrank(ana);
-        sys.core.requestPayout(99_999e6, ICoreVaultPayouts.PayoutMode.Instant);
-        ICoreVault.PayoutReceipt memory receipt = sys.core.claimPayout("");
+        ICoreVault.PayoutReceipt memory receipt =
+            sys.core.requestPayout(99_999e6, ICoreVaultPayouts.PayoutMode.Instant, 0);
         vm.stopPrank();
         assertEq(receipt.sharesBurned, 99_999e18);
         assertEq(receipt.usdcPaid, 0);
@@ -213,19 +212,22 @@ contract FundSystemPoCTest is FundSystemFixture {
     /// nothing can be priced until value returns (documented in docs/security/KNOWN-LIMITATIONS.md).
     function test_SEC_S18_zeroShareAssetsClaimClosesTheRequest() public {
         _deposit(ana, 100_250e6);
-        vm.prank(ana);
-        sys.core.requestPayout(1000e6, ICoreVaultPayouts.PayoutMode.Instant);
         _deposit(bruno, 10_025e6);
         uint256 anaShares = sys.shares.balanceOf(ana);
 
         uint256 idle = sys.core.idle();
         vm.prank(manager);
         sys.core.allocateToHubSpokeVault(idle);
+        // A Standard request left open (an Instant one is claimed at once, DEC-120 item 1); Free Idle is 0, so it
+        // reserves nothing.
+        vm.prank(ana);
+        sys.core.requestPayout(1000e6, ICoreVaultPayouts.PayoutMode.Standard, 0);
         vm.mockCall(address(sys.hubVault), abi.encodeWithSignature("buildReport()"), abi.encode(_emptyReport()));
         assertEq(sys.core.shareAssets(), 0);
 
+        vm.warp(block.timestamp + 72 hours);
         vm.prank(ana);
-        ICoreVault.PayoutReceipt memory r = sys.core.claimPayout("");
+        ICoreVault.PayoutReceipt memory r = sys.core.claimPayout(0);
         assertTrue(r.closedBelowOneShare, "S-18: closed with nothing burned");
         assertEq(r.sharesBurned, 0);
         assertEq(r.usdcPaid, 0);
@@ -234,7 +236,7 @@ contract FundSystemPoCTest is FundSystemFixture {
 
         vm.prank(bruno);
         vm.expectRevert(ShareMath.ZeroSharePrice.selector);
-        sys.core.requestPayout(1e6, ICoreVaultPayouts.PayoutMode.Instant);
+        sys.core.requestPayout(1e6, ICoreVaultPayouts.PayoutMode.Instant, 0);
         sys.usdc.mint(bruno, 1000e6);
         vm.startPrank(bruno);
         sys.usdc.approve(address(sys.core), 1000e6);

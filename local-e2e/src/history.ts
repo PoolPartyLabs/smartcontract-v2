@@ -4,6 +4,7 @@
 import type { Abi, Address } from "viem";
 import { coreVaultAbi, shareTokenAbi, spokeVaultAbi } from "./abis.ts";
 import { nodes, read, type Side } from "./chain.ts";
+import { ARBITRUM } from "./config.ts";
 import type { FundRecord } from "./state.ts";
 
 export interface SharePricePoint {
@@ -97,8 +98,8 @@ export async function feeLedger(fund: FundRecord): Promise<FeeLedger> {
     else if (e.eventName === "PayoutExecuted" || e.eventName === "PartialPayoutExecuted") {
       ledger.flowFee.payouts += a.receipt.flowFee as bigint;
       ledger.payoutFee += a.receipt.payoutFee as bigint;
-    } else if (e.eventName === "CollectedIncomeReceived") {
-      const token = a.token as Address;
+    } else if (e.eventName === "IncomeCollectionClosed") {
+      const token = ARBITRUM.usdc;
       const line = perToken.get(token.toLowerCase()) ?? {
         token,
         collected: 0n,
@@ -107,11 +108,11 @@ export async function feeLedger(fund: FundRecord): Promise<FeeLedger> {
         protocolSlice: 0n,
         toHolders: 0n,
       };
-      line.collected += a.amount as bigint;
-      line.managerPart += a.managerFee as bigint;
+      line.collected += a.dollars as bigint;
+      line.managerPart += (a.fee as bigint) - (a.protocolSlice as bigint);
       line.protocolSlice += a.protocolSlice as bigint;
       line.performanceFee = line.managerPart + line.protocolSlice;
-      line.toHolders = line.collected - line.performanceFee;
+      line.toHolders += a.attributed as bigint;
       perToken.set(token.toLowerCase(), line);
     } else if (e.eventName === "SentToSpoke") {
       ledger.bridgeFees.toSpokes += (a.transit.amountSent as bigint) - (a.transit.amountToArrive as bigint);

@@ -4,44 +4,38 @@ pragma solidity 0.8.28;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ICoreVaultIncome} from "../interfaces/ICoreVaultIncome.sol";
-import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 import {MandateLib} from "../mandate/Mandate.sol";
+import {DollarIncomeIndex} from "../libraries/DollarIncomeIndex.sol";
 import {CoreVaultBase} from "./CoreVaultBase.sol";
 import {CoreVaultIncomeLogic} from "./CoreVaultIncomeLogic.sol";
+import {CoreVaultIncomeCollectionLogic} from "./CoreVaultIncomeCollectionLogic.sol";
 import {CoreVaultLogic} from "./CoreVaultLogic.sol";
+import {CoreVaultIncomeTypes} from "./CoreVaultIncomeTypes.sol";
 
 /// @title CoreVaultIncome
-/// @notice Collected income, Attributed Income and Income Withdrawal of the Core Vault. See ICoreVault.
-/// @dev Ruling 2026-09-29 (fee split point, replaces the recognition-time booking): the per-token index advances ONLY
-///      when collected income reaches the Core Vault, through `receiveCollectedIncome` from the hub Spoke Vault or a
-///      matched spoke-to-hub arrival of kind Income (USDC). The split happens right there
-///      (CoreVaultIncomeLogic.collectIncome): the performance fee (DEC-107) times the collected amount, of which the
-///      protocol slice read from the ManagerRegistry at that moment (DEC-106, DEC-110) is transferred to the Protocol
-///      Recipient and the rest to the fund's ManagerFeeVault, in kind (DEC-109); the net enters the shareholders'
-///      accumulator. Uncollected income (hub and spoke positions, spoke collected buckets) stays in its own bucket
-///      (DEC-092) and only informs Gross Assets.
+/// @notice Attributed Income in the Hub dollar index, its collection on every chain and Income Withdrawal in USDC, owed
+///         transfers and the manager fee of the Core Vault. See ICoreVaultIncome.
+/// @dev DEC-138 (corrects DEC-128 item 4 on when the index advances), DEC-152, DEC-161: income is recognized per token
+///      at every mint, burn and accepted report and converted to dollars at each collection's rate; the fee split
+///      stays at the collection (DEC-128 item 4, DEC-138), paid in USDC (DEC-124 item 2). The bodies run in the linked
+///      libraries `CoreVaultIncomeLogic` (holders, views) and `CoreVaultIncomeCollectionLogic` (the request's
+///      collections); the entries keep the reentrancy guard.
 abstract contract CoreVaultIncome is CoreVaultBase {
     using SafeERC20 for IERC20;
-    using IncomeAccumulator for IncomeAccumulator.State;
 
     /// @inheritdoc ICoreVaultIncome
-    /// @dev DEC-080: credited only when the tokens are already above the ledger. Moves value out (the fee transfers),
-    ///      so it takes the reentrancy guard; the hub Spoke Vault never forwards income from inside a payout's unwind.
-    function receiveCollectedIncome(address token, uint256 amount) external nonReentrant {
-        if (msg.sender != hubSpokeVault) revert NotHubSpokeVault(msg.sender);
-        if (!_s.incomeBook.index.isRegistered(token)) revert UnknownIncomeToken(token);
-        if (amount == 0) revert ZeroAmount();
-        _requireUnledgered(token, amount);
-        CoreVaultIncomeLogic.collectIncome(_s, _wiring(), token, amount);
+    function requestIncomeWithdrawal(uint16 maxLossBps) external payable nonReentrant returns (uint64 round) {
+        return CoreVaultIncomeCollectionLogic.requestIncomeWithdrawal(_s, _wiring(), msg.sender, maxLossBps, msg.value);
     }
 
     /// @inheritdoc ICoreVaultIncome
-    /// @dev LC-100 stance: pays `min(owed, collectedIncome(token))`. No Payout Fee (DEC-075: Instant Payouts only) and
-    ///      no flow fee (DEC-113, which closes LC-143: deposits and Payouts only, never an Income Withdrawal).
-    function withdrawIncome(address token) external nonReentrant returns (uint256 amount) {
-        if (!_s.incomeBook.index.isRegistered(token)) revert UnknownIncomeToken(token);
-        _s.incomeBook.index.checkpoint(msg.sender, _sharesOf(msg.sender));
-        amount = _takeIncome(msg.sender, token);
+    function settleIncomeWithdrawal(address shareholder) external nonReentrant returns (uint256 amount) {
+        return CoreVaultIncomeLogic.settleIncomeWithdrawal(_s, _wiring(), shareholder);
+    }
+
+    /// @inheritdoc ICoreVaultIncome
+    function withdrawIncome() external nonReentrant returns (uint256 amount) {
+        return CoreVaultIncomeLogic.withdrawIncome(_s, _wiring(), msg.sender);
     }
 
     /// @inheritdoc ICoreVaultIncome
@@ -54,20 +48,12 @@ abstract contract CoreVaultIncome is CoreVaultBase {
         IERC20(token).safeTransfer(recipient, amount);
     }
 
-    function _takeIncome(address holder, address token) internal returns (uint256 amount) {
-        amount = _s.incomeBook.index.takeOwed(holder, token, _s.incomeBook.collectedIncome[token]);
-        if (amount == 0) return 0;
-        _s.incomeBook.collectedIncome[token] -= amount;
-        IERC20(token).safeTransfer(holder, amount);
-        emit IncomeWithdrawn(holder, token, amount);
-    }
-
     /// @inheritdoc ICoreVaultIncome
-    /// @dev DEC-110: the manager fee only decreases, with immediate effect. Ruling 2026-09-29: the performance fee is
-    ///      charged at collection only, so nothing of it has accrued at the old rate. DEC-114: a lower management fee
-    ///      applies from now, down to 0; what accrued at the old rate is booked first. DEC-182, DEC-184: the
-    ///      performance fee never goes below `MandateLib.MIN_PERFORMANCE_FEE_BPS` (10%), the floor it was created at
-    ///      or above.
+    /// @dev DEC-110: the manager fee only decreases, with immediate effect, after settling what accrued: the payout-mode
+    ///      valuation (it never reverts on a failing dependency, DEC-056) recognizes the Hub income at the old
+    ///      performance fee (DEC-117 item 3: the fee is taken at recognition) and books the management fee at the old
+    ///      rate (DEC-114). DEC-182, DEC-184: the performance fee never goes below `MandateLib.MIN_PERFORMANCE_FEE_BPS`
+    ///      (10%), the floor it was created at or above.
     function decreaseManagerFee(uint16 newPerformanceFeeBps, uint16 newManagementFeeBps)
         external
         onlyManager
@@ -82,11 +68,8 @@ abstract contract CoreVaultIncome is CoreVaultBase {
         if (newPerformanceFeeBps < MandateLib.MIN_PERFORMANCE_FEE_BPS) {
             revert ManagerFeeBelowMinimum(newPerformanceFeeBps, MandateLib.MIN_PERFORMANCE_FEE_BPS);
         }
-        if (newManagementFeeBps != previousManagement) {
-            // Payout mode: never reverts on a failing dependency, so the decrease is never blocked (DEC-056).
-            CoreVaultLogic.recordValuation(_s, _wiring(), false);
-            _s.managementFeeLastAccrual = uint64(block.timestamp);
-        }
+        CoreVaultLogic.recordValuation(_s, _wiring(), false);
+        if (newManagementFeeBps != previousManagement) _s.managementFeeLastAccrual = uint64(block.timestamp);
         _s.performanceFeeBps = newPerformanceFeeBps;
         _s.managementFeeBps = newManagementFeeBps;
         emit ManagerFeeDecreased(previousPerformance, newPerformanceFeeBps, previousManagement, newManagementFeeBps);
@@ -97,34 +80,39 @@ abstract contract CoreVaultIncome is CoreVaultBase {
     // ---------------------------------------------------------------------------------------------------------------
 
     /// @inheritdoc ICoreVaultIncome
-    function incomeTokens() external view returns (address[] memory) {
-        return _s.incomeBook.index.tokens;
+    function incomeOwed(address shareholder) external view returns (uint256) {
+        return CoreVaultIncomeLogic.incomeOwed(_s, _wiring(), shareholder);
     }
 
     /// @inheritdoc ICoreVaultIncome
-    function attributedIncome(address shareholder, address token) external view returns (uint256) {
-        if (!_s.incomeBook.index.isRegistered(token)) return 0;
-        return _s.incomeBook.index.owed(shareholder, token, _sharesOf(shareholder));
+    function unconvertedIncome(address shareholder, uint256 source, address token) external view returns (uint256) {
+        return CoreVaultIncomeLogic.unconvertedIncome(_s, _wiring(), shareholder, source, token);
     }
 
     /// @inheritdoc ICoreVaultIncome
-    function collectedIncome(address token) external view returns (uint256) {
-        return _s.incomeBook.collectedIncome[token];
+    function incomeToken(uint256 source, address token) external view returns (IncomeTokenState memory v) {
+        CoreVaultIncomeTypes.Source storage src = _incomeSource(source);
+        DollarIncomeIndex.IncomeToken storage t = src.index.token[token];
+        (v.registered, v.interval, v.openIndex, v.recognized, v.counter, v.feeUnits) =
+        (t.registered, t.interval, t.openIndex, t.recognized, src.counter[token], src.feeUnits[token]);
+    }
+
+    /// @inheritdoc ICoreVaultIncome
+    function incomeCollection() external view returns (IncomeCollectionState memory c) {
+        CoreVaultIncomeTypes.Book storage b = _s.incomeBook;
+        (c.round, c.attempt, c.deadline, c.pendingSpokes, c.openResults, c.heldDollars) =
+        (b.round, b.attempt, b.deadline, b.pendingSpokes, b.openResults, b.heldDollars);
+    }
+
+    /// @inheritdoc ICoreVaultIncome
+    function incomeWithdrawalRequest(address shareholder) external view returns (uint64 round, bool open) {
+        CoreVaultIncomeTypes.Request memory r = _s.incomeBook.requests[shareholder];
+        return (r.round, r.open);
     }
 
     /// @inheritdoc ICoreVaultIncome
     function owedFees(address token, address recipient) external view returns (uint256) {
         return _s.owedFees[token][recipient];
-    }
-
-    /// @inheritdoc ICoreVaultIncome
-    function ownerlessIncome(address token) external view returns (uint256) {
-        return _s.incomeBook.index.tokenIncome[token].ownerless;
-    }
-
-    /// @inheritdoc ICoreVaultIncome
-    function incomeState(address token) external view returns (IncomeAccumulator.TokenIncome memory) {
-        return _s.incomeBook.index.tokenIncome[token];
     }
 
     /// @inheritdoc ICoreVaultIncome
@@ -140,5 +128,10 @@ abstract contract CoreVaultIncome is CoreVaultBase {
     /// @inheritdoc ICoreVaultIncome
     function managementFeeAccrued() external view returns (uint256) {
         return CoreVaultLogic.managementFeeOwed(_s, _wiring());
+    }
+
+    function _incomeSource(uint256 source) private view returns (CoreVaultIncomeTypes.Source storage) {
+        if (source >= _s.incomeBook.sourceCount) revert UnknownIncomeSource(source);
+        return _s.incomeBook.sources[source];
     }
 }

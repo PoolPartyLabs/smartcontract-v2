@@ -23,9 +23,9 @@ contract POC_DeprecatedAdapterUnwind is HubStackFixture {
         bytes32 positionKey = _openHubPosition(100_000e6, 50_000e6, 50_000e6); // 20 WETH + 50,000 USDC in range
         assertEq(vault.freeIdle(), SEED_IDLE + 99_500e6);
 
-        _request(alice, 150_000e6, ICoreVaultPayouts.PayoutMode.Instant);
+        // Alice's Instant request is its own claim (DEC-120 item 1).
         uint256 snapshot = vm.snapshotState();
-        ICoreVault.PayoutReceipt memory before = _claim(alice);
+        ICoreVault.PayoutReceipt memory before = _request(alice, 150_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         assertEq(before.usdcOutstanding, 0);
         vm.revertToState(snapshot);
 
@@ -34,7 +34,7 @@ contract POC_DeprecatedAdapterUnwind is HubStackFixture {
 
         // The same claim completes: the unwind's WETH-to-USDC swap is an exit and runs.
         vm.recordLogs();
-        ICoreVault.PayoutReceipt memory after_ = _claim(alice);
+        ICoreVault.PayoutReceipt memory after_ = _request(alice, 150_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         assertFalse(_sawUnwindFailed(), "S-10: the unwind did not fail");
         assertEq(after_.usdcOutstanding, 0, "S-10: paid in full");
         assertApproxEqAbs(after_.unwindProceeds, before.unwindProceeds, 1e6, "S-10: the same unwind as before");

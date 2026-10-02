@@ -64,19 +64,17 @@ contract DeprecatedAdapterFork is EndToEndScenario {
         // 1. Bruno's Instant claim above Free Idle, with NO hint (the harder case): the V4 step's WETH is swapped
         //    into USDC through the deprecated adapter and the claim completes.
         InstantPlan memory plan = _planInstant();
-        vm.prank(bruno);
-        core.requestPayout(plan.request, ICoreVaultPayouts.PayoutMode.Instant);
         vm.recordLogs();
         vm.prank(bruno);
-        ICoreVault.PayoutReceipt memory r = core.claimPayout("");
+        ICoreVault.PayoutReceipt memory r = core.requestPayout(plan.request, ICoreVaultPayouts.PayoutMode.Instant, 0);
         bool failed = _sawUnwindFailed(vm.getRecordedLogs());
         console2.log("===== hub V4 adapter deprecated");
         console2.log("Bruno asked / paid gross / outstanding", plan.request, r.usdcGross, r.usdcOutstanding);
         console2.log("unwind proceeds", r.unwindProceeds);
         assertFalse(failed, "the unwind ran");
         assertGt(r.unwindProceeds, 0);
-        assertEq(r.usdcOutstanding, 0, "paid in full");
-        assertFalse(core.payoutRequest(bruno).open, "the request closed");
+        assertEq(r.excludedPositions, 0, "deprecation excludes no position");
+        _assertPayoutOutcome(plan, r);
 
         // 2. Exits still work: the manager closes the V4 position; its WETH lands in Unallocated Balance.
         vm.prank(manager);
@@ -120,17 +118,15 @@ contract DeprecatedAdapterFork is EndToEndScenario {
         console2.log("WETH principal / WETH income after the close", wethPrincipal, wethIncome);
         assertGt(wethPrincipal, 0);
 
-        // Both become USDG through the deprecated swap adapter and can go home; the way back stays gated.
+        // The principal becomes USDG through the deprecated swap adapter and can go home; the way back stays gated.
+        // The WETH income waits in the collected bucket for a collection order, whose sale into USDG is the same exit
+        // through the same adapter (DEC-056, DEC-122, DEC-124; WP-10: the manager has no income swap of its own).
         vm.prank(manager);
         uint256 usdg = spokeVault.swap(spokeSwapAdapter, RH_WETH, RH_USDG, wethPrincipal, 0, "");
         console2.log("USDG from the WETH principal", usdg);
         assertGt(usdg, 0);
         assertEq(spokeVault.unallocatedBalance(RH_WETH), 0, "no WETH principal stranded");
-        if (wethIncome != 0) {
-            vm.prank(manager);
-            spokeVault.swapCollectedIncome(spokeSwapAdapter, RH_WETH, wethIncome, 0, "");
-            assertEq(spokeVault.collectedIncome(RH_WETH), 0, "no WETH income stranded");
-        }
+        assertEq(spokeVault.collectedIncome(RH_WETH), wethIncome, "the WETH income waits for a collection");
         vm.prank(manager);
         vm.expectRevert(IAdapterGuard.AdapterIsDeprecated.selector);
         spokeVault.swap(spokeSwapAdapter, RH_USDG, RH_WETH, 100e6, 0, "");

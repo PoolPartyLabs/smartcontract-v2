@@ -47,7 +47,7 @@ contract WashTradeIncomeFork is SpokeAForkBase {
     function _snapshot() internal view returns (Snapshot memory s) {
         address mfv = vault.managerFeeVault();
         s.shareAssets = vault.shareAssets();
-        s.holderIncome = _usd(vault.collectedIncome(WETH), vault.collectedIncome(USDC));
+        s.holderIncome = vault.incomeCollection().heldDollars; // DEC-161: the holders' income is held in USDC
         s.manager = _usd(IERC20(WETH).balanceOf(mfv), IERC20(USDC).balanceOf(mfv));
         s.protocol = _usd(IERC20(WETH).balanceOf(protocolRecipient), IERC20(USDC).balanceOf(protocolRecipient));
     }
@@ -83,8 +83,8 @@ contract WashTradeIncomeFork is SpokeAForkBase {
         market.swapTo(true, hi - 100);
         vm.prank(manager);
         hubVault.collectIncome(address(adapter), positionKey);
-        if (hubVault.collectedIncome(WETH) != 0) hubVault.forwardIncomeToCoreVault(WETH);
-        if (hubVault.collectedIncome(USDC) != 0) hubVault.forwardIncomeToCoreVault(USDC);
+        // DEC-161, DEC-172: an Income Withdrawal request collects, sells and converts it (WP-10).
+        vault.requestIncomeWithdrawal(0);
     }
 
     function test_REVIEW_M02_DEC136_washTradesNoLongerReachTheFundsPool() public {

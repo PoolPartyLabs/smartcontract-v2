@@ -24,7 +24,6 @@ import {Transit, TransitState, TransferKind} from "../../../src/interfaces/FundT
 import {FundFactory} from "../../../src/factory/FundFactory.sol";
 import {AcrossBridgeAdapter} from "../../../src/adapters/AcrossBridgeAdapter.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
-import {SpokeUnwindTypes} from "../../../src/spoke/SpokeUnwindTypes.sol";
 import {Mandate, MandateLib} from "../../../src/mandate/Mandate.sol";
 import {ShareMath} from "../../../src/libraries/ShareMath.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
@@ -236,10 +235,13 @@ abstract contract EndToEndScenario is EndToEndBase {
     ///      best direct tier on the live fork, never the fund's V4 pool), with a maximum loss against the pool mid
     ///      (DEC-142); the output also clears a floor from the hub price source.
     function _swapHubUsdcForWeth(uint256 usdcIn) internal returns (uint256 weth) {
+        uint256 beforeWeth = hubSpoke.unallocatedBalance(ARB_WETH);
         vm.prank(manager);
         weth = hubSpoke.swap(hubSwapAdapter, ARB_USDC, ARB_WETH, usdcIn, uint16(SWAP_TOLERANCE_BPS), "");
         assertGe(weth, _minWethFor(usdcIn), "within the tolerance of the price source");
-        assertEq(hubSpoke.unallocatedBalance(ARB_WETH), weth, "DEC-080: swap output credited from the adapter");
+        assertEq(
+            hubSpoke.unallocatedBalance(ARB_WETH), beforeWeth + weth, "DEC-080: swap output credited from the adapter"
+        );
     }
 
     // -----------------------------------------------------------------------------------------------------------------
@@ -384,6 +386,22 @@ abstract contract EndToEndScenario is EndToEndBase {
         assertEq(reportSequence, 1, "S-14: the spoke's first report");
     }
 
+    /// @dev DEC-160: before a burn every spoke with a report needs a fresh one. The spoke publishes a report now and a
+    ///      keeper delivers it on Arbitrum (guardian override set up in phase 4); the scenario ends on Arbitrum.
+    function _deliverFreshSpokeReport() internal {
+        _onRobinhood();
+        vm.recordLogs();
+        spokeVault.report();
+        VaaBody[] memory published = ICoreBridge(RH_WORMHOLE_CORE).fetchPublishedMessages(vm.getRecordedLogs());
+        assertEq(published.length, 1);
+        _onArbitrum();
+        VaaEnvelope memory e = published[0].envelope;
+        e.timestamp = uint32(block.timestamp);
+        receiver.deliver(VaaLib.encode(ICoreBridge(ARB_WORMHOLE_CORE).sign(VaaBody(e, published[0].payload))));
+        assertTrue(receiver.isReportFresh(0), "DEC-160: a fresh report before the burn");
+        _refreshEthUsdFeed();
+    }
+
     /// @dev `report()` publishes to the real Robinhood Core; the message is read back from the logs.
     function _publishReport() internal {
         vm.recordLogs();
@@ -474,49 +492,53 @@ abstract contract EndToEndScenario is EndToEndBase {
     }
 
     // -----------------------------------------------------------------------------------------------------------------
-    // Phase 7: hub income collected and split, Bruno enters, Ana withdraws her income
+    // Phase 7: hub income recognized at Bruno's entry, collected and converted, Ana withdraws her income
     // -----------------------------------------------------------------------------------------------------------------
 
-    /// @dev Ruling 2026-09-29, DEC-107, DEC-109: the split happens when collected income reaches the Core Vault. DEC-014
-    ///      (CS-OQ-1 stance): income is attributed at collection to the holders of that moment, so the income already
-    ///      generated is collected before Bruno enters and he captures none of it. DEC-025, DEC-073: Income Withdrawal.
+    /// @dev DEC-117, DEC-138: the hub income is recognized at every mint and burn, so Bruno's deposit recognizes what
+    ///      the hub positions earned for Ana and the manager's seed (DEC-014: he takes none of it). DEC-122, DEC-161,
+    ///      DEC-172: Ana's Income Withdrawal request collects the hub income, sells the WETH for USDC through the Mandate
+    ///      swap adapter (the real Uniswap V3 adapter on Arbitrum) and converts it in the Hub dollar index; the fee is
+    ///      paid in USDC (DEC-124 item 2, DEC-128 item 4). DEC-025, DEC-073: Income Withdrawal burns no share.
     function _phase7IncomeAndBrunoDeposit() internal {
         _onArbitrum();
-        (uint256 netUsdc, uint256 netWeth) = _collectHubIncome();
-        // DEC-014: the holders while it was earned, Ana and the manager's seed (DEC-127), pro rata to their shares.
-        uint256 anaShares = IERC20(shareToken).balanceOf(ana);
-        uint256 supply = IERC20(shareToken).totalSupply();
-        assertEq(supply, MANAGER_SEED_SHARES + anaShares);
-        assertApproxEqAbs(
-            core.attributedIncome(ana, ARB_USDC),
-            netUsdc * anaShares / supply,
-            1,
-            "DEC-014: Ana held while it was earned"
-        );
-        assertApproxEqAbs(core.attributedIncome(ana, ARB_WETH), netWeth * anaShares / supply, 1);
-
+        _collectHubIncomeIntoTheBucket();
         _brunoDeposits();
 
-        uint256 anaUsdc = core.attributedIncome(ana, ARB_USDC);
-        uint256 anaWeth = core.attributedIncome(ana, ARB_WETH);
+        uint256 anaShares = IERC20(shareToken).balanceOf(ana);
+        uint256 holdersBefore = MANAGER_SEED_SHARES + anaShares;
+        uint256 heldBefore = core.incomeCollection().heldDollars;
+        uint256 feesBefore = IERC20(ARB_USDC).balanceOf(recipient) + IERC20(ARB_USDC).balanceOf(managerFeeVault);
+        vm.prank(ana);
+        core.requestIncomeWithdrawal(0);
+        assertEq(hubSpoke.collectedIncome(ARB_WETH), 0, "DEC-172: the hub's WETH income sold for USDC");
+        assertEq(hubSpoke.collectedIncome(ARB_USDC), 0, "and the USDC handed to the Core Vault");
+        uint256 converted = core.incomeCollection().heldDollars - heldBefore;
+        uint256 fees = IERC20(ARB_USDC).balanceOf(recipient) + IERC20(ARB_USDC).balanceOf(managerFeeVault) - feesBefore;
+        assertGt(converted, 0);
+        assertApproxEqAbs(fees * (10_000 - PERFORMANCE_FEE_BPS) / PERFORMANCE_FEE_BPS, converted, 16, "the 20% fee");
+        assertEq(IERC20(ARB_WETH).balanceOf(managerFeeVault), 0, "DEC-124 item 2: fees in dollars only");
+
+        uint256 anaIncome = core.incomeOwed(ana);
+        assertApproxEqAbs(anaIncome, converted * anaShares / holdersBefore, 2, "DEC-014: Ana held while it was earned");
+        assertEq(core.incomeOwed(bruno), 0, "DEC-014: none of it is Bruno's");
         uint256 usdcBefore = IERC20(ARB_USDC).balanceOf(ana);
-        uint256 wethBefore = IERC20(ARB_WETH).balanceOf(ana);
         uint256 sharesBefore = IERC20(shareToken).balanceOf(ana);
-        vm.startPrank(ana);
-        assertEq(core.withdrawIncome(ARB_USDC), anaUsdc, "DEC-073: Income Withdrawal pays Attributed Income");
-        assertEq(core.withdrawIncome(ARB_WETH), anaWeth);
-        vm.stopPrank();
-        assertEq(IERC20(ARB_USDC).balanceOf(ana) - usdcBefore, anaUsdc, "LC-143: no flow fee on Income Withdrawal");
-        assertEq(IERC20(ARB_WETH).balanceOf(ana) - wethBefore, anaWeth, "DEC-109: paid in kind");
+        vm.prank(ana);
+        assertEq(core.withdrawIncome(), anaIncome, "DEC-073: Income Withdrawal pays Attributed Income");
+        assertEq(IERC20(ARB_USDC).balanceOf(ana) - usdcBefore, anaIncome, "LC-143: no flow fee on Income Withdrawal");
         assertEq(IERC20(shareToken).balanceOf(ana), sharesBefore, "DEC-025: no share is burned");
-        assertEq(core.attributedIncome(ana, ARB_USDC), 0);
+        assertEq(core.incomeOwed(ana), 0);
         vm.prank(bruno);
-        assertEq(core.withdrawIncome(ARB_USDC), 0, "DEC-014: Bruno has nothing to withdraw");
+        assertEq(core.withdrawIncome(), 0, "DEC-014: Bruno has nothing to withdraw");
     }
 
-    /// @dev DEC-092: collecting moves income from the positions to the collected bucket and never touches Share Assets.
-    function _collectHubIncome() internal returns (uint256 netUsdc, uint256 netWeth) {
+    /// @dev DEC-092: the manager's collect verb moves income from the positions to the collected bucket and never
+    ///      touches Share Assets; the income counters are monotonic (Q60), so collecting changes nothing of what the
+    ///      Core Vault recognizes.
+    function _collectHubIncomeIntoTheBucket() internal {
         uint256 assetsBefore = core.shareAssets();
+        uint256 wethCounter = hubSpoke.cumulativeIncome(ARB_WETH);
         vm.startPrank(manager);
         IAdapter.Amounts memory v4 = hubSpoke.collectIncome(hubUniswap, hubUniswapPosition);
         IAdapter.Amounts memory aave = hubSpoke.collectIncome(hubAave, hubAavePosition);
@@ -524,42 +546,21 @@ abstract contract EndToEndScenario is EndToEndBase {
         assertGt(v4.income0, 0);
         assertGt(v4.income1, 0);
         assertGt(aave.income0, 0, "DEC-068: Aave interest collected");
-        uint256 usdcIncome = hubSpoke.collectedIncome(ARB_USDC);
-        uint256 wethIncome = hubSpoke.collectedIncome(ARB_WETH);
-        assertEq(usdcIncome, v4.income1 + aave.income0);
-        assertEq(wethIncome, v4.income0);
+        assertEq(hubSpoke.collectedIncome(ARB_USDC), v4.income1 + aave.income0);
+        assertEq(hubSpoke.collectedIncome(ARB_WETH), v4.income0);
+        assertEq(hubSpoke.cumulativeIncome(ARB_WETH), wethCounter, "Q60: collecting moves no counter");
         // AAVE-3: Aave's scaled rounding is borne by principal, at most a unit per operation.
         assertApproxEqAbs(core.shareAssets(), assetsBefore, 2, "DEC-092: collection leaves Share Assets");
-
         assertEq(IManagerRegistry(hubDeployment.managerRegistry).protocolSliceBps(manager), 5000, "DEC-106: 50% slice");
-        netUsdc = _forwardAndAssertSplit(ARB_USDC, usdcIncome);
-        netWeth = _forwardAndAssertSplit(ARB_WETH, wethIncome);
     }
 
-    /// @dev DEC-107: 20% performance fee on the collected amount; DEC-106, DEC-110: half of it to the Protocol
-    ///      Recipient; DEC-109: the rest of the fee to the ManagerFeeVault, in kind, at once; the net to the holders.
-    function _forwardAndAssertSplit(address token, uint256 amount) internal returns (uint256 net) {
-        uint256 fee = amount * PERFORMANCE_FEE_BPS / 10_000;
-        uint256 slice = fee * 5000 / 10_000;
-        net = amount - fee;
-        uint256 recipientBefore = IERC20(token).balanceOf(recipient);
-        uint256 feeVaultBefore = IERC20(token).balanceOf(managerFeeVault);
-        uint256 collectedBefore = core.collectedIncome(token);
-        vm.prank(makeAddr("anyone"));
-        assertEq(hubSpoke.forwardIncomeToCoreVault(token), amount, "permissionless forward");
-        assertEq(IERC20(token).balanceOf(recipient) - recipientBefore, slice, "DEC-106: protocol slice");
-        assertEq(IERC20(token).balanceOf(managerFeeVault) - feeVaultBefore, fee - slice, "DEC-109: ManagerFeeVault");
-        assertEq(core.collectedIncome(token) - collectedBefore, net, "ruling 2026-09-29: the net to the accumulator");
-    }
-
-    /// @dev DEC-014: Bruno enters at the Share Price that excludes every income bucket (DEC-092) and owes nothing of
-    ///      the income collected before him. DEC-035, DEC-061: whole shares, the rest stays in his wallet. Q57 reading,
-    ///      OQ-10: a mint needs a fresh report and fresh prices.
+    /// @dev DEC-014, DEC-138: Bruno enters at the Share Price that excludes every income bucket (DEC-092) and his
+    ///      mint's valuation recognizes the hub income earned before him, so he owes nothing of it. DEC-035, DEC-061:
+    ///      whole shares, the rest stays in his wallet. Q57 reading, OQ-10: a mint needs a fresh report and fresh prices.
     function _brunoDeposits() internal {
         _refreshEthUsdFeed();
         uint256 price = core.sharePrice();
         uint256 assetsBefore = core.shareAssets();
-        uint256 anaUsdc = core.attributedIncome(ana, ARB_USDC);
         deal(ARB_USDC, bruno, BRUNO_DEPOSIT);
         vm.startPrank(bruno);
         IERC20(ARB_USDC).approve(address(core), BRUNO_DEPOSIT);
@@ -574,9 +575,14 @@ abstract contract EndToEndScenario is EndToEndBase {
         assertEq(IERC20(ARB_USDC).balanceOf(bruno), BRUNO_DEPOSIT - charged, "DEC-061: the remainder stays");
         assertEq(core.shareAssets(), assetsBefore + forShares);
         assertApproxEqAbs(core.sharePrice(), price, price / 1e9, "DEC-061: rounding only");
-        assertEq(core.attributedIncome(bruno, ARB_USDC), 0, "DEC-014: none of the income already generated");
-        assertEq(core.attributedIncome(bruno, ARB_WETH), 0, "DEC-014: none of the income already generated");
-        assertEq(core.attributedIncome(ana, ARB_USDC), anaUsdc, "DEC-014: Ana keeps hers");
+        assertEq(core.incomeToken(0, ARB_WETH).counter, hubSpoke.cumulativeIncome(ARB_WETH), "DEC-138: recognized");
+        assertEq(core.unconvertedIncome(bruno, 0, ARB_WETH), 0, "DEC-014: none of the WETH income already earned");
+        assertEq(core.unconvertedIncome(bruno, 0, ARB_USDC), 0, "DEC-014: none of the USDC income already earned");
+        assertGt(
+            core.unconvertedIncome(ana, 0, ARB_WETH) + core.incomeOwed(ana),
+            0,
+            "DEC-014: Ana retains income whether or not it was already converted"
+        );
     }
 
     // -----------------------------------------------------------------------------------------------------------------
@@ -590,7 +596,7 @@ abstract contract EndToEndScenario is EndToEndBase {
         _onArbitrum();
         uint256 idleBefore = core.idle();
         vm.prank(ana);
-        core.requestPayout(ANA_PAYOUT, ICoreVaultPayouts.PayoutMode.Standard);
+        core.requestPayout(ANA_PAYOUT, ICoreVaultPayouts.PayoutMode.Standard, 0);
         ICoreVault.PayoutRequest memory req = core.payoutRequest(ana);
         assertEq(req.reserved, ANA_PAYOUT, "DEC-072: reserved as USDC");
         assertEq(core.payoutReserve(), ANA_PAYOUT);
@@ -598,16 +604,17 @@ abstract contract EndToEndScenario is EndToEndBase {
         assertEq(IERC20(shareToken).balanceOf(ana), 9975e18, "DEC-077: nothing burned at request");
         vm.prank(ana);
         vm.expectRevert(abi.encodeWithSelector(ICoreVaultPayouts.PayoutTermNotEnded.selector, req.termEndsAt));
-        core.claimPayout("");
+        core.claimPayout(0);
 
         _advance(72 hours);
+        _deliverFreshSpokeReport();
         uint256 price = core.sharePrice();
         uint256 shares = ShareMath.sharesToBurn(ANA_PAYOUT, price);
         uint256 gross = ShareMath.usdcFor(shares, price);
         uint256 recipientBefore = IERC20(ARB_USDC).balanceOf(recipient);
         uint256 anaBefore = IERC20(ARB_USDC).balanceOf(ana);
         vm.prank(ana);
-        ICoreVault.PayoutReceipt memory receipt = core.claimPayout("");
+        ICoreVault.PayoutReceipt memory receipt = core.claimPayout(0);
 
         assertEq(receipt.sharePrice, price, "DEC-105: one Share Price");
         assertEq(receipt.sharesBurned, shares, "DEC-077: whole shares rounded down");
@@ -634,139 +641,126 @@ abstract contract EndToEndScenario is EndToEndBase {
     struct InstantPlan {
         uint256 request;
         uint256 balance;
-        uint256 target;
         uint256 supply;
+        uint256 fracNum;
+        uint256 fracDen;
         uint256 operatingCash;
         uint256 aavePrincipal;
         uint256 brunoUsdc;
-        uint256 hubUnallocated;
-        uint256 v4Value;
+        uint256 hubWeth;
         uint128 v4Liquidity;
     }
 
-    /// @dev DEC-068: Partial Payout when the unwind falls short. DEC-137 interim (Mandate v2 has no unwind order): the
-    ///      hub positions in registry order, Aave (opened first) then V4. DEC-059: the Aave Exact-Value Position pays at
-    ///      par, and V4 is read, not exited, when Aave covers the target. DEC-081: shortfall plus 2%. DEC-097:
-    ///      the margin's Market Costs are the fund's. DEC-102: 2% Payout Fee into Operating Cash. DEC-105: the burn at
-    ///      the Share Price read after the unwind; the Settlement Price is recorded only.
+    /// @dev DEC-137 (D-11): Free Idle and the hub Spoke Vault's Unallocated USDC pay first, and every hub position and
+    ///      the Unallocated WETH give the same fraction, `(S - A/P) / (T - A/P) x 1.02`, from shares; the V4 exit's
+    ///      WETH and the Unallocated WETH are sold through the fund's Uniswap V3 swap adapter on the live fork
+    ///      (DEC-136 item 4, DEC-153). DEC-118: Instant, so Bruno bears the sales' whole Market Cost; DEC-105, D-17: the
+    ///      burn at the Share Price read after the unwind on NAV plus that cost. DEC-144: the 2% Payout Fee stays in
+    ///      Idle. DEC-068: Partial Payout when the unwind falls short. Spoke value is the spoke's unwind order's
+    ///      (DEC-120, DEC-139), so the claim may be partial here.
     function _phase9BrunoInstantPayoutWithUnwind() internal {
         _onArbitrum();
         InstantPlan memory plan = _planInstant();
-        vm.prank(bruno);
-        core.requestPayout(plan.request, ICoreVaultPayouts.PayoutMode.Instant);
-        assertEq(core.payoutRequest(bruno).reserved, 0, "DEC-095: no reserve for an Instant Payout");
-
-        bytes memory hints = _unwindHints(plan.target);
+        // DEC-120 item 1: the Instant request is its own claim.
         vm.recordLogs();
         vm.prank(bruno);
-        ICoreVault.PayoutReceipt memory receipt = core.claimPayout(hints);
+        ICoreVault.PayoutReceipt memory receipt =
+            core.requestPayout(plan.request, ICoreVaultPayouts.PayoutMode.Instant, 0);
         Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(core.payoutRequest(bruno).reserved, 0, "DEC-095: no reserve for an Instant Payout");
 
-        (uint256 target, uint256 proceeds) = _unwound(logs);
-        assertEq(target, plan.target, "DEC-081: the shortfall plus 2%");
-        assertEq(proceeds, receipt.unwindProceeds, "DEC-080: proceeds reached Idle through returnToIdle");
-        assertGt(proceeds, 0);
-        _assertRegistryOrderUnwind(plan, target);
+        (bytes32 requestId, uint256 fracNum, uint256 fracDen, ISpokeVaultUnwind.UnwindResult memory u) = _unwound(logs);
+        assertEq(requestId, receipt.requestId, "the unwind and the payout name the same request");
+        assertEq(fracNum, plan.fracNum, "DEC-137, D-11: (S - A/P) / (T - A/P) x 1.02, from shares");
+        assertEq(fracDen, plan.fracDen);
+        assertEq(receipt.fracNum, fracNum);
+        assertEq(receipt.fracDen, fracDen);
+        assertEq(u.proceeds, receipt.unwindProceeds, "DEC-080: proceeds reached Idle through returnToIdle");
+        assertEq(u.excluded, 0, "no maximum: every position delivered");
+        assertEq(u.delivered, plan.hubWeth != 0 ? 3 : 2, "Aave, V4 and the Unallocated WETH");
+        _assertProportionalUnwind(plan);
 
+        assertEq(receipt.marketCost, u.marketCost, "DEC-118: the sales' loss against the V3 mid");
+        assertEq(u.leaverCost, u.marketCost, "DEC-118: Instant, the requester bears it all");
+        assertEq(receipt.leaverCost, u.leaverCost);
+        assertEq(receipt.marketCostAbsorbed, 0);
         assertEq(receipt.totalShares, plan.supply);
-        assertEq(receipt.sharePrice, ShareMath.sharePrice(receipt.shareAssets, receipt.totalShares), "DEC-105");
+        assertEq(
+            receipt.sharePrice,
+            ShareMath.sharePrice(receipt.shareAssets + receipt.leaverCost, receipt.totalShares),
+            "DEC-105, D-17: one Share Price after the unwind, the requester's cost added back"
+        );
         assertEq(receipt.usdcGross, ShareMath.usdcFor(receipt.sharesBurned, receipt.sharePrice));
-        assertEq(receipt.payoutFee, ShareMath.bpsOf(receipt.usdcGross, 200), "DEC-102: 2% Payout Fee");
+        assertEq(receipt.payoutFee, ShareMath.bpsOf(receipt.usdcGross, 200), "DEC-075: 2% Payout Fee");
         assertEq(core.operatingCash(), plan.operatingCash, "DEC-144: the Payout Fee stays in Idle");
         assertEq(receipt.flowFee, ShareMath.flowFee(receipt.usdcGross, FLOW_FEE_BPS), "DEC-106");
-        assertEq(receipt.usdcPaid, receipt.usdcGross - receipt.payoutFee - receipt.flowFee);
+        assertEq(receipt.usdcPaid, receipt.usdcGross - receipt.payoutFee - receipt.flowFee - receipt.leaverCost);
         assertEq(IERC20(ARB_USDC).balanceOf(bruno) - plan.brunoUsdc, receipt.usdcPaid);
         assertEq(
             receipt.payoutSettlementPrice,
-            Math.mulDiv(proceeds, 1e36, receipt.sharesBurned),
+            Math.mulDiv(u.proceeds, 1e36, receipt.sharesBurned),
             "DEC-084, DEC-105: Settlement Price recorded only"
         );
         assertEq(IERC20(shareToken).balanceOf(bruno), plan.balance - receipt.sharesBurned);
         _assertPayoutOutcome(plan, receipt);
-        emit log_named_decimal_uint("Instant Payout unwind target (USDC)", target, 6);
+        emit log_named_decimal_uint("Instant Payout unwind fraction (bps)", fracNum * 10_000 / fracDen, 2);
+        emit log_named_decimal_uint("Instant Payout Market Cost (USDC)", u.marketCost, 6);
         emit log_named_decimal_uint("Instant Payout outstanding after the claim (USDC)", receipt.usdcOutstanding, 6);
     }
 
-    /// @dev Bruno asks 1,000 USDC more than Free Idle; the expected unwind target is read at the pre-claim price.
+    /// @dev Bruno asks 1,000 USDC more than Free Idle; the fraction is computed here from shares as D-11 states it,
+    ///      at the pre-claim Share Price, with A = Free Idle + the hub Spoke Vault's Unallocated USDC.
     function _planInstant() internal view returns (InstantPlan memory plan) {
         uint256 free = core.freeIdle();
         uint256 price = core.sharePrice();
         plan.request = free + BRUNO_ABOVE_FREE_IDLE;
         plan.balance = IERC20(shareToken).balanceOf(bruno);
         assertGt(ShareMath.usdcFor(plan.balance, price), plan.request, "Bruno holds more than he asks");
-        uint256 wanted = ShareMath.usdcFor(Math.min(ShareMath.sharesToBurn(plan.request, price), plan.balance), price);
-        uint256 shortfall = wanted - free;
-        plan.target = shortfall + shortfall * 200 / 10_000;
         plan.supply = IERC20(shareToken).totalSupply();
+        uint256 served = Math.min(ShareMath.sharesToBurn(plan.request, price), plan.balance);
+        uint256 available = free + hubSpoke.unallocatedBalance(ARB_USDC);
+        assertLt(available, ShareMath.usdcFor(served, price), "Idle and the hub's USDC do not cover the request");
+        uint256 availableShares = Math.mulDiv(available, 1e36, price);
+        plan.fracNum = (served - availableShares) * 10_200;
+        plan.fracDen = (plan.supply - availableShares) * 10_000;
         plan.operatingCash = core.operatingCash();
         plan.aavePrincipal = IAdapter(hubAave).positionValue(hubAavePosition).principal0;
         plan.brunoUsdc = IERC20(ARB_USDC).balanceOf(bruno);
-        plan.hubUnallocated = hubSpoke.unallocatedBalance(ARB_USDC);
-        IAdapter.PositionValue memory v4 = IAdapter(hubUniswap).positionValue(hubUniswapPosition);
-        plan.v4Value = _spotValue(v4);
-        plan.v4Liquidity = v4.liquidity;
+        plan.hubWeth = hubSpoke.unallocatedBalance(ARB_WETH);
+        plan.v4Liquidity = IAdapter(hubUniswap).positionValue(hubUniswapPosition).liquidity;
     }
 
-    /// @dev WETH/USDC principal of a hub V4 position at the pool's spot price, as the Spoke Vault values an unwind step
-    ///      (final verification): USDC at par, WETH through `IAdapter.spotQuote`.
-    function _spotValue(IAdapter.PositionValue memory v4) internal view returns (uint256) {
-        return v4.principal1 + IAdapter(hubUniswap).spotQuote(ARB_WETH_USDC_POOL_ID, ARB_WETH, v4.principal0);
+    /// @dev DEC-137: each hub position gave the fraction (rounded up by its adapter), whatever its place in the
+    ///      registry, and kept the rest; the Unallocated WETH gave the fraction too (rounded down) and the hub Spoke
+    ///      Vault holds no USDC (D-11: all of it went to Idle).
+    function _assertProportionalUnwind(InstantPlan memory plan) internal view {
+        assertEq(hubSpoke.positions().length, 2, "a fraction below 1 closes no position");
+        uint256 aaveAfter = IAdapter(hubAave).positionValue(hubAavePosition).principal0;
+        assertApproxEqAbs(
+            plan.aavePrincipal - aaveAfter,
+            Math.mulDiv(plan.aavePrincipal, plan.fracNum, plan.fracDen, Math.Rounding.Ceil),
+            2,
+            "DEC-137: Aave gave the fraction at par"
+        );
+        uint128 liquidityAfter = IAdapter(hubUniswap).positionValue(hubUniswapPosition).liquidity;
+        assertEq(
+            plan.v4Liquidity - liquidityAfter,
+            Math.mulDiv(plan.v4Liquidity, plan.fracNum, plan.fracDen, Math.Rounding.Ceil),
+            "DEC-137: V4 gave the same fraction of its liquidity"
+        );
+        assertEq(
+            hubSpoke.unallocatedBalance(ARB_WETH),
+            plan.hubWeth - Math.mulDiv(plan.hubWeth, plan.fracNum, plan.fracDen),
+            "DEC-137: the Unallocated WETH gave the fraction"
+        );
+        assertEq(hubSpoke.unallocatedBalance(ARB_USDC), 0, "D-11: the hub's USDC went to Idle");
     }
 
-    /// @dev DEC-137 interim (DEC-139; Mandate v2 drops the unwind order): the unwind walks the hub positions in
-    ///      registry order, and phase 2 opened Aave before V4. Final verification: the vault exits only the share the
-    ///      shortfall needs; the Aave Exact-Value Position pays it at par (DEC-059), so V4 is read, not exited, unless
-    ///      Aave cannot cover the whole shortfall.
-    function _assertRegistryOrderUnwind(InstantPlan memory plan, uint256 target) internal view {
-        ISpokeVault.PositionRef[] memory p = hubSpoke.positions();
-        assertEq(p[0].adapter, hubAave, "Aave is first in the registry");
-        uint256 shortfall = target - plan.hubUnallocated;
-        if (plan.aavePrincipal > shortfall) {
-            assertEq(p.length, 2, "final verification: the Aave position was only decreased");
-            uint256 aaveAfter = IAdapter(hubAave).positionValue(hubAavePosition).principal0;
-            assertApproxEqAbs(plan.aavePrincipal - aaveAfter, shortfall, 2, "DEC-059: Aave paid the shortfall at par");
-            assertEq(
-                IAdapter(hubUniswap).positionValue(hubUniswapPosition).liquidity,
-                plan.v4Liquidity,
-                "the V4 position, second in the registry, was not exited"
-            );
-        } else {
-            assertLt(
-                IAdapter(hubUniswap).positionValue(hubUniswapPosition).liquidity,
-                plan.v4Liquidity,
-                "Aave fell short, so the V4 position paid the rest"
-            );
-        }
-    }
-
-    /// @dev One hint per position the unwind may visit, in registry order (DEC-137 interim): Aave first (no swap), then
-    ///      V4. Final verification: the vault
-    ///      sizes the exits itself, so a hint only tightens a swap: here the V4 step's WETH swap gets a Chainlink-based
-    ///      minimum for the WETH the vault will take out (the whole position, or the share the shortfall needs),
-    ///      stricter than the vault's own floor (spot less MAX_UNWIND_SLIPPAGE_BPS); Aave needs no hint.
-    function _unwindHints(uint256 target) internal view returns (bytes memory) {
-        IAdapter.PositionValue memory v4 = IAdapter(hubUniswap).positionValue(hubUniswapPosition);
-        // What V4 must cover once Unallocated USDC and the Aave position before it in the registry have paid.
-        uint256 covered =
-            hubSpoke.unallocatedBalance(ARB_USDC) + IAdapter(hubAave).positionValue(hubAavePosition).principal0;
-        uint256 shortfall = target > covered ? target - covered : 0;
-        uint256 value = _spotValue(v4);
-        uint256 wethOut = value <= shortfall ? v4.principal0 : Math.mulDiv(v4.principal0, shortfall, value);
-        SpokeUnwindTypes.UnwindSwap[] memory swaps = new SpokeUnwindTypes.UnwindSwap[](1);
-        swaps[0] = SpokeUnwindTypes.UnwindSwap({
-            adapter: hubUniswap,
-            poolKey: ARB_WETH_USDC_POOL_ID,
-            tokenIn: ARB_WETH,
-            minAmountOut: _usdcValue(ARB_WETH, wethOut) * (10_000 - SWAP_TOLERANCE_BPS) / 10_000,
-            params: _swapParams()
-        });
-        SpokeUnwindTypes.UnwindHint[] memory hints = new SpokeUnwindTypes.UnwindHint[](2);
-        hints[0] = SpokeUnwindTypes.UnwindHint({swaps: new SpokeUnwindTypes.UnwindSwap[](0)});
-        hints[1] = SpokeUnwindTypes.UnwindHint({swaps: swaps});
-        return abi.encode(hints);
-    }
-
-    function _unwound(Vm.Log[] memory logs) internal view returns (uint256 target, uint256 proceeds) {
+    function _unwound(Vm.Log[] memory logs)
+        internal
+        view
+        returns (bytes32 requestId, uint256 fracNum, uint256 fracDen, ISpokeVaultUnwind.UnwindResult memory r)
+    {
         uint256 seen;
         for (uint256 i; i < logs.length; ++i) {
             if (
@@ -775,7 +769,8 @@ abstract contract EndToEndScenario is EndToEndBase {
                 continue;
             }
             ++seen;
-            (target, proceeds) = abi.decode(logs[i].data, (uint256, uint256));
+            requestId = logs[i].topics[1];
+            (fracNum, fracDen, r) = abi.decode(logs[i].data, (uint256, uint256, ISpokeVaultUnwind.UnwindResult));
         }
         assertEq(seen, 1, "one automatic unwind");
     }

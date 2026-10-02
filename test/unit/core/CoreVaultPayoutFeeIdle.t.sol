@@ -20,8 +20,7 @@ contract CoreVaultPayoutFeeIdleTest is CoreVaultFixture {
         assertEq(vault.sharePrice(), ONE);
 
         uint256 anaBefore = usdc.balanceOf(ana); // the sub-share remainder of her deposit never left her wallet
-        _request(ana, 30_000e6, ICoreVaultPayouts.PayoutMode.Instant);
-        ICoreVault.PayoutReceipt memory r = _claim(ana);
+        ICoreVault.PayoutReceipt memory r = _request(ana, 30_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         assertEq(r.usdcGross, 30_000e6);
         assertEq(r.payoutFee, 600e6, "2% Payout Fee");
         assertEq(r.flowFee, 75e6, "25 bps flow fee");

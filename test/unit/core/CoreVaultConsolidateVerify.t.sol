@@ -2,7 +2,6 @@
 pragma solidity 0.8.28;
 
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
-import {ICoreVaultIncome} from "../../../src/interfaces/ICoreVaultIncome.sol";
 import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
@@ -82,8 +81,7 @@ contract CoreVaultConsolidateVerifyTest is CoreVaultFixture {
         assertEq(truth, vault.idle(), "everything is Idle again");
 
         hubVault.setBuildReverts(true);
-        _request(alice, 100e6, ICoreVaultPayouts.PayoutMode.Instant);
-        ICoreVault.PayoutReceipt memory r = _claim(alice);
+        ICoreVault.PayoutReceipt memory r = _request(alice, 100e6, ICoreVaultPayouts.PayoutMode.Instant);
         assertEq(r.shareAssets, truth, "the fallback must not count the returned 1,000 a second time");
     }
 
@@ -95,46 +93,33 @@ contract CoreVaultConsolidateVerifyTest is CoreVaultFixture {
         assertEq(truth, vault.idle() + 1000e6, "the 1,000 moved to the hub Spoke Vault");
 
         hubVault.setBuildReverts(true);
-        _request(alice, 100e6, ICoreVaultPayouts.PayoutMode.Instant);
         vm.expectEmit(address(vault));
         emit ICoreVault.HubValuationFallback(1000e6);
-        ICoreVault.PayoutReceipt memory r = _claim(alice);
+        ICoreVault.PayoutReceipt memory r = _request(alice, 100e6, ICoreVaultPayouts.PayoutMode.Instant);
         assertEq(r.shareAssets, truth, "the fallback must count the allocated 1,000");
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // Ruling 2026-09-29, DEC-107, DEC-109, OQ-01: an Income arrival that lands before any report lists it is held
-    // apart untouched (no fee, no index move); the split happens at the match, and every unit ends in exactly one
-    // place: protocol, ManagerFeeVault or the net collected bucket. The ledger stays backed throughout.
+    // DEC-161, OQ-01: an Income arrival that lands before any report lists it is held apart untouched (no fee, no
+    // conversion); at the match it is held for its collection result (converted when the Hub reads one), and every
+    // unit stays in exactly one place. The ledger stays backed throughout.
     // ---------------------------------------------------------------------------------------------------------------
-    function test_DEC107_pendingIncomeArrivalIsSplitOnlyWhenTheReportMatchesIt() public {
+    function test_DEC161_pendingIncomeArrivalIsHeldOnlyWhenTheReportMatchesIt() public {
         bytes32 id = keccak256("income-listed-late");
         uint256 protocol0 = usdc.balanceOf(protocol);
         address feeVault = vault.managerFeeVault();
 
         pool.fill(address(vault), address(usdc), 100e6, _homeMessage(id, TransferKind.Income));
         assertEq(vault.unmatchedArrivals(), 100e6, "held apart before any report lists it");
-        assertEq(vault.collectedIncome(address(usdc)), 0, "nothing collected yet");
-        assertEq(usdc.balanceOf(protocol), protocol0, "no slice before the match");
-        assertEq(usdc.balanceOf(feeVault), 0, "no manager fee before the match");
-        assertEq(vault.incomeState(address(usdc)).distributed, 0, "the index has not moved");
+        assertEq(_heldIncome(), 0, "nothing held for income yet");
         assertEq(usdc.balanceOf(address(vault)), _ledgerUsdc());
 
-        vm.expectEmit(address(vault));
-        emit ICoreVaultIncome.CollectedIncomeReceived(address(usdc), 100e6, 10e6, 10e6, 5000);
         _deliver(_inFlightToHub(_spokeReport(0, 0), id, 100e6, TransferKind.Income));
 
         assertEq(vault.unmatchedArrivals(), 0, "matched in full");
-        assertEq(vault.collectedIncome(address(usdc)), 80e6, "net of the 20% fee");
-        assertEq(usdc.balanceOf(protocol) - protocol0, 10e6, "half of the fee to the Protocol Recipient");
-        assertEq(usdc.balanceOf(feeVault), 10e6, "the other half to the ManagerFeeVault");
-        assertEq(vault.incomeState(address(usdc)).distributed, 80e6, "only the net enters the accumulator");
-        assertApproxEqAbs(
-            vault.attributedIncome(alice, address(usdc)),
-            uint256(80e6) * 9975 / 9976,
-            2,
-            "Alice holds every share but the manager's seed share"
-        );
+        assertEq(_heldIncome(), 100e6, "held for its collection result");
+        assertEq(usdc.balanceOf(protocol), protocol0, "no slice before a conversion");
+        assertEq(usdc.balanceOf(feeVault), 0, "no manager fee before a conversion");
         assertEq(vault.idle(), SEED_IDLE + 9975e6, "Idle never moved");
         assertEq(usdc.balanceOf(address(vault)), _ledgerUsdc(), "DEC-080: balance equals the ledger");
         assertEq(vault.sweepExcess(address(usdc)), 0, "nothing sweepable");
@@ -157,8 +142,8 @@ contract CoreVaultConsolidateVerifyTest is CoreVaultFixture {
         pool.fill(address(vault), address(usdc), 500e6, _homeMessage(id, TransferKind.Income));
         (,, inFlightToHub,) = vault.spokeCapUsage(0);
         assertEq(inFlightToHub, 0, "released once credited");
-        assertEq(vault.shareAssets(), assets0, "still outside Share Assets once collected");
-        assertEq(vault.collectedIncome(address(usdc)), 400e6);
+        assertEq(vault.shareAssets(), assets0, "still outside Share Assets once credited");
+        assertEq(_heldIncome(), 500e6, "held for its collection result");
         assertEq(vault.idle(), SEED_IDLE + 9975e6);
     }
 }

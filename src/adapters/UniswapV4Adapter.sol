@@ -9,11 +9,9 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
-import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
-import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {SqrtPriceMath} from "@uniswap/v4-core/src/libraries/SqrtPriceMath.sol";
 import {IPositionManager} from "@uniswap/v4-periphery/src/interfaces/IPositionManager.sol";
@@ -23,7 +21,6 @@ import {LiquidityAmounts} from "@uniswap/v4-periphery/src/libraries/LiquidityAmo
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
 
 import {IAdapter} from "../interfaces/IAdapter.sol";
-import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {AdapterGuard} from "./AdapterGuard.sol";
 
 /// @title UniswapV4Adapter
@@ -33,7 +30,7 @@ import {AdapterGuard} from "./AdapterGuard.sol";
 /// @dev Pools: the adapter's `poolKey` is the Uniswap `PoolId` (`keccak256(abi.encode(PoolKey))`). The closed list of
 ///      `PoolKey` structs is registered once in the constructor (DEC-030); nothing may be added later.
 /// @dev DEC-079 (OPEN for hooks that charge on withdrawal), OQ-12: a registered pool whose `hooks` is not address(0) is
-///      treated as unknown by `poolTokens`, `openPosition` and `swapExactInput`, so the Spoke Vault's creation check
+///      treated as unknown by `poolTokens` and `openPosition`, so the Spoke Vault's creation check
 ///      rejects it. Native-currency pools are rejected at construction (the adapter never handles ETH).
 /// @dev Liquidity goes through the PositionManager (`modifyLiquidities` with `Actions`); position NFTs are owned by this
 ///      adapter. Token payment goes through Permit2 with an ephemeral allowance of exactly the amount owed, cleared in
@@ -49,7 +46,7 @@ import {AdapterGuard} from "./AdapterGuard.sol";
 ///      at the end of `openPosition` and `increasePosition`, to hand back every token the vault sent and the position
 ///      did not use (the adapter holds nothing between calls); the vault books that return from its own ledger
 ///      (`amount - used`), not from what arrives.
-contract UniswapV4Adapter is IAdapter, AdapterGuard, ReentrancyGuard, IUnlockCallback {
+contract UniswapV4Adapter is IAdapter, AdapterGuard, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.Bytes32Set;
     using SafeCast for uint256;
@@ -105,17 +102,6 @@ contract UniswapV4Adapter is IAdapter, AdapterGuard, ReentrancyGuard, IUnlockCal
         uint256 deadline;
     }
 
-    /// @notice Parameters of `swapExactInput`, ABI-encoded as this struct; empty `params` mean no price limit and the
-    ///         current block as deadline (the Spoke Vault's automatic unwind without a claimant hint; its minimum
-    ///         output is the vault's floor, final verification, QA3).
-    /// @param sqrtPriceLimitX96 Price limit of the swap; 0 means no limit. A swap that stops at the limit before
-    ///        using the whole input reverts with `PartialSwap`.
-    /// @param deadline Timestamp after which the swap reverts.
-    struct SwapExactInputParams {
-        uint160 sqrtPriceLimitX96;
-        uint256 deadline;
-    }
-
     /// @dev One open position. The position key is `bytes32(tokenId)` of the PositionManager NFT.
     struct Position {
         bytes32 poolId;
@@ -146,7 +132,7 @@ contract UniswapV4Adapter is IAdapter, AdapterGuard, ReentrancyGuard, IUnlockCal
     /// @inheritdoc IAdapter
     address public immutable vault;
 
-    /// @notice Uniswap V4 PoolManager (swaps).
+    /// @notice Uniswap V4 PoolManager whose position accounting is read through StateView.
     IPoolManager public immutable poolManager;
 
     /// @notice Uniswap V4 PositionManager (liquidity; owner of record of every position in the PoolManager).
@@ -188,15 +174,6 @@ contract UniswapV4Adapter is IAdapter, AdapterGuard, ReentrancyGuard, IUnlockCal
 
     /// @notice The principal of an operation is below the caller's minimums.
     error AmountBelowMinimum(uint256 amount0, uint256 amount1);
-
-    /// @notice The swap input token is not one of the pool's tokens.
-    error TokenNotInPool(address token);
-
-    /// @notice The swap stopped at the price limit before using the whole input.
-    error PartialSwap(uint256 amountUsed, uint256 amountIn);
-
-    /// @notice `unlockCallback` was called by an address other than the PoolManager.
-    error NotPoolManager(address caller);
 
     /// @notice The operation's deadline has passed.
     error DeadlineExpired(uint256 deadline);
@@ -337,18 +314,6 @@ contract UniswapV4Adapter is IAdapter, AdapterGuard, ReentrancyGuard, IUnlockCal
         uint256 part = Math.mulDiv(liquidity, numerator, denominator, Math.Rounding.Ceil);
         if (part >= liquidity) return (true, abi.encode(CloseParams(0, 0, block.timestamp)));
         return (false, abi.encode(DecreaseParams(uint128(part), 0, 0, block.timestamp)));
-    }
-
-    /// @inheritdoc IAdapter
-    /// @dev `slot0` price of token1 per token0 as `sqrtPriceX96^2 / 2^192`, kept in Q128 with 512-bit `mulDiv`
-    ///      (`sqrtPriceX96 >= MIN_SQRT_PRICE`, so the Q128 price is never 0). DEC-079 OPEN: hooked pools revert.
-    function spotQuote(bytes32 poolKey, address tokenIn, uint256 amountIn) external view returns (uint256) {
-        PoolKey memory key = _operablePool(poolKey);
-        (uint160 sqrtPriceX96,,,) = stateView.getSlot0(PoolId.wrap(poolKey));
-        uint256 priceX128 = Math.mulDiv(sqrtPriceX96, sqrtPriceX96, 1 << 64);
-        if (Currency.unwrap(key.currency0) == tokenIn) return Math.mulDiv(amountIn, priceX128, Q128);
-        if (Currency.unwrap(key.currency1) != tokenIn) revert TokenNotInPool(tokenIn);
-        return Math.mulDiv(amountIn, Q128, priceX128);
     }
 
     // ------------------------------------------------------------------------------------------------------------
@@ -519,78 +484,6 @@ contract UniswapV4Adapter is IAdapter, AdapterGuard, ReentrancyGuard, IUnlockCal
         }
 
         emit IncomeCollected(positionKey, amounts.income0, amounts.income1);
-    }
-
-    /// @inheritdoc IAdapter
-    /// @dev `params` is `abi.encode(SwapExactInputParams)`. OQ-04: never blocked when paused; when deprecated only a
-    ///      swap INTO the vault's base token runs (security review S-10: DEC-056, DEC-058 "withdraw-only" keep the exit
-    ///      path open, and this swap is the only way a Spoke Vault turns the non-base leg of a closed position, or of
-    ///      the automatic unwind, into its base token; a swap out of the base token is an entry and stays blocked).
-    ///      DEC-030, DEC-079 OPEN: registered hookless pools only. The swap runs in `unlockCallback`; the output goes
-    ///      straight from the PoolManager to the vault; a swap that does not use the whole input reverts `PartialSwap`.
-    function swapExactInput(
-        bytes32 poolKey,
-        address tokenIn,
-        uint256 amountIn,
-        uint256 minAmountOut,
-        bytes calldata params
-    ) external onlyVault nonReentrant returns (uint256 amountOut) {
-        PoolKey memory key = _operablePool(poolKey);
-        bool zeroForOne = Currency.unwrap(key.currency0) == tokenIn;
-        if (!zeroForOne && Currency.unwrap(key.currency1) != tokenIn) revert TokenNotInPool(tokenIn);
-        address tokenOut = Currency.unwrap(zeroForOne ? key.currency1 : key.currency0);
-        if (deprecated && tokenOut != ISpokeVault(vault).baseToken()) revert AdapterIsDeprecated();
-        if (amountIn == 0) revert ZeroAmount();
-        SwapExactInputParams memory p =
-            params.length == 0 ? SwapExactInputParams(0, block.timestamp) : abi.decode(params, (SwapExactInputParams));
-        // forge-lint: disable-next-line(block-timestamp)
-        if (block.timestamp > p.deadline) revert DeadlineExpired(p.deadline);
-        uint160 limit = p.sqrtPriceLimitX96;
-        if (limit == 0) limit = zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1;
-
-        amountOut = abi.decode(poolManager.unlock(abi.encode(key, zeroForOne, amountIn, limit)), (uint256));
-        if (amountOut < minAmountOut) revert InsufficientOutput(amountOut, minAmountOut);
-        // IAdapter custody: no idle balance stays here between calls; anything above `amountIn` goes back, unreported
-        // (DEC-080: a physical hand-back, never a reported amount).
-        _returnUnused(tokenIn);
-
-        emit Swapped(poolKey, tokenIn, tokenOut, amountIn, amountOut);
-    }
-
-    /// @notice PoolManager callback of `swapExactInput`: swaps, pays the exact input, sends the output to the vault.
-    /// @dev Only the PoolManager may call it, and the PoolManager only calls back the address that unlocked it, so it
-    ///      runs only inside this adapter's own `swapExactInput`.
-    function unlockCallback(bytes calldata data) external returns (bytes memory) {
-        if (msg.sender != address(poolManager)) revert NotPoolManager(msg.sender);
-        (PoolKey memory key, bool zeroForOne, uint256 amountIn, uint160 limit) =
-            abi.decode(data, (PoolKey, bool, uint256, uint160));
-
-        BalanceDelta delta = poolManager.swap(
-            key,
-            IPoolManager.SwapParams({
-                zeroForOne: zeroForOne, amountSpecified: -amountIn.toInt256(), sqrtPriceLimitX96: limit
-            }),
-            ""
-        );
-        (int128 deltaIn, int128 deltaOut) =
-            zeroForOne ? (delta.amount0(), delta.amount1()) : (delta.amount1(), delta.amount0());
-        // casting to 'uint128' is safe because both values are checked to be positive first
-        // forge-lint: disable-next-line(unsafe-typecast)
-        uint256 amountUsed = deltaIn < 0 ? uint256(uint128(-deltaIn)) : 0;
-        if (amountUsed != amountIn) revert PartialSwap(amountUsed, amountIn);
-        // forge-lint: disable-next-line(unsafe-typecast)
-        uint256 amountOut = deltaOut > 0 ? uint256(uint128(deltaOut)) : 0;
-
-        (Currency currencyIn, Currency currencyOut) =
-            zeroForOne ? (key.currency0, key.currency1) : (key.currency1, key.currency0);
-        poolManager.sync(currencyIn);
-        IERC20(Currency.unwrap(currencyIn)).safeTransfer(address(poolManager), amountIn);
-        // A fee-on-transfer or rebasing input surfaces as a named error instead of the PoolManager's opaque
-        // CurrencyNotSettled.
-        uint256 paid = poolManager.settle();
-        if (paid != amountIn) revert PartialSwap(paid, amountIn);
-        if (amountOut != 0) poolManager.take(currencyOut, vault, amountOut);
-        return abi.encode(amountOut);
     }
 
     // ------------------------------------------------------------------------------------------------------------

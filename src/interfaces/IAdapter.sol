@@ -11,9 +11,9 @@ import {IAdapterGuard} from "./IAdapterGuard.sol";
 /// @dev Q17-4 (OPEN, MVP reading O2): the Spoke Vault stores `adapter.codehash` next to the adapter address when it
 ///      is created and revalidates it on every call; an adapter therefore must not be able to change its runtime
 ///      code (no SELFDESTRUCT, no proxy).
-/// @dev Token custody: before `openPosition`, `increasePosition` and `swapExactInput` the vault transfers the input
+/// @dev Token custody: before `openPosition` and `increasePosition` the vault transfers the input
 ///      tokens to the adapter; the adapter returns any unused amount to the vault in the same call. Every amount a
-///      decrease, close, collect or swap produces is transferred to the vault in the same call. The adapter holds
+///      decrease, close or collect produces is transferred to the vault in the same call. The adapter holds
 ///      no idle balance between calls and clears every approval it grants (`forceApprove` to zero).
 /// @dev Quarantine and deprecation (DEC-021, DEC-056, DEC-058): `openPosition` and `increasePosition` revert when
 ///      `paused()` or `deprecated()`; `decreasePosition`, `closePosition` and `collectIncome` never read either flag.
@@ -147,47 +147,20 @@ interface IAdapter is IAdapterGuard {
     /// @return amounts Income transferred to the vault; principal fields are always zero.
     function collectIncome(bytes32 positionKey) external returns (Amounts memory amounts);
 
-    /// @notice Swaps an exact input amount in a Mandate pool and sends the output to the vault. Vault only.
-    /// @dev Needed to turn unwind proceeds into USDC (hub) or the bridgeable token (spoke). Reverts when
-    ///      deprecated; not gated by pause, because it serves the exit path (DEC-056). Adapters of protocols without
-    ///      swaps (Aave V3) revert with `UnsupportedOperation`.
-    /// @dev OPEN: the classification of a swap as entry or exit verb is not decided (Q17-3 recommends that the exit
-    ///      swap not go through a deprecated adapter), and Market Costs attribution is LC-45 / LC-141.
-    /// @param poolKey Mandate-listed pool key.
-    /// @param tokenIn One of the pool's tokens; the vault transferred `amountIn` of it before the call.
-    /// @param amountIn Exact input amount.
-    /// @param minAmountOut Minimum output, else revert with `InsufficientOutput`.
-    /// @param params Adapter-specific parameters (price limit, deadline).
-    function swapExactInput(
-        bytes32 poolKey,
-        address tokenIn,
-        uint256 amountIn,
-        uint256 minAmountOut,
-        bytes calldata params
-    ) external returns (uint256 amountOut);
-
     /// @notice Value of an open position from the protocol's own accounting. Reverts with `UnknownPosition` for a
     ///         key that is not open.
     function positionValue(bytes32 positionKey) external view returns (PositionValue memory);
 
     /// @notice Exit parameters that remove at least `numerator / denominator` of an open position's principal at the
     ///         protocol's current state (rounded up), with no minimum amounts and the current block as deadline.
-    /// @dev Final verification (DEC-069, DEC-081, DEC-097, QA3 OPEN): the Spoke Vault sizes every automatic unwind step
-    ///      itself from `positionValue` and never takes exit sizes from a claimant. `close` is true when that share is
+    /// @dev DEC-137: the Spoke Vault supplies the fraction fixed from shares, never exit sizes from a claimant.
+    ///      `close` is true when that share is
     ///      the whole position (call `closePosition` with `params`), else `decreasePosition` takes `params`.
     ///      `numerator <= denominator`, `denominator > 0`.
     function unwindExitParams(bytes32 positionKey, uint256 numerator, uint256 denominator)
         external
         view
         returns (bool close, bytes memory params);
-
-    /// @notice `amountIn` of `tokenIn` converted into the pool's other token at the pool's current price, without fee
-    ///         or price impact (Uniswap V4: `slot0`).
-    /// @dev Final verification (QA3 OPEN): the Spoke Vault values an unwind step and floors the minimum output of an
-    ///      unwind swap from this quote. A spot price can be moved within a block; the floor bounds execution against
-    ///      the price at the time of the swap, it is not an oracle. Protocols without a price (Aave V3) revert with
-    ///      `UnsupportedOperation`.
-    function spotQuote(bytes32 poolKey, address tokenIn, uint256 amountIn) external view returns (uint256 amountOut);
 
     /// @notice Income in `token` since inception: all income ever realized plus the currently uncollected income of
     ///         open positions. Never a balance.

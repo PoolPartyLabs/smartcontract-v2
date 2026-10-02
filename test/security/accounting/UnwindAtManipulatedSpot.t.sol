@@ -32,24 +32,14 @@ contract UnwindSandwichAttacker {
     ) external returns (ICoreVault.PayoutReceipt memory receipt) {
         pool.setTick(poolId, movedTick);
         pool.setSwap(movedRate, 10_000);
-        core.requestPayout(1_000_000_000e6, ICoreVaultPayouts.PayoutMode.Instant);
-        // No hints: the vault sizes the unwind and floors its swap by itself.
-        receipt = core.claimPayout("");
+        receipt = core.requestPayout(1_000_000_000e6, ICoreVaultPayouts.PayoutMode.Instant, 0);
         pool.setTick(poolId, fairTick);
         pool.setSwap(fairRate, 10_000);
     }
 }
 
-/// @title Regression (security review S-2): a claimant who moves the pool no longer makes the automatic unwind sell
-///        at the moved spot
-/// @notice Was PoC `test_POC_claimantMakesTheFundSellAtTheMovedSpot` (HIGH, accounting lens): the unwind valued, sized
-///         and floored its swap against the pool's own `slot0`, so a claimant who pushed the pool 40% below the oracle
-///         price made a 100,000 USDC Instant Payout give up about 158,000 USDC of position for about 105,700 USDC.
-///
-/// Fix (S-2, `SpokeVault._unwindSwap`): the swap floor is the higher of the spot quote and the Core Vault's
-/// price-source value, less `MAX_UNWIND_SLIPPAGE_BPS`. The test repeats the sandwich and asserts it now FAILS: the
-/// swap at the moved price is refused, the unwind reverts, the position is untouched, the claim is paid from Free Idle
-/// only (Partial Payout, DEC-068) and Alice keeps her value.
+/// @notice DEC-136/137 regression: a manipulated position pool cannot select the unwind sale's venue or size.
+/// @dev Only the share-based fraction leaves the position; the Mandate swap adapter sells its non-base principal.
 contract UnwindAtManipulatedSpotPoC is AccountingPocFixture {
     int24 internal constant HALF_WIDTH = 4050;
     /// @dev 1.0001^-5110 = 0.60: the pool's WETH price is pushed 40 % below the oracle price.
@@ -78,10 +68,10 @@ contract UnwindAtManipulatedSpotPoC is AccountingPocFixture {
         ICoreVault.PayoutReceipt memory r =
             mallory.claimInsideSandwich(core, v4, hubPoolId, TICK_FAIR, wethPrice1e18, TICK_MOVED, movedRate);
 
-        assertEq(r.unwindProceeds, 0, "S-2: nothing was sold at the moved price");
-        assertEq(hubV4.positionValue(positionKey).liquidity, liquidityBefore, "S-2: the position is untouched");
-        assertLe(r.usdcGross, SEED_IDLE + 7250e6, "S-2: the claim was paid from Free Idle only");
-        assertGt(shares.balanceOf(address(mallory)), 0, "Partial Payout: the rest of the request stays open");
+        assertGt(r.unwindProceeds, 0, "DEC-136: the independent swap adapter delivers");
+        assertLt(hubV4.positionValue(positionKey).liquidity, liquidityBefore, "DEC-137: only the fraction exits");
+        assertGt(r.usdcGross, SEED_IDLE + 7250e6, "the unwind supplements Idle");
+        assertEq(shares.balanceOf(address(mallory)), 0, "the balance cap serves the holder's entire balance");
         assertGe(_valueOf(alice) + 1e6, aliceFair, "S-2: Alice keeps her value");
     }
 

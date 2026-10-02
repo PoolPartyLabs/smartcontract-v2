@@ -33,8 +33,7 @@ contract L01_PayoutFeeTrap is CoreVaultFixture {
         _deploy(m, _config(100));
 
         _deposit(alice, 1000e6);
-        _request(alice, 500e6, ICoreVaultPayouts.PayoutMode.Instant);
-        ICoreVault.PayoutReceipt memory r = _claim(alice);
+        ICoreVault.PayoutReceipt memory r = _request(alice, 500e6, ICoreVaultPayouts.PayoutMode.Instant);
         console2.log("gross / payout fee / flow fee / paid", r.usdcGross, r.payoutFee, r.flowFee);
         console2.log("paid", r.usdcPaid);
         assertEq(r.usdcGross, 500e6);

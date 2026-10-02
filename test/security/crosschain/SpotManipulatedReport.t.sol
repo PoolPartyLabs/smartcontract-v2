@@ -95,7 +95,7 @@ contract SpotManipulatedReportPoC is CrossChainFixture {
         assertApproxEqRel(honestAssets, 1_196_550e6, 0.001e18, "Idle 297,000 + spoke 899,550");
 
         vm.prank(attacker);
-        core.requestPayout(250_000e6, ICoreVaultPayouts.PayoutMode.Standard);
+        core.requestPayout(250_000e6, ICoreVaultPayouts.PayoutMode.Standard, 0);
         skip(72 hours);
         _reportAndDeliver(900);
         assertApproxEqRel(core.shareAssets(), honestAssets, 0.0001e18, "nothing moved in 72 hours");
@@ -115,7 +115,7 @@ contract SpotManipulatedReportPoC is CrossChainFixture {
         _deliver(manipulated);
         assertApproxEqRel(core.shareAssets(), honestAssets, 0.00001e18, "S-1: the pushed report reads the honest value");
         vm.prank(attacker);
-        ICoreVault.PayoutReceipt memory receipt = core.claimPayout("");
+        ICoreVault.PayoutReceipt memory receipt = core.claimPayout(0);
 
         assertEq(receipt.sharesBurned, attackerShares, "every share burned");
         assertLe(receipt.usdcGross, fairValue + 10e6, "S-1: paid no more than the shares' worth");

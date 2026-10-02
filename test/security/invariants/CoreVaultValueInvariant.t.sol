@@ -6,7 +6,6 @@ import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {TransitState} from "../../../src/interfaces/FundTypes.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {ShareMath} from "../../../src/libraries/ShareMath.sol";
-import {IncomeAccumulator} from "../../../src/libraries/IncomeAccumulator.sol";
 import {FundSystemFixture} from "./FundSystemFixture.sol";
 import {FundSystemHandler} from "./FundSystemHandler.sol";
 
@@ -76,37 +75,26 @@ contract CoreVaultValueInvariantTest is FundSystemFixture {
         assertEq(reserved, sys.core.payoutReserve(), "DEC-072: the Payout Reserve is the sum of the open reserves");
     }
 
-    /// DEC-080: the Core Vault's ledger is always backed by its balances. DEC-107, DEC-109, Q60: every collected unit
-    /// is a fee that left at collection or sits in the accumulator; holders are never owed, and never took, more than
-    /// what was distributed; the fee never exceeds the Mandate's performance fee.
-    function invariant_DEC107_feesPlusHolderIncomeNeverExceedCollectedIncome() public view {
-        address[2] memory tokens = [address(sys.usdc), address(sys.weth)];
+    /// DEC-080: the Core Vault's ledger is always backed by its balances. DEC-107, DEC-124, DEC-161: every dollar a hub
+    /// collection obtained is a fee that left at once (never above the Mandate's performance fee), held for holders or
+    /// taken by them, but for rounding dust; holders are never owed more than is held.
+    function invariant_DEC161_feesPlusHolderIncomeNeverExceedTheDollarsObtained() public view {
         address[] memory actors = handler.actors();
-        for (uint256 t; t < 2; ++t) {
-            address token = tokens[t];
-            assertGe(
-                IERC20Like(token).balanceOf(address(sys.core)),
-                handler.ledgerOf(address(sys.core), token),
-                "DEC-080: ledger above balance"
-            );
-            IncomeAccumulator.TokenIncome memory income = sys.core.incomeState(token);
-            uint256 gross = handler.incomeGross(token);
-            uint256 fees = handler.incomeFees(token);
-            assertEq(fees + income.distributed + income.ownerless, gross, "every collected unit is fee or accumulated");
-            assertLe(fees * 10_000, gross * PERFORMANCE_FEE_BPS, "DEC-107: fee above the Mandate's performance fee");
-            assertLe(income.taken, income.distributed, "Q60: taken above distributed");
-            assertEq(
-                sys.core.collectedIncome(token),
-                income.distributed + income.ownerless - income.taken,
-                "LC-100: the collected balance is what the accumulator still holds"
-            );
-            uint256 owed;
-            for (uint256 i; i < actors.length; ++i) {
-                owed += sys.core.attributedIncome(actors[i], token);
-            }
-            assertLe(owed + income.taken, income.distributed, "DEC-014: owed plus taken above distributed");
-            assertLe(fees + owed + income.taken, gross, "fees plus holder income above collected income");
+        assertGe(
+            IERC20Like(address(sys.usdc)).balanceOf(address(sys.core)),
+            handler.ledgerOf(address(sys.core), address(sys.usdc)),
+            "DEC-080: ledger above balance"
+        );
+        uint256 obtained = handler.incomeObtained();
+        uint256 fees = handler.incomeFees();
+        uint256 held = sys.core.incomeCollection().heldDollars;
+        assertLe(fees * 10_000, obtained * PERFORMANCE_FEE_BPS, "DEC-107: fee above the Mandate's performance fee");
+        assertLe(fees + held + handler.incomeTaken(), obtained, "fees plus holder income above the dollars obtained");
+        uint256 owed;
+        for (uint256 i; i < actors.length; ++i) {
+            owed += sys.core.incomeOwed(actors[i]);
         }
+        assertLe(owed, held, "DEC-161: owed above what is held");
     }
 
     /// No shareholder ends with more USDC value than they put in (income is paid apart, in its own tokens): what they

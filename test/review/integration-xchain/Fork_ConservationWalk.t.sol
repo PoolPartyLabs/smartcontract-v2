@@ -14,15 +14,18 @@ import {XChainBase, LiveRelayData} from "./XChainBase.sol";
 /// @notice Review port of the integration-xchain value-conservation walk (report 09 "Conservation walk"; consolidated
 ///         H-01, I-14, I-15, I-17; register S-1, S-3, S-14). DEC-104: a unit of value is never outside all bases and
 ///         never in two. The project's end-to-end scenario, extended with the flows it does not walk (real fills, a send
-///         home as Income and as Principal, a refund in each direction, a donation, and since S-3 a refund that lands
-///         after `HUB_BOUND_RETENTION`), on the factory-created fund on both forks.
+///         home as Principal, a refund in each direction, a donation, and since S-3 a refund that lands after
+///         `HUB_BOUND_RETENTION`), on the factory-created fund on both forks. WP-10: the hub income is collected, sold
+///         and converted by an Income Withdrawal request (DEC-161, DEC-172); income goes home from a spoke only through a
+///         collection order, which this walk does not execute (the manual Income send is gone, DEC-122).
 /// @dev After every step two totals are compared, in USDC through the fund's own price source:
 ///      (a) holdings: token balances of the Core Vault, both Spoke Vaults, every adapter and every open transit's
 ///          escrow; the fund's aUSDC; the amounts the fund's V4 positions would return (principal and fees, from the
 ///          PoolManager's state through the adapter's view); and Across deposits the fund made that are neither filled
 ///          nor refunded, at their output amount;
 ///      (b) books: Share Assets + Operating Cash (hub, spoke) + collected income (Core Vault, hub Spoke Vault, spoke)
-///          + uncollected position income (hub, spoke) + `unmatchedArrivals`.
+///          + uncollected position income (hub, spoke) + `unmatchedArrivals` (WP-10: the Core Vault's income is the USDC
+///          it holds for holders, `incomeCollection().heldDollars`).
 ///      D = (a) - (b) - basis is recorded twice: "now" (the hub's books as they are) and "fresh" (after one more report
 ///      is published and delivered, on per-fork snapshots that are then reverted), so report lag separates from real
 ///      gaps. "basis" (S-1): Share Assets value V4 principal at the oracle-implied composition, the holdings at the
@@ -131,21 +134,19 @@ contract Fork_ConservationWalk is XChainBase {
         _onArbitrum();
         total = core.shareAssets() + core.operatingCash() + core.unmatchedArrivals();
         total += _usdcValue(RH_USDG, ocSpoke + colUsdg + incUsdg) + _usdcValue(RH_WETH, colWeth + incWeth);
-        total += core.collectedIncome(ARB_USDC) + hubSpoke.collectedIncome(ARB_USDC);
-        total += _usdcValue(ARB_WETH, core.collectedIncome(ARB_WETH) + hubSpoke.collectedIncome(ARB_WETH));
+        // DEC-161: the Core Vault holds income in USDC only (converted, or credited and not converted yet).
+        uint256 held = core.incomeCollection().heldDollars;
+        total += held + hubSpoke.collectedIncome(ARB_USDC);
+        total += _usdcValue(ARB_WETH, hubSpoke.collectedIncome(ARB_WETH));
         ISpokeVault.PositionRef[] memory ps = hubSpoke.positions();
         (,, uint256 hubIncWeth, uint256 hubIncUsdc) = _v4Amounts(hubUniswap, ps);
         total += hubIncUsdc + _usdcValue(ARB_WETH, hubIncWeth);
         for (uint256 i; i < ps.length; ++i) {
             if (ps[i].adapter == hubAave) total += IAdapter(hubAave).positionValue(ps[i].positionKey).income0;
         }
-        // Q60: what holders are owed never exceeds what the Core Vault holds as collected income.
-        uint256 owedUsdc = core.attributedIncome(ana, ARB_USDC) + core.attributedIncome(bruno, ARB_USDC)
-            + core.attributedIncome(carol, ARB_USDC);
-        uint256 owedWeth = core.attributedIncome(ana, ARB_WETH) + core.attributedIncome(bruno, ARB_WETH)
-            + core.attributedIncome(carol, ARB_WETH);
-        assertLe(owedUsdc, core.collectedIncome(ARB_USDC), "Q60: owed USDC within collected");
-        assertLe(owedWeth, core.collectedIncome(ARB_WETH), "Q60: owed WETH within collected");
+        // DEC-161: what holders are owed never exceeds what the Core Vault holds for their income.
+        uint256 owed = core.incomeOwed(ana) + core.incomeOwed(bruno) + core.incomeOwed(carol);
+        assertLe(owed, held, "DEC-161: owed USDC within held");
     }
 
     function _diff() internal returns (int256 d, uint256 a, uint256 b) {
@@ -303,46 +304,35 @@ contract Fork_ConservationWalk is XChainBase {
         hubSpoke.collectIncome(hubAave, hubAavePosition);
         vm.stopPrank();
         _step("W7  hub income collected", 0, true, 0);
-        vm.startPrank(keeper);
-        hubSpoke.forwardIncomeToCoreVault(ARB_USDC);
-        hubSpoke.forwardIncomeToCoreVault(ARB_WETH);
-        vm.stopPrank();
-        _step("W8  hub income forwarded, fees split", 0, true, 0);
+        // DEC-122, DEC-161, DEC-172: an Income Withdrawal request collects the hub income, sells the WETH through the
+        // Mandate swap adapter and converts it; the fee leaves in USDC. Both sides now count the USDC obtained.
+        vm.prank(keeper);
+        core.requestIncomeWithdrawal(0);
+        _step("W8  hub income collected, sold and converted, fees paid", 0, true, 0);
         _brunoDeposits();
         _step("W9  Bruno deposits 11,000", 0, true, 0);
-        vm.startPrank(ana);
-        core.withdrawIncome(ARB_USDC);
-        core.withdrawIncome(ARB_WETH);
-        vm.stopPrank();
+        vm.prank(ana);
+        core.withdrawIncome();
         _step("W10 Ana withdraws her income", 0, true, 0);
 
-        // Spoke income home as Income, principal home as Principal.
+        // Spoke income stays in its collected bucket (it goes home only through a collection order, DEC-122); principal
+        // home as Principal.
         _onRobinhood();
-        vm.startPrank(manager);
+        vm.prank(manager);
         spokeVault.collectIncome(spokeUniswap, spokeUniswapPosition);
-        spokeVault.swapCollectedIncome(spokeSwapAdapter, RH_WETH, spokeVault.collectedIncome(RH_WETH), 0, "");
-        vm.stopPrank();
-        _step("W11 spoke income collected and swapped to USDG", 0, false, 0);
+        _step("W11 spoke income collected", 0, false, 0);
         _onRobinhood();
-        uint256 income = spokeVault.collectedIncome(RH_USDG);
-        (bytes32 homeIncome, LiveRelayData memory incomeRelay) = _sendToHub(income, TransferKind.Income);
-        uint256 incomeOut = incomeRelay.outputAmount; // DEC-162: the Across adapter's amount to arrive
-        uint256 incomeIndex = _track(false, homeIncome, incomeRelay);
         (bytes32 homePrincipal, LiveRelayData memory principalRelay) = _sendToHub(500e6, TransferKind.Principal);
         uint256 principalIndex = _track(false, homePrincipal, principalRelay);
-        // An Income transfer in flight home is in no base: out of the spoke's collected bucket, out of Share Assets
-        // (DEC-092) and in no hub bucket until it arrives (report 02 I-04).
-        _step("W12 sends home: Income and Principal 500", 0, false, int256(incomeOut));
+        _step("W12 send home: Principal 500", 0, false, 0);
 
         _onArbitrum();
         _advance(2 minutes);
-        _fillOnArbitrum(incomeRelay, relayer);
         _fillOnArbitrum(principalRelay, relayer);
-        tracked[incomeIndex].filled = true;
         tracked[principalIndex].filled = true;
-        // Both arrivals are held apart until a report lists them (OQ-01); the Principal 500 is still in the spoke's
-        // last report too, so the books count it twice until the next report (report lag plus hold-apart).
-        _step("W13 both filled on Arbitrum, held apart", -int256(500e6), true, 0);
+        // The arrival is held apart until a report lists it (OQ-01); the Principal 500 is still in the spoke's last
+        // report too, so the books count it twice until the next report (report lag plus hold-apart).
+        _step("W13 filled on Arbitrum, held apart", -int256(500e6), true, 0);
         assertEq(core.shareAssets(), _sumOfBuckets(), "EndToEndBase._sumOfBuckets agrees here too");
         _report();
         assertEq(core.unmatchedArrivals(), 0, "matched");

@@ -137,11 +137,11 @@ library CoreVaultLogic {
         Prices memory p = _newPrices(VIEW);
         (total,,,,) = _grossValuation(s, w, p);
         total += s.operatingCash + _positionsIncome(s, w, p, ISpokeVault(w.hubSpokeVault).buildReport());
-        address[] memory tokens = s.incomeBook.index.tokens;
+        // DEC-161: the Core Vault holds income in USDC only; the hub Spoke Vault's bucket holds it in kind until sold.
+        total += s.incomeBook.heldDollars;
+        address[] memory tokens = s.incomeBook.sources[0].index.tokens;
         for (uint256 i; i < tokens.length; ++i) {
-            uint256 held =
-                s.incomeBook.collectedIncome[tokens[i]] + ISpokeVault(w.hubSpokeVault).collectedIncome(tokens[i]);
-            total += _usdcValue(s, w, p, tokens[i], held);
+            total += _usdcValue(s, w, p, tokens[i], ISpokeVault(w.hubSpokeVault).collectedIncome(tokens[i]));
         }
         IValueReportReceiver receiver = IValueReportReceiver(w.reportReceiver);
         for (uint256 i; i < s.mandate.spokes.length; ++i) {
