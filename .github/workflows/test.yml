@@ -58,31 +58,44 @@ jobs:
       # test/{fork/**,review/**/*Fork*}, so a new fork suite cannot fall outside them; the two longest suites
       # (UniswapV3SwapAdapter, DepthProbe, about 5 minutes each) get a shard of their own. Every shard runs even when an
       # earlier one failed. An archive RPC in the secrets serves any pin, so fresh pins work there too.
-      - name: "Fork shard 1/4: test/fork, except swap"
+      # The scenario suites (EndToEndBase's scenario clock: they warp a fork, then switch to the other) run in a
+      # process of their own. forge test hands every fork of one url and block the block env last left on any of
+      # them, so their warps reach the forks other suites create in the same run (with -j 1, UnwindAttackFork reads
+      # a stale ETH / USD price after DeprecatedAdapterFork). A new suite on EndToEndBase belongs in shard 3.
+      - name: "Fork shard 1/5: test/fork, except swap and the scenario suites"
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
           arbitrum=$(cast block-number --rpc-url "$ARBITRUM_RPC_URL")
           robinhood=$(cast block-number --rpc-url "$ROBINHOOD_RPC_URL")
           export ARBITRUM_FORK_BLOCK=$((arbitrum - 300)) ROBINHOOD_FORK_BLOCK=$((robinhood - 300))
-          forge test --match-path "test/fork/**" --no-match-path "test/fork/swap/**" -j 2 -vvv
-      - name: "Fork shard 2/4: test/fork/swap"
+          forge test --match-path "test/fork/**" --no-match-path "test/fork/{swap,e2e,security}/**" -j 2 -vvv
+      - name: "Fork shard 2/5: test/fork/swap"
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
           arbitrum=$(cast block-number --rpc-url "$ARBITRUM_RPC_URL")
           robinhood=$(cast block-number --rpc-url "$ROBINHOOD_RPC_URL")
           export ARBITRUM_FORK_BLOCK=$((arbitrum - 300)) ROBINHOOD_FORK_BLOCK=$((robinhood - 300))
           forge test --match-path "test/fork/swap/**" -j 2 -vvv
-      - name: "Fork shard 3/4: review integration-price"
+      - name: "Fork shard 3/5: scenario suites"
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
           arbitrum=$(cast block-number --rpc-url "$ARBITRUM_RPC_URL")
           robinhood=$(cast block-number --rpc-url "$ROBINHOOD_RPC_URL")
           export ARBITRUM_FORK_BLOCK=$((arbitrum - 300)) ROBINHOOD_FORK_BLOCK=$((robinhood - 300))
-          forge test --match-path "test/review/integration-price/*Fork*" -j 2 -vvv
-      - name: "Fork shard 4/4: review, except integration-price"
+          forge test -j 2 -vvv --match-path "test/{fork/e2e/**,fork/security/**,review/integration-xchain/**/*Fork*,review/integration-price/DeprecatedAdapterFork.t.sol,review/integration-price/SpokeReportSpotFork.t.sol}"
+      - name: "Fork shard 4/5: review integration-price, except the scenario suites"
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
           arbitrum=$(cast block-number --rpc-url "$ARBITRUM_RPC_URL")
           robinhood=$(cast block-number --rpc-url "$ROBINHOOD_RPC_URL")
           export ARBITRUM_FORK_BLOCK=$((arbitrum - 300)) ROBINHOOD_FORK_BLOCK=$((robinhood - 300))
-          forge test --match-path "test/review/**/*Fork*" --no-match-path "test/review/integration-price/*Fork*" -j 2 -vvv
+          forge test -j 2 -vvv --match-path "test/review/integration-price/**/*Fork*" \
+            --no-match-path "test/review/integration-price/{DeprecatedAdapterFork,SpokeReportSpotFork}.t.sol"
+      - name: "Fork shard 5/5: review, except integration-price and integration-xchain"
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          arbitrum=$(cast block-number --rpc-url "$ARBITRUM_RPC_URL")
+          robinhood=$(cast block-number --rpc-url "$ROBINHOOD_RPC_URL")
+          export ARBITRUM_FORK_BLOCK=$((arbitrum - 300)) ROBINHOOD_FORK_BLOCK=$((robinhood - 300))
+          forge test -j 2 -vvv --match-path "test/review/**/*Fork*" \
+            --no-match-path "test/review/{integration-price,integration-xchain}/**"
