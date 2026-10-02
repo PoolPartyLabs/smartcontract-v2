@@ -11,6 +11,8 @@ export const STATE_DIR = join(HARNESS_DIR, ".state");
 export const DEPLOYMENT_FILE = join(STATE_DIR, "deployment.json");
 export const KEEPER_PID_FILE = join(STATE_DIR, "keeper.pid");
 export const ABI_DIR = join(HARNESS_DIR, "abis");
+/** Run reports (src/report.ts); git ignores them unless one is added on purpose (`git add -f`). */
+export const REPORTS_DIR = join(HARNESS_DIR, "reports");
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Chains
