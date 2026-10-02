@@ -212,7 +212,7 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
     ///      No bridge data: the Across adapter refuses any (DEC-176: no signed quote in the MVP). Security review S-3:
     ///      the transit stays in `inFlightToHub` until its refund is recognized (by anyone, or at the next report or
     ///      send once it landed) or until `fillDeadline + ReportCodec.HUB_BOUND_RETENTION` has passed.
-    ///      `cumulativeSentHome` grows by `amount`.
+    ///      `cumulativeSentHome` grows by `amount`. Income goes home only through a collection order (DEC-122, DEC-161).
     function sendToHub(uint256 amount, TransferKind kind, uint256 bridgeRank)
         external
         onlyOnSpokeChain
@@ -220,6 +220,7 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
         nonReentrant
         returns (bytes32 transitId)
     {
+        if (kind != TransferKind.Principal) revert IncomeSentOnlyByCollection();
         _topUpOperatingCash();
         transitId = SpokeCrossChainLib.sendHome(_s, _config(), amount, kind, bridgeRank, "");
     }
