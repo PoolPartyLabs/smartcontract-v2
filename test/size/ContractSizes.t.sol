@@ -37,7 +37,7 @@ contract ContractSizesTest is Test {
 
     /// @dev Every top-level contract and library under `src/`, as `<path>:<name>`.
     function _entries() internal pure returns (Entry[] memory e) {
-        e = new Entry[](39);
+        e = new Entry[](40);
         uint256 i;
         // Contracts deployed on chain (the factory's roles, the protocol-level contracts and what they deploy).
         e[i++] = Entry("src/adapters/AaveV3Adapter.sol:AaveV3Adapter", Kind.Contract);
@@ -45,6 +45,7 @@ contract ContractSizesTest is Test {
         e[i++] = Entry("src/adapters/UniswapV3SwapAdapter.sol:UniswapV3SwapAdapter", Kind.Contract);
         e[i++] = Entry("src/adapters/UniswapV4Adapter.sol:UniswapV4Adapter", Kind.Contract);
         e[i++] = Entry("src/core/CoreVault.sol:CoreVault", Kind.Contract);
+        e[i++] = Entry("src/core/CoreVaultClosureLogic.sol:CoreVaultClosureLogic", Kind.LinkedLibrary);
         e[i++] = Entry("src/core/ManagerFeeVault.sol:ManagerFeeVault", Kind.Contract);
         e[i++] = Entry("src/core/ManagerRegistry.sol:ManagerRegistry", Kind.Contract);
         e[i++] = Entry("src/core/ShareToken.sol:ShareToken", Kind.Contract);

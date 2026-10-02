@@ -37,6 +37,8 @@ contract FactoryDeploymentLinkingTest is Test, FactoryDeployment {
         assertTrue(vm.contains(code, _bareHex(d.coreVaultIncomeLogic)), "CoreVaultIncomeLogic linked");
         assertTrue(d.coreVaultPayoutLogic.code.length != 0, "CoreVaultPayoutLogic deployed on the hub");
         assertTrue(vm.contains(code, _bareHex(d.coreVaultPayoutLogic)), "CoreVaultPayoutLogic linked");
+        assertTrue(d.coreVaultClosureLogic.code.length != 0, "CoreVaultClosureLogic deployed on the hub");
+        assertTrue(vm.contains(code, _bareHex(d.coreVaultClosureLogic)), "CoreVaultClosureLogic linked");
         assertTrue(d.coreVaultIncomeCollectionLogic.code.length != 0, "CoreVaultIncomeCollectionLogic deployed");
         assertTrue(
             vm.contains(code, _bareHex(d.coreVaultIncomeCollectionLogic)), "CoreVaultIncomeCollectionLogic linked"
