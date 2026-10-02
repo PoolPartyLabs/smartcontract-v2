@@ -64,7 +64,7 @@ contract AcrossFeeRuleLiveForkTest is Test {
 
     function _deploy(address pool, address token) internal {
         vault = new AcrossHarnessVault();
-        adapter = new AcrossBridgeAdapter(address(vault), guardian, pool, address(0));
+        adapter = new AcrossBridgeAdapter(address(vault), guardian, pool);
         vault.pin(adapter);
         deal(token, address(vault), 10 * AMOUNT);
     }

@@ -103,7 +103,7 @@ contract Fork_AcrossDeadlineAndDustSends is SpokeVaultForkBase {
         TransitEscrow escrowImpl = new TransitEscrow();
         // The real adapter needs its vault at construction and the vault pins the adapter: predict the vault.
         address vaultAt = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1);
-        AcrossBridgeAdapter bridge = new AcrossBridgeAdapter(vaultAt, guardian, RH_SPOKE_POOL, address(0));
+        AcrossBridgeAdapter bridge = new AcrossBridgeAdapter(vaultAt, guardian, RH_SPOKE_POOL);
         ForkAdapters memory a = ForkAdapters({
             hubUni: makeAddr("hubUni"),
             hubAave: makeAddr("hubAave"),
