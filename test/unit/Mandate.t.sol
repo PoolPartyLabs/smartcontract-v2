@@ -7,6 +7,7 @@ import {
     Mandate,
     MandateLib,
     AdapterConfig,
+    TokenConfig,
     PoolConfig,
     SpokeConfig,
     BridgeAdapterConfig,
@@ -53,6 +54,18 @@ contract MandateHarness {
     function operatingCashFor(Mandate memory m, uint256 chainId) external pure returns (uint256, uint256) {
         return MandateLib.operatingCashFor(m, chainId);
     }
+
+    function isSwapAdapter(Mandate memory m, uint256 chainId, address adapter) external pure returns (bool) {
+        return MandateLib.isSwapAdapter(m, chainId, adapter);
+    }
+
+    function isToken(Mandate memory m, uint256 chainId, address token) external pure returns (bool) {
+        return MandateLib.isToken(m, chainId, token);
+    }
+
+    function tokensOf(Mandate memory m, uint256 chainId) external pure returns (address[] memory) {
+        return MandateLib.tokensOf(m, chainId);
+    }
 }
 
 contract MandateTest is Test {
@@ -61,10 +74,15 @@ contract MandateTest is Test {
     uint256 internal constant HUB = 42_161;
     uint256 internal constant SPOKE = 4663;
     uint16 internal constant WH_SPOKE = 72;
+    uint16 internal constant WH_HUB = 23;
 
     address internal manager = makeAddr("manager");
     address internal usdc = makeAddr("usdc");
     address internal usdg = makeAddr("usdg");
+    address internal hubWeth = makeAddr("hubWeth");
+    address internal spokeWeth = makeAddr("spokeWeth");
+    address internal hubSwap = makeAddr("hubUniswapV3SwapAdapter");
+    address internal spokeSwap = makeAddr("spokeUniswapV3SwapAdapter");
     address internal hubUniswap = makeAddr("hubUniswapV4Adapter");
     address internal hubAave = makeAddr("hubAaveV3Adapter");
     address internal spokeUniswap = makeAddr("spokeUniswapV4Adapter");
@@ -83,7 +101,18 @@ contract MandateTest is Test {
     function _valid() internal view returns (Mandate memory m) {
         m.manager = manager;
         m.hubChainId = HUB;
+        m.hubWormholeChainId = WH_HUB;
         m.usdc = usdc;
+
+        m.tokens = new TokenConfig[](4);
+        m.tokens[0] = TokenConfig(HUB, usdc);
+        m.tokens[1] = TokenConfig(HUB, hubWeth);
+        m.tokens[2] = TokenConfig(SPOKE, usdg);
+        m.tokens[3] = TokenConfig(SPOKE, spokeWeth);
+
+        m.swapAdapters = new AdapterConfig[](2);
+        m.swapAdapters[0] = AdapterConfig(HUB, hubSwap);
+        m.swapAdapters[1] = AdapterConfig(SPOKE, spokeSwap);
 
         m.adapters = new AdapterConfig[](3);
         m.adapters[0] = AdapterConfig(HUB, hubUniswap);
@@ -146,6 +175,10 @@ contract MandateTest is Test {
         m.pools = new PoolConfig[](1);
         m.pools[0] = PoolConfig(HUB, hubUniswap, HUB_POOL);
         m.operatingCash = new OperatingCashConfig[](0);
+        m.tokens = new TokenConfig[](1);
+        m.tokens[0] = TokenConfig(HUB, usdc);
+        m.swapAdapters = new AdapterConfig[](1);
+        m.swapAdapters[0] = AdapterConfig(HUB, hubSwap);
         h.validate(m);
     }
 
@@ -225,6 +258,149 @@ contract MandateTest is Test {
         Mandate memory m = _valid();
         m.pools[1] = PoolConfig(HUB, hubUniswap, HUB_POOL);
         vm.expectRevert(abi.encodeWithSelector(MandateLib.DuplicatePool.selector, HUB, hubUniswap, HUB_POOL));
+        h.validate(m);
+    }
+
+    // ------------------------------------------------------------------ Mandate v2: Hub Wormhole chain id (D-15)
+
+    function test_DEC120_zeroHubWormholeChainIdReverts() public {
+        Mandate memory m = _valid();
+        m.hubWormholeChainId = 0;
+        vm.expectRevert(MandateLib.ZeroHubWormholeChainId.selector);
+        h.validate(m);
+    }
+
+    /// @dev D-15: a spoke on the Hub's Wormhole chain would make the Hub's orders and the spoke's reports share an
+    ///      emitter chain.
+    function test_DEC120_spokeOnTheHubWormholeChainReverts() public {
+        Mandate memory m = _valid();
+        m.spokes[0].wormholeChainId = WH_HUB;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.SpokeIsHubChain.selector, SPOKE));
+        h.validate(m);
+    }
+
+    // ------------------------------------------------------------------ Mandate v2: tokens (DEC-123, DEC-136)
+
+    function test_DEC136_tokenLookups() public view {
+        Mandate memory m = _valid();
+        assertTrue(h.isToken(m, HUB, hubWeth));
+        assertFalse(h.isToken(m, SPOKE, hubWeth), "a token is a Mandate token of its own chain only");
+        address[] memory spokeTokens = h.tokensOf(m, SPOKE);
+        assertEq(spokeTokens.length, 2);
+        assertEq(spokeTokens[0], usdg);
+        assertEq(spokeTokens[1], spokeWeth);
+        assertEq(h.tokensOf(m, 1).length, 0);
+    }
+
+    function test_DEC136_zeroTokenReverts() public {
+        Mandate memory m = _valid();
+        m.tokens[1].token = address(0);
+        vm.expectRevert(MandateLib.ZeroToken.selector);
+        h.validate(m);
+    }
+
+    function test_DEC136_tokenOnUnknownChainReverts() public {
+        Mandate memory m = _valid();
+        m.tokens[3].chainId = 8453;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.UnknownChain.selector, 8453));
+        h.validate(m);
+    }
+
+    /// @dev Unique per chain; the same address may be listed on two chains (a token's address is chain-local).
+    function test_DEC136_duplicateTokenOnOneChainReverts() public {
+        Mandate memory m = _valid();
+        m.tokens[1].token = usdc;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.DuplicateToken.selector, HUB, usdc));
+        h.validate(m);
+        m = _valid();
+        m.tokens[3].token = hubWeth;
+        h.validate(m);
+    }
+
+    function test_DEC123_hubBaseTokenMustBeListed() public {
+        Mandate memory m = _valid();
+        m.tokens[0].token = makeAddr("other");
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.MissingBaseToken.selector, HUB, usdc));
+        h.validate(m);
+    }
+
+    function test_DEC123_spokeBaseTokenMustBeListed() public {
+        Mandate memory m = _valid();
+        m.tokens[2].chainId = HUB;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.MissingBaseToken.selector, SPOKE, usdg));
+        h.validate(m);
+    }
+
+    /// @dev WP-07 B1: at most 16 tokens, every chain together (the hub's income token bound).
+    function test_DEC136_atMostSixteenTokens() public {
+        Mandate memory m = _valid();
+        TokenConfig[] memory tokens = new TokenConfig[](16);
+        for (uint256 i; i < 4; ++i) {
+            tokens[i] = m.tokens[i];
+        }
+        for (uint256 i = 4; i < 16; ++i) {
+            tokens[i] = TokenConfig(HUB, address(uint160(0x1000 + i)));
+        }
+        m.tokens = tokens;
+        h.validate(m);
+
+        TokenConfig[] memory more = new TokenConfig[](17);
+        for (uint256 i; i < 16; ++i) {
+            more[i] = tokens[i];
+        }
+        more[16] = TokenConfig(SPOKE, address(0x2000));
+        m.tokens = more;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.TooManyTokens.selector, 17, 16));
+        h.validate(m);
+    }
+
+    // ------------------------------------------------------------------ Mandate v2: swap adapters (DEC-136)
+
+    function test_DEC136_swapAdapterLookup() public view {
+        Mandate memory m = _valid();
+        assertTrue(h.isSwapAdapter(m, HUB, hubSwap));
+        assertFalse(h.isSwapAdapter(m, SPOKE, hubSwap));
+        assertFalse(h.isSwapAdapter(m, HUB, hubUniswap), "a position adapter is not a swap adapter");
+    }
+
+    function test_DEC136_everyFundChainNeedsASwapAdapter() public {
+        Mandate memory m = _valid();
+        m.swapAdapters[1].chainId = HUB;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.MissingSwapAdapter.selector, SPOKE));
+        h.validate(m);
+        m = _valid();
+        m.swapAdapters = new AdapterConfig[](0);
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.MissingSwapAdapter.selector, HUB));
+        h.validate(m);
+    }
+
+    function test_DEC136_zeroOrUnknownChainSwapAdapterReverts() public {
+        Mandate memory m = _valid();
+        m.swapAdapters[0].adapter = address(0);
+        vm.expectRevert(MandateLib.ZeroAdapter.selector);
+        h.validate(m);
+        m = _valid();
+        m.swapAdapters[1].chainId = 8453;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.UnknownChain.selector, 8453));
+        h.validate(m);
+    }
+
+    /// @dev One address is one adapter on a chain: never a swap adapter and a position or bridge adapter at once, and
+    ///      never listed twice.
+    function test_DEC136_swapAdapterCannotDoubleAsAnotherAdapter() public {
+        Mandate memory m = _valid();
+        m.swapAdapters[0].adapter = hubUniswap;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.DuplicateAdapter.selector, HUB, hubUniswap));
+        h.validate(m);
+        m = _valid();
+        m.swapAdapters[1].adapter = spokeAcross;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.DuplicateAdapter.selector, SPOKE, spokeAcross));
+        h.validate(m);
+        m = _valid();
+        AdapterConfig[] memory twice = new AdapterConfig[](3);
+        (twice[0], twice[1], twice[2]) = (m.swapAdapters[0], m.swapAdapters[1], m.swapAdapters[0]);
+        m.swapAdapters = twice;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.DuplicateAdapter.selector, HUB, hubSwap));
         h.validate(m);
     }
 
@@ -326,6 +502,12 @@ contract MandateTest is Test {
         spokes[0] = m.spokes[0];
         spokes[1] = SpokeConfig(8453, 30, bytes32(uint256(1)), usdg, 1, 1);
         m.spokes = spokes;
+        TokenConfig[] memory tokens = new TokenConfig[](5);
+        for (uint256 i; i < 4; ++i) {
+            tokens[i] = m.tokens[i];
+        }
+        tokens[4] = TokenConfig(8453, usdg);
+        m.tokens = tokens;
         // An adapter serving the Robinhood spoke cannot live on the Base spoke.
         m.bridgeAdapters[2] = BridgeAdapterConfig(SPOKE, 8453, hubAcrossFallback);
         vm.expectRevert(abi.encodeWithSelector(MandateLib.BridgeAdapterSideInvalid.selector, SPOKE, 8453));

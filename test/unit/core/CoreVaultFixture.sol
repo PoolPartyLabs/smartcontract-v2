@@ -27,6 +27,7 @@ import {MockAcrossSpokePool as AcrossPoolStandIn} from "../../mocks/across/MockA
 import {MockHubSpokeVault} from "../../mocks/core/MockHubSpokeVault.sol";
 import {MockReportReceiver} from "../../mocks/core/MockReportReceiver.sol";
 import {FundSeed} from "../../utils/FundSeed.sol";
+import {MandateFixture} from "../../utils/MandateFixture.sol";
 
 /// @notice Shared deployment of a Core Vault against mocks: Arbitrum as hub (42161), Robinhood as the one spoke (4663).
 /// @dev The test contract plays the factory (`CoreVaultConfig.factory`): `_deploy` seeds every fund at creation, as
@@ -34,6 +35,8 @@ import {FundSeed} from "../../utils/FundSeed.sol";
 ///      flow fee, so the manager holds `SEED_SHARES` and Idle starts at `SEED_IDLE` (the Mandate minimum is 1 USDC
 ///      here).
 abstract contract CoreVaultFixture is Test, FundSeed {
+    using MandateFixture for Mandate;
+
     uint256 internal constant HUB = 42_161;
     uint256 internal constant SPOKE = 4663;
     uint16 internal constant WH_SPOKE = 72;
@@ -65,6 +68,8 @@ abstract contract CoreVaultFixture is Test, FundSeed {
     address internal spokeVaultAddress = makeAddr("robinhoodSpokeVault");
     address internal hubAdapter = makeAddr("hubUniswapV4Adapter");
     address internal spokeAdapter = makeAddr("spokeUniswapV4Adapter");
+    address internal hubSwapAdapter = makeAddr("hubUniswapV3SwapAdapter");
+    address internal spokeSwapAdapter = makeAddr("spokeUniswapV3SwapAdapter");
     address internal spokeBridge = makeAddr("spokeAcrossAdapter");
     address internal alice = makeAddr("alice");
     address internal bob = makeAddr("bob");
@@ -101,7 +106,14 @@ abstract contract CoreVaultFixture is Test, FundSeed {
     function _mandate(uint16 performanceFeeBps) internal view returns (Mandate memory m) {
         m.manager = manager;
         m.hubChainId = HUB;
+        m.hubWormholeChainId = MandateFixture.ARBITRUM_WORMHOLE_CHAIN_ID;
         m.usdc = address(usdc);
+        m.addToken(HUB, address(usdc));
+        m.addToken(HUB, address(weth));
+        m.addToken(SPOKE, address(usdg));
+        m.addToken(SPOKE, address(spokeWeth));
+        m.addSwapAdapter(HUB, hubSwapAdapter);
+        m.addSwapAdapter(SPOKE, spokeSwapAdapter);
         m.adapters = new AdapterConfig[](2);
         m.adapters[0] = AdapterConfig(HUB, hubAdapter);
         m.adapters[1] = AdapterConfig(SPOKE, spokeAdapter);

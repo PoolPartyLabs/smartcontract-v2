@@ -22,10 +22,14 @@ import {MockAcrossSpokePool} from "../../mocks/spoke/MockAcrossSpokePool.sol";
 import {MockCoreVault} from "../../mocks/spoke/MockCoreVault.sol";
 import {MockPriceSource} from "../../mocks/core/MockPriceSource.sol";
 import {MockWormholeCore} from "../../mocks/spoke/MockWormholeCore.sol";
+import {MockSwapAdapter} from "../../mocks/swap/MockSwapAdapter.sol";
+import {MandateFixture} from "../../utils/MandateFixture.sol";
 
 /// @notice Shared fixture: one Mandate with a Hub Chain (42161) and one Spoke Chain (4663), mock adapters on both,
 ///         mock Across, Wormhole and Core Vault. `_deploySpoke` / `_deployHub` switch `block.chainid` and deploy.
 abstract contract SpokeVaultTestBase is Test {
+    using MandateFixture for Mandate;
+
     uint256 internal constant HUB = 42_161;
     uint256 internal constant SPOKE = 4663;
     uint16 internal constant WH_SPOKE = 72;
@@ -50,6 +54,8 @@ abstract contract SpokeVaultTestBase is Test {
     MockPositionAdapter internal hubUni;
     MockPositionAdapter internal hubAave;
     MockPositionAdapter internal spokeUni;
+    MockSwapAdapter internal hubSwap;
+    MockSwapAdapter internal spokeSwap;
     MockAcrossSpokePool internal spokePool;
     MockBridgeAdapter internal spokeBridge;
     MockBridgeAdapter internal spokeBridgeFallback;
@@ -69,6 +75,8 @@ abstract contract SpokeVaultTestBase is Test {
         hubUni.addPool(HUB_POOL, address(weth), address(usdc));
         hubAave.addPool(AAVE_USDC, address(usdc), address(0));
         spokeUni.addPool(SPOKE_POOL, address(weth), address(usdg));
+        hubSwap = new MockSwapAdapter();
+        spokeSwap = new MockSwapAdapter();
         spokePool = new MockAcrossSpokePool();
         spokeBridge = new MockBridgeAdapter(guardian, address(spokePool));
         spokeBridgeFallback = new MockBridgeAdapter(guardian, address(spokePool));
@@ -83,7 +91,14 @@ abstract contract SpokeVaultTestBase is Test {
     function _mandate() internal view returns (Mandate memory m) {
         m.manager = manager;
         m.hubChainId = HUB;
+        m.hubWormholeChainId = MandateFixture.ARBITRUM_WORMHOLE_CHAIN_ID;
         m.usdc = address(usdc);
+        m.addToken(HUB, address(usdc));
+        m.addToken(HUB, address(weth));
+        m.addToken(SPOKE, address(usdg));
+        m.addToken(SPOKE, address(weth));
+        m.addSwapAdapter(HUB, address(hubSwap));
+        m.addSwapAdapter(SPOKE, address(spokeSwap));
 
         m.adapters = new AdapterConfig[](3);
         m.adapters[0] = AdapterConfig(HUB, address(hubUni));

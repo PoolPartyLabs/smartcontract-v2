@@ -25,11 +25,14 @@ import {MockHubSpokeVault} from "../../mocks/core/MockHubSpokeVault.sol";
 import {MockReportReceiver} from "../../mocks/core/MockReportReceiver.sol";
 import {MockPriceSource} from "../../mocks/core/MockPriceSource.sol";
 import {MockManagerRegistry} from "../../mocks/core/MockManagerRegistry.sol";
+import {MandateFixture} from "../../utils/MandateFixture.sol";
 
 /// @notice Core Vault custody against the live Across SpokePool on Arbitrum One (docs/INTEGRATIONS.md): the vault
 ///         approves exactly, the SpokePool pulls exactly the input amount from the vault with the per-send escrow as
 ///         depositor, the approval is reset, and a fill callback from the SpokePool address is matched by transit id.
 contract CoreVaultAcrossForkTest is Test, FundSeed {
+    using MandateFixture for Mandate;
+
     address internal constant USDC = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
     address internal constant SPOKE_POOL = 0xe35e9842fceaCA96570B734083f4a58e8F7C5f2A;
     address internal constant USDG_ROBINHOOD = 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168;
@@ -58,6 +61,11 @@ contract CoreVaultAcrossForkTest is Test, FundSeed {
         m.manager = manager;
         m.hubChainId = HUB;
         m.usdc = USDC;
+        m.hubWormholeChainId = MandateFixture.ARBITRUM_WORMHOLE_CHAIN_ID;
+        m.addToken(HUB, USDC);
+        m.addToken(SPOKE, USDG_ROBINHOOD);
+        m.addSwapAdapter(HUB, makeAddr("hubSwap"));
+        m.addSwapAdapter(SPOKE, makeAddr("spokeSwap"));
         m.adapters = new AdapterConfig[](1);
         m.adapters[0] = AdapterConfig(HUB, makeAddr("hubAdapter"));
         m.pools = new PoolConfig[](1);

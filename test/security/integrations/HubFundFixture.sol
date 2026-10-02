@@ -40,6 +40,8 @@ import {MockAcrossSpokePool} from "../../mocks/core/MockAcrossSpokePool.sol";
 import {MockReportReceiver} from "../../mocks/core/MockReportReceiver.sol";
 import {PoolLibV4} from "./mocks/PoolLibV4.sol";
 import {BlocklistToken} from "./mocks/BlocklistToken.sol";
+import {MandateFixture} from "../../utils/MandateFixture.sol";
+import {MockSwapAdapter} from "../../mocks/swap/MockSwapAdapter.sol";
 
 /// @notice A hub-only fund on Arbitrum (42161) built from the real contracts: `CoreVault` (linked `CoreVaultLogic`),
 ///         the hub `SpokeVault` (linked `SpokeCrossChainLib`), `UniswapV4Adapter`, `ShareToken`, `ManagerFeeVault` and
@@ -50,6 +52,8 @@ import {BlocklistToken} from "./mocks/BlocklistToken.sol";
 ///      provider (this contract) holds a wide position around the current price so the pool has depth of its own;
 ///      the fund's position is opened by the manager through the vault and adapter, exactly as in production.
 abstract contract HubFundFixture is Test, FundSeed {
+    using MandateFixture for Mandate;
+
     uint256 internal constant HUB = 42_161;
     bytes32 internal constant FUND_ID = keccak256("sec-integrations hub fund");
     /// @dev USDC per WETH: the external ("Chainlink") price and the pool's starting price.
@@ -78,6 +82,7 @@ abstract contract HubFundFixture is Test, FundSeed {
 
     UniswapV4Adapter internal adapter;
     SpokeVault internal hubVault;
+    MockSwapAdapter internal hubSwap;
     CoreVault internal core;
     ShareToken internal shares;
 
@@ -113,6 +118,7 @@ abstract contract HubFundFixture is Test, FundSeed {
 
         // The adapter needs its vault, the hub Spoke Vault its Core Vault and the Core Vault its hub Spoke Vault:
         // three consecutive deployments from this contract, so every address is predicted from the nonce.
+        hubSwap = new MockSwapAdapter();
         uint64 nonce = vm.getNonce(address(this));
         address adapterAddress = vm.computeCreateAddress(address(this), nonce);
         address hubVaultAddress = vm.computeCreateAddress(address(this), nonce + 1);
@@ -151,6 +157,10 @@ abstract contract HubFundFixture is Test, FundSeed {
         m.manager = manager;
         m.hubChainId = HUB;
         m.usdc = address(usdc);
+        m.hubWormholeChainId = MandateFixture.ARBITRUM_WORMHOLE_CHAIN_ID;
+        m.addToken(HUB, address(usdc));
+        m.addToken(HUB, address(weth));
+        m.addSwapAdapter(HUB, address(hubSwap));
         m.adapters = new AdapterConfig[](1);
         m.adapters[0] = AdapterConfig(HUB, hubAdapter);
         m.pools = new PoolConfig[](1);

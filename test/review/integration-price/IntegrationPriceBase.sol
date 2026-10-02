@@ -215,6 +215,7 @@ abstract contract IntegrationPriceBase is EndToEndBase {
     function _pricePlan(uint256 spokeCap) internal view returns (FundPlan memory plan) {
         plan.manager = manager;
         plan.hubChainId = ARBITRUM;
+        plan.hubWormholeChainId = WORMHOLE_ARBITRUM;
         plan.usdc = ARB_USDC;
         plan.hubPool = _hubPoolKey();
         plan.hubAaveAsset = ARB_USDC;

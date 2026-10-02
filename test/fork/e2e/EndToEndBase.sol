@@ -176,6 +176,7 @@ abstract contract EndToEndBase is Test, FactoryDeployment, FundMandate, FundSeed
     function _plan() internal view returns (FundPlan memory plan) {
         plan.manager = manager;
         plan.hubChainId = ARBITRUM;
+        plan.hubWormholeChainId = WORMHOLE_ARBITRUM;
         plan.usdc = ARB_USDC;
         plan.hubPool = _hubPoolKey();
         plan.hubAaveAsset = ARB_USDC;

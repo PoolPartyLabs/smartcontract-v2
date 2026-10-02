@@ -27,6 +27,7 @@ import {FundMandate} from "../../../script/FundMandate.sol";
 import {AnyPriceSource} from "../../mocks/core/AnyPriceSource.sol";
 import {MockManagerRegistry} from "../../mocks/core/MockManagerRegistry.sol";
 import {FundSeed} from "../../utils/FundSeed.sol";
+import {MandateFixture} from "../../utils/MandateFixture.sol";
 
 /// @notice Adversarial verification of the factory stage (round 1). The hub and the spoke factory are two deployments at
 ///         the same address, one per simulated chain, as in FundFactory.t.sol.
@@ -35,6 +36,8 @@ import {FundSeed} from "../../utils/FundSeed.sol";
 ///      `test_DEC001_verify_anotherManagerCannotSquatTheSpokeVaultOfARealFund` is the inverted form of FF-OQ-1 (fixed):
 ///      the fund id binds the Manager.
 contract FundFactoryVerifyTest is Test, FactoryDeployment, FundMandate, FundSeed {
+    using MandateFixture for Mandate;
+
     uint256 internal constant HUB = 42_161;
     uint256 internal constant SPOKE = 4663;
 
@@ -112,6 +115,7 @@ contract FundFactoryVerifyTest is Test, FactoryDeployment, FundMandate, FundSeed
     function _plan(address manager_) internal view returns (FundPlan memory plan) {
         plan.manager = manager_;
         plan.hubChainId = HUB;
+        plan.hubWormholeChainId = WORMHOLE_ARBITRUM;
         plan.usdc = address(usdc);
         plan.hubPool = _poolKey(address(weth), address(usdc));
         plan.hubAaveAsset = address(usdc);
@@ -135,6 +139,12 @@ contract FundFactoryVerifyTest is Test, FactoryDeployment, FundMandate, FundSeed
         m.manager = attacker;
         m.hubChainId = SPOKE;
         m.usdc = address(usdg);
+        m.hubWormholeChainId = 72; // hubbed on Robinhood
+        m.addToken(SPOKE, address(usdg));
+        m.addToken(HUB, address(usdc));
+        m.addToken(HUB, address(weth));
+        m.addSwapAdapter(SPOKE, factory.addressOf(fundId, "UniswapV3SwapAdapter", SPOKE));
+        m.addSwapAdapter(HUB, factory.addressOf(fundId, "UniswapV3SwapAdapter", HUB));
         m.adapters = new AdapterConfig[](1);
         m.adapters[0] = AdapterConfig(HUB, uniswap);
         m.pools = new PoolConfig[](1);

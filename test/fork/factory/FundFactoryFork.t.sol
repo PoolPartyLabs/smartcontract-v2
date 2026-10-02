@@ -49,6 +49,7 @@ contract FundFactoryForkTest is Test, FactoryDeployment, FundMandate, FundSeed {
     function _plan() internal view returns (FundPlan memory plan) {
         plan.manager = manager;
         plan.hubChainId = ARBITRUM;
+        plan.hubWormholeChainId = WORMHOLE_ARBITRUM;
         plan.usdc = ARB_USDC;
         plan.hubPool = PoolKey(Currency.wrap(ARB_WETH), Currency.wrap(ARB_USDC), 500, 10, IHooks(address(0)));
         plan.hubAaveAsset = ARB_USDC;

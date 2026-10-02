@@ -135,9 +135,16 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
         Mandate storage stored = _s.mandate;
         stored.manager = m.manager;
         stored.hubChainId = m.hubChainId;
+        stored.hubWormholeChainId = m.hubWormholeChainId;
         stored.usdc = m.usdc;
+        for (uint256 i; i < m.tokens.length; ++i) {
+            stored.tokens.push(m.tokens[i]);
+        }
         for (uint256 i; i < m.adapters.length; ++i) {
             stored.adapters.push(m.adapters[i]);
+        }
+        for (uint256 i; i < m.swapAdapters.length; ++i) {
+            stored.swapAdapters.push(m.swapAdapters[i]);
         }
         for (uint256 i; i < m.pools.length; ++i) {
             stored.pools.push(m.pools[i]);

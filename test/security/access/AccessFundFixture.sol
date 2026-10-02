@@ -160,6 +160,7 @@ abstract contract AccessFundFixture is Test, FactoryDeployment, FundMandate, Fun
     function _plan() internal view returns (FundPlan memory plan) {
         plan.manager = manager;
         plan.hubChainId = HUB;
+        plan.hubWormholeChainId = WORMHOLE_ARBITRUM;
         plan.usdc = address(usdc);
         plan.hubPool = _hubPool();
         plan.hubAaveAsset = address(usdc);

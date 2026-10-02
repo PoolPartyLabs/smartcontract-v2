@@ -77,6 +77,7 @@ contract FundFactorySeedTest is Test, FactoryDeployment, FundMandate {
     function _plan(uint256 seedAmount) internal view returns (FundPlan memory plan) {
         plan.manager = manager;
         plan.hubChainId = HUB;
+        plan.hubWormholeChainId = WORMHOLE_ARBITRUM;
         plan.usdc = address(usdc);
         plan.hubPool = _poolKey(address(weth), address(usdc));
         plan.hubAaveAsset = address(usdc);

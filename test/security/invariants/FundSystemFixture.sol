@@ -25,6 +25,8 @@ import {MockBridgeAdapter} from "../../mocks/core/MockBridgeAdapter.sol";
 import {MockCoreBridge} from "../../mocks/receiver/MockCoreBridge.sol";
 import {MockPositionAdapter} from "../../mocks/spoke/MockPositionAdapter.sol";
 import {MockWormholeCore} from "../../mocks/spoke/MockWormholeCore.sol";
+import {MandateFixture} from "../../utils/MandateFixture.sol";
+import {MockSwapAdapter} from "../../mocks/swap/MockSwapAdapter.sol";
 
 /// @notice Every contract of one fund, as the invariant handlers and the tests address it.
 struct FundSystem {
@@ -60,6 +62,8 @@ struct FundSystem {
 ///      Share Assets move only through deposits, payouts, fees, Operating Cash top-ups and bridge fees. That is what
 ///      makes "no actor ends with more than they put in" a checkable property. WETH exists only as income.
 abstract contract FundSystemFixture is Test, FundSeed {
+    using MandateFixture for Mandate;
+
     uint256 internal constant HUB = 42_161;
     uint256 internal constant SPOKE = 4663;
     uint16 internal constant WH_SPOKE = 72;
@@ -79,6 +83,8 @@ abstract contract FundSystemFixture is Test, FundSeed {
 
     FundSystem internal sys;
     MockCoreBridge internal coreBridge;
+    MockSwapAdapter internal hubSwap;
+    MockSwapAdapter internal spokeSwap;
     MockManagerRegistry internal registry;
     MockBridgeAdapter internal hubBridge;
     MockBridgeAdapter internal spokeBridge;
@@ -117,6 +123,8 @@ abstract contract FundSystemFixture is Test, FundSeed {
         sys.hubAave.addPool(AAVE_USDC, address(sys.usdc), address(0));
         sys.spokeUni.addPool(SPOKE_POOL, address(sys.spokeWeth), address(sys.usdg));
 
+        hubSwap = new MockSwapAdapter();
+        spokeSwap = new MockSwapAdapter();
         sys.manager = manager;
         sys.protocolRecipient = protocolRecipient;
         sys.excessRecipient = excessRecipient;
@@ -175,6 +183,13 @@ abstract contract FundSystemFixture is Test, FundSeed {
         m.manager = manager;
         m.hubChainId = HUB;
         m.usdc = address(sys.usdc);
+        m.hubWormholeChainId = MandateFixture.ARBITRUM_WORMHOLE_CHAIN_ID;
+        m.addToken(HUB, address(sys.usdc));
+        m.addToken(HUB, address(sys.weth));
+        m.addToken(SPOKE, address(sys.usdg));
+        m.addToken(SPOKE, address(sys.spokeWeth));
+        m.addSwapAdapter(HUB, address(hubSwap));
+        m.addSwapAdapter(SPOKE, address(spokeSwap));
         m.adapters = new AdapterConfig[](3);
         m.adapters[0] = AdapterConfig(HUB, address(sys.hubUni));
         m.adapters[1] = AdapterConfig(HUB, address(sys.hubAave));

@@ -146,6 +146,7 @@ abstract contract FactoryReviewFixture is Test, FactoryDeployment, FundMandate, 
     function _plan() internal view returns (FundPlan memory plan) {
         plan.manager = manager;
         plan.hubChainId = HUB;
+        plan.hubWormholeChainId = WORMHOLE_ARBITRUM;
         plan.usdc = address(usdc);
         plan.hubPool = _poolKey(address(weth), address(usdc), 500, 10);
         plan.hubAaveAsset = address(usdc);

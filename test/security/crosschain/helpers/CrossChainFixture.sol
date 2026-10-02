@@ -32,6 +32,8 @@ import {MockCoreBridge} from "../../../mocks/receiver/MockCoreBridge.sol";
 import {MockWormholeCore} from "../../../mocks/spoke/MockWormholeCore.sol";
 import {MockPositionAdapter} from "../../../mocks/spoke/MockPositionAdapter.sol";
 import {SecAcrossSpokePool} from "./SecAcrossSpokePool.sol";
+import {MandateFixture} from "../../../utils/MandateFixture.sol";
+import {MockSwapAdapter} from "../../../mocks/swap/MockSwapAdapter.sol";
 
 /// @notice One fund across both chains in one EVM, for the cross-chain security proofs of concept.
 /// @dev Real contracts: `CoreVault` (linked `CoreVaultLogic`), `ValueReportReceiver`, the Robinhood `SpokeVault` (linked
@@ -41,6 +43,8 @@ import {SecAcrossSpokePool} from "./SecAcrossSpokePool.sol";
 ///      Vault, the price source and the manager registry. `block.chainid` is switched to the chain each call runs on;
 ///      both chains share one clock, as in `test/fork/e2e`.
 abstract contract CrossChainFixture is Test, FundSeed {
+    using MandateFixture for Mandate;
+
     uint256 internal constant HUB = 42_161;
     uint256 internal constant SPOKE = 4663;
     uint16 internal constant WH_SPOKE = 72;
@@ -79,6 +83,8 @@ abstract contract CrossChainFixture is Test, FundSeed {
     address internal protocol = makeAddr("protocolRecipient");
     address internal excess = makeAddr("excessRecipient");
     address internal hubAdapter = makeAddr("hubUniswapV4Adapter");
+    MockSwapAdapter internal hubSwap;
+    MockSwapAdapter internal spokeSwap;
     address internal relayer = makeAddr("relayer");
     address internal alice = makeAddr("alice");
     address internal bob = makeAddr("bob");
@@ -100,6 +106,8 @@ abstract contract CrossChainFixture is Test, FundSeed {
         spokePool = new SecAcrossSpokePool();
         escrowImpl = new TransitEscrow();
         _refreshPrices();
+        hubSwap = new MockSwapAdapter();
+        spokeSwap = new MockSwapAdapter();
         _beforeFundDeployment();
 
         // The fund's addresses are mutually dependent (the Mandate names the Spoke Vault and the bridge adapters, the
@@ -177,6 +185,13 @@ abstract contract CrossChainFixture is Test, FundSeed {
         m.manager = manager;
         m.hubChainId = HUB;
         m.usdc = address(usdc);
+        m.hubWormholeChainId = MandateFixture.ARBITRUM_WORMHOLE_CHAIN_ID;
+        m.addToken(HUB, address(usdc));
+        m.addToken(HUB, address(weth));
+        m.addToken(SPOKE, address(usdg));
+        m.addToken(SPOKE, address(spokeWeth));
+        m.addSwapAdapter(HUB, address(hubSwap));
+        m.addSwapAdapter(SPOKE, address(spokeSwap));
         m.adapters = new AdapterConfig[](2);
         m.adapters[0] = AdapterConfig(HUB, hubAdapter);
         m.adapters[1] = AdapterConfig(SPOKE, spokeAdapter);

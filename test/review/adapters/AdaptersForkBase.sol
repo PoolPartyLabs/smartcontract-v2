@@ -30,6 +30,8 @@ import {
 import {MockPriceSource} from "../../mocks/core/MockPriceSource.sol";
 import {MockManagerRegistry} from "../../mocks/core/MockManagerRegistry.sol";
 import {MockReportReceiver} from "../../mocks/core/MockReportReceiver.sol";
+import {MandateFixture} from "../../utils/MandateFixture.sol";
+import {MockSwapAdapter} from "../../mocks/swap/MockSwapAdapter.sol";
 
 interface IPermit2Of {
     function permit2() external view returns (address);
@@ -41,6 +43,8 @@ interface IPermit2Of {
 ///         the test chooses (`_secondFee()`), initialized at the live pool's price before the fund is created.
 ///         Performance fee at the Mandate cap (2,500 bps, MandateLib.MAX_PERFORMANCE_FEE_BPS), protocol slice 50%.
 abstract contract AdaptersForkBase is Test, FundSeed {
+    using MandateFixture for Mandate;
+
     address internal constant PM = 0x360E68faCcca8cA495c1B759Fd9EEe466db9FB32;
     address internal constant POSM = 0xd88F38F930b7952f2DB2432Cb002E7abbF3dD869;
     address internal constant SV = 0x76Fd297e2D437cd7f76d50F01AfE6160f86e9990;
@@ -58,6 +62,7 @@ abstract contract AdaptersForkBase is Test, FundSeed {
 
     UniswapV4Adapter internal adapter;
     SpokeVault internal hubVault;
+    MockSwapAdapter internal hubSwap;
     CoreVault internal vault;
     ShareToken internal shares;
     MockPriceSource internal prices;
@@ -99,6 +104,7 @@ abstract contract AdaptersForkBase is Test, FundSeed {
         MockReportReceiver receiver = new MockReportReceiver();
         TransitEscrow escrowImpl = new TransitEscrow();
 
+        hubSwap = new MockSwapAdapter();
         uint64 n = vm.getNonce(address(this));
         address hubVaultAt = vm.computeCreateAddress(address(this), n + 1);
         address coreAt = vm.computeCreateAddress(address(this), n + 2);
@@ -150,6 +156,10 @@ abstract contract AdaptersForkBase is Test, FundSeed {
         m.manager = manager;
         m.hubChainId = HUB;
         m.usdc = USDC;
+        m.hubWormholeChainId = MandateFixture.ARBITRUM_WORMHOLE_CHAIN_ID;
+        m.addToken(HUB, USDC);
+        m.addToken(HUB, WETH);
+        m.addSwapAdapter(HUB, address(hubSwap));
         m.adapters = new AdapterConfig[](1);
         m.adapters[0] = AdapterConfig(HUB, adapter_);
         m.pools = new PoolConfig[](2);

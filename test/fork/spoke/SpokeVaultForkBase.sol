@@ -10,9 +10,12 @@ import {
     BridgeAdapterConfig,
     OperatingCashConfig
 } from "../../../src/mandate/Mandate.sol";
+import {MandateFixture} from "../../utils/MandateFixture.sol";
 
 /// @notice Verified mainnet addresses (docs/INTEGRATIONS.md) and a Mandate builder for the Spoke Vault fork suites.
 abstract contract SpokeVaultForkBase is Test {
+    using MandateFixture for Mandate;
+
     uint256 internal constant ARBITRUM = 42_161;
     uint256 internal constant ROBINHOOD = 4663;
     uint16 internal constant WH_ROBINHOOD = 72;
@@ -44,12 +47,21 @@ abstract contract SpokeVaultForkBase is Test {
         address hubBridge;
         address spokeBridge;
         address spokeVault;
+        address hubSwap;
+        address spokeSwap;
     }
 
     function _mandate(ForkAdapters memory a) internal view returns (Mandate memory m) {
         m.manager = manager;
         m.hubChainId = ARBITRUM;
         m.usdc = ARB_USDC;
+        m.hubWormholeChainId = MandateFixture.ARBITRUM_WORMHOLE_CHAIN_ID;
+        m.addToken(ARBITRUM, ARB_USDC);
+        m.addToken(ARBITRUM, ARB_WETH);
+        m.addToken(ROBINHOOD, RH_USDG);
+        m.addToken(ROBINHOOD, RH_WETH);
+        m.addSwapAdapter(ARBITRUM, a.hubSwap);
+        m.addSwapAdapter(ROBINHOOD, a.spokeSwap);
 
         m.adapters = new AdapterConfig[](3);
         m.adapters[0] = AdapterConfig(ARBITRUM, a.hubUni);

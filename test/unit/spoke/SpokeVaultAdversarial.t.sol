@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {Mandate, AdapterConfig, PoolConfig, SpokeConfig, BridgeAdapterConfig} from "../../../src/mandate/Mandate.sol";
+import {MandateFixture} from "../../utils/MandateFixture.sol";
 import {SpokeVaultTestBase} from "./SpokeVaultTestBase.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
@@ -147,6 +148,8 @@ contract SpokeVaultAdversarialSpokeTest is SpokeVaultTestBase {
 ///         principal back and before the ledger is credited: the window a malicious or buggy adapter would use to
 ///         sweep or publish a report over an unbacked ledger.
 contract SpokeVaultAdversarialAdapterTest is SpokeVaultTestBase {
+    using MandateFixture for Mandate;
+
     bytes32 internal constant GENUINE = keccak256("hub transit genuine");
 
     ReentrantPositionAdapter internal evil;
@@ -196,7 +199,12 @@ contract SpokeVaultAdversarialAdapterTest is SpokeVaultTestBase {
     function _evilMandate() internal view returns (Mandate memory m) {
         m.manager = manager;
         m.hubChainId = HUB;
+        m.hubWormholeChainId = MandateFixture.ARBITRUM_WORMHOLE_CHAIN_ID;
         m.usdc = address(usdc);
+        m.addToken(HUB, address(usdc));
+        m.addToken(SPOKE, address(usdg));
+        m.addSwapAdapter(HUB, address(hubSwap));
+        m.addSwapAdapter(SPOKE, address(spokeSwap));
         m.adapters = new AdapterConfig[](1);
         m.adapters[0] = AdapterConfig(SPOKE, address(evil));
         m.pools = new PoolConfig[](1);

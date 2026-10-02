@@ -36,6 +36,8 @@ import {MockPositionAdapter} from "../../mocks/spoke/MockPositionAdapter.sol";
 import {MockPriceSource} from "../../mocks/core/MockPriceSource.sol";
 import {MockManagerRegistry} from "../../mocks/core/MockManagerRegistry.sol";
 import {MockReportReceiver} from "../../mocks/core/MockReportReceiver.sol";
+import {MandateFixture} from "../../utils/MandateFixture.sol";
+import {MockSwapAdapter} from "../../mocks/swap/MockSwapAdapter.sol";
 
 /// @notice Review fixture (spoke-a), adapted from the core-a fixture: a hub-only fund built from the REAL contracts on
 ///         the payout path: CoreVault (+ linked CoreVaultLogic), the hub SpokeVault (+ linked SpokeCrossChainLib) and
@@ -43,6 +45,8 @@ import {MockReportReceiver} from "../../mocks/core/MockReportReceiver.sol";
 ///         an exact-value USDC position (MockPositionAdapter, the Aave-like step), follows the V4 pool in the unwind
 ///         order. Only the price source, the manager registry and the unused report receiver are mocks besides it.
 abstract contract SpokeAHubFixture is Test, FundSeed {
+    using MandateFixture for Mandate;
+
     uint256 internal constant HUB = 42_161;
     bytes32 internal constant FUND_ID = keccak256("spoke-a review fund");
     /// @dev Oracle: 2,500 USDC per WETH, as IPriceSource price1e18 (USDC base units per wei, times 1e18).
@@ -64,6 +68,7 @@ abstract contract SpokeAHubFixture is Test, FundSeed {
     UniswapV4Adapter internal adapter;
     MockPositionAdapter internal exact;
     SpokeVault internal hubVault;
+    MockSwapAdapter internal hubSwap;
     CoreVault internal vault;
     ShareToken internal shares;
 
@@ -115,6 +120,7 @@ abstract contract SpokeAHubFixture is Test, FundSeed {
         tickUpper = (tick0 + HALF_RANGE) / 10 * 10;
 
         // Circular wiring (adapter -> hub Spoke Vault -> Core Vault -> hub Spoke Vault): predict the three addresses.
+        hubSwap = new MockSwapAdapter();
         uint64 n = vm.getNonce(address(this));
         address adapterAt = vm.computeCreateAddress(address(this), n);
         address hubVaultAt = vm.computeCreateAddress(address(this), n + 1);
@@ -153,6 +159,10 @@ abstract contract SpokeAHubFixture is Test, FundSeed {
         m.manager = manager;
         m.hubChainId = HUB;
         m.usdc = address(usdc);
+        m.hubWormholeChainId = MandateFixture.ARBITRUM_WORMHOLE_CHAIN_ID;
+        m.addToken(HUB, address(usdc));
+        m.addToken(HUB, address(weth));
+        m.addSwapAdapter(HUB, address(hubSwap));
         m.adapters = new AdapterConfig[](2);
         m.adapters[0] = AdapterConfig(HUB, adapter_);
         m.adapters[1] = AdapterConfig(HUB, exact_);

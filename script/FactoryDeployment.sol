@@ -45,6 +45,7 @@ abstract contract FactoryDeployment is CommonBase {
     // Chains (docs/INTEGRATIONS.md).
     uint256 internal constant ARBITRUM = 42_161;
     uint256 internal constant ROBINHOOD = 4663;
+    uint16 internal constant WORMHOLE_ARBITRUM = 23;
     uint16 internal constant WORMHOLE_ROBINHOOD = 72;
 
     // Arbitrum One (Hub Chain).

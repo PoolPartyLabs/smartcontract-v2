@@ -29,6 +29,7 @@ import {FundMandate} from "../../../script/FundMandate.sol";
 import {AnyPriceSource} from "../../mocks/core/AnyPriceSource.sol";
 import {MockManagerRegistry} from "../../mocks/core/MockManagerRegistry.sol";
 import {FundSeed} from "../../utils/FundSeed.sol";
+import {MandateFixture} from "../../utils/MandateFixture.sol";
 
 /// @notice Adversarial verification of the factory stage (round 2), after the fund id bound the Manager and
 ///         `createSpoke` started deriving the id from the Mandate's Hub Chain. Same two-chain fixture as
@@ -37,6 +38,8 @@ import {FundSeed} from "../../utils/FundSeed.sol";
 ///      `test_DEC087_verify_hubMandateMayNameASpokeThatCanNeverBeCreated` document open limits (FF-OQ-1 residual and a
 ///      Mandate foot-gun), not fixed behaviour; the other two confirm the round 1 fixes hold from other directions.
 contract FundFactoryVerifyRound2Test is Test, FactoryDeployment, FundMandate, FundSeed {
+    using MandateFixture for Mandate;
+
     uint256 internal constant HUB = 42_161;
     uint256 internal constant SPOKE = 4663;
 
@@ -114,6 +117,7 @@ contract FundFactoryVerifyRound2Test is Test, FactoryDeployment, FundMandate, Fu
     function _plan(address manager_) internal view returns (FundPlan memory plan) {
         plan.manager = manager_;
         plan.hubChainId = HUB;
+        plan.hubWormholeChainId = WORMHOLE_ARBITRUM;
         plan.usdc = address(usdc);
         plan.hubPool = _poolKey(address(weth), address(usdc), 500, 10);
         plan.hubAaveAsset = address(usdc);
@@ -142,6 +146,12 @@ contract FundFactoryVerifyRound2Test is Test, FactoryDeployment, FundMandate, Fu
         m.manager = manager_;
         m.hubChainId = SPOKE;
         m.usdc = address(usdg);
+        m.hubWormholeChainId = 72; // hubbed on Robinhood
+        m.addToken(SPOKE, address(usdg));
+        m.addToken(HUB, address(usdc));
+        m.addToken(HUB, address(weth));
+        m.addSwapAdapter(SPOKE, factory.addressOf(fundId, "UniswapV3SwapAdapter", SPOKE));
+        m.addSwapAdapter(HUB, factory.addressOf(fundId, "UniswapV3SwapAdapter", HUB));
         m.adapters = new AdapterConfig[](1);
         m.adapters[0] = AdapterConfig(HUB, uniswap);
         m.pools = new PoolConfig[](1);

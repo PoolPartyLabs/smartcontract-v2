@@ -20,6 +20,8 @@ import {MockSpokeToken} from "../../mocks/spoke/MockSpokeToken.sol";
 import {MockPositionAdapter} from "../../mocks/spoke/MockPositionAdapter.sol";
 import {MockCoreVault} from "../../mocks/spoke/MockCoreVault.sol";
 import {MockPriceSource} from "../../mocks/core/MockPriceSource.sol";
+import {MandateFixture} from "../../utils/MandateFixture.sol";
+import {MockSwapAdapter} from "../../mocks/swap/MockSwapAdapter.sol";
 
 /// @notice (adapters review) The Aave V3 adapter accepts any listed reserve as a Mandate pool (the factory builds its
 ///         reserve list from the Mandate's pool keys) and reports it as a single-token position `(asset, address(0))`
@@ -29,6 +31,8 @@ import {MockPriceSource} from "../../mocks/core/MockPriceSource.sol";
 ///         (over the mock pool with the live rounding) and real hub SpokeVault; mock V4-like adapter and Core Vault.
 /// @dev Run: forge test --match-path 'test/review/adapters/AaveNonUsdcReserveUnwind.t.sol' -vv
 contract AaveNonUsdcReserveUnwindTest is Test {
+    using MandateFixture for Mandate;
+
     uint256 internal constant HUB = 42_161;
     bytes32 internal constant HUB_POOL = keccak256("hub WETH/USDC");
 
@@ -42,6 +46,7 @@ contract AaveNonUsdcReserveUnwindTest is Test {
     AaveV3Adapter internal aave;
     MockCoreVault internal core;
     SpokeVault internal vault;
+    MockSwapAdapter internal hubSwap;
     bytes32 internal aaveWeth;
 
     function setUp() public {
@@ -56,6 +61,7 @@ contract AaveNonUsdcReserveUnwindTest is Test {
         aaveWeth = bytes32(uint256(uint160(address(weth))));
 
         TransitEscrow escrowImpl = new TransitEscrow();
+        hubSwap = new MockSwapAdapter();
         address vaultAt = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1);
         address[] memory assets = new address[](1);
         assets[0] = address(weth);
@@ -80,6 +86,10 @@ contract AaveNonUsdcReserveUnwindTest is Test {
         m.manager = manager;
         m.hubChainId = HUB;
         m.usdc = address(usdc);
+        m.hubWormholeChainId = MandateFixture.ARBITRUM_WORMHOLE_CHAIN_ID;
+        m.addToken(HUB, address(usdc));
+        m.addToken(HUB, address(weth));
+        m.addSwapAdapter(HUB, address(hubSwap));
         m.adapters = new AdapterConfig[](2);
         m.adapters[0] = AdapterConfig(HUB, address(hubUni));
         m.adapters[1] = AdapterConfig(HUB, address(aave));

@@ -17,6 +17,7 @@ import {IAcrossSpokePool} from "../../../src/interfaces/external/IAcrossSpokePoo
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {MockPositionAdapter} from "../../mocks/spoke/MockPositionAdapter.sol";
+import {MockSwapAdapter} from "../../mocks/swap/MockSwapAdapter.sol";
 
 /// @notice Current Across relay data (bytes32 addresses, uint256 deposit id), as the live SpokePools take it.
 struct RelayData {
@@ -98,6 +99,7 @@ contract Fork_AcrossDeadlineAndDustSends is SpokeVaultForkBase {
         vm.createSelectFork(vm.envString("ROBINHOOD_RPC_URL"), vm.envUint("ROBINHOOD_FORK_BLOCK"));
         MockPositionAdapter spokeUni = new MockPositionAdapter(guardian, false);
         spokeUni.addPool(SPOKE_POOL, RH_WETH, RH_USDG);
+        address spokeSwap = address(new MockSwapAdapter());
         TransitEscrow escrowImpl = new TransitEscrow();
         // The real adapter needs its vault at construction and the vault pins the adapter: predict the vault.
         address vaultAt = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1);
@@ -108,7 +110,9 @@ contract Fork_AcrossDeadlineAndDustSends is SpokeVaultForkBase {
             spokeUni: address(spokeUni),
             hubBridge: makeAddr("hubBridge"),
             spokeBridge: address(bridge),
-            spokeVault: vaultAt
+            spokeVault: vaultAt,
+            hubSwap: makeAddr("hubSwap"),
+            spokeSwap: spokeSwap
         });
         SpokeVault vault = new SpokeVault(
             _mandate(a),
