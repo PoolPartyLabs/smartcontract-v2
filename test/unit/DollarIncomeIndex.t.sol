@@ -484,6 +484,23 @@ contract DollarIncomeIndexTest is Test {
         h.collect(two, one);
     }
 
+    /// Review L-1: dollars obtained for a token that was not sold are an inconsistent input (a dollar token passes
+    /// `sold == obtained`). Accepting it would book dollars no sale produced; the collection reverts instead.
+    function test_DEC161_collectRejectsDollarsWithoutASale() public {
+        h.mint(ana, 100 * SHARE);
+        h.recognize(usdc, 100 * USD);
+        uint256[] memory sold = new uint256[](2);
+        uint256[] memory obtained = new uint256[](2);
+        obtained[0] = 100 * USD;
+        vm.expectRevert(abi.encodeWithSelector(DollarIncomeIndex.InconsistentCollection.selector, usdc));
+        h.collect(sold, obtained);
+        // Also with nothing recognized.
+        obtained[0] = 0;
+        obtained[1] = 1;
+        vm.expectRevert(abi.encodeWithSelector(DollarIncomeIndex.InconsistentCollection.selector, weth));
+        h.collect(sold, obtained);
+    }
+
     function test_DEC161_collectEmitsPerTokenConversion() public {
         h.mint(ana, 100 * SHARE);
         h.recognize(weth, WETH / 10);

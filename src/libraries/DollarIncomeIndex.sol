@@ -177,6 +177,9 @@ library DollarIncomeIndex {
     /// @notice `sold` and `obtained` must have one entry per income token, in list order.
     error CollectionLengthMismatch();
 
+    /// @notice A collection reported dollars obtained for `token` without selling any of it.
+    error InconsistentCollection(address token);
+
     /// @notice `onMint`/`onBurn`/`take` ran without a complete `settle` of the holder in the open interval.
     error HolderNotSettled(address holder);
 
@@ -244,7 +247,8 @@ library DollarIncomeIndex {
     ///        `openIndex x (R - sold) / R`; the fraction is stored as `carry` and carries the adjustments when their
     ///        holders settle.
     /// @param sold Token units sold for the holders, per token.
-    /// @param obtained Dollars credited for them, per token (for a dollar token not sold, `sold == obtained`).
+    /// @param obtained Dollars credited for them, per token (for a dollar token not sold, `sold == obtained`); zero
+    ///        when `sold` is zero, or the collection reverts with `InconsistentCollection`.
     /// @return unattributed Dollars of this collection attributed to no holder (at most `sum(obtained)`).
     function collect(State storage s, uint256[] memory sold, uint256[] memory obtained)
         internal
@@ -474,6 +478,7 @@ library DollarIncomeIndex {
         uint256 recognized = t.recognized;
         uint64 closing = t.interval;
         if (sold == 0) {
+            if (obtained != 0) revert InconsistentCollection(token);
             if (recognized != 0) emit IntervalIncomeUnsold(s.source, closing, token, recognized);
             return (0, 0);
         }
