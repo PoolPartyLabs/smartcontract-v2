@@ -365,6 +365,11 @@
         "name": "spotOut",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "minOut",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "nonpayable"
@@ -407,6 +412,11 @@
       },
       {
         "name": "spotOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minOut",
         "type": "uint256",
         "internalType": "uint256"
       }
