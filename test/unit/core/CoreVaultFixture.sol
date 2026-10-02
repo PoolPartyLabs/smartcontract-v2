@@ -10,9 +10,9 @@ import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {
     Mandate,
+    MandateLib,
     AdapterConfig,
     PoolConfig,
-    UnwindStep,
     SpokeConfig,
     BridgeAdapterConfig,
     OperatingCashConfig
@@ -28,6 +28,9 @@ import {MockAcrossSpokePool as AcrossPoolStandIn} from "../../mocks/across/MockA
 import {MockHubSpokeVault} from "../../mocks/core/MockHubSpokeVault.sol";
 import {MockReportReceiver} from "../../mocks/core/MockReportReceiver.sol";
 import {FundSeed} from "../../utils/FundSeed.sol";
+import {MandateFixture} from "../../utils/MandateFixture.sol";
+import {MockSwapAdapter} from "../../mocks/swap/MockSwapAdapter.sol";
+import {MockWormholeCore} from "../../mocks/spoke/MockWormholeCore.sol";
 
 /// @notice Shared deployment of a Core Vault against mocks: Arbitrum as hub (42161), Robinhood as the one spoke (4663).
 /// @dev The test contract plays the factory (`CoreVaultConfig.factory`): `_deploy` seeds every fund at creation, as
@@ -35,6 +38,8 @@ import {FundSeed} from "../../utils/FundSeed.sol";
 ///      flow fee, so the manager holds `SEED_SHARES` and Idle starts at `SEED_IDLE` (the Mandate minimum is 1 USDC
 ///      here).
 abstract contract CoreVaultFixture is Test, FundSeed {
+    using MandateFixture for Mandate;
+
     uint256 internal constant HUB = 42_161;
     uint256 internal constant SPOKE = 4663;
     uint16 internal constant WH_SPOKE = 72;
@@ -56,6 +61,7 @@ abstract contract CoreVaultFixture is Test, FundSeed {
     MockBridgeAdapter internal bridge;
     MockHubSpokeVault internal hubVault;
     MockReportReceiver internal receiver;
+    MockWormholeCore internal hubWormhole;
     TransitEscrow internal escrowImpl;
     CoreVault internal vault;
     ShareToken internal shares;
@@ -66,6 +72,10 @@ abstract contract CoreVaultFixture is Test, FundSeed {
     address internal spokeVaultAddress = makeAddr("robinhoodSpokeVault");
     address internal hubAdapter = makeAddr("hubUniswapV4Adapter");
     address internal spokeAdapter = makeAddr("spokeUniswapV4Adapter");
+    /// @dev Code-only swap adapters (DEC-136): a derived test may build a real Spoke Vault from this Mandate, which
+    ///      pins them.
+    address internal hubSwapAdapter;
+    address internal spokeSwapAdapter;
     address internal spokeBridge = makeAddr("spokeAcrossAdapter");
     address internal alice = makeAddr("alice");
     address internal bob = makeAddr("bob");
@@ -81,6 +91,9 @@ abstract contract CoreVaultFixture is Test, FundSeed {
         weth = new CoreMockToken("Wrapped Ether", "WETH", 18);
         usdg = new CoreMockToken("Global Dollar", "USDG", 6);
         spokeWeth = new CoreMockToken("Robinhood WETH", "WETH", 18);
+        hubSwapAdapter = address(new MockSwapAdapter());
+        spokeSwapAdapter = address(new MockSwapAdapter());
+        hubWormhole = new MockWormholeCore();
         prices = new MockPriceSource();
         prices.setPrice(address(weth), 2.5e9); // 2,500 USDC per WETH
         prices.setPrice(address(spokeWeth), 2.5e9);
@@ -102,15 +115,20 @@ abstract contract CoreVaultFixture is Test, FundSeed {
     function _mandate(uint16 performanceFeeBps) internal view returns (Mandate memory m) {
         m.manager = manager;
         m.hubChainId = HUB;
+        m.hubWormholeChainId = MandateFixture.ARBITRUM_WORMHOLE_CHAIN_ID;
         m.usdc = address(usdc);
+        m.addToken(HUB, address(usdc));
+        m.addToken(HUB, address(weth));
+        m.addToken(SPOKE, address(usdg));
+        m.addToken(SPOKE, address(spokeWeth));
+        m.addSwapAdapter(HUB, hubSwapAdapter);
+        m.addSwapAdapter(SPOKE, spokeSwapAdapter);
         m.adapters = new AdapterConfig[](2);
         m.adapters[0] = AdapterConfig(HUB, hubAdapter);
         m.adapters[1] = AdapterConfig(SPOKE, spokeAdapter);
         m.pools = new PoolConfig[](2);
         m.pools[0] = PoolConfig(HUB, hubAdapter, HUB_POOL);
         m.pools[1] = PoolConfig(SPOKE, spokeAdapter, SPOKE_POOL);
-        m.unwindOrder = new UnwindStep[](1);
-        m.unwindOrder[0] = UnwindStep(HUB, hubAdapter, HUB_POOL);
         m.spokes = new SpokeConfig[](1);
         m.spokes[0] = SpokeConfig(
             SPOKE, WH_SPOKE, bytes32(uint256(uint160(spokeVaultAddress))), address(usdg), SPOKE_CAP, MAX_REPORT_AGE
@@ -120,11 +138,9 @@ abstract contract CoreVaultFixture is Test, FundSeed {
         m.bridgeAdapters[1] = BridgeAdapterConfig(SPOKE, SPOKE, spokeBridge);
         m.operatingCash = new OperatingCashConfig[](0);
         m.payoutFeeBps = 200;
-        m.standardPayoutTerm = 72 hours;
         m.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
         m.performanceFeeBps = performanceFeeBps;
         m.managementFeeBps = 0;
-        m.maxBridgeFeeBps = 50;
     }
 
     function _config(uint16 flowFeeBps) internal view returns (CoreVaultConfig memory c) {
@@ -135,13 +151,12 @@ abstract contract CoreVaultFixture is Test, FundSeed {
         c.managerRegistry = address(registry);
         c.priceSource = address(prices);
         c.acrossSpokePool = address(pool);
+        c.wormholeCore = address(hubWormhole);
         c.protocolRecipient = protocol;
         c.excessRecipient = excess;
         c.escrowImplementation = address(escrowImpl);
         c.flowFeeBps = flowFeeBps;
         c.factory = address(this);
-        c.incomeTokens = new address[](1);
-        c.incomeTokens[0] = address(weth);
         c.shareName = "Pool Party Fund 1";
         c.shareSymbol = "PP-1";
     }
@@ -179,9 +194,17 @@ abstract contract CoreVaultFixture is Test, FundSeed {
         _ensureSpokeReport();
     }
 
-    /// @dev A vault with no flow fee and no performance fee, for the worked examples that predate DEC-106.
-    function _deployFeeless() internal returns (CoreVault) {
-        return _deploy(_mandate(0), _config(0));
+    /// @dev A vault with no flow fee and the lowest performance fee a fund may have (DEC-184: 10%), for the worked
+    ///      examples that predate DEC-106. The performance fee is charged on collected income only (ruling 2026-09-29),
+    ///      so it leaves deposits, Share Prices and payouts as they were.
+    function _deployAtMinimumFees() internal returns (CoreVault) {
+        return _deploy(_mandate(MandateLib.MIN_PERFORMANCE_FEE_BPS), _config(0));
+    }
+
+    /// @dev What enters the shareholders' index out of `income` collected by a `_deployAtMinimumFees` vault: the income
+    ///      less its 10% performance fee (DEC-107, DEC-184; `CoreVaultIncomeLogic.collectIncome` rounds the fee down).
+    function _netOfMinimumFee(uint256 income) internal pure returns (uint256) {
+        return income - income * MandateLib.MIN_PERFORMANCE_FEE_BPS / 10_000;
     }
 
     // ---------------------------------------------------------------------------------------------------------------

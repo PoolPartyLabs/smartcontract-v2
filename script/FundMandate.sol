@@ -4,12 +4,13 @@ pragma solidity 0.8.28;
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {IFundFactory} from "../src/interfaces/IFundFactory.sol";
+import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {
     Mandate,
     MandateLib,
     AdapterConfig,
+    TokenConfig,
     PoolConfig,
-    UnwindStep,
     SpokeConfig,
     BridgeAdapterConfig,
     OperatingCashConfig
@@ -18,13 +19,17 @@ import {
 /// @title FundMandate
 /// @notice Builds a fund's Mandate from the factory's predicted addresses: one hub Uniswap V4 pool, optionally Aave V3
 ///         supply of one hub asset, and optionally one Spoke Chain with one Uniswap V4 pool, reached through Across in
-///         both directions. Shared by `script/CreateFund.s.sol` and the tests, so a Mandate built on the hub and
-///         rebuilt on the spoke is byte-identical (same `mandateHash`).
-/// @dev The builder only fills in addresses; every rule value is the manager's choice in `FundPlan` (DEC-053).
+///         both directions, with one Uniswap V3 swap adapter per chain (DEC-136). Shared by `script/CreateFund.s.sol`
+///         and the tests, so a Mandate built on the hub and rebuilt on the spoke is byte-identical (same
+///         `mandateHash`).
+/// @dev The builder only fills in addresses and derives the Mandate tokens of each chain from the plan: the chain's
+///      base token first, then the tokens of its pools, in pool order (Arbitrum: USDC and WETH; Robinhood: USDG and
+///      WETH). Every rule value is the manager's choice in `FundPlan` (DEC-053).
 abstract contract FundMandate {
     /// @notice The manager's choices for a fund.
     /// @param manager The Manager (DEC-001, DEC-002).
     /// @param hubChainId Hub Chain (DEC-011).
+    /// @param hubWormholeChainId Wormhole chain id of the Hub Chain (Arbitrum One: 23; DEC-120, reading D-15).
     /// @param usdc Hub USDC (DEC-011).
     /// @param hubPool The hub Uniswap V4 pool (DEC-030, hookless in the MVP, OQ-12).
     /// @param hubAaveAsset Aave V3 reserve asset on the hub; address(0) for no Aave adapter (DEC-018, DEC-028).
@@ -38,11 +43,12 @@ abstract contract FundMandate {
     /// @param spokeOperatingCashTopUp Spoke Operating Cash top-up (DEC-096).
     /// @param minFirstDeposit Minimum first deposit, which the seed must reach (DEC-061, DEC-095, DEC-127).
     /// @param performanceFeeBps Performance fee (DEC-107, DEC-110).
-    /// @param maxBridgeFeeBps Maximum bridge fee per send (QA19 OPEN).
+    /// @param managementFeeBps Management fee, bps a year, 0..500 (DEC-108, DEC-114, DEC-115); 0 by default.
     /// @param seedAmount The manager's seed at creation, in hub USDC base units (DEC-127); 0 seeds `minFirstDeposit`.
     struct FundPlan {
         address manager;
         uint256 hubChainId;
+        uint16 hubWormholeChainId;
         address usdc;
         PoolKey hubPool;
         address hubAaveAsset;
@@ -56,7 +62,7 @@ abstract contract FundMandate {
         uint256 spokeOperatingCashTopUp;
         uint256 minFirstDeposit;
         uint16 performanceFeeBps;
-        uint16 maxBridgeFeeBps;
+        uint16 managementFeeBps;
         uint256 seedAmount;
     }
 
@@ -75,27 +81,31 @@ abstract contract FundMandate {
 
         m.manager = plan.manager;
         m.hubChainId = plan.hubChainId;
+        m.hubWormholeChainId = plan.hubWormholeChainId;
         m.usdc = plan.usdc;
+        m.tokens = _tokens(plan);
+        m.swapAdapters = new AdapterConfig[](spoke ? 2 : 1);
+        m.swapAdapters[0] =
+            AdapterConfig(plan.hubChainId, factory.addressOf(fundId, "UniswapV3SwapAdapter", plan.hubChainId));
+        if (spoke) {
+            m.swapAdapters[1] =
+                AdapterConfig(plan.spokeChainId, factory.addressOf(fundId, "UniswapV3SwapAdapter", plan.spokeChainId));
+        }
         uint256 adapterCount = 1 + (aave ? 1 : 0) + (spoke ? 1 : 0);
         m.adapters = new AdapterConfig[](adapterCount);
         m.pools = new PoolConfig[](adapterCount);
         m.adapters[0] = AdapterConfig(plan.hubChainId, hubUniswap);
         m.pools[0] = PoolConfig(plan.hubChainId, hubUniswap, hubPoolId);
-        // Automatic unwind reaches hub positions only in the MVP (feedback question 2, DEC-069).
-        m.unwindOrder = new UnwindStep[](aave ? 2 : 1);
-        m.unwindOrder[0] = UnwindStep(plan.hubChainId, hubUniswap, hubPoolId);
         if (aave) {
             m.adapters[1] = AdapterConfig(plan.hubChainId, hubAave);
             m.pools[1] = PoolConfig(plan.hubChainId, hubAave, aaveKey);
-            m.unwindOrder[1] = UnwindStep(plan.hubChainId, hubAave, aaveKey);
         }
         if (spoke) _addSpoke(factory, fundId, plan, m, adapterCount - 1);
 
         m.payoutFeeBps = MandateLib.DEFAULT_PAYOUT_FEE_BPS;
-        m.standardPayoutTerm = MandateLib.DEFAULT_STANDARD_PAYOUT_TERM;
         m.minFirstDeposit = plan.minFirstDeposit;
         m.performanceFeeBps = plan.performanceFeeBps;
-        m.maxBridgeFeeBps = plan.maxBridgeFeeBps;
+        m.managementFeeBps = plan.managementFeeBps;
     }
 
     function _addSpoke(IFundFactory factory, bytes32 fundId, FundPlan memory plan, Mandate memory m, uint256 index)
@@ -126,6 +136,37 @@ abstract contract FundMandate {
         m.operatingCash = new OperatingCashConfig[](1);
         m.operatingCash[0] =
             OperatingCashConfig(plan.spokeChainId, plan.spokeOperatingCashFloor, plan.spokeOperatingCashTopUp);
+    }
+
+    /// @dev DEC-123, DEC-136: the base token of each chain, then its pools' tokens, without repeats.
+    function _tokens(FundPlan memory plan) private pure returns (TokenConfig[] memory tokens) {
+        tokens = new TokenConfig[](7);
+        uint256 n;
+        n = _appendToken(tokens, n, plan.hubChainId, plan.usdc);
+        n = _appendToken(tokens, n, plan.hubChainId, Currency.unwrap(plan.hubPool.currency0));
+        n = _appendToken(tokens, n, plan.hubChainId, Currency.unwrap(plan.hubPool.currency1));
+        n = _appendToken(tokens, n, plan.hubChainId, plan.hubAaveAsset);
+        if (plan.spokeChainId != 0) {
+            n = _appendToken(tokens, n, plan.spokeChainId, plan.spokeToken);
+            n = _appendToken(tokens, n, plan.spokeChainId, Currency.unwrap(plan.spokePool.currency0));
+            n = _appendToken(tokens, n, plan.spokeChainId, Currency.unwrap(plan.spokePool.currency1));
+        }
+        assembly ("memory-safe") {
+            mstore(tokens, n)
+        }
+    }
+
+    function _appendToken(TokenConfig[] memory tokens, uint256 n, uint256 chainId, address token)
+        private
+        pure
+        returns (uint256)
+    {
+        if (token == address(0)) return n;
+        for (uint256 i; i < n; ++i) {
+            if (tokens[i].chainId == chainId && tokens[i].token == token) return n;
+        }
+        tokens[n] = TokenConfig(chainId, token);
+        return n + 1;
     }
 
     /// @notice `createFund` inputs for `plan`.

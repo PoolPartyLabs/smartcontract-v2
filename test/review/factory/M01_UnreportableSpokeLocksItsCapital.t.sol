@@ -52,10 +52,25 @@ contract M01_UnreportableSpokeLocksItsCapital is FactoryReviewFixture {
         _showNothingIsLocked(c);
     }
 
-    /// @dev The wrong Wormhole chain id (23 is Arbitrum's; Robinhood's is 72): every genuine VAA is an unknown emitter.
-    function test_REVIEW_M04_wrongWormholeChainIdLeavesTheSpokeUnfunded() public {
+    /// @dev Mandate v2 (D-15): the Mandate carries the Hub's Wormhole chain id, so the review's value (23, Arbitrum's)
+    ///      is now refused for a spoke at creation.
+    function test_REVIEW_M04_theHubsWormholeChainIdIsRefusedForASpoke() public {
         FundPlan memory plan = _plan();
         plan.spokeWormholeChainId = 23;
+        Deployment memory d = _hubChain();
+        uint256 n = d.factory.nextCreationNumber();
+        Mandate memory m = _buildMandate(d.factory, d.factory.fundIdOf(HUB, n, manager), plan);
+        IFundFactory.HubParams memory p = _hubParams(n, plan, _coreVaultCreationCode(d));
+        _fundManagerSeed(address(usdc), manager, address(d.factory), p.seedAmount);
+        vm.prank(manager);
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.SpokeIsHubChain.selector, SPOKE));
+        d.factory.createFund(m, p);
+    }
+
+    /// @dev Another wrong Wormhole chain id (30 is Base's; Robinhood's is 72): every genuine VAA is an unknown emitter.
+    function test_REVIEW_M04_wrongWormholeChainIdLeavesTheSpokeUnfunded() public {
+        FundPlan memory plan = _plan();
+        plan.spokeWormholeChainId = 30;
         Ctx memory c;
         _arbitrumCreateAndDeposit(c, plan);
         _robinhoodCreateAndReport(c, plan);

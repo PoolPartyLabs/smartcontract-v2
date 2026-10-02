@@ -25,6 +25,7 @@ import {MockPriceSource} from "../../mocks/core/MockPriceSource.sol";
 import {FactoryDeployment} from "../../../script/FactoryDeployment.sol";
 import {FundMandate} from "../../../script/FundMandate.sol";
 import {FundSeed} from "../../utils/FundSeed.sol";
+import {V3Stub} from "../../utils/V3Stub.sol";
 
 /// @notice Review fixture (factory): the REAL deployment path (`script/FactoryDeployment.sol` and
 ///         `script/FundMandate.sol`, as the repository's factory tests use them) on two simulated chains, with every fund
@@ -104,6 +105,7 @@ abstract contract FactoryReviewFixture is Test, FactoryDeployment, FundMandate, 
         w.uniswapV4StateView = makeAddr(hub ? "hubStateView" : "spokeStateView");
         w.permit2 = makeAddr("permit2");
         w.aaveV3Pool = hub ? address(aave) : address(0);
+        V3Stub.wire(w);
         w.managerRegistry = hub ? address(registry) : address(0);
         w.priceSource = hub ? address(prices) : address(0);
         w.protocolRecipient = recipient;
@@ -146,6 +148,7 @@ abstract contract FactoryReviewFixture is Test, FactoryDeployment, FundMandate, 
     function _plan() internal view returns (FundPlan memory plan) {
         plan.manager = manager;
         plan.hubChainId = HUB;
+        plan.hubWormholeChainId = WORMHOLE_ARBITRUM;
         plan.usdc = address(usdc);
         plan.hubPool = _poolKey(address(weth), address(usdc), 500, 10);
         plan.hubAaveAsset = address(usdc);
@@ -159,7 +162,6 @@ abstract contract FactoryReviewFixture is Test, FactoryDeployment, FundMandate, 
         plan.spokeOperatingCashTopUp = 10e6;
         plan.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
         plan.performanceFeeBps = 2000;
-        plan.maxBridgeFeeBps = 50;
         // DEC-127: the manager seeds one share at creation (FundSeed).
         plan.seedAmount = _oneShareSeed(25);
     }

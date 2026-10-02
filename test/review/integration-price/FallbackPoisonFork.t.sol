@@ -36,7 +36,7 @@ contract FallbackPoisonFork is IntegrationPriceBase {
 
     function _poison(bool down) internal {
         _arbitrumOnly();
-        _createFund(_pricePlan(SPOKE_CAP), new PoolKey[](0), false);
+        _createFund(_pricePlan(SPOKE_CAP), new PoolKey[](0));
         _deposit(alice, 250_000e6);
         _deposit(bruno, 50_000e6);
         _allocate(core.freeIdle() - 100_000e6);

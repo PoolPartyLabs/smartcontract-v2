@@ -12,9 +12,9 @@ import {Transit, TransitState, TransferKind} from "../../../src/interfaces/FundT
 import {IAcrossSpokePool} from "../../../src/interfaces/external/IAcrossSpokePool.sol";
 import {
     Mandate,
+    MandateLib,
     AdapterConfig,
     PoolConfig,
-    UnwindStep,
     SpokeConfig,
     BridgeAdapterConfig,
     OperatingCashConfig
@@ -26,11 +26,14 @@ import {MockHubSpokeVault} from "../../mocks/core/MockHubSpokeVault.sol";
 import {MockReportReceiver} from "../../mocks/core/MockReportReceiver.sol";
 import {MockPriceSource} from "../../mocks/core/MockPriceSource.sol";
 import {MockManagerRegistry} from "../../mocks/core/MockManagerRegistry.sol";
+import {MandateFixture} from "../../utils/MandateFixture.sol";
 
 /// @notice Core Vault custody against the live Across SpokePool on Arbitrum One (docs/INTEGRATIONS.md): the vault
 ///         approves exactly, the SpokePool pulls exactly the input amount from the vault with the per-send escrow as
 ///         depositor, the approval is reset, and a fill callback from the SpokePool address is matched by transit id.
 contract CoreVaultAcrossForkTest is Test, FundSeed {
+    using MandateFixture for Mandate;
+
     address internal constant USDC = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
     address internal constant SPOKE_POOL = 0xe35e9842fceaCA96570B734083f4a58e8F7C5f2A;
     address internal constant USDG_ROBINHOOD = 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168;
@@ -59,12 +62,15 @@ contract CoreVaultAcrossForkTest is Test, FundSeed {
         m.manager = manager;
         m.hubChainId = HUB;
         m.usdc = USDC;
+        m.hubWormholeChainId = MandateFixture.ARBITRUM_WORMHOLE_CHAIN_ID;
+        m.addToken(HUB, USDC);
+        m.addToken(SPOKE, USDG_ROBINHOOD);
+        m.addSwapAdapter(HUB, makeAddr("hubSwap"));
+        m.addSwapAdapter(SPOKE, makeAddr("spokeSwap"));
         m.adapters = new AdapterConfig[](1);
         m.adapters[0] = AdapterConfig(HUB, makeAddr("hubAdapter"));
         m.pools = new PoolConfig[](1);
         m.pools[0] = PoolConfig(HUB, m.adapters[0].adapter, keccak256("pool"));
-        m.unwindOrder = new UnwindStep[](1);
-        m.unwindOrder[0] = UnwindStep(HUB, m.adapters[0].adapter, keccak256("pool"));
         m.spokes = new SpokeConfig[](1);
         m.spokes[0] =
             SpokeConfig(SPOKE, 72, bytes32(uint256(uint160(spokeVaultAddress))), USDG_ROBINHOOD, 1_000_000e6, 1587);
@@ -73,9 +79,8 @@ contract CoreVaultAcrossForkTest is Test, FundSeed {
         m.bridgeAdapters[1] = BridgeAdapterConfig(SPOKE, SPOKE, makeAddr("spokeBridge"));
         m.operatingCash = new OperatingCashConfig[](0);
         m.payoutFeeBps = 200;
-        m.standardPayoutTerm = 72 hours;
         m.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
-        m.maxBridgeFeeBps = 50;
+        m.performanceFeeBps = MandateLib.MIN_PERFORMANCE_FEE_BPS;
 
         CoreVaultConfig memory c;
         c.fundId = FUND_ID;
@@ -85,12 +90,12 @@ contract CoreVaultAcrossForkTest is Test, FundSeed {
         c.managerRegistry = address(new MockManagerRegistry());
         c.priceSource = address(prices);
         c.acrossSpokePool = SPOKE_POOL;
+        c.wormholeCore = 0xa5f208e072434bC67592E4C49C1B991BA79BCA46; // Arbitrum One Wormhole Core (chain id 23)
         c.protocolRecipient = makeAddr("protocol");
         c.excessRecipient = makeAddr("excess");
         c.escrowImplementation = address(new TransitEscrow());
         c.flowFeeBps = 25;
         c.factory = address(this);
-        c.incomeTokens = new address[](0);
         c.shareName = "Pool Party Fund 1";
         c.shareSymbol = "PP-1";
         vault = new CoreVault(m, c);

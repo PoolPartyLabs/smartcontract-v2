@@ -75,9 +75,10 @@ async function deploySwapRouter(side: Side, poolManager: Address): Promise<Addre
   return deploy(side, "operator", encodeDeployData({ abi: v4SwapRouterAbi, bytecode: v4SwapRouterBytecode(), args: [poolManager] }) as Hex);
 }
 
-/** A UniswapV3SwapAdapter (WP-03) for the API's signed routes: the operator guards it, the API signer signs its routes
- *  (reading D-01), its Mandate tokens (DEC-136 item 2) are SWAP_ADAPTER_TOKENS, and the manager's wallet stands in for
- *  the Spoke Vault that will own it once the factory deploys swap adapters (WP-07). */
+/** A UniswapV3SwapAdapter (WP-03) for executing the API's signed routes from a wallet: the operator guards it, the API
+ *  signer signs its routes (reading D-01), its Mandate tokens (DEC-136 item 2) are SWAP_ADAPTER_TOKENS, and the
+ *  manager's wallet is its vault. The fund's own swap adapters, which the factory deploys (Mandate v2), take `swap` only
+ *  from their Spoke Vault, whose manager swap verb lands in WP-07 C. */
 async function deploySwapAdapter(side: Side): Promise<Address> {
   const chain = side === "arbitrum" ? ARBITRUM : ROBINHOOD;
   const tokens = SWAP_ADAPTER_TOKENS[side];
@@ -252,6 +253,7 @@ if (isMain(import.meta.url)) {
     console.log(`\n${green(bold("up"))}: Arbitrum One fork ${state.nodes.arbitrum.rpc} (chain 42161), Robinhood Chain fork ${state.nodes.robinhood.rpc} (chain 4663)`);
     console.log(`  FundFactory          ${state.protocol.arbitrum.fundFactory} (both chains)`);
     console.log(`  fund ${state.fund.shareSymbol.padEnd(15)} Core Vault ${state.fund.hub.coreVault}, Spoke Vault (Robinhood) ${state.fund.spoke.spokeVault}`);
+    console.log(`  swap adapters        ${state.fund.hub.uniswapV3SwapAdapter} (hub), ${state.fund.spoke.uniswapV3SwapAdapter} (Robinhood)`);
     console.log(`  state                local-e2e/.state/deployment.json`);
     console.log(`  next                 pnpm keeper --auto-report 600   (another terminal), then pnpm scenario`);
   } catch (err) {

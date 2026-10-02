@@ -8,6 +8,7 @@ import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {SqrtPriceMath} from "@uniswap/v4-core/src/libraries/SqrtPriceMath.sol";
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
 import {ICoreVaultIncome} from "../interfaces/ICoreVaultIncome.sol";
+import {ICoreVaultLifecycle} from "../interfaces/ICoreVaultLifecycle.sol";
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {IValueReportReceiver} from "../interfaces/IValueReportReceiver.sol";
 import {IPriceSource} from "../interfaces/IPriceSource.sol";
@@ -44,6 +45,9 @@ library CoreVaultLogic {
     uint8 private constant MINT = 1;
     uint8 private constant PAYOUT = 2;
 
+    /// @dev DEC-114: the management fee is a rate per year of 365 days, in bps.
+    uint256 private constant BPS_YEAR = 10_000 * 365 days;
+
     /// @dev Prices read by one valuation (price1e18 per token), each token read once; `fellBack` marks a PAYOUT read
     ///      that failed and used `CoreVaultState.lastPrice`.
     struct Prices {
@@ -57,12 +61,19 @@ library CoreVaultLogic {
 
     /// @notice Share Assets with their consolidation (DEC-083), for a view: a failing dependency reverts, age is
     ///         ignored. Income is never recognized here (ruling 2026-09-29: the index advances only at collection).
+    ///         Net of the management fee owed, pending accrual included (DEC-114).
     function valuation(CoreVaultState storage s, CoreVaultWiring memory w)
         public
         view
         returns (uint256 assets, ICoreVault.NavConsolidation memory consolidation)
     {
         (assets, consolidation,,) = _valuation(s, w, _newPrices(VIEW));
+    }
+
+    /// @notice The management fee owed now: what was booked plus what accrued since, at the current prices (DEC-114).
+    function managementFeeOwed(CoreVaultState storage s, CoreVaultWiring memory w) public view returns (uint256) {
+        (uint256 gross,,,) = _grossValuation(s, w, _newPrices(VIEW));
+        return _managementFeeOwed(s, gross);
     }
 
     /// @notice Share Assets for a mint (`mint` true) or a payout (`mint` false), keeping the last known valuation.
@@ -79,6 +90,8 @@ library CoreVaultLogic {
     ///      the fallback is the last read adjusted by those moves and never counts a returned amount in Idle and in
     ///      the hub value at once (consolidation verifier finding); market moves since the last read are not seen. Remote spokes need no value fallback: their last accepted report is kept by
     ///      the fund's own ValueReportReceiver and only their prices can fail.
+    /// @dev DEC-114 (D-33): the management fee accrued since the last valuation is booked here, before the Share Price
+    ///      is read, so an entrant pays none of what accrued before it and a leaver bears its share through the price.
     function recordValuation(CoreVaultState storage s, CoreVaultWiring memory w, bool mint)
         public
         returns (uint256 assets, ICoreVault.NavConsolidation memory consolidation)
@@ -86,7 +99,8 @@ library CoreVaultLogic {
         Prices memory p = _newPrices(mint ? MINT : PAYOUT);
         uint256 hubValue;
         bool hubRead;
-        (assets, consolidation, hubValue, hubRead) = _valuation(s, w, p);
+        (assets, consolidation, hubValue, hubRead) = _grossValuation(s, w, p);
+        assets = _bookManagementFee(s, assets);
         if (!hubRead) emit ICoreVault.HubValuationFallback(hubValue);
         else if (!p.anyFallback) s.lastHubValue = hubValue;
         for (uint256 i; i < p.n; ++i) {
@@ -110,9 +124,11 @@ library CoreVaultLogic {
     ///         collected here, plus the hub Spoke Vault's collected bucket and uncollected position income, plus each
     ///         spoke's uncollected position income, collected income bucket and Operating Cash from its last report.
     ///         External rewards are 0 (no Collector in the MVP).
+    /// @dev The management fee owed is still held by the fund until it is paid (DEC-114), so Gross Assets count it:
+    ///      the valuation before its deduction.
     function grossAssets(CoreVaultState storage s, CoreVaultWiring memory w) public view returns (uint256 total) {
         Prices memory p = _newPrices(VIEW);
-        (total,,,) = _valuation(s, w, p);
+        (total,,,) = _grossValuation(s, w, p);
         total += s.operatingCash + _positionsIncome(s, w, p, ISpokeVault(w.hubSpokeVault).buildReport());
         address[] memory tokens = s.income.tokens;
         for (uint256 i; i < tokens.length; ++i) {
@@ -161,7 +177,20 @@ library CoreVaultLogic {
     ///      manager sent it home, or it went into a position) passes the shortfall here, where it is deducted from
     ///      wherever that value now sits (Idle, the return leg); only the total is floored at 0. This is what keeps a
     ///      hub-to-spoke transit the hub never confirmed (still in In-flight Value) counted once.
+    /// @dev DEC-114 (D-33): net of the management fee owed, the accrual since the last booking included at this
+    ///      valuation (a view adds the pending accrual; `recordValuation` books it).
     function _valuation(CoreVaultState storage s, CoreVaultWiring memory w, Prices memory p)
+        private
+        view
+        returns (uint256 assets, ICoreVault.NavConsolidation memory consolidation, uint256 hubValue, bool hubRead)
+    {
+        (assets, consolidation, hubValue, hubRead) = _grossValuation(s, w, p);
+        uint256 owed = _managementFeeOwed(s, assets);
+        assets = assets > owed ? assets - owed : 0;
+    }
+
+    /// @notice Share Assets before the management fee (see `_valuation`).
+    function _grossValuation(CoreVaultState storage s, CoreVaultWiring memory w, Prices memory p)
         private
         view
         returns (uint256 assets, ICoreVault.NavConsolidation memory consolidation, uint256 hubValue, bool hubRead)
@@ -409,6 +438,43 @@ library CoreVaultLogic {
             (tokens[i], values[i], fellBack[i]) = (p.tokens[i], p.values[i], p.fellBack[i]);
         }
         (p.tokens, p.values, p.fellBack) = (tokens, values, fellBack);
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Management fee (DEC-108, DEC-114, DEC-115; reading D-33)
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// @notice The management fee owed when Share Assets before it are `gross`: the booked liability plus the linear
+    ///         accrual since the last booking, `(gross - booked) * bps * dt / (10,000 * 365 days)`, rounded down.
+    /// @dev Reading D-33: the base is Share Assets net of the liability already booked, so the fee never charges
+    ///      itself; it accrues only while the fund is Open (it stops at `closeFund`, DEC-114, DEC-147), and an accrual
+    ///      never takes more than the fund holds (a fund left without a valuation for decades at 5% would otherwise owe
+    ///      more than it has). DEC-114's example: 1,000,000 at 1% for three years is 30,000 when booked once; booked
+    ///      yearly the base shrinks by what was booked (29,701).
+    function _managementFeeOwed(CoreVaultState storage s, uint256 gross) private view returns (uint256 owed) {
+        owed = s.managementFeeAccrued;
+        uint256 bps = s.managementFeeBps;
+        if (bps == 0 || gross <= owed || s.fundState != ICoreVaultLifecycle.FundState.Open) return owed;
+        uint256 base = gross - owed;
+        owed += Math.min(Math.mulDiv(base, bps * (block.timestamp - s.managementFeeLastAccrual), BPS_YEAR), base);
+    }
+
+    /// @notice Books the management fee owed at `gross` (DEC-114) and returns Share Assets net of it.
+    /// @dev The clock moves when something was booked, or when the liability already takes the whole fund (that time
+    ///      is never charged later). A run of valuations too close together to book one base unit keeps the clock, so
+    ///      their time is not lost. A fee of 0 never accrues again (it only decreases, DEC-110), so its clock is never
+    ///      written.
+    function _bookManagementFee(CoreVaultState storage s, uint256 gross) private returns (uint256 assets) {
+        uint256 booked = s.managementFeeAccrued;
+        uint256 owed = _managementFeeOwed(s, gross);
+        if (owed != booked) {
+            s.managementFeeAccrued = owed;
+            s.managementFeeLastAccrual = uint64(block.timestamp);
+            emit ICoreVaultIncome.ManagementFeeAccrued(owed - booked, owed);
+        } else if (gross <= booked && s.managementFeeBps != 0) {
+            s.managementFeeLastAccrual = uint64(block.timestamp);
+        }
+        assets = gross > owed ? gross - owed : 0;
     }
 
     // ---------------------------------------------------------------------------------------------------------------

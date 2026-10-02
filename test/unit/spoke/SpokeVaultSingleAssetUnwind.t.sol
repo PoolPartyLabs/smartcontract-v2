@@ -4,7 +4,7 @@ pragma solidity 0.8.28;
 import {SpokeVaultTestBase} from "./SpokeVaultTestBase.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
-import {Mandate, PoolConfig, UnwindStep} from "../../../src/mandate/Mandate.sol";
+import {Mandate, PoolConfig} from "../../../src/mandate/Mandate.sol";
 
 /// @notice Independent verification plan T14 (review L-05): a single-asset position whose asset is not USDC (an Aave
 ///         WETH reserve) made `_unwindRoute` look for the other token of a one-token pool, so every automatic unwind
@@ -58,13 +58,7 @@ contract SpokeVaultSingleAssetUnwindTest is SpokeVaultTestBase {
         }
         pools[m.pools.length] = PoolConfig(HUB, address(hubAave), AAVE_WETH);
         m.pools = pools;
-        // The WETH reserve first in the unwind order, so the claim reaches it.
-        UnwindStep[] memory order = new UnwindStep[](m.unwindOrder.length + 1);
-        order[0] = UnwindStep(HUB, address(hubAave), AAVE_WETH);
-        for (uint256 i; i < m.unwindOrder.length; ++i) {
-            order[i + 1] = m.unwindOrder[i];
-        }
-        m.unwindOrder = order;
+        // The WETH reserve position is the only open one, so the registry-order unwind reaches it (DEC-137 interim).
 
         vm.chainId(HUB);
         vault = new SpokeVault(

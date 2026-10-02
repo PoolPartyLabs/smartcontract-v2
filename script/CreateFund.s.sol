@@ -18,11 +18,19 @@ import {FundMandate} from "./FundMandate.sol";
 ///         addresses, builds the Mandate and calls `createFund`; on Robinhood it rebuilds the same Mandate and calls
 ///         `createSpoke` with the `mandateHash` the hub emitted (docs/DEPLOYMENT.md).
 /// @dev The fund uses the docs/INTEGRATIONS.md pools: WETH/USDC 0.05% on Uniswap V4 and USDC on Aave V3 on the hub,
-///      WETH/USDG 0.05% on Uniswap V4 on Robinhood. The rule values are the manager's (DEC-053) and come from the
-///      environment with the defaults below.
+///      WETH/USDG 0.05% on Uniswap V4 on Robinhood. Mandate v2 (WP-07 B): the Mandate tokens are Arbitrum USDC and
+///      WETH and Robinhood USDG and WETH, each chain has the fund's Uniswap V3 swap adapter (DEC-136), and the Hub's
+///      Wormhole chain id is 23. The rule values are the manager's (DEC-053) and come from the environment with the
+///      defaults below.
 /// @dev Environment: `FUND_FACTORY`, `MANAGER` (the broadcaster; DEC-001: the creator is the Manager); on Robinhood also
 ///      `CREATION_NUMBER` and `MANDATE_HASH` from the hub's `FundCreated` event. Optional: `SPOKE_CAP`,
-///      `MIN_FIRST_DEPOSIT`, `PERFORMANCE_FEE_BPS`, `MAX_BRIDGE_FEE_BPS`, `SEED_AMOUNT` (default `MIN_FIRST_DEPOSIT`).
+///      `MIN_FIRST_DEPOSIT`, `PERFORMANCE_FEE_BPS` (default 2,000, within [1,000, 9,000]: DEC-182, DEC-184),
+///      `MANAGEMENT_FEE_BPS` (default 0, at most 500: DEC-184, DEC-186), `SPOKE_OPERATING_CASH_FLOOR` and
+///      `SPOKE_OPERATING_CASH_TOP_UP` (Robinhood USDG base units, default 0; DEC-096), `SEED_AMOUNT` (default
+///      `MIN_FIRST_DEPOSIT`).
+/// @dev Operating Cash is out of the MVP (ruling 2026-10-02): nothing spends it, and native Operating Cash (DEC-130,
+///      DEC-144) and the gas refund come after the buildathon, so a fund locks no value there by default. The hub has
+///      no Operating Cash entry in the Mandate, so its floor and top-up are 0 as well.
 /// @dev DEC-127: the manager seeds the fund in the creation transaction; on Arbitrum the script approves the factory
 ///      for `SEED_AMOUNT` USDC first, so `MANAGER` must hold it.
 contract CreateFund is Script, FactoryDeployment, FundMandate {
@@ -53,6 +61,7 @@ contract CreateFund is Script, FactoryDeployment, FundMandate {
             console.log("ManagerFeeVault", a.managerFeeVault);
             console.log("ValueReportReceiver", a.valueReportReceiver);
             console.log("hub Spoke Vault", a.chains[0].spokeVault);
+            console.log("hub Uniswap V3 swap adapter", a.chains[0].uniswapV3SwapAdapter);
             console.log(
                 "Robinhood Spoke Vault (predicted)",
                 m.spokes.length != 0 ? address(uint160(uint256(m.spokes[0].spokeVault))) : address(0)
@@ -66,6 +75,7 @@ contract CreateFund is Script, FactoryDeployment, FundMandate {
             vm.stopBroadcast();
             console.log("Spoke Vault", c.spokeVault);
             console.log("Uniswap V4 adapter", c.uniswapV4Adapter);
+            console.log("Uniswap V3 swap adapter", c.uniswapV3SwapAdapter);
             console.log("Across bridge adapter", c.acrossBridgeAdapter);
         } else {
             revert UnsupportedChain(block.chainid);
@@ -75,6 +85,7 @@ contract CreateFund is Script, FactoryDeployment, FundMandate {
     function _plan(address manager) internal view returns (FundPlan memory plan) {
         plan.manager = manager;
         plan.hubChainId = ARBITRUM;
+        plan.hubWormholeChainId = WORMHOLE_ARBITRUM;
         plan.usdc = ARB_USDC;
         plan.hubPool = PoolKey(Currency.wrap(ARB_WETH), Currency.wrap(ARB_USDC), 500, 10, IHooks(address(0)));
         plan.hubAaveAsset = ARB_USDC;
@@ -84,11 +95,11 @@ contract CreateFund is Script, FactoryDeployment, FundMandate {
         plan.spokePool = PoolKey(Currency.wrap(RH_WETH), Currency.wrap(RH_USDG), 500, 10, IHooks(address(0)));
         plan.spokeCap = vm.envOr("SPOKE_CAP", uint256(10_000e6));
         plan.maxReportAge = ROBINHOOD_MAX_REPORT_AGE;
-        plan.spokeOperatingCashFloor = 5e6;
-        plan.spokeOperatingCashTopUp = 10e6;
+        plan.spokeOperatingCashFloor = vm.envOr("SPOKE_OPERATING_CASH_FLOOR", uint256(0));
+        plan.spokeOperatingCashTopUp = vm.envOr("SPOKE_OPERATING_CASH_TOP_UP", uint256(0));
         plan.minFirstDeposit = vm.envOr("MIN_FIRST_DEPOSIT", uint256(100e6));
         plan.performanceFeeBps = SafeCast.toUint16(vm.envOr("PERFORMANCE_FEE_BPS", uint256(2000)));
-        plan.maxBridgeFeeBps = SafeCast.toUint16(vm.envOr("MAX_BRIDGE_FEE_BPS", uint256(50)));
+        plan.managementFeeBps = SafeCast.toUint16(vm.envOr("MANAGEMENT_FEE_BPS", uint256(0)));
         plan.seedAmount = vm.envOr("SEED_AMOUNT", plan.minFirstDeposit);
     }
 }

@@ -65,7 +65,7 @@ contract UnwindAttackFork is IntegrationPriceBase {
     ///      `buffer`, opens one +-range position worth `value` and parks the rest in Aave.
     function _setUpFund(uint256 downPpm, uint256 upPpm, uint256 value, uint256 buffer, uint256 stake) internal {
         _arbitrumOnly();
-        _createFund(_pricePlan(SPOKE_CAP), new PoolKey[](0), false);
+        _createFund(_pricePlan(SPOKE_CAP), new PoolKey[](0));
         _deposit(alice, ALICE_DEPOSIT);
         attacker = new PoolActor(IPoolManager(ARB_V4_POOL_MANAGER));
         deal(ARB_USDC, address(attacker), stake);
@@ -350,7 +350,7 @@ contract UnwindAttackFork is IntegrationPriceBase {
     /// @dev e5c778a: one claim closed both positions (+88,337 for the attacker).
     function test_REVIEW_C01_twoPositionsInOnePool_neitherIsTaken() public {
         _arbitrumOnly();
-        _createFund(_pricePlan(SPOKE_CAP), new PoolKey[](0), false);
+        _createFund(_pricePlan(SPOKE_CAP), new PoolKey[](0));
         _deposit(alice, ALICE_DEPOSIT);
         attacker = new PoolActor(IPoolManager(ARB_V4_POOL_MANAGER));
         deal(ARB_USDC, address(attacker), STAKE);
@@ -368,15 +368,16 @@ contract UnwindAttackFork is IntegrationPriceBase {
         _assertCrushBlocked(r, 3);
     }
 
-    /// @dev A Mandate with a second hub V4 pool (the live WETH/USDC 0.3% pool) in the unwind order before Aave. The
-    ///      stale 0.3% pool is first arbitraged to the oracle price; the fund holds a position in each pool.
+    /// @dev A Mandate with a second hub V4 pool (the live WETH/USDC 0.3% pool), its position opened before Aave's (the
+    ///      unwind walks the registry, DEC-137 interim). The stale 0.3% pool is first arbitraged to the oracle price;
+    ///      the fund holds a position in each pool.
     ///      e5c778a: one claim closed both pools' positions (+88,262).
     function test_REVIEW_C01_twoPools_neitherIsTaken() public {
         _arbitrumOnly();
         PoolKey memory second = PoolKey(Currency.wrap(ARB_WETH), Currency.wrap(ARB_USDC), 3000, 60, IHooks(address(0)));
         PoolKey[] memory extra = new PoolKey[](1);
         extra[0] = second;
-        _createFund(_pricePlan(SPOKE_CAP), extra, true);
+        _createFund(_pricePlan(SPOKE_CAP), extra);
         _arbTo(arbitrumRouter, second, ARB_V4_STATE_VIEW, _oracleSqrtPrice());
         _deposit(alice, ALICE_DEPOSIT);
         attacker = new PoolActor(IPoolManager(ARB_V4_POOL_MANAGER));
@@ -554,7 +555,7 @@ contract UnwindAttackFork is IntegrationPriceBase {
     ///      the live Arbitrum V3 WETH/USDC 0.05% pool (3.8e18 at the probe block), then the fund enters.
     function _deepPool(uint256 value) internal {
         _arbitrumOnly();
-        _createFund(_pricePlan(SPOKE_CAP), new PoolKey[](0), false);
+        _createFund(_pricePlan(SPOKE_CAP), new PoolKey[](0));
         PoolActor whale = new PoolActor(IPoolManager(ARB_V4_POOL_MANAGER));
         deal(ARB_WETH, address(whale), 20_000e18);
         deal(ARB_USDC, address(whale), 60_000_000e6);

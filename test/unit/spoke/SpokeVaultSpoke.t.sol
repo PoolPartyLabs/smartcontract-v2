@@ -45,7 +45,6 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         assertEq(vault.wormholeCore(), address(wormhole));
         assertEq(vault.excessRecipient(), excessRecipient);
         assertEq(vault.maxReportAge(), MAX_REPORT_AGE);
-        assertEq(vault.maxBridgeFeeBps(), MAX_BRIDGE_FEE_BPS);
 
         address[] memory a = vault.adapters();
         assertEq(a.length, 1);
@@ -649,7 +648,7 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         assertEq(r.cumulativeSentHome, 500e6);
     }
 
-    /// DEC-156, DEC-162: no bridge fee cap lives in the Spoke Vault (the Mandate's dead `maxBridgeFeeBps` is 50 bps);
+    /// DEC-156, DEC-162: no bridge fee cap lives in the Spoke Vault (nor in the Mandate since Mandate v2);
     /// the bridge adapter's rule fixes the amount to arrive and the vault takes it as given.
     function test_DEC156_spokeVaultKeepsNoBridgeFeeCap() public {
         _disableOperatingCash();

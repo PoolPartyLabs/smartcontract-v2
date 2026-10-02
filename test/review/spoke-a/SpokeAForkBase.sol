@@ -26,7 +26,6 @@ import {
     Mandate,
     AdapterConfig,
     PoolConfig,
-    UnwindStep,
     SpokeConfig,
     BridgeAdapterConfig,
     OperatingCashConfig
@@ -34,6 +33,8 @@ import {
 import {MockPriceSource} from "../../mocks/core/MockPriceSource.sol";
 import {MockManagerRegistry} from "../../mocks/core/MockManagerRegistry.sol";
 import {MockReportReceiver} from "../../mocks/core/MockReportReceiver.sol";
+import {MandateFixture} from "../../utils/MandateFixture.sol";
+import {MockSwapAdapter} from "../../mocks/swap/MockSwapAdapter.sol";
 
 interface IPermit2Holder {
     function permit2() external view returns (address);
@@ -97,6 +98,8 @@ contract PoolTrader is IUnlockCallback {
 ///         (docs/INTEGRATIONS.md), the real PoolManager, PositionManager, StateView and Permit2, with the real
 ///         CoreVault + hub SpokeVault + UniswapV4Adapter. The oracle is set to the pool's price at the fork block.
 abstract contract SpokeAForkBase is Test, FundSeed {
+    using MandateFixture for Mandate;
+
     address internal constant PM = 0x360E68faCcca8cA495c1B759Fd9EEe466db9FB32;
     address internal constant POSM = 0xd88F38F930b7952f2DB2432Cb002E7abbF3dD869;
     address internal constant SV = 0x76Fd297e2D437cd7f76d50F01AfE6160f86e9990;
@@ -108,6 +111,7 @@ abstract contract SpokeAForkBase is Test, FundSeed {
     bytes32 internal poolId;
     UniswapV4Adapter internal adapter;
     SpokeVault internal hubVault;
+    MockSwapAdapter internal hubSwap;
     CoreVault internal vault;
     ShareToken internal shares;
     MockPriceSource internal prices;
@@ -128,6 +132,7 @@ abstract contract SpokeAForkBase is Test, FundSeed {
         MockReportReceiver receiver = new MockReportReceiver();
         TransitEscrow escrowImpl = new TransitEscrow();
 
+        hubSwap = new MockSwapAdapter();
         uint64 n = vm.getNonce(address(this));
         address hubVaultAt = vm.computeCreateAddress(address(this), n + 1);
         address coreAt = vm.computeCreateAddress(address(this), n + 2);
@@ -182,23 +187,23 @@ abstract contract SpokeAForkBase is Test, FundSeed {
         m.manager = manager;
         m.hubChainId = HUB;
         m.usdc = USDC;
+        m.hubWormholeChainId = MandateFixture.ARBITRUM_WORMHOLE_CHAIN_ID;
+        m.addToken(HUB, USDC);
+        m.addToken(HUB, WETH);
+        m.addSwapAdapter(HUB, address(hubSwap));
         m.adapters = new AdapterConfig[](1);
         m.adapters[0] = AdapterConfig(HUB, adapter_);
         m.pools = new PoolConfig[](1);
         m.pools[0] = PoolConfig(HUB, adapter_, poolId);
-        m.unwindOrder = new UnwindStep[](1);
-        m.unwindOrder[0] = UnwindStep(HUB, adapter_, poolId);
         m.spokes = new SpokeConfig[](0);
         m.bridgeAdapters = new BridgeAdapterConfig[](0);
         // DEC-127: no hub Operating Cash here. With a one-share seed, the first deposit's top-up (floor 1, top-up 3)
         // would take all of the seed's Idle before pricing and leave the Share Price at 0.
         m.operatingCash = new OperatingCashConfig[](0);
         m.payoutFeeBps = 200;
-        m.standardPayoutTerm = 72 hours;
         m.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
         m.performanceFeeBps = 2000;
         m.managementFeeBps = 0;
-        m.maxBridgeFeeBps = 50;
     }
 
     function _config(address hubVault_, address registry, address receiver, address escrowImpl)
@@ -212,13 +217,12 @@ abstract contract SpokeAForkBase is Test, FundSeed {
         c.managerRegistry = registry;
         c.priceSource = address(prices);
         c.acrossSpokePool = makeAddr("across");
+        c.wormholeCore = 0xa5f208e072434bC67592E4C49C1B991BA79BCA46; // Arbitrum One Wormhole Core (chain id 23)
         c.protocolRecipient = makeAddr("protocol");
         c.excessRecipient = makeAddr("x");
         c.escrowImplementation = escrowImpl;
         c.flowFeeBps = 25;
         c.factory = address(this);
-        c.incomeTokens = new address[](1);
-        c.incomeTokens[0] = WETH;
         c.shareName = "Pool Party Fund 1";
         c.shareSymbol = "PP-1";
     }

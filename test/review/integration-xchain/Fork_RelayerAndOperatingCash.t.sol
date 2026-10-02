@@ -5,12 +5,9 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
-import {IFundFactory} from "../../../src/interfaces/IFundFactory.sol";
 import {IAcrossSpokePool} from "../../../src/interfaces/external/IAcrossSpokePool.sol";
 import {TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
 import {AcrossBridgeAdapter} from "../../../src/adapters/AcrossBridgeAdapter.sol";
-import {FundFactory} from "../../../src/factory/FundFactory.sol";
-import {Mandate, MandateLib} from "../../../src/mandate/Mandate.sol";
 import {ShareMath} from "../../../src/libraries/ShareMath.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {XChainBase, LiveRelayData} from "./XChainBase.sol";
@@ -97,21 +94,12 @@ contract Fork_RelayerAndOperatingCash is XChainBase {
     }
 
     /// @notice FIXED. The 10,000 bps Mandate the real factory created on e5c778a (one send moved 3,999.999999 out of
-    ///         Share Assets to the manager's relayer) now reverts `BpsAboveMax(10000, 100)` while the field exists; and
-    ///         since DEC-162 the bound no longer prices anything: at the 100 bps Mandate bound a 4,000 send gives a
-    ///         relayer the adapter's 3.23, not 40.
+    ///         Share Assets to the manager's relayer) cannot be written any more: since DEC-162 the Across adapter
+    ///         prices every send and Mandate v2 removed the Mandate bound (DEC-156), so a 4,000 send gives a relayer
+    ///         the adapter's 3.23, not 40 or 3,999.999999.
     function test_REVIEW_M01_bridgeFeeBoundCappedAtOnePercent() public {
         _createForks();
         FundPlan memory plan = _plan();
-        plan.maxBridgeFeeBps = 10_000;
-        (FundFactory factory,, Mandate memory m, IFundFactory.HubParams memory p) = _hubInputs(plan);
-        _fundManagerSeed(ARB_USDC, manager, address(factory), p.seedAmount);
-        vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsAboveMax.selector, 10_000, MandateLib.MAX_BRIDGE_FEE_BPS));
-        factory.createFund(m, p);
-
-        // The highest bound a Mandate may now carry.
-        plan.maxBridgeFeeBps = MandateLib.MAX_BRIDGE_FEE_BPS;
         _createHub(plan);
         _createSpokeFrom(plan);
         _phase2AnaDeposits();

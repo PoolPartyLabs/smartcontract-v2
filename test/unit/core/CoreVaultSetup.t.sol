@@ -50,7 +50,7 @@ contract CoreVaultSetupTest is CoreVaultFixture {
         assertEq(vault.excessRecipient(), excess);
         assertEq(vault.flowFeeBps(), 25);
         assertEq(vault.payoutFeeBps(), 200);
-        assertEq(vault.standardPayoutTerm(), 72 hours);
+        assertEq(vault.standardPayoutTerm(), 72 hours, "DEC-154: a protocol constant");
         assertEq(vault.performanceFeeBps(), 2000);
         assertEq(vault.managementFeeBps(), 0);
         address[] memory tokens = vault.incomeTokens();
@@ -103,10 +103,11 @@ contract CoreVaultSetupTest is CoreVaultFixture {
         new CoreVault(_mandate(2000), c);
     }
 
-    function test_DEC108_mandateValidatedAtConstruction() public {
+    /// @dev DEC-114, DEC-115: a management fee up to 500 bps a year is accepted; above, the Mandate is refused.
+    function test_DEC115_mandateValidatedAtConstruction() public {
         Mandate memory m = _mandate(2000);
-        m.managementFeeBps = 100;
-        vm.expectRevert(abi.encodeWithSelector(MandateLib.ManagementFeeNotSupported.selector, 100));
+        m.managementFeeBps = 501;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsAboveMax.selector, 501, 500));
         new CoreVault(m, _config(25));
     }
 

@@ -15,6 +15,8 @@ import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 /// @param managerRegistry Per-manager registry holding the protocol slice (DEC-106, DEC-110).
 /// @param priceSource Prices non-USDC quantities into hub USDC (docs/ARCHITECTURE.md §5, OPEN).
 /// @param acrossSpokePool Across SpokePool on the Hub Chain, the only caller of `handleV3AcrossMessage`.
+/// @param wormholeCore The Hub Chain's Wormhole Core Bridge (the Hub factory's): its `chainId()` must equal
+///        `Mandate.hubWormholeChainId` (D-15), and it publishes the Hub's orders to the spokes (DEC-120, DEC-139).
 /// @param protocolRecipient Recipient of the flow fee and the protocol slice: the fee wallet (DEC-106, DEC-116).
 /// @param excessRecipient Recipient of swept excess balances: the fee wallet too (DEC-096, DEC-101, DEC-116,
 ///        DEC-121).
@@ -23,11 +25,7 @@ import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 ///        (DEC-106, DEC-110, DEC-125 item 1).
 /// @param factory The only caller of `seed` (DEC-127). A field, not `msg.sender`: the factory deploys through CREATE3,
 ///        so the constructor's `msg.sender` is the one-use proxy.
-/// @param minPerformanceFeeBps The ManagerRegistry's minimum manager fee when the fund was created; floor of
-///        `decreaseManagerFee` (DEC-115, DEC-125 item 3, D-36).
-/// @param incomeTokens Hub income tokens besides USDC: the tokens of the Mandate's hub pools, which the factory reads
-///        from the hub adapters (`IAdapter.poolTokens`) because a Mandate pool key is a hash and the Core Vault never
-///        calls an adapter (DEC-054).
+/// @dev The hub income tokens are the Mandate's hub tokens (WP-07 B2), no longer a factory input.
 /// @param shareName Share token name (Q59 OPEN: factory-chosen, never manager text).
 /// @param shareSymbol Share token symbol (Q59 OPEN).
 struct CoreVaultConfig {
@@ -38,13 +36,12 @@ struct CoreVaultConfig {
     address managerRegistry;
     address priceSource;
     address acrossSpokePool;
+    address wormholeCore;
     address protocolRecipient;
     address excessRecipient;
     address escrowImplementation;
     uint16 flowFeeBps;
     address factory;
-    uint16 minPerformanceFeeBps;
-    address[] incomeTokens;
     string shareName;
     string shareSymbol;
 }
@@ -52,7 +49,7 @@ struct CoreVaultConfig {
 /// @notice Immutable addresses and terms the Core Vault hands to its external libraries on every call.
 /// @param flowFeeBps ICoreVault.flowFeeBps (DEC-106, DEC-113).
 /// @param payoutFeeBps ICoreVault.payoutFeeBps (DEC-075, DEC-144).
-/// @param standardPayoutTerm ICoreVault.standardPayoutTerm (DEC-060, DEC-095).
+/// @param wormholeCore ICoreVault.wormholeCore: the publisher of the Hub's orders (DEC-120, DEC-139).
 struct CoreVaultWiring {
     bytes32 fundId;
     bytes32 mandateHash;
@@ -66,12 +63,16 @@ struct CoreVaultWiring {
     address escrowImplementation;
     address protocolRecipient;
     address managerFeeVault;
+    address wormholeCore;
     uint256 hubChainId;
-    uint16 maxBridgeFeeBps;
     uint16 flowFeeBps;
     uint16 payoutFeeBps;
-    uint32 standardPayoutTerm;
 }
+
+/// @dev DEC-154 (corrects DEC-060 and DEC-095 item 5): the Standard Payout term is 72 hours in every fund, a protocol
+///      constant and no longer a Mandate field; DEC-149 gives the manager the same term to finish a closure. At file
+///      level so the Core Vault and its linked libraries read one value.
+uint32 constant STANDARD_PAYOUT_TERM = 72 hours;
 
 /// @dev Transient slot of the Core Vault's unwinding flag: set while the Core Vault waits on
 ///      `ISpokeVault.unwindForPayout`, so the hub Spoke Vault may call back `returnToIdle` from inside a payout
@@ -118,7 +119,7 @@ struct HubBoundTransfer {
 /// @param operatingCashFloor Live floor (DEC-096).
 /// @param operatingCashTopUp Live top-up (DEC-096).
 /// @param performanceFeeBps Live performance fee; only decreases (DEC-110).
-/// @param managementFeeBps Live management fee; always 0 in the MVP (DEC-108).
+/// @param managementFeeBps Live management fee, bps a year; only decreases (DEC-110, DEC-114).
 /// @param unmatchedArrivals Spoke-to-hub arrivals held apart: pending plus strays; outside every base, never swept
 ///        (DEC-080, DEC-104, OQ-01).
 /// @param transitNonce Counter behind transit ids.
@@ -146,6 +147,9 @@ struct HubBoundTransfer {
 /// @param managerPeakShares ICoreVaultLifecycle.managerPeakShares (DEC-146); non-zero once the fund is seeded.
 /// @param fundState ICoreVaultLifecycle.fundState (DEC-147).
 /// @param closingStartedAt ICoreVaultLifecycle.closingStartedAt (DEC-147, DEC-149).
+/// @param managementFeeAccrued Management fee booked so far, in USDC: a liability outside Share Assets, paid at fund
+///        closure (DEC-114, D-33; payment in WP-13).
+/// @param managementFeeLastAccrual When the management fee was last booked; the next accrual covers the time since.
 struct CoreVaultState {
     Mandate mandate;
     uint256 idle;
@@ -174,4 +178,6 @@ struct CoreVaultState {
     uint256 managerPeakShares;
     ICoreVaultLifecycle.FundState fundState;
     uint64 closingStartedAt;
+    uint256 managementFeeAccrued;
+    uint64 managementFeeLastAccrual;
 }

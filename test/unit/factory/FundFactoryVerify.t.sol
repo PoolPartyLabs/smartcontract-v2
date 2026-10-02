@@ -14,7 +14,6 @@ import {
     MandateLib,
     AdapterConfig,
     PoolConfig,
-    UnwindStep,
     SpokeConfig,
     BridgeAdapterConfig,
     OperatingCashConfig
@@ -28,6 +27,8 @@ import {FundMandate} from "../../../script/FundMandate.sol";
 import {AnyPriceSource} from "../../mocks/core/AnyPriceSource.sol";
 import {MockManagerRegistry} from "../../mocks/core/MockManagerRegistry.sol";
 import {FundSeed} from "../../utils/FundSeed.sol";
+import {MandateFixture} from "../../utils/MandateFixture.sol";
+import {V3Stub} from "../../utils/V3Stub.sol";
 
 /// @notice Adversarial verification of the factory stage (round 1). The hub and the spoke factory are two deployments at
 ///         the same address, one per simulated chain, as in FundFactory.t.sol.
@@ -36,6 +37,8 @@ import {FundSeed} from "../../utils/FundSeed.sol";
 ///      `test_DEC001_verify_anotherManagerCannotSquatTheSpokeVaultOfARealFund` is the inverted form of FF-OQ-1 (fixed):
 ///      the fund id binds the Manager.
 contract FundFactoryVerifyTest is Test, FactoryDeployment, FundMandate, FundSeed {
+    using MandateFixture for Mandate;
+
     uint256 internal constant HUB = 42_161;
     uint256 internal constant SPOKE = 4663;
 
@@ -91,6 +94,7 @@ contract FundFactoryVerifyTest is Test, FactoryDeployment, FundMandate, FundSeed
         w.uniswapV4StateView = makeAddr(hub ? "hubStateView" : "spokeStateView");
         w.permit2 = makeAddr("permit2");
         w.aaveV3Pool = hub ? address(aave) : address(0);
+        V3Stub.wire(w);
         w.managerRegistry = hub ? registry : address(0);
         w.priceSource = hub ? prices : address(0);
         w.protocolRecipient = recipient;
@@ -113,6 +117,7 @@ contract FundFactoryVerifyTest is Test, FactoryDeployment, FundMandate, FundSeed
     function _plan(address manager_) internal view returns (FundPlan memory plan) {
         plan.manager = manager_;
         plan.hubChainId = HUB;
+        plan.hubWormholeChainId = WORMHOLE_ARBITRUM;
         plan.usdc = address(usdc);
         plan.hubPool = _poolKey(address(weth), address(usdc));
         plan.hubAaveAsset = address(usdc);
@@ -126,7 +131,6 @@ contract FundFactoryVerifyTest is Test, FactoryDeployment, FundMandate, FundSeed
         plan.spokeOperatingCashTopUp = 10e6;
         plan.minFirstDeposit = 100e6;
         plan.performanceFeeBps = 2000;
-        plan.maxBridgeFeeBps = 50;
     }
 
     /// @dev A Mandate that names Arbitrum (this hub factory's chain) as a Spoke Chain of a fund hubbed elsewhere,
@@ -137,12 +141,16 @@ contract FundFactoryVerifyTest is Test, FactoryDeployment, FundMandate, FundSeed
         m.manager = attacker;
         m.hubChainId = SPOKE;
         m.usdc = address(usdg);
+        m.hubWormholeChainId = 72; // hubbed on Robinhood
+        m.addToken(SPOKE, address(usdg));
+        m.addToken(HUB, address(usdc));
+        m.addToken(HUB, address(weth));
+        m.addSwapAdapter(SPOKE, factory.addressOf(fundId, "UniswapV3SwapAdapter", SPOKE));
+        m.addSwapAdapter(HUB, factory.addressOf(fundId, "UniswapV3SwapAdapter", HUB));
         m.adapters = new AdapterConfig[](1);
         m.adapters[0] = AdapterConfig(HUB, uniswap);
         m.pools = new PoolConfig[](1);
         m.pools[0] = PoolConfig(HUB, uniswap, poolId);
-        m.unwindOrder = new UnwindStep[](1);
-        m.unwindOrder[0] = UnwindStep(HUB, uniswap, poolId);
         m.spokes = new SpokeConfig[](1);
         m.spokes[0] = SpokeConfig(
             HUB, 23, bytes32(uint256(uint160(factory.addressOf(fundId, "SpokeVault", HUB)))), address(usdc), 1e12, 1588
@@ -153,8 +161,8 @@ contract FundFactoryVerifyTest is Test, FactoryDeployment, FundMandate, FundSeed
         m.operatingCash = new OperatingCashConfig[](1);
         m.operatingCash[0] = OperatingCashConfig(HUB, 5e6, 10e6);
         m.payoutFeeBps = MandateLib.DEFAULT_PAYOUT_FEE_BPS;
-        m.standardPayoutTerm = MandateLib.DEFAULT_STANDARD_PAYOUT_TERM;
         m.minFirstDeposit = 1e6;
+        m.performanceFeeBps = MandateLib.MIN_PERFORMANCE_FEE_BPS;
     }
 
     /// @dev Verifier finding (blocking), fixed. Before the fix `createSpoke` took any `fundId`, including one this

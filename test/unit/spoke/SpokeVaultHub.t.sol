@@ -171,8 +171,9 @@ contract SpokeVaultHubTest is SpokeVaultTestBase {
     }
 
     /// @dev Final verification (DEC-069): the vault sizes the step from the shortfall, never from a hint. 100
-    ///      Unallocated + 350 of the 400 in the Uniswap position covers 450; the Aave position is not visited.
-    function test_DEC069_unwindFollowsMandateOrderSizesTheStepAndStopsAtTarget() public {
+    ///      Unallocated + 350 of the 400 in the Uniswap position (opened first) covers 450; the Aave position is not
+    ///      visited. DEC-137 interim: the walk is the registry's order, the Mandate holds no unwind order.
+    function test_DEC137_unwindFollowsRegistryOrderSizesTheStepAndStopsAtTarget() public {
         (bytes32 uniKey, bytes32 aaveKey) = _twoPositions();
         assertEq(core.unwind(vault, 450e6, ""), 450e6);
         assertEq(core.idleReturned(), 450e6);
@@ -183,6 +184,26 @@ contract SpokeVaultHubTest is SpokeVaultTestBase {
         assertEq(uniUsdc, 50e6);
         (, uint256 aavePrincipal,,,,) = hubAave.position(aaveKey);
         assertEq(aavePrincipal, 500e6);
+    }
+
+    /// @dev DEC-137, DEC-139 (Mandate v2): with no unwind order in the Mandate the unwind walks the open positions in
+    ///      registry order until the proportional unwind (WP-09). Aave opened first is visited first: 100 Unallocated
+    ///      plus 350 of its 500 cover 450, and the Uniswap position, opened second, is untouched.
+    function test_DEC137_interimUnwindWalksTheRegistryInOpeningOrder() public {
+        core.allocate(vault, 1000e6);
+        vm.startPrank(manager);
+        (bytes32 aaveKey,,) = vault.openPosition(address(hubAave), AAVE_USDC, 500e6, 0, "");
+        (bytes32 uniKey,,) = vault.openPosition(address(hubUni), HUB_POOL, 0, 400e6, "");
+        vm.stopPrank();
+        assertEq(vault.positions()[0].adapter, address(hubAave), "Aave first in the registry");
+
+        assertEq(core.unwind(vault, 450e6, ""), 450e6);
+        (, uint256 aavePrincipal,,, bool aaveOpen) = _aave(aaveKey);
+        assertTrue(aaveOpen);
+        assertEq(aavePrincipal, 150e6, "the first registry entry paid the shortfall");
+        (,, uint256 uniUsdc,,, bool uniOpen) = hubUni.position(uniKey);
+        assertTrue(uniOpen);
+        assertEq(uniUsdc, 400e6, "the second one was never visited");
     }
 
     function test_DEC067_exactValuePositionReadNotExitedWhenCovered() public {

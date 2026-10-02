@@ -6,14 +6,16 @@ import {
     Mandate,
     AdapterConfig,
     PoolConfig,
-    UnwindStep,
     SpokeConfig,
     BridgeAdapterConfig,
     OperatingCashConfig
 } from "../../../src/mandate/Mandate.sol";
+import {MandateFixture} from "../../utils/MandateFixture.sol";
 
 /// @notice Verified mainnet addresses (docs/INTEGRATIONS.md) and a Mandate builder for the Spoke Vault fork suites.
 abstract contract SpokeVaultForkBase is Test {
+    using MandateFixture for Mandate;
+
     uint256 internal constant ARBITRUM = 42_161;
     uint256 internal constant ROBINHOOD = 4663;
     uint16 internal constant WH_ROBINHOOD = 72;
@@ -45,12 +47,21 @@ abstract contract SpokeVaultForkBase is Test {
         address hubBridge;
         address spokeBridge;
         address spokeVault;
+        address hubSwap;
+        address spokeSwap;
     }
 
     function _mandate(ForkAdapters memory a) internal view returns (Mandate memory m) {
         m.manager = manager;
         m.hubChainId = ARBITRUM;
         m.usdc = ARB_USDC;
+        m.hubWormholeChainId = MandateFixture.ARBITRUM_WORMHOLE_CHAIN_ID;
+        m.addToken(ARBITRUM, ARB_USDC);
+        m.addToken(ARBITRUM, ARB_WETH);
+        m.addToken(ROBINHOOD, RH_USDG);
+        m.addToken(ROBINHOOD, RH_WETH);
+        m.addSwapAdapter(ARBITRUM, a.hubSwap);
+        m.addSwapAdapter(ROBINHOOD, a.spokeSwap);
 
         m.adapters = new AdapterConfig[](3);
         m.adapters[0] = AdapterConfig(ARBITRUM, a.hubUni);
@@ -61,11 +72,6 @@ abstract contract SpokeVaultForkBase is Test {
         m.pools[0] = PoolConfig(ARBITRUM, a.hubUni, HUB_POOL);
         m.pools[1] = PoolConfig(ARBITRUM, a.hubAave, AAVE_USDC);
         m.pools[2] = PoolConfig(ROBINHOOD, a.spokeUni, SPOKE_POOL);
-
-        m.unwindOrder = new UnwindStep[](3);
-        m.unwindOrder[0] = UnwindStep(ARBITRUM, a.hubUni, HUB_POOL);
-        m.unwindOrder[1] = UnwindStep(ARBITRUM, a.hubAave, AAVE_USDC);
-        m.unwindOrder[2] = UnwindStep(ROBINHOOD, a.spokeUni, SPOKE_POOL);
 
         m.spokes = new SpokeConfig[](1);
         m.spokes[0] = SpokeConfig(
@@ -80,9 +86,7 @@ abstract contract SpokeVaultForkBase is Test {
         m.operatingCash[0] = OperatingCashConfig(ROBINHOOD, 5e6, 10e6);
 
         m.payoutFeeBps = 200;
-        m.standardPayoutTerm = 72 hours;
         m.minFirstDeposit = 100e6;
         m.performanceFeeBps = 1000;
-        m.maxBridgeFeeBps = 50;
     }
 }

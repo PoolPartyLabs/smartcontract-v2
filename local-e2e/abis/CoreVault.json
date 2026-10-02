@@ -18,9 +18,31 @@
             "internalType": "uint256"
           },
           {
+            "name": "hubWormholeChainId",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
             "name": "usdc",
             "type": "address",
             "internalType": "address"
+          },
+          {
+            "name": "tokens",
+            "type": "tuple[]",
+            "internalType": "struct TokenConfig[]",
+            "components": [
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "token",
+                "type": "address",
+                "internalType": "address"
+              }
+            ]
           },
           {
             "name": "adapters",
@@ -40,9 +62,9 @@
             ]
           },
           {
-            "name": "pools",
+            "name": "swapAdapters",
             "type": "tuple[]",
-            "internalType": "struct PoolConfig[]",
+            "internalType": "struct AdapterConfig[]",
             "components": [
               {
                 "name": "chainId",
@@ -53,18 +75,13 @@
                 "name": "adapter",
                 "type": "address",
                 "internalType": "address"
-              },
-              {
-                "name": "poolKey",
-                "type": "bytes32",
-                "internalType": "bytes32"
               }
             ]
           },
           {
-            "name": "unwindOrder",
+            "name": "pools",
             "type": "tuple[]",
-            "internalType": "struct UnwindStep[]",
+            "internalType": "struct PoolConfig[]",
             "components": [
               {
                 "name": "chainId",
@@ -170,11 +187,6 @@
             "internalType": "uint16"
           },
           {
-            "name": "standardPayoutTerm",
-            "type": "uint32",
-            "internalType": "uint32"
-          },
-          {
             "name": "minFirstDeposit",
             "type": "uint256",
             "internalType": "uint256"
@@ -186,11 +198,6 @@
           },
           {
             "name": "managementFeeBps",
-            "type": "uint16",
-            "internalType": "uint16"
-          },
-          {
-            "name": "maxBridgeFeeBps",
             "type": "uint16",
             "internalType": "uint16"
           }
@@ -237,6 +244,11 @@
             "internalType": "address"
           },
           {
+            "name": "wormholeCore",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
             "name": "protocolRecipient",
             "type": "address",
             "internalType": "address"
@@ -260,16 +272,6 @@
             "name": "factory",
             "type": "address",
             "internalType": "address"
-          },
-          {
-            "name": "minPerformanceFeeBps",
-            "type": "uint16",
-            "internalType": "uint16"
-          },
-          {
-            "name": "incomeTokens",
-            "type": "address[]",
-            "internalType": "address[]"
           },
           {
             "name": "shareName",
@@ -400,12 +402,12 @@
       {
         "name": "receipt",
         "type": "tuple",
-        "internalType": "struct ICoreVault.PayoutReceipt",
+        "internalType": "struct ICoreVaultPayouts.PayoutReceipt",
         "components": [
           {
             "name": "mode",
             "type": "uint8",
-            "internalType": "enum ICoreVault.PayoutMode"
+            "internalType": "enum ICoreVaultPayouts.PayoutMode"
           },
           {
             "name": "usdcRequested",
@@ -800,6 +802,19 @@
   },
   {
     "type": "function",
+    "name": "managementFeeAccrued",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "managementFeeBps",
     "inputs": [],
     "outputs": [
@@ -884,9 +899,31 @@
             "internalType": "uint256"
           },
           {
+            "name": "hubWormholeChainId",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
             "name": "usdc",
             "type": "address",
             "internalType": "address"
+          },
+          {
+            "name": "tokens",
+            "type": "tuple[]",
+            "internalType": "struct TokenConfig[]",
+            "components": [
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "token",
+                "type": "address",
+                "internalType": "address"
+              }
+            ]
           },
           {
             "name": "adapters",
@@ -906,9 +943,9 @@
             ]
           },
           {
-            "name": "pools",
+            "name": "swapAdapters",
             "type": "tuple[]",
-            "internalType": "struct PoolConfig[]",
+            "internalType": "struct AdapterConfig[]",
             "components": [
               {
                 "name": "chainId",
@@ -919,18 +956,13 @@
                 "name": "adapter",
                 "type": "address",
                 "internalType": "address"
-              },
-              {
-                "name": "poolKey",
-                "type": "bytes32",
-                "internalType": "bytes32"
               }
             ]
           },
           {
-            "name": "unwindOrder",
+            "name": "pools",
             "type": "tuple[]",
-            "internalType": "struct UnwindStep[]",
+            "internalType": "struct PoolConfig[]",
             "components": [
               {
                 "name": "chainId",
@@ -1036,11 +1068,6 @@
             "internalType": "uint16"
           },
           {
-            "name": "standardPayoutTerm",
-            "type": "uint32",
-            "internalType": "uint32"
-          },
-          {
             "name": "minFirstDeposit",
             "type": "uint256",
             "internalType": "uint256"
@@ -1052,11 +1079,6 @@
           },
           {
             "name": "managementFeeBps",
-            "type": "uint16",
-            "internalType": "uint16"
-          },
-          {
-            "name": "maxBridgeFeeBps",
             "type": "uint16",
             "internalType": "uint16"
           }
@@ -1074,19 +1096,6 @@
         "name": "",
         "type": "bytes32",
         "internalType": "bytes32"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "minPerformanceFeeBps",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint16",
-        "internalType": "uint16"
       }
     ],
     "stateMutability": "view"
@@ -1213,12 +1222,12 @@
       {
         "name": "",
         "type": "tuple",
-        "internalType": "struct ICoreVault.PayoutRequest",
+        "internalType": "struct ICoreVaultPayouts.PayoutRequest",
         "components": [
           {
             "name": "mode",
             "type": "uint8",
-            "internalType": "enum ICoreVault.PayoutMode"
+            "internalType": "enum ICoreVaultPayouts.PayoutMode"
           },
           {
             "name": "open",
@@ -1393,7 +1402,7 @@
       {
         "name": "mode",
         "type": "uint8",
-        "internalType": "enum ICoreVault.PayoutMode"
+        "internalType": "enum ICoreVaultPayouts.PayoutMode"
       }
     ],
     "outputs": [],
@@ -1586,7 +1595,7 @@
         "internalType": "uint32"
       }
     ],
-    "stateMutability": "view"
+    "stateMutability": "pure"
   },
   {
     "type": "function",
@@ -1732,6 +1741,19 @@
       }
     ],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "wormholeCore",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "event",
@@ -1883,7 +1905,7 @@
         "name": "consolidation",
         "type": "tuple",
         "indexed": false,
-        "internalType": "struct ICoreVault.NavConsolidation",
+        "internalType": "struct ICoreVaultPayouts.NavConsolidation",
         "components": [
           {
             "name": "chainsSummed",
@@ -2062,6 +2084,25 @@
   },
   {
     "type": "event",
+    "name": "ManagementFeeAccrued",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "accrued",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "ManagerFeeDecreased",
     "inputs": [
       {
@@ -2230,12 +2271,12 @@
         "name": "receipt",
         "type": "tuple",
         "indexed": false,
-        "internalType": "struct ICoreVault.PayoutReceipt",
+        "internalType": "struct ICoreVaultPayouts.PayoutReceipt",
         "components": [
           {
             "name": "mode",
             "type": "uint8",
-            "internalType": "enum ICoreVault.PayoutMode"
+            "internalType": "enum ICoreVaultPayouts.PayoutMode"
           },
           {
             "name": "usdcRequested",
@@ -2308,7 +2349,7 @@
         "name": "consolidation",
         "type": "tuple",
         "indexed": false,
-        "internalType": "struct ICoreVault.NavConsolidation",
+        "internalType": "struct ICoreVaultPayouts.NavConsolidation",
         "components": [
           {
             "name": "chainsSummed",
@@ -2354,12 +2395,12 @@
         "name": "receipt",
         "type": "tuple",
         "indexed": false,
-        "internalType": "struct ICoreVault.PayoutReceipt",
+        "internalType": "struct ICoreVaultPayouts.PayoutReceipt",
         "components": [
           {
             "name": "mode",
             "type": "uint8",
-            "internalType": "enum ICoreVault.PayoutMode"
+            "internalType": "enum ICoreVaultPayouts.PayoutMode"
           },
           {
             "name": "usdcRequested",
@@ -2432,7 +2473,7 @@
         "name": "consolidation",
         "type": "tuple",
         "indexed": false,
-        "internalType": "struct ICoreVault.NavConsolidation",
+        "internalType": "struct ICoreVaultPayouts.NavConsolidation",
         "components": [
           {
             "name": "chainsSummed",
@@ -2478,7 +2519,7 @@
         "name": "mode",
         "type": "uint8",
         "indexed": true,
-        "internalType": "enum ICoreVault.PayoutMode"
+        "internalType": "enum ICoreVaultPayouts.PayoutMode"
       },
       {
         "name": "usdcRequested",
@@ -2864,12 +2905,17 @@
         "name": "bps",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "maxBps",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ]
   },
   {
     "type": "error",
-    "name": "BpsAboveMax",
+    "name": "BpsBelowMin",
     "inputs": [
       {
         "name": "bps",
@@ -2877,7 +2923,7 @@
         "internalType": "uint256"
       },
       {
-        "name": "maxBps",
+        "name": "minBps",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -3025,7 +3071,7 @@
   },
   {
     "type": "error",
-    "name": "DuplicateUnwindStep",
+    "name": "DuplicateToken",
     "inputs": [
       {
         "name": "chainId",
@@ -3033,14 +3079,9 @@
         "internalType": "uint256"
       },
       {
-        "name": "adapter",
+        "name": "token",
         "type": "address",
         "internalType": "address"
-      },
-      {
-        "name": "poolKey",
-        "type": "bytes32",
-        "internalType": "bytes32"
       }
     ]
   },
@@ -3052,11 +3093,6 @@
   {
     "type": "error",
     "name": "EmptyPools",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "EmptyUnwindOrder",
     "inputs": []
   },
   {
@@ -3126,6 +3162,22 @@
   },
   {
     "type": "error",
+    "name": "HubWormholeChainIdMismatch",
+    "inputs": [
+      {
+        "name": "coreChainId",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "hubWormholeChainId",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "IncomeTokenAlreadyRegistered",
     "inputs": [
       {
@@ -3180,28 +3232,6 @@
   },
   {
     "type": "error",
-    "name": "ManagementFeeNotSupported",
-    "inputs": [
-      {
-        "name": "bps",
-        "type": "uint16",
-        "internalType": "uint16"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "ManagementFeeNotSupported",
-    "inputs": [
-      {
-        "name": "bps",
-        "type": "uint16",
-        "internalType": "uint16"
-      }
-    ]
-  },
-  {
-    "type": "error",
     "name": "ManagerFeeBelowMinimum",
     "inputs": [
       {
@@ -3239,6 +3269,22 @@
   },
   {
     "type": "error",
+    "name": "MissingBaseToken",
+    "inputs": [
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "MissingBridgeAdapter",
     "inputs": [
       {
@@ -3246,6 +3292,17 @@
         "type": "uint256",
         "internalType": "uint256"
       },
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "MissingSwapAdapter",
+    "inputs": [
       {
         "name": "chainId",
         "type": "uint256",
@@ -3569,8 +3626,40 @@
   },
   {
     "type": "error",
+    "name": "TokenNotPriced",
+    "inputs": [
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "TooManyIncomeTokens",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "TooManyTokens",
+    "inputs": [
+      {
+        "name": "count",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maxTokens",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",
@@ -3672,27 +3761,6 @@
   },
   {
     "type": "error",
-    "name": "UnwindStepNotInPools",
-    "inputs": [
-      {
-        "name": "chainId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "adapter",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "poolKey",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ]
-  },
-  {
-    "type": "error",
     "name": "UsdcMismatch",
     "inputs": [
       {
@@ -3751,6 +3819,11 @@
   },
   {
     "type": "error",
+    "name": "ZeroHubWormholeChainId",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "ZeroIncomeToken",
     "inputs": []
   },
@@ -3762,6 +3835,11 @@
   {
     "type": "error",
     "name": "ZeroSharePrice",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroToken",
     "inputs": []
   },
   {

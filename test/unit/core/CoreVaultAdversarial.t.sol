@@ -6,18 +6,20 @@ import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {ICoreVaultIncome} from "../../../src/interfaces/ICoreVaultIncome.sol";
 import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {TransitState, TransferKind} from "../../../src/interfaces/FundTypes.sol";
-import {CoreVaultConfig} from "../../../src/core/CoreVaultTypes.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {MockHubSpokeVault} from "../../mocks/core/MockHubSpokeVault.sol";
 import {ReenteringIncomeToken} from "../../mocks/core/ReenteringIncomeToken.sol";
-import {IPriceSource} from "../../../src/interfaces/IPriceSource.sol";
 import {CoreMockToken} from "../../mocks/core/CoreMockTokens.sol";
+import {Mandate} from "../../../src/mandate/Mandate.sol";
+import {MandateFixture} from "../../utils/MandateFixture.sol";
 import {CoreVaultFixture} from "./CoreVaultFixture.sol";
 
 /// @notice Adversarial verification of the Core Vault (round 1): ordering attacks, reentrancy through an income
 ///         token, fuzzed reserve protection, a transit-state shortcut and Standard reserve accounting.
 contract CoreVaultAdversarialTest is CoreVaultFixture {
+    using MandateFixture for Mandate;
+
     uint256 internal constant SENT = 1000e6;
     uint256 internal constant ARRIVES = 999.4e6;
 
@@ -51,7 +53,7 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
     }
 
     function test_DEC066_entrantCapturesValueThroughDustRefundWindow() public {
-        _deployFeeless();
+        _deployAtMinimumFees();
         _deposit(alice, 10_000e6); // 10,000 shares, Idle 10,000
         bytes32 id = _send(SENT, ARRIVES);
         vm.warp(uint256(vault.transit(id).fillDeadline) + 1);
@@ -135,18 +137,18 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
     // ---------------------------------------------------------------------------------------------------------------
 
     function test_DEC014_OPEN_incomeGeneratedBeforeEntryIsSharedWhenCollectedAfterIt() public {
-        _deployFeeless();
+        _deployAtMinimumFees();
         // 10,000 shares; the manager's seed share takes 0.10 of every 1,000.10 below (DEC-127).
         _deposit(ana, 10_000e6);
         hubVault.forwardIncome(address(usdc), 1000.1e6); // collected before Bruno: Ana's (and the seed share's)
         hubVault.setCumulativeIncome(address(usdc), 1000.1e6 + 2100.1e6); // generated, not yet collected
         _deposit(bruno, 11_000e6); // 11,000 shares
         assertEq(vault.attributedIncome(bruno, address(usdc)), 0, "nothing collected since Bruno entered");
-        assertApproxEqAbs(vault.attributedIncome(ana, address(usdc)), 1000e6, 1, "all of it is Ana's");
+        assertApproxEqAbs(vault.attributedIncome(ana, address(usdc)), _netOfMinimumFee(1000e6), 1, "all Ana's");
         // The 2,100 generated before Bruno's entry is collected after it: shared pro rata (10,000 / 11,000).
         hubVault.forwardIncome(address(usdc), 2100.1e6);
-        assertApproxEqAbs(vault.attributedIncome(ana, address(usdc)), 2000e6, 2);
-        assertApproxEqAbs(vault.attributedIncome(bruno, address(usdc)), 1100e6, 2);
+        assertApproxEqAbs(vault.attributedIncome(ana, address(usdc)), _netOfMinimumFee(2000e6), 2);
+        assertApproxEqAbs(vault.attributedIncome(bruno, address(usdc)), _netOfMinimumFee(1100e6), 2);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -179,12 +181,10 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
 
     function _deployWithReenteringToken() internal returns (ReenteringIncomeToken mal) {
         mal = new ReenteringIncomeToken();
-        prices.setPrice(address(mal), 1e18); // a hub pool token must be priced at creation (independent review M-03)
-        CoreVaultConfig memory c = _config(25);
-        c.incomeTokens = new address[](2);
-        c.incomeTokens[0] = address(weth);
-        c.incomeTokens[1] = address(mal);
-        _deploy(_mandate(2000), c);
+        prices.setPrice(address(mal), 1e18); // a Mandate token must be priced at creation (DEC-123 level 1, M-03)
+        Mandate memory m = _mandate(2000);
+        m.addToken(HUB, address(mal)); // WP-07 B2: the hub income tokens are the Mandate's hub tokens
+        _deploy(m, _config(25));
         _deposit(alice, 10_000e6);
         // 80 to the holders (Alice's 9,975 shares and the manager's seed share), 20 of fees transferred out at once.
         hubVault.forwardIncome(address(mal), 100e18);
@@ -192,19 +192,18 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
     }
 
     /// Independent review M-03 (hub half): a hub pool token the price source cannot price used to be accepted, and
-    /// once the fund held it every mint reverted and every payout valued it at 0. Creation now refuses it.
+    /// once the fund held it every mint reverted and every payout valued it at 0. Creation now refuses any Mandate
+    /// token without a price (DEC-123 level 1, WP-07 B3).
     function test_REVIEW_M03_hubPoolTokenWithoutAPriceIsRefusedAtCreation() public {
         CoreMockToken unpriced = new CoreMockToken("Unpriced", "UNP", 18);
-        CoreVaultConfig memory c = _config(25);
-        c.incomeTokens = new address[](2);
-        c.incomeTokens[0] = address(weth);
-        c.incomeTokens[1] = address(unpriced);
-        vm.expectRevert(abi.encodeWithSelector(IPriceSource.UnsupportedToken.selector, address(unpriced)));
-        this.deployWith(c);
+        Mandate memory m = _mandate(2000);
+        m.addToken(HUB, address(unpriced));
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.TokenNotPriced.selector, HUB, address(unpriced)));
+        this.deployWith(m);
     }
 
-    function deployWith(CoreVaultConfig memory c) external {
-        _deploy(_mandate(2000), c);
+    function deployWith(Mandate memory m) external {
+        _deploy(m, _config(25));
     }
 
     function test_Reentrancy_incomeTokenReenteringWithdrawIncomeIsRefused() public {

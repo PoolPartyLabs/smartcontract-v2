@@ -31,6 +31,7 @@ import {MockPriceSource} from "../../mocks/core/MockPriceSource.sol";
 import {FactoryDeployment} from "../../../script/FactoryDeployment.sol";
 import {FundMandate} from "../../../script/FundMandate.sol";
 import {FundSeed} from "../../utils/FundSeed.sol";
+import {V3Stub} from "../../utils/V3Stub.sol";
 
 /// @notice Shared fixture of the access-control security PoCs: a fund created by the REAL FundFactory (real Core
 ///         Vault, Spoke Vault, ShareToken, ManagerFeeVault, ValueReportReceiver, Uniswap V4, Aave V3 and Across
@@ -90,6 +91,7 @@ abstract contract AccessFundFixture is Test, FactoryDeployment, FundMandate, Fun
         prices = new MockPriceSource();
         prices.setPrice(address(weth), 1e18);
         prices.setPrice(address(usdg), 1e18);
+        prices.setPrice(address(spokeWeth), 1e18); // DEC-123 level 1: every Mandate token is priced at creation
         registry = new ManagerRegistry(registryOwner);
         v4.initialize(_hubPool(), TickMath.getSqrtPriceAtTick(0));
         // Reserves that back swap outputs inside the mock Uniswap V4.
@@ -118,6 +120,7 @@ abstract contract AccessFundFixture is Test, FactoryDeployment, FundMandate, Fun
         w.uniswapV4StateView = hub ? address(v4) : makeAddr("spokeStateView");
         w.permit2 = address(permit2);
         w.aaveV3Pool = hub ? address(aave) : address(0);
+        V3Stub.wire(w);
         w.managerRegistry = hub ? address(registry) : address(0);
         w.priceSource = hub ? address(prices) : address(0);
         w.protocolRecipient = recipient;
@@ -160,6 +163,7 @@ abstract contract AccessFundFixture is Test, FactoryDeployment, FundMandate, Fun
     function _plan() internal view returns (FundPlan memory plan) {
         plan.manager = manager;
         plan.hubChainId = HUB;
+        plan.hubWormholeChainId = WORMHOLE_ARBITRUM;
         plan.usdc = address(usdc);
         plan.hubPool = _hubPool();
         plan.hubAaveAsset = address(usdc);
@@ -173,7 +177,6 @@ abstract contract AccessFundFixture is Test, FactoryDeployment, FundMandate, Fun
         plan.spokeOperatingCashTopUp = 10e6;
         plan.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
         plan.performanceFeeBps = 2000;
-        plan.maxBridgeFeeBps = 50;
         // DEC-127: the manager seeds one share at creation (FundSeed).
         plan.seedAmount = _oneShareSeed(25);
     }

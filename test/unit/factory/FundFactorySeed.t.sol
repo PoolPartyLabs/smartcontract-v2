@@ -12,7 +12,7 @@ import {ICoreVaultLifecycle} from "../../../src/interfaces/ICoreVaultLifecycle.s
 import {FundFactory} from "../../../src/factory/FundFactory.sol";
 import {CoreVault} from "../../../src/core/CoreVault.sol";
 import {ShareToken} from "../../../src/core/ShareToken.sol";
-import {Mandate} from "../../../src/mandate/Mandate.sol";
+import {Mandate, MandateLib} from "../../../src/mandate/Mandate.sol";
 import {MockToken} from "../../mocks/v4/MockToken.sol";
 import {MockAcrossSpokePool} from "../../mocks/across/MockAcrossSpokePool.sol";
 import {MockAaveV3Pool} from "../../mocks/aave/MockAaveV3Pool.sol";
@@ -21,6 +21,7 @@ import {AnyPriceSource} from "../../mocks/core/AnyPriceSource.sol";
 import {MockManagerRegistry} from "../../mocks/core/MockManagerRegistry.sol";
 import {FactoryDeployment} from "../../../script/FactoryDeployment.sol";
 import {FundMandate} from "../../../script/FundMandate.sol";
+import {V3Stub} from "../../utils/V3Stub.sol";
 
 /// @notice DEC-127, DEC-061, DEC-113: `FundFactory.createFund` seeds the fund with the manager's own capital in the
 ///         creation transaction: no fund exists without its seed, and the first shares are the manager's. DEC-115,
@@ -59,6 +60,7 @@ contract FundFactorySeedTest is Test, FactoryDeployment, FundMandate {
         w.uniswapV4StateView = makeAddr("hubStateView");
         w.permit2 = makeAddr("permit2");
         w.aaveV3Pool = address(aave);
+        V3Stub.wire(w);
         w.managerRegistry = registry;
         w.priceSource = address(new AnyPriceSource());
         w.protocolRecipient = recipient;
@@ -77,6 +79,7 @@ contract FundFactorySeedTest is Test, FactoryDeployment, FundMandate {
     function _plan(uint256 seedAmount) internal view returns (FundPlan memory plan) {
         plan.manager = manager;
         plan.hubChainId = HUB;
+        plan.hubWormholeChainId = WORMHOLE_ARBITRUM;
         plan.usdc = address(usdc);
         plan.hubPool = _poolKey(address(weth), address(usdc));
         plan.hubAaveAsset = address(usdc);
@@ -90,7 +93,6 @@ contract FundFactorySeedTest is Test, FactoryDeployment, FundMandate {
         plan.spokeOperatingCashTopUp = 10e6;
         plan.minFirstDeposit = 100e6;
         plan.performanceFeeBps = 2000;
-        plan.maxBridgeFeeBps = 50;
         plan.seedAmount = seedAmount;
     }
 
@@ -198,55 +200,35 @@ contract FundFactorySeedTest is Test, FactoryDeployment, FundMandate {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // Minimum manager fee (DEC-115, DEC-125 item 3, D-36)
+    // Performance fee floor (DEC-182, DEC-184)
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @dev A Mandate below the registry's minimum is refused at creation; at the minimum it is created and the Core
-    ///      Vault records the minimum as the floor of `decreaseManagerFee`.
-    function test_DEC125_createFundRequiresTheMinimumManagerFee() public {
-        MockManagerRegistry(registry).setMinManagerFeeBps(1000);
+    /// @dev A Mandate below the 10% floor is refused at creation, by the first vault that validates it; at the floor
+    ///      it is created. No registry value takes part.
+    function test_DEC184_createFundRequiresTheTenPercentFloor() public {
         FundPlan memory plan = _plan(100e6);
         plan.performanceFeeBps = 999;
         Mandate memory m = _buildMandate(factory, factory.fundIdOf(HUB, 1, manager), plan);
         IFundFactory.HubParams memory p = _hubParams(1, plan, _coreVaultCreationCode(hubDeployment));
         vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(IFundFactory.ManagerFeeBelowMinimum.selector, 999, 1000));
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsBelowMin.selector, 999, 1000));
         factory.createFund(m, p);
 
         (IFundFactory.FundAddresses memory a,,) = _createWithFee(100e6, 100e6, 1000);
-        assertEq(CoreVault(a.coreVault).minPerformanceFeeBps(), 1000);
         assertEq(CoreVault(a.coreVault).performanceFeeBps(), 1000);
     }
 
-    /// @dev D-36: the creation-time minimum floors `decreaseManagerFee`; a later registry change never binds the fund.
-    function test_DEC125_minimumAtCreationFloorsDecreaseManagerFee() public {
-        MockManagerRegistry(registry).setMinManagerFeeBps(1000);
+    /// @dev The floor binds `decreaseManagerFee` for the fund's whole life: 999 and 0 are refused, 1,000 is accepted.
+    function test_DEC184_theFloorBindsDecreaseManagerFee() public {
         (IFundFactory.FundAddresses memory a,,) = _createWithFee(100e6, 100e6, 2000);
         CoreVault core = CoreVault(a.coreVault);
-
-        vm.prank(manager);
+        vm.startPrank(manager);
         vm.expectRevert(abi.encodeWithSelector(ICoreVaultLifecycle.ManagerFeeBelowMinimum.selector, 999, 1000));
         core.decreaseManagerFee(999, 0);
-
-        MockManagerRegistry(registry).setMinManagerFeeBps(0); // the registry lowers its minimum: the fund keeps 1,000
-        vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVaultLifecycle.ManagerFeeBelowMinimum.selector, 500, 1000));
-        core.decreaseManagerFee(500, 0);
-
-        MockManagerRegistry(registry).setMinManagerFeeBps(1000); // and raising it again never forces the fund
-        vm.prank(manager);
+        vm.expectRevert(abi.encodeWithSelector(ICoreVaultLifecycle.ManagerFeeBelowMinimum.selector, 0, 1000));
+        core.decreaseManagerFee(0, 0);
         core.decreaseManagerFee(1000, 0);
+        vm.stopPrank();
         assertEq(core.performanceFeeBps(), 1000);
-        MockManagerRegistry(registry).setMinManagerFeeBps(1500);
-        assertEq(core.performanceFeeBps(), 1000, "a live fund is never forced up");
-        assertEq(core.minPerformanceFeeBps(), 1000);
-    }
-
-    /// @dev With the minimum at its 0 start the manager may go down to 0 (DEC-115: the minimum starts at 0).
-    function test_DEC115_zeroMinimumLetsTheFeeReachZero() public {
-        (IFundFactory.FundAddresses memory a,,) = _create(100e6, 100e6);
-        vm.prank(manager);
-        CoreVault(a.coreVault).decreaseManagerFee(0, 0);
-        assertEq(CoreVault(a.coreVault).performanceFeeBps(), 0);
     }
 }

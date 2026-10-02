@@ -2,11 +2,9 @@
 pragma solidity 0.8.28;
 
 import {console2} from "forge-std/console2.sol";
-import {CoreVault} from "../../../src/core/CoreVault.sol";
 import {AcrossBridgeAdapter} from "../../../src/adapters/AcrossBridgeAdapter.sol";
 import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {IAcrossSpokePool} from "../../../src/interfaces/external/IAcrossSpokePool.sol";
-import {Mandate, MandateLib} from "../../../src/mandate/Mandate.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {MockAcrossSpokePool as AcrossPoolStandIn} from "../../mocks/across/MockAcrossSpokePool.sol";
 import {CoreVaultFixture} from "../../unit/core/CoreVaultFixture.sol";
@@ -17,7 +15,9 @@ import {CoreVaultFixture} from "../../unit/core/CoreVaultFixture.sol";
 ///         of 100,000 USDC delivered 1 base unit). S-9 then refused exclusivity and capped the Mandate bound at 1%,
 ///         which a manager could still give away on every send. Since DEC-162 the Across adapter fixes every term of
 ///         the deposit: the manager passes no amount to arrive, relayer, exclusivity or quote time (DEC-158), so the
-///         most a send gives the relayer that fills it is the adapter's rule fee, whoever triggers or fills it.
+///         most a send gives the relayer that fills it is the adapter's rule fee, whoever triggers or fills it. Mandate
+///         v2 removed the Mandate bound itself (DEC-156: no protocol cap in the Mandate; the adapter's 1% `CAP_RATE`
+///         bounds the rule).
 /// @dev The hub's bridge adapter here is the real AcrossBridgeAdapter over the offline SpokePool stand-in.
 contract M01_ManagerCapturesBridgeFee is CoreVaultFixture {
     uint256 internal constant SENT = 40_000e6;
@@ -65,18 +65,6 @@ contract M01_ManagerCapturesBridgeFee is CoreVaultFixture {
         vm.expectRevert(AcrossBridgeAdapter.QuotesNotSupported.selector);
         vault.sendToSpoke(0, SENT, 0, abi.encode(uint256(1), makeAddr("managerRelayer"), uint32(21_600)));
         assertEq(vault.shareAssets(), assets, "nothing left the fund");
-    }
-
-    /// @dev The review's 100% Mandate, and one bps above the cap, are still refused at creation while the field exists
-    ///      (dead since DEC-162; Mandate v2 removes it).
-    function test_REVIEW_M01_mandateBridgeFeeAboveOnePercentIsRefused() public {
-        Mandate memory m = _mandate(2000);
-        m.maxBridgeFeeBps = 10_000;
-        vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsAboveMax.selector, 10_000, 100));
-        new CoreVault(m, _config(25));
-        m.maxBridgeFeeBps = 101;
-        vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsAboveMax.selector, 101, 100));
-        new CoreVault(m, _config(25));
     }
 
     /// @dev DEC-162: the S-9 residual is gone. A 40,000 send leaves Share Assets by the adapter's 32.03 (against 400

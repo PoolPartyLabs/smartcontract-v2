@@ -16,7 +16,6 @@ import {
     MandateLib,
     AdapterConfig,
     PoolConfig,
-    UnwindStep,
     SpokeConfig,
     BridgeAdapterConfig,
     OperatingCashConfig
@@ -30,6 +29,8 @@ import {FundMandate} from "../../../script/FundMandate.sol";
 import {AnyPriceSource} from "../../mocks/core/AnyPriceSource.sol";
 import {MockManagerRegistry} from "../../mocks/core/MockManagerRegistry.sol";
 import {FundSeed} from "../../utils/FundSeed.sol";
+import {MandateFixture} from "../../utils/MandateFixture.sol";
+import {V3Stub} from "../../utils/V3Stub.sol";
 
 /// @notice Adversarial verification of the factory stage (round 2), after the fund id bound the Manager and
 ///         `createSpoke` started deriving the id from the Mandate's Hub Chain. Same two-chain fixture as
@@ -38,6 +39,8 @@ import {FundSeed} from "../../utils/FundSeed.sol";
 ///      `test_DEC087_verify_hubMandateMayNameASpokeThatCanNeverBeCreated` document open limits (FF-OQ-1 residual and a
 ///      Mandate foot-gun), not fixed behaviour; the other two confirm the round 1 fixes hold from other directions.
 contract FundFactoryVerifyRound2Test is Test, FactoryDeployment, FundMandate, FundSeed {
+    using MandateFixture for Mandate;
+
     uint256 internal constant HUB = 42_161;
     uint256 internal constant SPOKE = 4663;
 
@@ -93,6 +96,7 @@ contract FundFactoryVerifyRound2Test is Test, FactoryDeployment, FundMandate, Fu
         w.uniswapV4StateView = makeAddr(hub ? "hubStateView" : "spokeStateView");
         w.permit2 = makeAddr("permit2");
         w.aaveV3Pool = hub ? address(aave) : address(0);
+        V3Stub.wire(w);
         w.managerRegistry = hub ? registry : address(0);
         w.priceSource = hub ? prices : address(0);
         w.protocolRecipient = recipient;
@@ -115,6 +119,7 @@ contract FundFactoryVerifyRound2Test is Test, FactoryDeployment, FundMandate, Fu
     function _plan(address manager_) internal view returns (FundPlan memory plan) {
         plan.manager = manager_;
         plan.hubChainId = HUB;
+        plan.hubWormholeChainId = WORMHOLE_ARBITRUM;
         plan.usdc = address(usdc);
         plan.hubPool = _poolKey(address(weth), address(usdc), 500, 10);
         plan.hubAaveAsset = address(usdc);
@@ -128,7 +133,6 @@ contract FundFactoryVerifyRound2Test is Test, FactoryDeployment, FundMandate, Fu
         plan.spokeOperatingCashTopUp = 10e6;
         plan.minFirstDeposit = 100e6;
         plan.performanceFeeBps = 2000;
-        plan.maxBridgeFeeBps = 50;
     }
 
     function _createFund(Mandate memory m, uint256 n) internal returns (IFundFactory.FundAddresses memory a) {
@@ -144,12 +148,16 @@ contract FundFactoryVerifyRound2Test is Test, FactoryDeployment, FundMandate, Fu
         m.manager = manager_;
         m.hubChainId = SPOKE;
         m.usdc = address(usdg);
+        m.hubWormholeChainId = 72; // hubbed on Robinhood
+        m.addToken(SPOKE, address(usdg));
+        m.addToken(HUB, address(usdc));
+        m.addToken(HUB, address(weth));
+        m.addSwapAdapter(SPOKE, factory.addressOf(fundId, "UniswapV3SwapAdapter", SPOKE));
+        m.addSwapAdapter(HUB, factory.addressOf(fundId, "UniswapV3SwapAdapter", HUB));
         m.adapters = new AdapterConfig[](1);
         m.adapters[0] = AdapterConfig(HUB, uniswap);
         m.pools = new PoolConfig[](1);
         m.pools[0] = PoolConfig(HUB, uniswap, poolId);
-        m.unwindOrder = new UnwindStep[](1);
-        m.unwindOrder[0] = UnwindStep(HUB, uniswap, poolId);
         m.spokes = new SpokeConfig[](1);
         m.spokes[0] = SpokeConfig(
             HUB, 23, bytes32(uint256(uint160(factory.addressOf(fundId, "SpokeVault", HUB)))), address(usdc), 1e12, 1588
@@ -160,8 +168,8 @@ contract FundFactoryVerifyRound2Test is Test, FactoryDeployment, FundMandate, Fu
         m.operatingCash = new OperatingCashConfig[](1);
         m.operatingCash[0] = OperatingCashConfig(HUB, 5e6, 10e6);
         m.payoutFeeBps = MandateLib.DEFAULT_PAYOUT_FEE_BPS;
-        m.standardPayoutTerm = MandateLib.DEFAULT_STANDARD_PAYOUT_TERM;
         m.minFirstDeposit = 1e6;
+        m.performanceFeeBps = MandateLib.MIN_PERFORMANCE_FEE_BPS;
     }
 
     /// @dev FF-OQ-1 residual (OPEN; DEC-030, DEC-053): the fund id binds the Manager but not the Mandate's rules, so
@@ -180,7 +188,6 @@ contract FundFactoryVerifyRound2Test is Test, FactoryDeployment, FundMandate, Fu
         FundPlan memory otherPlan = _plan(manager);
         otherPlan.spokePool = _poolKey(address(spokeWeth), address(usdg), 3000, 60);
         otherPlan.spokeCap = type(uint256).max;
-        otherPlan.maxBridgeFeeBps = 100; // other rules, within the core cap (security review S-9)
         FundFactory spokeFactory = _spokeFactory();
         Mandate memory other = _buildMandate(spokeFactory, fundId, otherPlan);
         assertEq(other.spokes[0].spokeVault, hubMandate.spokes[0].spokeVault, "the hub-named address");
@@ -200,7 +207,6 @@ contract FundFactoryVerifyRound2Test is Test, FactoryDeployment, FundMandate, Fu
         PoolKey memory otherPool
     ) internal {
         assertTrue(vault.mandateHash() != hubHash, "the spoke enforces rules the hub's Mandate never showed");
-        assertEq(vault.maxBridgeFeeBps(), 100);
         (address token0,) = vault.poolTokens(uniswapAdapter, PoolId.unwrap(otherPool.toId()));
         assertTrue(token0 != address(0), "the unlisted pool is allowed on the spoke");
         bytes32 hubListedPool = PoolId.unwrap(_plan(manager).spokePool.toId());

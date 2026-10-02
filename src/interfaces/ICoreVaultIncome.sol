@@ -35,6 +35,10 @@ interface ICoreVaultIncome {
     /// @notice An owed fee was paid to its recipient (security review S-12).
     event OwedFeePaid(address indexed token, address indexed recipient, uint256 amount);
 
+    /// @notice The management fee was booked for the time since the last accrual (DEC-114, D-33): `amount` more is
+    ///         owed, `accrued` in total, a liability outside Share Assets until it is paid at fund closure.
+    event ManagementFeeAccrued(uint256 amount, uint256 accrued);
+
     /// @notice The manager lowered the manager fee (DEC-110).
     event ManagerFeeDecreased(
         uint16 previousPerformanceFeeBps,
@@ -49,7 +53,6 @@ interface ICoreVaultIncome {
 
     error UnknownIncomeToken(address token);
     error ManagerFeeNotDecreasing();
-    error ManagementFeeNotSupported(uint16 bps);
 
     // ---------------------------------------------------------------------------------------------------------------
     // Shareholder verbs (DEC-025, DEC-029, DEC-045, DEC-073)
@@ -73,11 +76,13 @@ interface ICoreVaultIncome {
     // Manager verbs (DEC-110)
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @notice Lowers the manager fee; it can never rise on a live fund (DEC-110). Manager only.
+    /// @notice Lowers the manager fee: the performance fee, the management fee or both; neither can rise on a live
+    ///         fund and at least one must fall (DEC-110). Manager only.
     /// @dev Ruling 2026-09-29: the performance fee is charged only when collected income reaches the Core Vault, so
-    ///      no fee accrues between collections and nothing is left to settle at the old rate (DEC-110 "settling
-    ///      accrued first" is empty); income collected afterwards is charged at the new rate. `newManagementFeeBps`
-    ///      must stay 0 in the MVP (DEC-108, LC-144).
+    ///      nothing of it is left to settle at the old rate; income collected afterwards is charged at the new rate.
+    ///      DEC-110 ("settling what accrued first"), DEC-114: the management fee accrued so far is booked at the old
+    ///      rate (a payout-mode valuation) before the new rate applies; it may fall to 0. DEC-182, DEC-184: the
+    ///      performance fee never goes below 10% (`MandateLib.MIN_PERFORMANCE_FEE_BPS`; `ManagerFeeBelowMinimum`).
     function decreaseManagerFee(uint16 newPerformanceFeeBps, uint16 newManagementFeeBps) external;
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -96,7 +101,7 @@ interface ICoreVaultIncome {
     // Attributed Income and fees (DEC-014, DEC-092, DEC-106..110)
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @notice Income tokens of the fund (closed list from the Mandate pools).
+    /// @notice Income tokens of the fund: USDC, then the Mandate's other hub tokens (closed list, WP-07 B2).
     function incomeTokens() external view returns (address[] memory);
 
     /// @notice Attributed Income of `shareholder` in `token`, pending part included.
@@ -119,6 +124,10 @@ interface ICoreVaultIncome {
     /// @notice Manager performance fee on collected income, bps (DEC-107); only decreases (DEC-110).
     function performanceFeeBps() external view returns (uint16);
 
-    /// @notice Manager management fee, bps per year; 0 in the MVP (DEC-108, LC-144).
+    /// @notice Manager management fee, bps per year on Share Assets (DEC-108, DEC-114); only decreases (DEC-110).
     function managementFeeBps() external view returns (uint16);
+
+    /// @notice Management fee owed now, in USDC: what was booked plus what accrued since, on the current Share Assets
+    ///         net of it (DEC-114, D-33). Outside Share Assets; paid at fund closure. Reverts like `shareAssets`.
+    function managementFeeAccrued() external view returns (uint256);
 }

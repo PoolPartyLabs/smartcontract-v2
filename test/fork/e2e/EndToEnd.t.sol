@@ -65,7 +65,7 @@ abstract contract EndToEndScenario is EndToEndBase {
     ///      address on both chains and puts each contract at its prediction.
     function _phase1CreateFund() internal {
         _onArbitrum();
-        hubDeployment = _deployProtocol(recipient, guardian, registryOwner);
+        hubDeployment = _deployProtocol(recipient, guardian, registryOwner, registryOwner);
         FundFactory factory = hubDeployment.factory;
         creationNumber = factory.nextCreationNumber();
         IFundFactory.FundAddresses memory predicted = factory.predictAddresses(creationNumber, manager, _chainIds());
@@ -118,25 +118,20 @@ abstract contract EndToEndScenario is EndToEndBase {
         assertEq(m.pools[0].poolKey, ARB_WETH_USDC_POOL_ID, "DEC-030: hub WETH/USDC 0.05%");
         assertEq(m.pools[1].poolKey, bytes32(uint256(uint160(ARB_USDC))), "DEC-018, DEC-028: Aave USDC on the hub");
         assertEq(m.pools[2].poolKey, RH_WETH_USDG_POOL_ID, "DEC-030: spoke WETH/USDG 0.05%");
-        assertEq(m.unwindOrder.length, 2, "feedback question 2: automatic unwind on hub positions only");
-        assertEq(m.unwindOrder[0].adapter, hubUni, "DEC-069: hub Uniswap V4 first");
-        assertEq(m.unwindOrder[1].adapter, hubAaveAdapter, "DEC-069: then Aave");
         assertEq(m.bridgeAdapters.length, 2, "DEC-088: Across on both sides");
         assertEq(m.bridgeAdapters[0].adapter, predicted.chains[0].acrossBridgeAdapter);
         assertEq(m.bridgeAdapters[1].adapter, predicted.chains[1].acrossBridgeAdapter);
         assertEq(m.payoutFeeBps, 200, "DEC-102: Payout Fee 2%");
-        assertEq(m.standardPayoutTerm, 72 hours, "DEC-060: 72 h term");
         assertEq(m.minFirstDeposit, 100e6, "DEC-061: 100 USDC minimum first deposit");
         assertEq(m.performanceFeeBps, 2000, "DEC-107: performance fee 20%");
         assertEq(m.managementFeeBps, 0, "DEC-108: management fee 0");
-        assertEq(m.maxBridgeFeeBps, MAX_BRIDGE_FEE_BPS, "dead field until Mandate v2 (DEC-156, DEC-162)");
     }
 
     /// @dev DEC-054: same operator and salt give the same factory address on Robinhood; the Spoke Vault lands at the
     ///      address the hub's Mandate already names.
     function _createSpoke(Mandate memory m, IFundFactory.FundAddresses memory predicted) internal {
         _onRobinhood();
-        Deployment memory rd = _deployProtocol(recipient, guardian, registryOwner);
+        Deployment memory rd = _deployProtocol(recipient, guardian, registryOwner, registryOwner);
         assertEq(address(rd.factory), address(hubDeployment.factory), "DEC-054: one factory address on both chains");
         vm.prank(manager);
         IFundFactory.ChainAddresses memory s =
@@ -647,8 +642,9 @@ abstract contract EndToEndScenario is EndToEndBase {
         uint128 v4Liquidity;
     }
 
-    /// @dev DEC-068: Partial Payout when the unwind falls short. DEC-069: Mandate order, hub V4 first. DEC-059: the Aave
-    ///      Exact-Value Position is read, not exited, when V4 covers the target. DEC-081: shortfall plus 2%. DEC-097:
+    /// @dev DEC-068: Partial Payout when the unwind falls short. DEC-137 interim (Mandate v2 has no unwind order): the
+    ///      hub positions in registry order, Aave (opened first) then V4. DEC-059: the Aave Exact-Value Position pays at
+    ///      par, and V4 is read, not exited, when Aave covers the target. DEC-081: shortfall plus 2%. DEC-097:
     ///      the margin's Market Costs are the fund's. DEC-102: 2% Payout Fee into Operating Cash. DEC-105: the burn at
     ///      the Share Price read after the unwind; the Settlement Price is recorded only.
     function _phase9BrunoInstantPayoutWithUnwind() internal {
@@ -668,7 +664,7 @@ abstract contract EndToEndScenario is EndToEndBase {
         assertEq(target, plan.target, "DEC-081: the shortfall plus 2%");
         assertEq(proceeds, receipt.unwindProceeds, "DEC-080: proceeds reached Idle through returnToIdle");
         assertGt(proceeds, 0);
-        _assertHubV4UnwoundFirst(plan, target);
+        _assertRegistryOrderUnwind(plan, target);
 
         assertEq(receipt.totalShares, plan.supply);
         assertEq(receipt.sharePrice, ShareMath.sharePrice(receipt.shareAssets, receipt.totalShares), "DEC-105");
@@ -715,41 +711,43 @@ abstract contract EndToEndScenario is EndToEndBase {
         return v4.principal1 + IAdapter(hubUniswap).spotQuote(ARB_WETH_USDC_POOL_ID, ARB_WETH, v4.principal0);
     }
 
-    /// @dev DEC-069: the hub V4 position is first in Mandate order. Final verification: the vault closes it only when
-    ///      its whole value is needed, otherwise it decreases only the share the shortfall needs; the Aave Exact-Value
-    ///      Position is read (DEC-059) and covers at most what the V4 swap fell short of the spot value (Market Costs,
-    ///      DEC-097), since the stop condition is re-evaluated after every step.
-    function _assertHubV4UnwoundFirst(InstantPlan memory plan, uint256 target) internal view {
+    /// @dev DEC-137 interim (DEC-139; Mandate v2 drops the unwind order): the unwind walks the hub positions in
+    ///      registry order, and phase 2 opened Aave before V4. Final verification: the vault exits only the share the
+    ///      shortfall needs; the Aave Exact-Value Position pays it at par (DEC-059), so V4 is read, not exited, unless
+    ///      Aave cannot cover the whole shortfall.
+    function _assertRegistryOrderUnwind(InstantPlan memory plan, uint256 target) internal view {
         ISpokeVault.PositionRef[] memory p = hubSpoke.positions();
+        assertEq(p[0].adapter, hubAave, "Aave is first in the registry");
         uint256 shortfall = target - plan.hubUnallocated;
-        if (plan.v4Value <= shortfall) {
-            assertEq(p.length, 1, "DEC-069: the whole V4 value was needed, so it closed first");
-            assertEq(p[0].adapter, hubAave);
+        if (plan.aavePrincipal > shortfall) {
+            assertEq(p.length, 2, "final verification: the Aave position was only decreased");
+            uint256 aaveAfter = IAdapter(hubAave).positionValue(hubAavePosition).principal0;
+            assertApproxEqAbs(plan.aavePrincipal - aaveAfter, shortfall, 2, "DEC-059: Aave paid the shortfall at par");
+            assertEq(
+                IAdapter(hubUniswap).positionValue(hubUniswapPosition).liquidity,
+                plan.v4Liquidity,
+                "the V4 position, second in the registry, was not exited"
+            );
         } else {
-            assertEq(p.length, 2, "final verification: the V4 position was only decreased");
             assertLt(
                 IAdapter(hubUniswap).positionValue(hubUniswapPosition).liquidity,
                 plan.v4Liquidity,
-                "DEC-069: the hub V4 position was unwound first, by the shortfall only"
+                "Aave fell short, so the V4 position paid the rest"
             );
         }
-        uint256 aaveAfter = IAdapter(hubAave).positionValue(hubAavePosition).principal0;
-        assertLe(aaveAfter, plan.aavePrincipal);
-        assertLe(
-            plan.aavePrincipal - aaveAfter,
-            shortfall * SWAP_TOLERANCE_BPS / 10_000,
-            "DEC-059: Aave covers at most what the V4 swap fell short"
-        );
     }
 
-    /// @dev One hint per position the unwind may visit, in Mandate order (DEC-069). Final verification: the vault
+    /// @dev One hint per position the unwind may visit, in registry order (DEC-137 interim): Aave first (no swap), then
+    ///      V4. Final verification: the vault
     ///      sizes the exits itself, so a hint only tightens a swap: here the V4 step's WETH swap gets a Chainlink-based
     ///      minimum for the WETH the vault will take out (the whole position, or the share the shortfall needs),
     ///      stricter than the vault's own floor (spot less MAX_UNWIND_SLIPPAGE_BPS); Aave needs no hint.
     function _unwindHints(uint256 target) internal view returns (bytes memory) {
         IAdapter.PositionValue memory v4 = IAdapter(hubUniswap).positionValue(hubUniswapPosition);
-        uint256 held = hubSpoke.unallocatedBalance(ARB_USDC);
-        uint256 shortfall = target > held ? target - held : 0;
+        // What V4 must cover once Unallocated USDC and the Aave position before it in the registry have paid.
+        uint256 covered =
+            hubSpoke.unallocatedBalance(ARB_USDC) + IAdapter(hubAave).positionValue(hubAavePosition).principal0;
+        uint256 shortfall = target > covered ? target - covered : 0;
         uint256 value = _spotValue(v4);
         uint256 wethOut = value <= shortfall ? v4.principal0 : Math.mulDiv(v4.principal0, shortfall, value);
         SpokeVaultTypes.UnwindSwap[] memory swaps = new SpokeVaultTypes.UnwindSwap[](1);
@@ -761,8 +759,8 @@ abstract contract EndToEndScenario is EndToEndBase {
             params: _swapParams()
         });
         SpokeVaultTypes.UnwindHint[] memory hints = new SpokeVaultTypes.UnwindHint[](2);
-        hints[0] = SpokeVaultTypes.UnwindHint({swaps: swaps});
-        hints[1] = SpokeVaultTypes.UnwindHint({swaps: new SpokeVaultTypes.UnwindSwap[](0)});
+        hints[0] = SpokeVaultTypes.UnwindHint({swaps: new SpokeVaultTypes.UnwindSwap[](0)});
+        hints[1] = SpokeVaultTypes.UnwindHint({swaps: swaps});
         return abi.encode(hints);
     }
 

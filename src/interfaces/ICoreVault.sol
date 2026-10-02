@@ -164,6 +164,10 @@ interface ICoreVault is IAcrossMessageHandler, ICoreVaultLifecycle, ICoreVaultPa
     error NotOnHubChain(uint256 chainId, uint256 hubChainId);
     error FlowFeeAboveCap(uint16 bps);
     error BridgeTargetUnset(address bridgeAdapter);
+    /// @notice A Mandate token has no price from the price source at creation (DEC-123 level 1, WP-07 B3).
+    error TokenNotPriced(uint256 chainId, address token);
+    /// @notice The Wormhole Core's chain id differs from the Mandate's Hub Wormhole chain id (D-15).
+    error HubWormholeChainIdMismatch(uint16 coreChainId, uint16 hubWormholeChainId);
 
     /// @notice DEC-080: a credit call is not backed by tokens above the ledger.
     error UnbackedCredit(address token, uint256 amount, uint256 unledgered);
@@ -295,6 +299,9 @@ interface ICoreVault is IAcrossMessageHandler, ICoreVaultLifecycle, ICoreVaultPa
     function managerRegistry() external view returns (address);
     function priceSource() external view returns (address);
     function acrossSpokePool() external view returns (address);
+    /// @notice The Hub Chain's Wormhole Core Bridge: its chain id is the Mandate's `hubWormholeChainId`, checked at
+    ///         creation (D-15); the publisher of the Hub's orders to the spokes (DEC-120, DEC-139).
+    function wormholeCore() external view returns (address);
 
     /// @notice Recipient of the protocol slice and the flow fee (DEC-106; LC-132: identity to confirm).
     function protocolRecipient() external view returns (address);

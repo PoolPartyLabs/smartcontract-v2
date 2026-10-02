@@ -26,6 +26,7 @@ import {FundMandate} from "../../../script/FundMandate.sol";
 import {AnyPriceSource} from "../../mocks/core/AnyPriceSource.sol";
 import {MockManagerRegistry} from "../../mocks/core/MockManagerRegistry.sol";
 import {FundSeed} from "../../utils/FundSeed.sol";
+import {V3Stub} from "../../utils/V3Stub.sol";
 
 /// @notice Fund Factory without the network: salt derivation, predictions, hub and spoke creation against mock
 ///         protocols, and every refusal. The hub and the spoke factory are two deployments at the same address, one per
@@ -85,6 +86,7 @@ contract FundFactoryTest is Test, FactoryDeployment, FundMandate, FundSeed {
         w.uniswapV4StateView = makeAddr(hub ? "hubStateView" : "spokeStateView");
         w.permit2 = makeAddr("permit2");
         w.aaveV3Pool = hub ? address(aave) : address(0);
+        V3Stub.wire(w);
         w.managerRegistry = hub ? registry : address(0);
         w.priceSource = hub ? prices : address(0);
         w.protocolRecipient = recipient;
@@ -115,6 +117,7 @@ contract FundFactoryTest is Test, FactoryDeployment, FundMandate, FundSeed {
     function _plan() internal view returns (FundPlan memory plan) {
         plan.manager = manager;
         plan.hubChainId = HUB;
+        plan.hubWormholeChainId = WORMHOLE_ARBITRUM;
         plan.usdc = address(usdc);
         plan.hubPool = _poolKey(address(weth), address(usdc), 500, 10);
         plan.hubAaveAsset = address(usdc);
@@ -128,7 +131,6 @@ contract FundFactoryTest is Test, FactoryDeployment, FundMandate, FundSeed {
         plan.spokeOperatingCashTopUp = 10e6;
         plan.minFirstDeposit = 100e6;
         plan.performanceFeeBps = 2000;
-        plan.maxBridgeFeeBps = 50;
     }
 
     function _mandate(uint256 creationNumber) internal view returns (Mandate memory) {

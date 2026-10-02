@@ -11,6 +11,7 @@ import {TransitEscrow} from "../../../src/core/TransitEscrow.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {MockPositionAdapter} from "../../mocks/spoke/MockPositionAdapter.sol";
 import {MockCoreVault} from "../../mocks/spoke/MockCoreVault.sol";
+import {MockSwapAdapter} from "../../mocks/swap/MockSwapAdapter.sol";
 
 /// @notice Hub role on a pinned Arbitrum One fork with native USDC: allocation from the Core Vault, positions, the
 ///         automatic unwind in Mandate order back to Idle, income forwarding and the same-chain report reader.
@@ -36,7 +37,9 @@ contract SpokeVaultArbitrumForkTest is SpokeVaultForkBase {
             spokeUni: makeAddr("spokeUni"),
             hubBridge: makeAddr("hubBridge"),
             spokeBridge: makeAddr("spokeBridge"),
-            spokeVault: makeAddr("spokeVaultInMandate")
+            spokeVault: makeAddr("spokeVaultInMandate"),
+            hubSwap: address(new MockSwapAdapter()),
+            spokeSwap: makeAddr("spokeSwap")
         });
         vault = new SpokeVault(
             _mandate(a),

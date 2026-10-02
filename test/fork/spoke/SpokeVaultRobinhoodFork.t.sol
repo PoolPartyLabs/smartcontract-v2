@@ -17,6 +17,7 @@ import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {MockPositionAdapter} from "../../mocks/spoke/MockPositionAdapter.sol";
 import {MockBridgeAdapter} from "../../mocks/spoke/MockBridgeAdapter.sol";
+import {MockSwapAdapter} from "../../mocks/swap/MockSwapAdapter.sol";
 
 /// @notice Spoke role on a pinned Robinhood Chain fork: real USDG, the real Wormhole Core Bridge (report publication,
 ///         parsed with `WormholeOverride.fetchPublishedMessages`, then signed and verified with an overridden guardian
@@ -45,7 +46,9 @@ contract SpokeVaultRobinhoodForkTest is SpokeVaultForkBase {
             spokeUni: address(spokeUni),
             hubBridge: makeAddr("hubBridge"),
             spokeBridge: address(spokeBridge),
-            spokeVault: makeAddr("spokeVaultInMandate")
+            spokeVault: makeAddr("spokeVaultInMandate"),
+            hubSwap: makeAddr("hubSwap"),
+            spokeSwap: address(new MockSwapAdapter())
         });
         vault = new SpokeVault(
             _mandate(a),

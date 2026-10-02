@@ -50,8 +50,8 @@ interface ICoreVaultLifecycle {
     ///         the manager must close the fund instead.
     error ManagerMustCloseFund(uint256 peakShares, uint256 balanceAfter);
 
-    /// @notice The performance fee would go below the minimum manager fee in force when the fund was created (DEC-115,
-    ///         DEC-125 item 3).
+    /// @notice `decreaseManagerFee` would take the performance fee below `MandateLib.MIN_PERFORMANCE_FEE_BPS`, 10%
+    ///         (DEC-182, DEC-184).
     error ManagerFeeBelowMinimum(uint16 bps, uint16 minBps);
 
     /// @notice Seeds the fund: pulls `usdcAmount` less the sub-share remainder from the caller and mints the first
@@ -78,8 +78,4 @@ interface ICoreVaultLifecycle {
 
     /// @notice The highest share balance the manager address ever held (DEC-146); non-zero once seeded.
     function managerPeakShares() external view returns (uint256);
-
-    /// @notice Floor of `decreaseManagerFee`: the registry's minimum manager fee when the fund was created (DEC-115,
-    ///         DEC-125 item 3, D-36).
-    function minPerformanceFeeBps() external view returns (uint16);
 }

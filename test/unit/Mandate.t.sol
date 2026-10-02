@@ -7,8 +7,8 @@ import {
     Mandate,
     MandateLib,
     AdapterConfig,
+    TokenConfig,
     PoolConfig,
-    UnwindStep,
     SpokeConfig,
     BridgeAdapterConfig,
     OperatingCashConfig
@@ -54,6 +54,18 @@ contract MandateHarness {
     function operatingCashFor(Mandate memory m, uint256 chainId) external pure returns (uint256, uint256) {
         return MandateLib.operatingCashFor(m, chainId);
     }
+
+    function isSwapAdapter(Mandate memory m, uint256 chainId, address adapter) external pure returns (bool) {
+        return MandateLib.isSwapAdapter(m, chainId, adapter);
+    }
+
+    function isToken(Mandate memory m, uint256 chainId, address token) external pure returns (bool) {
+        return MandateLib.isToken(m, chainId, token);
+    }
+
+    function tokensOf(Mandate memory m, uint256 chainId) external pure returns (address[] memory) {
+        return MandateLib.tokensOf(m, chainId);
+    }
 }
 
 contract MandateTest is Test {
@@ -62,10 +74,15 @@ contract MandateTest is Test {
     uint256 internal constant HUB = 42_161;
     uint256 internal constant SPOKE = 4663;
     uint16 internal constant WH_SPOKE = 72;
+    uint16 internal constant WH_HUB = 23;
 
     address internal manager = makeAddr("manager");
     address internal usdc = makeAddr("usdc");
     address internal usdg = makeAddr("usdg");
+    address internal hubWeth = makeAddr("hubWeth");
+    address internal spokeWeth = makeAddr("spokeWeth");
+    address internal hubSwap = makeAddr("hubUniswapV3SwapAdapter");
+    address internal spokeSwap = makeAddr("spokeUniswapV3SwapAdapter");
     address internal hubUniswap = makeAddr("hubUniswapV4Adapter");
     address internal hubAave = makeAddr("hubAaveV3Adapter");
     address internal spokeUniswap = makeAddr("spokeUniswapV4Adapter");
@@ -84,7 +101,18 @@ contract MandateTest is Test {
     function _valid() internal view returns (Mandate memory m) {
         m.manager = manager;
         m.hubChainId = HUB;
+        m.hubWormholeChainId = WH_HUB;
         m.usdc = usdc;
+
+        m.tokens = new TokenConfig[](4);
+        m.tokens[0] = TokenConfig(HUB, usdc);
+        m.tokens[1] = TokenConfig(HUB, hubWeth);
+        m.tokens[2] = TokenConfig(SPOKE, usdg);
+        m.tokens[3] = TokenConfig(SPOKE, spokeWeth);
+
+        m.swapAdapters = new AdapterConfig[](2);
+        m.swapAdapters[0] = AdapterConfig(HUB, hubSwap);
+        m.swapAdapters[1] = AdapterConfig(SPOKE, spokeSwap);
 
         m.adapters = new AdapterConfig[](3);
         m.adapters[0] = AdapterConfig(HUB, hubUniswap);
@@ -95,10 +123,6 @@ contract MandateTest is Test {
         m.pools[0] = PoolConfig(HUB, hubUniswap, HUB_POOL);
         m.pools[1] = PoolConfig(HUB, hubAave, AAVE_USDC);
         m.pools[2] = PoolConfig(SPOKE, spokeUniswap, SPOKE_POOL);
-
-        m.unwindOrder = new UnwindStep[](2);
-        m.unwindOrder[0] = UnwindStep(HUB, hubAave, AAVE_USDC);
-        m.unwindOrder[1] = UnwindStep(HUB, hubUniswap, HUB_POOL);
 
         m.spokes = new SpokeConfig[](1);
         m.spokes[0] = SpokeConfig({
@@ -120,23 +144,21 @@ contract MandateTest is Test {
         m.operatingCash[1] = OperatingCashConfig(SPOKE, 5e6, 10e6);
 
         m.payoutFeeBps = MandateLib.DEFAULT_PAYOUT_FEE_BPS;
-        m.standardPayoutTerm = MandateLib.DEFAULT_STANDARD_PAYOUT_TERM;
         m.minFirstDeposit = 100e6;
         m.performanceFeeBps = 2000;
         m.managementFeeBps = 0;
-        m.maxBridgeFeeBps = 50;
     }
 
     // ------------------------------------------------------------------ defaults and happy path
 
-    function test_DEC095_startingValuesPayoutFee2PercentTerm72h() public pure {
+    function test_DEC095_startingValuePayoutFee2Percent() public pure {
         assertEq(MandateLib.DEFAULT_PAYOUT_FEE_BPS, 200);
-        assertEq(MandateLib.DEFAULT_STANDARD_PAYOUT_TERM, 72 hours);
     }
 
-    /// @dev DEC-115 (closes LC-57) and DEC-155: the fee caps are core constants.
+    /// @dev DEC-115 (closes LC-57), DEC-155, DEC-184 and DEC-186: the fee bounds are core constants.
     function test_DEC115_DEC155_feeCapsAreCoreConstants() public pure {
         assertEq(MandateLib.MAX_PERFORMANCE_FEE_BPS, 9000);
+        assertEq(MandateLib.MIN_PERFORMANCE_FEE_BPS, 1000);
         assertEq(MandateLib.MAX_MANAGEMENT_FEE_BPS, 500);
         assertEq(MandateLib.MAX_PAYOUT_FEE_BPS, 1000);
     }
@@ -153,9 +175,11 @@ contract MandateTest is Test {
         m.adapters[0] = AdapterConfig(HUB, hubUniswap);
         m.pools = new PoolConfig[](1);
         m.pools[0] = PoolConfig(HUB, hubUniswap, HUB_POOL);
-        m.unwindOrder = new UnwindStep[](1);
-        m.unwindOrder[0] = UnwindStep(HUB, hubUniswap, HUB_POOL);
         m.operatingCash = new OperatingCashConfig[](0);
+        m.tokens = new TokenConfig[](1);
+        m.tokens[0] = TokenConfig(HUB, usdc);
+        m.swapAdapters = new AdapterConfig[](1);
+        m.swapAdapters[0] = AdapterConfig(HUB, hubSwap);
         h.validate(m);
     }
 
@@ -203,13 +227,6 @@ contract MandateTest is Test {
         h.validate(m);
     }
 
-    function test_DEC069_emptyUnwindOrderReverts() public {
-        Mandate memory m = _valid();
-        m.unwindOrder = new UnwindStep[](0);
-        vm.expectRevert(MandateLib.EmptyUnwindOrder.selector);
-        h.validate(m);
-    }
-
     function test_DEC058_duplicateAdapterReverts() public {
         Mandate memory m = _valid();
         m.adapters[1] = AdapterConfig(HUB, hubUniswap);
@@ -245,17 +262,146 @@ contract MandateTest is Test {
         h.validate(m);
     }
 
-    function test_DEC069_unwindStepOutsidePoolListReverts() public {
+    // ------------------------------------------------------------------ Mandate v2: Hub Wormhole chain id (D-15)
+
+    function test_DEC120_zeroHubWormholeChainIdReverts() public {
         Mandate memory m = _valid();
-        m.unwindOrder[1] = UnwindStep(HUB, hubUniswap, SPOKE_POOL);
-        vm.expectRevert(abi.encodeWithSelector(MandateLib.UnwindStepNotInPools.selector, HUB, hubUniswap, SPOKE_POOL));
+        m.hubWormholeChainId = 0;
+        vm.expectRevert(MandateLib.ZeroHubWormholeChainId.selector);
         h.validate(m);
     }
 
-    function test_DEC069_duplicateUnwindStepReverts() public {
+    /// @dev D-15: a spoke on the Hub's Wormhole chain would make the Hub's orders and the spoke's reports share an
+    ///      emitter chain.
+    function test_DEC120_spokeOnTheHubWormholeChainReverts() public {
         Mandate memory m = _valid();
-        m.unwindOrder[1] = UnwindStep(HUB, hubAave, AAVE_USDC);
-        vm.expectRevert(abi.encodeWithSelector(MandateLib.DuplicateUnwindStep.selector, HUB, hubAave, AAVE_USDC));
+        m.spokes[0].wormholeChainId = WH_HUB;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.SpokeIsHubChain.selector, SPOKE));
+        h.validate(m);
+    }
+
+    // ------------------------------------------------------------------ Mandate v2: tokens (DEC-123, DEC-136)
+
+    function test_DEC136_tokenLookups() public view {
+        Mandate memory m = _valid();
+        assertTrue(h.isToken(m, HUB, hubWeth));
+        assertFalse(h.isToken(m, SPOKE, hubWeth), "a token is a Mandate token of its own chain only");
+        address[] memory spokeTokens = h.tokensOf(m, SPOKE);
+        assertEq(spokeTokens.length, 2);
+        assertEq(spokeTokens[0], usdg);
+        assertEq(spokeTokens[1], spokeWeth);
+        assertEq(h.tokensOf(m, 1).length, 0);
+    }
+
+    function test_DEC136_zeroTokenReverts() public {
+        Mandate memory m = _valid();
+        m.tokens[1].token = address(0);
+        vm.expectRevert(MandateLib.ZeroToken.selector);
+        h.validate(m);
+    }
+
+    function test_DEC136_tokenOnUnknownChainReverts() public {
+        Mandate memory m = _valid();
+        m.tokens[3].chainId = 8453;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.UnknownChain.selector, 8453));
+        h.validate(m);
+    }
+
+    /// @dev Unique per chain; the same address may be listed on two chains (a token's address is chain-local).
+    function test_DEC136_duplicateTokenOnOneChainReverts() public {
+        Mandate memory m = _valid();
+        m.tokens[1].token = usdc;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.DuplicateToken.selector, HUB, usdc));
+        h.validate(m);
+        m = _valid();
+        m.tokens[3].token = hubWeth;
+        h.validate(m);
+    }
+
+    function test_DEC123_hubBaseTokenMustBeListed() public {
+        Mandate memory m = _valid();
+        m.tokens[0].token = makeAddr("other");
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.MissingBaseToken.selector, HUB, usdc));
+        h.validate(m);
+    }
+
+    function test_DEC123_spokeBaseTokenMustBeListed() public {
+        Mandate memory m = _valid();
+        m.tokens[2].chainId = HUB;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.MissingBaseToken.selector, SPOKE, usdg));
+        h.validate(m);
+    }
+
+    /// @dev WP-07 B1: at most 16 tokens, every chain together (the hub's income token bound).
+    function test_DEC136_atMostSixteenTokens() public {
+        Mandate memory m = _valid();
+        TokenConfig[] memory tokens = new TokenConfig[](16);
+        for (uint256 i; i < 4; ++i) {
+            tokens[i] = m.tokens[i];
+        }
+        for (uint256 i = 4; i < 16; ++i) {
+            tokens[i] = TokenConfig(HUB, address(uint160(0x1000 + i)));
+        }
+        m.tokens = tokens;
+        h.validate(m);
+
+        TokenConfig[] memory more = new TokenConfig[](17);
+        for (uint256 i; i < 16; ++i) {
+            more[i] = tokens[i];
+        }
+        more[16] = TokenConfig(SPOKE, address(0x2000));
+        m.tokens = more;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.TooManyTokens.selector, 17, 16));
+        h.validate(m);
+    }
+
+    // ------------------------------------------------------------------ Mandate v2: swap adapters (DEC-136)
+
+    function test_DEC136_swapAdapterLookup() public view {
+        Mandate memory m = _valid();
+        assertTrue(h.isSwapAdapter(m, HUB, hubSwap));
+        assertFalse(h.isSwapAdapter(m, SPOKE, hubSwap));
+        assertFalse(h.isSwapAdapter(m, HUB, hubUniswap), "a position adapter is not a swap adapter");
+    }
+
+    function test_DEC136_everyFundChainNeedsASwapAdapter() public {
+        Mandate memory m = _valid();
+        m.swapAdapters[1].chainId = HUB;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.MissingSwapAdapter.selector, SPOKE));
+        h.validate(m);
+        m = _valid();
+        m.swapAdapters = new AdapterConfig[](0);
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.MissingSwapAdapter.selector, HUB));
+        h.validate(m);
+    }
+
+    function test_DEC136_zeroOrUnknownChainSwapAdapterReverts() public {
+        Mandate memory m = _valid();
+        m.swapAdapters[0].adapter = address(0);
+        vm.expectRevert(MandateLib.ZeroAdapter.selector);
+        h.validate(m);
+        m = _valid();
+        m.swapAdapters[1].chainId = 8453;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.UnknownChain.selector, 8453));
+        h.validate(m);
+    }
+
+    /// @dev One address is one adapter on a chain: never a swap adapter and a position or bridge adapter at once, and
+    ///      never listed twice.
+    function test_DEC136_swapAdapterCannotDoubleAsAnotherAdapter() public {
+        Mandate memory m = _valid();
+        m.swapAdapters[0].adapter = hubUniswap;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.DuplicateAdapter.selector, HUB, hubUniswap));
+        h.validate(m);
+        m = _valid();
+        m.swapAdapters[1].adapter = spokeAcross;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.DuplicateAdapter.selector, SPOKE, spokeAcross));
+        h.validate(m);
+        m = _valid();
+        AdapterConfig[] memory twice = new AdapterConfig[](3);
+        (twice[0], twice[1], twice[2]) = (m.swapAdapters[0], m.swapAdapters[1], m.swapAdapters[0]);
+        m.swapAdapters = twice;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.DuplicateAdapter.selector, HUB, hubSwap));
         h.validate(m);
     }
 
@@ -357,6 +503,12 @@ contract MandateTest is Test {
         spokes[0] = m.spokes[0];
         spokes[1] = SpokeConfig(8453, 30, bytes32(uint256(1)), usdg, 1, 1);
         m.spokes = spokes;
+        TokenConfig[] memory tokens = new TokenConfig[](5);
+        for (uint256 i; i < 4; ++i) {
+            tokens[i] = m.tokens[i];
+        }
+        tokens[4] = TokenConfig(8453, usdg);
+        m.tokens = tokens;
         // An adapter serving the Robinhood spoke cannot live on the Base spoke.
         m.bridgeAdapters[2] = BridgeAdapterConfig(SPOKE, 8453, hubAcrossFallback);
         vm.expectRevert(abi.encodeWithSelector(MandateLib.BridgeAdapterSideInvalid.selector, SPOKE, 8453));
@@ -414,13 +566,38 @@ contract MandateTest is Test {
 
     // ------------------------------------------------------------------ fees
 
-    /// @dev DEC-115: 9,000 passes, 9,001 reverts.
+    /// @dev DEC-115, DEC-184: 9,000 passes, 9,001 reverts.
     function test_DEC115_performanceFeeCapIsNinetyPercent() public {
         Mandate memory m = _valid();
         m.performanceFeeBps = 9001;
         vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsAboveMax.selector, 9001, 9000));
         h.validate(m);
         m.performanceFeeBps = 9000;
+        h.validate(m);
+    }
+
+    /// @dev DEC-182, DEC-184: the performance fee is at least 10%, chosen at creation; 1,000 passes, 999 and 0 revert.
+    function test_DEC184_performanceFeeFloorIsTenPercent() public {
+        Mandate memory m = _valid();
+        m.performanceFeeBps = 999;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsBelowMin.selector, 999, 1000));
+        h.validate(m);
+        m.performanceFeeBps = 0;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsBelowMin.selector, 0, 1000));
+        h.validate(m);
+        m.performanceFeeBps = 1000;
+        h.validate(m);
+    }
+
+    /// @dev DEC-184: every performance fee in [1,000, 9,000] is accepted and nothing outside it.
+    function testFuzz_DEC184_performanceFeeWithinTenToNinetyPercent(uint16 bps) public {
+        Mandate memory m = _valid();
+        m.performanceFeeBps = bps;
+        if (bps < 1000) {
+            vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsBelowMin.selector, bps, 1000));
+        } else if (bps > 9000) {
+            vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsAboveMax.selector, bps, 9000));
+        }
         h.validate(m);
     }
 
@@ -434,11 +611,16 @@ contract MandateTest is Test {
         h.validate(m);
     }
 
-    /// @dev DEC-108, DEC-114: until the accrual exists only 0 is taken, even within the 500 bps cap (DEC-115).
-    function test_DEC108_managementFeeMustBeZeroInMvp() public {
+    /// @dev DEC-114, DEC-184, DEC-186: the management fee accrues (WP-07 B5), so 0..500 bps a year is accepted, chosen
+    ///      at creation; 501 reverts.
+    function test_DEC115_managementFeeCapIsFivePercentAYear() public {
         Mandate memory m = _valid();
-        m.managementFeeBps = 1;
-        vm.expectRevert(abi.encodeWithSelector(MandateLib.ManagementFeeNotSupported.selector, 1));
+        m.managementFeeBps = 0;
+        h.validate(m);
+        m.managementFeeBps = 500;
+        h.validate(m);
+        m.managementFeeBps = 501;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsAboveMax.selector, 501, 500));
         h.validate(m);
     }
 
@@ -446,13 +628,6 @@ contract MandateTest is Test {
         Mandate memory m = _valid();
         m.payoutFeeBps = 10_001;
         vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsAboveMax.selector, 10_001, MandateLib.MAX_PAYOUT_FEE_BPS));
-        h.validate(m);
-    }
-
-    function test_DEC030_bridgeFeeAboveHundredPercentReverts() public {
-        Mandate memory m = _valid();
-        m.maxBridgeFeeBps = 10_001;
-        vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsAboveMax.selector, 10_001, MandateLib.MAX_BRIDGE_FEE_BPS));
         h.validate(m);
     }
 
@@ -467,20 +642,6 @@ contract MandateTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(
                 MandateLib.BpsAboveMax.selector, MandateLib.MAX_PAYOUT_FEE_BPS + 1, MandateLib.MAX_PAYOUT_FEE_BPS
-            )
-        );
-        h.validate(m);
-    }
-
-    /// @dev Security review S-9: the bridge fee bound is capped by a core constant (1%), not only at 100%.
-    function test_SEC_S9_bridgeFeeAboveTheCoreCapReverts() public {
-        Mandate memory m = _valid();
-        m.maxBridgeFeeBps = MandateLib.MAX_BRIDGE_FEE_BPS;
-        h.validate(m);
-        m.maxBridgeFeeBps = MandateLib.MAX_BRIDGE_FEE_BPS + 1;
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                MandateLib.BpsAboveMax.selector, MandateLib.MAX_BRIDGE_FEE_BPS + 1, MandateLib.MAX_BRIDGE_FEE_BPS
             )
         );
         h.validate(m);

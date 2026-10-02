@@ -12,7 +12,7 @@ import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {ShareMath} from "../libraries/ShareMath.sol";
 import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 import {ShareToken} from "./ShareToken.sol";
-import {CoreVaultState, CoreVaultWiring, CORE_VAULT_UNWINDING_SLOT} from "./CoreVaultTypes.sol";
+import {CoreVaultState, CoreVaultWiring, CORE_VAULT_UNWINDING_SLOT, STANDARD_PAYOUT_TERM} from "./CoreVaultTypes.sol";
 import {CoreVaultLogic} from "./CoreVaultLogic.sol";
 import {CoreVaultIncomeLogic} from "./CoreVaultIncomeLogic.sol";
 
@@ -81,12 +81,12 @@ library CoreVaultPayoutLogic {
         uint256 reserved;
         uint64 termEndsAt = uint64(block.timestamp);
         if (mode == ICoreVaultPayouts.PayoutMode.Standard) {
-            // DEC-072, DEC-095: Standard reserves USDC and starts the term (DEC-060). OPEN reading (final verification,
+            // DEC-072, DEC-095: Standard reserves USDC and starts the 72-hour term (DEC-154). OPEN reading (final verification,
             // docs/OPEN-QUESTIONS.md FV-OQ-1): the reserve is bounded by the requester's share value now (DEC-020: the
             // most a request can pay is the whole balance), so a small holder cannot lock Free Idle (DEC-017).
             reserved = Math.min(Math.min(usdcAmount, ShareMath.usdcFor(balance, price)), s.idle - s.payoutReserve);
             s.payoutReserve += reserved;
-            termEndsAt += w.standardPayoutTerm;
+            termEndsAt += STANDARD_PAYOUT_TERM;
         }
         // DEC-077: nothing is burned or locked at request.
         s.requests[msg.sender] = ICoreVaultPayouts.PayoutRequest({
@@ -150,7 +150,7 @@ library CoreVaultPayoutLogic {
         ICoreVaultPayouts.NavConsolidation memory consolidation = _priceClaim(s, w, c, req);
         // DEC-067, DEC-095: Idle first (Instant: Free Idle only; Standard: its reserve, then Free Idle).
         if (c.wanted > c.available) {
-            // DEC-081, DEC-097: unwind in Mandate order the shortfall plus 2%, proceeds to Idle.
+            // DEC-081, DEC-097: unwind the shortfall plus 2% (registry order until WP-09, DEC-137), proceeds to Idle.
             uint256 shortfall = c.wanted - c.available;
             c.proceeds = _unwindForPayout(s, w, shortfall + shortfall * UNWIND_MARGIN_BPS / 10_000, unwindHints);
             // DEC-105: one Share Price for the whole request, read after the unwind.

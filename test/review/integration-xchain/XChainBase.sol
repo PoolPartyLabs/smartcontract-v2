@@ -401,7 +401,7 @@ abstract contract XChainBase is EndToEndScenario {
     {
         _onArbitrum();
         if (address(hubDeployment.factory) == address(0)) {
-            hubDeployment = _deployProtocol(recipient, guardian, registryOwner);
+            hubDeployment = _deployProtocol(recipient, guardian, registryOwner, registryOwner);
         }
         factory = hubDeployment.factory;
         creationNumber = factory.nextCreationNumber();
@@ -441,7 +441,7 @@ abstract contract XChainBase is EndToEndScenario {
         _onRobinhood();
         factory = hubDeployment.factory;
         if (address(factory).code.length == 0) {
-            Deployment memory rd = _deployProtocol(recipient, guardian, registryOwner);
+            Deployment memory rd = _deployProtocol(recipient, guardian, registryOwner, registryOwner);
             require(address(rd.factory) == address(factory), "one factory address on both chains");
         }
     }

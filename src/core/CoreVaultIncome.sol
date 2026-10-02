@@ -5,8 +5,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ICoreVaultIncome} from "../interfaces/ICoreVaultIncome.sol";
 import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
+import {MandateLib} from "../mandate/Mandate.sol";
 import {CoreVaultBase} from "./CoreVaultBase.sol";
 import {CoreVaultIncomeLogic} from "./CoreVaultIncomeLogic.sol";
+import {CoreVaultLogic} from "./CoreVaultLogic.sol";
 
 /// @title CoreVaultIncome
 /// @notice Collected income, Attributed Income and Income Withdrawal of the Core Vault. See ICoreVault.
@@ -61,22 +63,33 @@ abstract contract CoreVaultIncome is CoreVaultBase {
     }
 
     /// @inheritdoc ICoreVaultIncome
-    /// @dev DEC-110: the manager fee only decreases, with immediate effect. Ruling 2026-09-29: fees are charged at
-    ///      collection only, so nothing has accrued at the old rate. DEC-108, LC-144: the management fee must stay 0.
-    ///      DEC-115, DEC-125 item 3 (D-36): never below the registry's minimum manager fee in force at creation.
+    /// @dev DEC-110: the manager fee only decreases, with immediate effect. Ruling 2026-09-29: the performance fee is
+    ///      charged at collection only, so nothing of it has accrued at the old rate. DEC-114: a lower management fee
+    ///      applies from now, down to 0; what accrued at the old rate is booked first. DEC-182, DEC-184: the
+    ///      performance fee never goes below `MandateLib.MIN_PERFORMANCE_FEE_BPS` (10%), the floor it was created at
+    ///      or above.
     function decreaseManagerFee(uint16 newPerformanceFeeBps, uint16 newManagementFeeBps)
         external
         onlyManager
         nonReentrant
     {
-        if (newManagementFeeBps != 0) revert ManagementFeeNotSupported(newManagementFeeBps);
-        uint16 previous = _s.performanceFeeBps;
-        if (newPerformanceFeeBps >= previous) revert ManagerFeeNotDecreasing();
-        if (newPerformanceFeeBps < minPerformanceFeeBps) {
-            revert ManagerFeeBelowMinimum(newPerformanceFeeBps, minPerformanceFeeBps);
+        uint16 previousPerformance = _s.performanceFeeBps;
+        uint16 previousManagement = _s.managementFeeBps;
+        if (
+            newPerformanceFeeBps > previousPerformance || newManagementFeeBps > previousManagement
+                || (newPerformanceFeeBps == previousPerformance && newManagementFeeBps == previousManagement)
+        ) revert ManagerFeeNotDecreasing();
+        if (newPerformanceFeeBps < MandateLib.MIN_PERFORMANCE_FEE_BPS) {
+            revert ManagerFeeBelowMinimum(newPerformanceFeeBps, MandateLib.MIN_PERFORMANCE_FEE_BPS);
+        }
+        if (newManagementFeeBps != previousManagement) {
+            // Payout mode: never reverts on a failing dependency, so the decrease is never blocked (DEC-056).
+            CoreVaultLogic.recordValuation(_s, _wiring(), false);
+            _s.managementFeeLastAccrual = uint64(block.timestamp);
         }
         _s.performanceFeeBps = newPerformanceFeeBps;
-        emit ManagerFeeDecreased(previous, newPerformanceFeeBps, _s.managementFeeBps, newManagementFeeBps);
+        _s.managementFeeBps = newManagementFeeBps;
+        emit ManagerFeeDecreased(previousPerformance, newPerformanceFeeBps, previousManagement, newManagementFeeBps);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -122,5 +135,10 @@ abstract contract CoreVaultIncome is CoreVaultBase {
     /// @inheritdoc ICoreVaultIncome
     function managementFeeBps() external view returns (uint16) {
         return _s.managementFeeBps;
+    }
+
+    /// @inheritdoc ICoreVaultIncome
+    function managementFeeAccrued() external view returns (uint256) {
+        return CoreVaultLogic.managementFeeOwed(_s, _wiring());
     }
 }

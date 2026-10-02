@@ -128,11 +128,6 @@
         "name": "amountIn",
         "type": "uint256",
         "internalType": "uint256"
-      },
-      {
-        "name": "maxLossBps",
-        "type": "uint16",
-        "internalType": "uint16"
       }
     ],
     "outputs": [

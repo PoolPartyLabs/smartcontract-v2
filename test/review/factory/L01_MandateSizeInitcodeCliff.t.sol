@@ -7,7 +7,7 @@ import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {IFundFactory} from "../../../src/interfaces/IFundFactory.sol";
 import {FundFactory} from "../../../src/factory/FundFactory.sol";
 import {Test} from "forge-std/Test.sol";
-import {Mandate, MandateLib, PoolConfig, UnwindStep} from "../../../src/mandate/Mandate.sol";
+import {Mandate, MandateLib, PoolConfig} from "../../../src/mandate/Mandate.sol";
 import {CoreVaultConfig} from "../../../src/core/CoreVaultTypes.sol";
 import {Create3Harness} from "../../mocks/factory/Create3Harness.sol";
 import {FactoryReviewFixture} from "./FactoryReviewFixture.sol";
@@ -22,8 +22,12 @@ contract MandateValidator {
 /// @notice Review port of factory L01, consolidated finding L-10 (no register entry). Still present on main: no list
 ///         bound was added, and the fixes made the Core Vault's creation code larger, so the init-code wall comes
 ///         earlier (50,602 bytes at 66 extra pools against 49,316 on `e5c778a`). WP-07 moved the payout path into a
-///         linked library (DEC-131 pattern): 49,854 bytes at 66, the wall back at 63 extra pools. Gas on main: 20.52M,
+///         linked library (DEC-131 pattern): 49,854 bytes at 66, the wall back at 63 extra pools. The test now solves
+///         the wall from the build instead of pinning it (Mandate v2, WP-07 B). Gas on main: 20.52M,
 ///         23.76M, 27.17M, 31.49M and 36.42M for 0, 10, 20, 30 and 40 extra hub pools (review: 20.7M to 37.0M).
+///         Mandate v2 (WP-07 B) dropped the unwind order (DEC-137): 96 bytes per extra pool instead of 192; with the
+///         swap adapter deployed on the hub and every Mandate token priced at creation, 24.12M, 27.81M and 35.91M of
+///         gas for 0, 20 and 60 extra pools (the gas wall near 43), and the init-code wall at 103 extra pools.
 ///         Original note: neither `MandateLib.validate` nor the factory bounds the Mandate's lists, while the cost of creating
 ///         a fund grows with them: every fund contract validates the Mandate (O(n^2) duplicate scans), the hub Spoke
 ///         Vault and the Core Vault copy it into storage, and each contract's init code carries the ABI-encoded Mandate.
@@ -34,7 +38,8 @@ contract MandateValidator {
 contract L01_MandateSizeInitcodeCliff is FactoryReviewFixture {
     uint256 internal constant ARBITRUM_MAX_TX_GAS = 32_000_000;
 
-    /// @dev The fixture Mandate plus `extra` hub Uniswap V4 pools, each also an unwind step.
+    /// @dev The fixture Mandate plus `extra` hub Uniswap V4 pools (each also an unwind step until Mandate v2 removed
+    ///      the unwind order, DEC-137).
     function _bigMandate(Deployment memory d, uint256 extra)
         internal
         view
@@ -47,13 +52,9 @@ contract L01_MandateSizeInitcodeCliff is FactoryReviewFixture {
         address hubUniswap = m.adapters[0].adapter;
 
         PoolConfig[] memory pools = new PoolConfig[](m.pools.length + extra);
-        UnwindStep[] memory steps = new UnwindStep[](m.unwindOrder.length + extra);
         PoolKey[] memory keys = new PoolKey[](1 + extra);
         for (uint256 i; i < m.pools.length; ++i) {
             pools[i] = m.pools[i];
-        }
-        for (uint256 i; i < m.unwindOrder.length; ++i) {
-            steps[i] = m.unwindOrder[i];
         }
         keys[0] = p.uniswapV4Pools[0];
         for (uint256 i; i < extra; ++i) {
@@ -61,11 +62,9 @@ contract L01_MandateSizeInitcodeCliff is FactoryReviewFixture {
             PoolKey memory k = _poolKey(address(weth), address(usdc), uint24(100 + i), int24(int256(1 + i)));
             bytes32 id = PoolId.unwrap(k.toId());
             pools[m.pools.length + i] = PoolConfig(HUB, hubUniswap, id);
-            steps[m.unwindOrder.length + i] = UnwindStep(HUB, hubUniswap, id);
             keys[1 + i] = k;
         }
         m.pools = pools;
-        m.unwindOrder = steps;
         p.uniswapV4Pools = keys;
     }
 
@@ -91,55 +90,55 @@ contract L01_MandateSizeInitcodeCliff is FactoryReviewFixture {
         assertLt(_createFundGas(20), ARBITRUM_MAX_TX_GAS);
     }
 
-    /// @dev A valid Mandate with 40 extra hub pools needs more gas than one Arbitrum transaction allows.
+    /// @dev A valid Mandate with 60 extra hub pools needs more gas than one Arbitrum transaction allows (40 before
+    ///      Mandate v2 dropped the unwind order).
     function test_POC_REVIEW_L10_createFundGasGrowsPastTheArbitrumTransactionCap() public {
         assertGt(
-            _createFundGas(40), ARBITRUM_MAX_TX_GAS, "a valid Mandate needs more gas than one Arbitrum transaction"
+            _createFundGas(60), ARBITRUM_MAX_TX_GAS, "a valid Mandate needs more gas than one Arbitrum transaction"
         );
     }
 
     /// @dev The init code wall, by arithmetic on the exact bytes `_deployCoreVault` assembles (creation code plus
     ///      `abi.encode(m, c)`, `c` rebuilt field by field as the factory fills it). The EVM behaviour past 49,152 bytes
-    ///      is shown by L01_InitCodeLimitProbe (run with the mainnet limit).
+    ///      is shown by L01_InitCodeLimitProbe (run with the mainnet limit). The wall is solved from the bytes each extra
+    ///      hub pool adds, so the test follows the Core Vault's size instead of pinning it; MandateLib accepts the
+    ///      Mandate at the wall.
     function test_POC_REVIEW_L10_coreVaultInitCodePassesEip3860ForAValidMandate() public {
         Deployment memory d = _hubChain();
         MandateValidator validator = new MandateValidator();
-        (Mandate memory m, IFundFactory.HubParams memory p) = _bigMandate(d, 66);
+        (Mandate memory m0, IFundFactory.HubParams memory p) = _bigMandate(d, 0);
+        (Mandate memory m1,) = _bigMandate(d, 1);
+        CoreVaultConfig memory c = _config(d, p.creationNumber);
+        uint256 base = p.coreVaultCreationCode.length + abi.encode(m0, c).length;
+        uint256 perPool = abi.encode(m1, c).length - abi.encode(m0, c).length;
+        uint256 wall = (49_152 - base) / perPool + 1;
+
+        (Mandate memory m,) = _bigMandate(d, wall);
         validator.validate(m); // MandateLib accepts it
-        CoreVaultConfig memory c;
-        c.fundId = d.factory.fundIdOf(HUB, p.creationNumber, manager);
+        uint256 initCode = p.coreVaultCreationCode.length + abi.encode(m, c).length;
+        console2.log("abi.encode(Mandate) bytes at the wall", abi.encode(m).length);
+        console2.log("Core Vault init code bytes at the wall", initCode);
+        console2.log("bytes per extra hub pool", perPool);
+        console2.log("first extra-pool count above EIP-3860", wall);
+        assertGt(initCode, 49_152, "above EIP-3860: the Core Vault can never be created from this valid Mandate");
+        assertEq(perPool, 96, "one PoolConfig per extra pool (192 with the unwind step before Mandate v2)");
+    }
+
+    function _config(Deployment memory d, uint256 creationNumber) internal view returns (CoreVaultConfig memory c) {
+        c.fundId = d.factory.fundIdOf(HUB, creationNumber, manager);
         c.usdc = address(usdc);
         c.hubSpokeVault = address(1);
         c.reportReceiver = address(1);
         c.managerRegistry = address(registry);
         c.priceSource = address(prices);
         c.acrossSpokePool = address(hubAcross);
+        c.wormholeCore = address(1);
         c.protocolRecipient = recipient;
         c.excessRecipient = recipient;
         c.escrowImplementation = address(1);
         c.flowFeeBps = 25;
-        c.incomeTokens = new address[](2);
-        c.incomeTokens[0] = address(weth);
-        c.incomeTokens[1] = address(usdc);
         c.shareName = "Pool Party Fund 1";
         c.shareSymbol = "PP-1";
-        uint256 initCode = p.coreVaultCreationCode.length + abi.encode(m, c).length;
-        console2.log("abi.encode(Mandate) bytes      ", abi.encode(m).length);
-        console2.log("Core Vault init code bytes     ", initCode);
-        assertEq(abi.encode(m).length, 14_528);
-        assertGt(initCode, 49_152, "above EIP-3860: the Core Vault can never be created from this valid Mandate");
-
-        // Where the wall now sits: each extra hub pool adds the same bytes, so solve from the 66-pool point.
-        uint256 perPool = (initCode - (p.coreVaultCreationCode.length + abi.encode(_mandateOnly(d), c).length)) / 66;
-        uint256 wall = 66 - (initCode - 49_152) / perPool;
-        console2.log("bytes per extra hub pool", perPool);
-        console2.log("first extra-pool count above EIP-3860", wall);
-        assertEq(perPool, 192);
-        assertLe(wall, 63, "the wall moves earlier as the Core Vault grows");
-    }
-
-    function _mandateOnly(Deployment memory d) internal view returns (Mandate memory m) {
-        (m,) = _bigMandate(d, 0);
     }
 }
 

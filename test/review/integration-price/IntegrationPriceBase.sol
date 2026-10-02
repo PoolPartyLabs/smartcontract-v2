@@ -25,7 +25,7 @@ import {IPriceSource} from "../../../src/interfaces/IPriceSource.sol";
 import {IValueReportReceiver} from "../../../src/interfaces/IValueReportReceiver.sol";
 import {UniswapV4Adapter} from "../../../src/adapters/UniswapV4Adapter.sol";
 import {FundFactory} from "../../../src/factory/FundFactory.sol";
-import {Mandate, MandateLib, PoolConfig, UnwindStep} from "../../../src/mandate/Mandate.sol";
+import {Mandate, MandateLib, PoolConfig} from "../../../src/mandate/Mandate.sol";
 import {EndToEndBase} from "../../fork/e2e/EndToEndBase.sol";
 import {V4SwapRouter} from "../../mocks/v4/V4SwapRouter.sol";
 
@@ -215,6 +215,7 @@ abstract contract IntegrationPriceBase is EndToEndBase {
     function _pricePlan(uint256 spokeCap) internal view returns (FundPlan memory plan) {
         plan.manager = manager;
         plan.hubChainId = ARBITRUM;
+        plan.hubWormholeChainId = WORMHOLE_ARBITRUM;
         plan.usdc = ARB_USDC;
         plan.hubPool = _hubPoolKey();
         plan.hubAaveAsset = ARB_USDC;
@@ -228,22 +229,18 @@ abstract contract IntegrationPriceBase is EndToEndBase {
         plan.spokeOperatingCashTopUp = SPOKE_OPERATING_CASH_TOP_UP;
         plan.minFirstDeposit = MIN_FIRST_DEPOSIT;
         plan.performanceFeeBps = PERFORMANCE_FEE_BPS;
-        plan.maxBridgeFeeBps = MAX_BRIDGE_FEE_BPS;
     }
 
     /// @notice Deploys the protocol on the selected Arbitrum fork and creates the fund through the real factory.
-    /// @param extraHubPools Additional hub Uniswap V4 pools, appended to the Mandate pool list and placed in the
-    ///        unwind order right after the scripts' V4 step (before Aave) when `extraInUnwind`.
-    function _createFund(FundPlan memory plan, PoolKey[] memory extraHubPools, bool extraInUnwind)
-        internal
-        returns (Mandate memory m)
-    {
-        hubDeployment = _deployProtocol(recipient, guardian, registryOwner);
+    /// @param extraHubPools Additional hub Uniswap V4 pools, appended to the Mandate pool list (the unwind walks the
+    ///        positions in registry order, DEC-137 interim, so a test opens them in the order it wants unwound).
+    function _createFund(FundPlan memory plan, PoolKey[] memory extraHubPools) internal returns (Mandate memory m) {
+        hubDeployment = _deployProtocol(recipient, guardian, registryOwner, registryOwner);
         FundFactory factory = hubDeployment.factory;
         creationNumber = factory.nextCreationNumber();
         fundId = factory.fundIdOf(ARBITRUM, creationNumber, manager);
         m = _buildMandate(factory, fundId, plan);
-        if (extraHubPools.length != 0) m = _withExtraHubPools(m, extraHubPools, extraInUnwind);
+        if (extraHubPools.length != 0) m = _withExtraHubPools(m, extraHubPools);
         mandateHash = MandateLib.hash(m);
 
         IFundFactory.HubParams memory p = _hubParams(creationNumber, plan, _coreVaultCreationCode(hubDeployment));
@@ -273,11 +270,7 @@ abstract contract IntegrationPriceBase is EndToEndBase {
         arbitrumRouter = _deployRouter(ARB_V4_POOL_MANAGER, ARB_WETH, ARB_USDC, 100_000e18, 500_000_000e6);
     }
 
-    function _withExtraHubPools(Mandate memory m, PoolKey[] memory extra, bool inUnwind)
-        internal
-        pure
-        returns (Mandate memory)
-    {
+    function _withExtraHubPools(Mandate memory m, PoolKey[] memory extra) internal pure returns (Mandate memory) {
         address hubUni = m.adapters[0].adapter;
         PoolConfig[] memory pools = new PoolConfig[](m.pools.length + extra.length);
         for (uint256 i; i < m.pools.length; ++i) {
@@ -287,17 +280,6 @@ abstract contract IntegrationPriceBase is EndToEndBase {
             pools[m.pools.length + i] = PoolConfig(m.hubChainId, hubUni, PoolId.unwrap(extra[i].toId()));
         }
         m.pools = pools;
-        if (inUnwind) {
-            UnwindStep[] memory order = new UnwindStep[](m.unwindOrder.length + extra.length);
-            order[0] = m.unwindOrder[0];
-            for (uint256 i; i < extra.length; ++i) {
-                order[1 + i] = UnwindStep(m.hubChainId, hubUni, PoolId.unwrap(extra[i].toId()));
-            }
-            for (uint256 i = 1; i < m.unwindOrder.length; ++i) {
-                order[extra.length + i] = m.unwindOrder[i];
-            }
-            m.unwindOrder = order;
-        }
         return m;
     }
 

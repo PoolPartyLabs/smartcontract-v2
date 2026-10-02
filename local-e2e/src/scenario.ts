@@ -86,7 +86,7 @@ const HALF_RANGE = 200;
 const SWING = 40;
 const SWAP_TOLERANCE_BPS = 300n;
 const FLOW_FEE_BPS = 25n;
-const SPOKE_OPERATING_CASH_TOP_UP = 10n * USD;
+const SPOKE_OPERATING_CASH_TOP_UP = BigInt(FUND_PLAN.SPOKE_OPERATING_CASH_TOP_UP);
 const INITIAL_SHARE_PRICE = 10n ** 24n;
 const WAD = 10n ** 18n;
 const WAIT_SECONDS = 120;
@@ -374,19 +374,30 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     run.eq(mandate.pools[0].poolKey, HUB_POOL_ID, "DEC-030: hub WETH/USDC 0.05%");
     run.eq(mandate.pools[1].poolKey, AAVE_USDC_POOL_KEY, "DEC-018, DEC-028: Aave USDC on the hub");
     run.eq(mandate.pools[2].poolKey, SPOKE_POOL_ID, "DEC-030: spoke WETH/USDG 0.05%");
-    run.eq(mandate.unwindOrder.length, 2, "feedback question 2: automatic unwind on hub positions only");
-    run.eq(mandate.unwindOrder[0].adapter, hubUni, "DEC-069: hub Uniswap V4 first");
-    run.eq(mandate.unwindOrder[1].adapter, hubAave, "DEC-069: then Aave");
+    // Mandate v2 (WP-07 B): the tokens of each chain, one factory-deployed swap adapter per chain, the Hub's Wormhole
+    // chain; no unwind order (DEC-137, DEC-139), Standard Payout term (DEC-154) or bridge fee bound (DEC-156).
+    const tokensOf = (chainId: number) =>
+      (mandate.tokens as { chainId: bigint; token: Address }[]).filter((t) => Number(t.chainId) === chainId).map((t) => t.token);
+    run.eq(tokensOf(ARBITRUM_CHAIN_ID).join(), [ARBITRUM.usdc, ARBITRUM.weth].join(), "DEC-123, DEC-136: hub Mandate tokens USDC and WETH");
+    run.eq(tokensOf(ROBINHOOD_CHAIN_ID).join(), [ROBINHOOD.usdg, ROBINHOOD.weth].join(), "DEC-136: spoke Mandate tokens USDG and WETH");
+    run.eq(Number(mandate.hubWormholeChainId), WORMHOLE_ARBITRUM, "DEC-120, D-15: the Hub's Wormhole chain 23");
+    run.eq(mandate.swapAdapters.length, 2, "DEC-136: one swap adapter per fund chain");
+    run.eq(mandate.swapAdapters[0].adapter, fund.hub.uniswapV3SwapAdapter, "DEC-136: the factory's hub swap adapter");
+    run.eq(mandate.swapAdapters[1].adapter, fund.spoke.uniswapV3SwapAdapter, "DEC-136: the factory's Robinhood swap adapter");
+    run.eq((await view<Address[]>("robinhood", spokeVault, spokeVaultAbi, "swapAdapters")).join(), fund.spoke.uniswapV3SwapAdapter, "DEC-136: the Spoke Vault pins it");
     run.eq(mandate.bridgeAdapters.length, 2, "DEC-088: Across on both sides");
     run.eq(Number(mandate.payoutFeeBps), 200, "DEC-102: Payout Fee 2%");
-    run.eq(Number(mandate.standardPayoutTerm), 72 * 3600, "DEC-060: 72 h term");
+    run.eq(Number(await view<number>("arbitrum", core, coreVaultAbi, "standardPayoutTerm")), 72 * 3600, "DEC-154: the 72 h protocol term");
     run.eq(BigInt(mandate.minFirstDeposit), 100n * USD, "DEC-061: 100 USDC minimum first deposit");
-    run.eq(Number(mandate.performanceFeeBps), 2000, "DEC-107: performance fee 20%");
-    run.eq(Number(mandate.managementFeeBps), 0, "DEC-108: management fee 0");
+    run.eq(Number(mandate.performanceFeeBps), 2000, "DEC-107, DEC-184: performance fee 20%, within 10% to 90%");
+    run.eq(Number(mandate.managementFeeBps), 0, "DEC-108, DEC-186: management fee 0");
+    run.eq(mandate.operatingCash.length, 1, "DEC-096: the spoke's Operating Cash entry only");
+    run.eq(BigInt(mandate.operatingCash[0].floor) + BigInt(mandate.operatingCash[0].topUp), 0n, "ruling 2026-10-02: Operating Cash floor and top-up 0");
     run.eq(BigInt(await view<number>("arbitrum", core, coreVaultAbi, "flowFeeBps")), FLOW_FEE_BPS, "DEC-106: flow fee 25 bps");
     run.ok(
       `Mandate: hub V4 WETH/USDC + Aave USDC, spoke V4 WETH/USDG, Across both ways (the adapter's fee rule, DEC-162), ` +
-        `Spoke Cap ${units(BigInt(spokeCfg.spokeCap), 6, 0)} USDC, Payout Fee 2%, 72 h term, performance fee 20%, maxReportAge 1588 s`,
+        `Spoke Cap ${units(BigInt(spokeCfg.spokeCap), 6, 0)} USDC, Payout Fee 2%, 72 h term, performance fee 20%, maxReportAge 1588 s; ` +
+        `Mandate v2: tokens USDC/WETH and USDG/WETH, a V3 swap adapter per chain, Hub Wormhole chain 23, Operating Cash 0`,
     );
 
     const [seeded] = await coreEvents(core, "FundSeeded", BigInt(fund.hub.createdInBlock));
@@ -626,7 +637,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
       amountToArrive - SPOKE_OPERATING_CASH_TOP_UP,
       "Unallocated Balance on the spoke",
     );
-    run.ok(`the Spoke Vault credited ${units(amountToArrive)} USDG: 10.00 to Operating Cash, the rest to Unallocated Balance`);
+    run.ok(`the Spoke Vault credited ${units(amountToArrive)} USDG: ${units(SPOKE_OPERATING_CASH_TOP_UP)} to Operating Cash, the rest to Unallocated Balance`);
 
     const spokeHalf = SPOKE_V4_USDG / 2n;
     const spokeSwap = await tx<bigint>("robinhood", "manager", spokeVault, spokeVaultAbi, "swapExactInput", [
@@ -963,9 +974,11 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     run.eq((await view<any>("arbitrum", core, coreVaultAbi, "payoutRequest", [A.bruno.address])).reserved, 0n, "DEC-095: no reserve for an Instant Payout");
     run.ok(`Bruno requests an Instant Payout of ${units(brunoRequest)} USDC, 1,000 above Free Idle (${units(free)})`);
 
-    // One hint per position the unwind may visit, in Mandate order: the V4 step's WETH swap gets a Chainlink-based
-    // minimum stricter than the vault's own floor; Aave needs none (EndToEnd.t.sol `_unwindHints`).
-    const hintShortfall = target > hubUnallocated ? target - hubUnallocated : 0n;
+    // One hint per position the unwind may visit, in registry order (DEC-137 interim: Mandate v2 has no unwind order,
+    // and Aave was opened first): Aave needs none; the V4 step's WETH swap gets a Chainlink-based minimum stricter than
+    // the vault's own floor, sized on what Unallocated USDC and Aave leave it to cover (EndToEnd.t.sol `_unwindHints`).
+    const coveredBeforeV4 = hubUnallocated + aavePrincipalBefore;
+    const hintShortfall = target > coveredBeforeV4 ? target - coveredBeforeV4 : 0n;
     const wethOut = v4Value <= hintShortfall ? (v4.principal0 as bigint) : mulDiv(v4.principal0, hintShortfall, v4Value);
     const hints = encodeAbiParameters(
       [
@@ -988,6 +1001,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
       ],
       [
         [
+          { swaps: [] },
           {
             swaps: [
               {
@@ -999,7 +1013,6 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
               },
             ],
           },
-          { swaps: [] },
         ],
       ],
     );
@@ -1012,20 +1025,21 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     run.eq(unwound[0].usdcProceeds, r2.unwindProceeds, "DEC-080: proceeds reached Idle through returnToIdle");
     run.true(unwound[0].usdcProceeds > 0n, "the unwind produced USDC");
     const positionsAfter = await view<readonly { adapter: Address }[]>("arbitrum", hubSpoke, spokeVaultAbi, "positions");
+    // DEC-137 interim (DEC-139): the unwind walks the hub positions in registry order, Aave (opened first) then V4,
+    // until WP-09's proportional unwind; the vault exits only what the shortfall needs (EndToEnd.t.sol
+    // `_assertRegistryOrderUnwind`).
     const unwindShortfall = target - hubUnallocated;
-    if (v4Value <= unwindShortfall) {
-      run.eq(positionsAfter.length, 1, "DEC-069: the whole V4 value was needed, so it closed first");
-      run.eq(positionsAfter[0].adapter, hubAave, "Aave remains");
-    } else {
-      run.eq(positionsAfter.length, 2, "final verification: the V4 position was only decreased");
-      run.true(
-        ((await view<any>("arbitrum", hubUni, uniswapV4AdapterAbi, "positionValue", [hubUniPosition])).liquidity as bigint) < v4Liquidity,
-        "DEC-069: the hub V4 position was unwound first, by the shortfall only",
-      );
-    }
     const aavePrincipalAfter = (await view<any>("arbitrum", hubAave, aaveV3AdapterAbi, "positionValue", [hubAavePosition])).principal0 as bigint;
+    const v4LiquidityAfter = (await view<any>("arbitrum", hubUni, uniswapV4AdapterAbi, "positionValue", [hubUniPosition])).liquidity as bigint;
+    run.eq(positionsAfter[0].adapter, hubAave, "DEC-137 interim: Aave is first in the registry");
     run.true(aavePrincipalAfter <= aavePrincipalBefore, "Aave principal never grows in an unwind");
-    run.true(aavePrincipalBefore - aavePrincipalAfter <= (unwindShortfall * SWAP_TOLERANCE_BPS) / 10_000n, "DEC-059: Aave covers at most what the V4 swap fell short");
+    if (aavePrincipalBefore > unwindShortfall) {
+      run.eq(positionsAfter.length, 2, "final verification: the Aave position was only decreased");
+      run.approx(aavePrincipalBefore - aavePrincipalAfter, unwindShortfall, AAVE_ROUNDING, "DEC-059: Aave paid the shortfall at par");
+      run.eq(v4LiquidityAfter, v4Liquidity, "the V4 position, second in the registry, was not exited");
+    } else {
+      run.true(v4LiquidityAfter < v4Liquidity, "Aave fell short, so the V4 position paid the rest");
+    }
     run.eq(r2.totalShares, supply, "total shares at the claim");
     run.eq(r2.sharePrice, r2.totalShares === 0n ? INITIAL_SHARE_PRICE : mulDiv(r2.shareAssets, 10n ** 36n, r2.totalShares), "DEC-105: the burn at the Share Price read after the unwind");
     run.eq(r2.usdcGross, usdcFor(r2.sharesBurned, r2.sharePrice), "gross");
@@ -1047,7 +1061,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
       run.eq(brunoRequestAfter.usdcOutstanding, brunoRequest - r2.usdcGross, "DEC-068: the rest stays open");
     }
     run.ok(
-      `Bruno claims: unwind target ${units(target)} USDC (shortfall + 2%), hub V4 first, proceeds ${units(r2.unwindProceeds)}; ` +
+      `Bruno claims: unwind target ${units(target)} USDC (shortfall + 2%), registry order (Aave, then V4), proceeds ${units(r2.unwindProceeds)}; ` +
         `${units(r2.sharesBurned, 18, 0)} shares burned at ${price(r2.sharePrice)}, ${units(r2.usdcPaid)} USDC paid, Payout Fee ${units(r2.payoutFee)} kept in Idle` +
         (r2.usdcOutstanding > 0n ? `, ${units(r2.usdcOutstanding)} outstanding (Partial Payout)` : ""),
     );

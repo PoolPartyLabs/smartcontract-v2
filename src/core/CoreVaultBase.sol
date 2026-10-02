@@ -3,13 +3,14 @@ pragma solidity 0.8.28;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
+import {ICoreBridge} from "wormhole-sdk/interfaces/ICoreBridge.sol";
 import {TransientSlot} from "@openzeppelin/contracts/utils/TransientSlot.sol";
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
 import {ICoreVaultLifecycle} from "../interfaces/ICoreVaultLifecycle.sol";
 import {IBridgeAdapter} from "../interfaces/IBridgeAdapter.sol";
 import {IPriceSource} from "../interfaces/IPriceSource.sol";
 import {Transit, ExpensePayer} from "../interfaces/FundTypes.sol";
-import {Mandate, MandateLib, SpokeConfig, BridgeAdapterConfig} from "../mandate/Mandate.sol";
+import {Mandate, MandateLib, SpokeConfig, BridgeAdapterConfig, TokenConfig} from "../mandate/Mandate.sol";
 import {ShareMath} from "../libraries/ShareMath.sol";
 import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 import {ShareToken} from "./ShareToken.sol";
@@ -45,6 +46,8 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
     address public immutable managerRegistry;
     address public immutable priceSource;
     address public immutable acrossSpokePool;
+    /// @inheritdoc ICoreVault
+    address public immutable wormholeCore;
     address public immutable protocolRecipient;
     address public immutable excessRecipient;
     address public immutable escrowImplementation;
@@ -53,14 +56,10 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
     uint16 public immutable flowFeeBps;
     /// @inheritdoc ICoreVaultLifecycle
     address public immutable factory;
-    /// @inheritdoc ICoreVaultLifecycle
-    uint16 public immutable minPerformanceFeeBps;
     uint16 public immutable payoutFeeBps;
-    uint32 public immutable standardPayoutTerm;
     /// @dev DEC-011: the Hub Chain of the Mandate; the constructor requires `block.chainid` to equal it.
     uint256 internal immutable _hubChainId;
     uint256 internal immutable _minFirstDeposit;
-    uint16 internal immutable _maxBridgeFeeBps;
 
     /// @dev Every mutable value of the Core Vault (see CoreVaultState). The unwinding flag lives in transient storage
     ///      at `CORE_VAULT_UNWINDING_SLOT`, written by the linked `CoreVaultPayoutLogic`.
@@ -77,17 +76,17 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
         if (
             c.usdc == address(0) || c.hubSpokeVault == address(0) || c.reportReceiver == address(0)
                 || c.managerRegistry == address(0) || c.priceSource == address(0) || c.acrossSpokePool == address(0)
-                || c.protocolRecipient == address(0) || c.excessRecipient == address(0)
+                || c.wormholeCore == address(0) || c.protocolRecipient == address(0) || c.excessRecipient == address(0)
                 || c.escrowImplementation == address(0) || c.factory == address(0) || c.fundId == bytes32(0)
         ) revert ZeroAddress();
         if (c.usdc != m.usdc) revert UsdcMismatch(c.usdc, m.usdc);
         if (block.chainid != m.hubChainId) revert NotOnHubChain(block.chainid, m.hubChainId);
+        // D-15 (DEC-120, DEC-139): the spokes accept orders only from the Mandate's Hub Wormhole chain, so it must be
+        // the chain of the Core this vault publishes through.
+        uint16 coreChainId = ICoreBridge(c.wormholeCore).chainId();
+        if (coreChainId != m.hubWormholeChainId) revert HubWormholeChainIdMismatch(coreChainId, m.hubWormholeChainId);
         // DEC-106, DEC-110: flow fee capped at 1% as a core constant.
         if (c.flowFeeBps > ShareMath.MAX_FLOW_FEE_BPS) revert FlowFeeAboveCap(c.flowFeeBps);
-        // DEC-115, DEC-125 item 3: the fund starts at or above the minimum manager fee it was created under.
-        if (m.performanceFeeBps < c.minPerformanceFeeBps) {
-            revert ManagerFeeBelowMinimum(m.performanceFeeBps, c.minPerformanceFeeBps);
-        }
 
         fundId = c.fundId;
         mandateHash = MandateLib.hash(m);
@@ -98,34 +97,32 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
         managerRegistry = c.managerRegistry;
         priceSource = c.priceSource;
         acrossSpokePool = c.acrossSpokePool;
+        wormholeCore = c.wormholeCore;
         protocolRecipient = c.protocolRecipient;
         excessRecipient = c.excessRecipient;
         escrowImplementation = c.escrowImplementation;
         flowFeeBps = c.flowFeeBps;
         factory = c.factory;
-        minPerformanceFeeBps = c.minPerformanceFeeBps;
         payoutFeeBps = m.payoutFeeBps;
-        standardPayoutTerm = m.standardPayoutTerm;
         _hubChainId = m.hubChainId;
         _minFirstDeposit = m.minFirstDeposit;
-        _maxBridgeFeeBps = m.maxBridgeFeeBps;
 
         _s.performanceFeeBps = m.performanceFeeBps;
         _s.managementFeeBps = m.managementFeeBps;
+        // DEC-114: the management fee accrues from creation (the seed is the fund's first capital, DEC-127).
+        _s.managementFeeLastAccrual = uint64(block.timestamp);
         (_s.operatingCashFloor, _s.operatingCashTopUp) = MandateLib.operatingCashFor(m, m.hubChainId);
         _copyMandate(m);
         _pinBridgeAdapters(m);
 
-        // Q60: closed list of income tokens; USDC always, then the hub pool tokens the factory derived.
-        // Independent review M-03 (plan R-12, hub half): every hub pool token must be priced by the price source, or
-        // once the fund holds it every mint reverts and every payout values it at 0; the read reverts here instead
-        // (`UnsupportedToken`). Spoke pool tokens are not visible on the hub (founder question, DEC-089).
+        // Q60: closed list of income tokens; USDC always, then the Mandate's other hub tokens (WP-07 B2).
         _s.income.registerToken(c.usdc);
-        for (uint256 i; i < c.incomeTokens.length; ++i) {
-            address token = c.incomeTokens[i];
-            if (token == c.usdc) continue;
-            IPriceSource(c.priceSource).priceInUsdc(token);
-            _s.income.registerToken(token);
+        for (uint256 i; i < m.tokens.length; ++i) {
+            TokenConfig memory t = m.tokens[i];
+            bool hubToken = t.chainId == m.hubChainId;
+            if (hubToken && t.token == c.usdc) continue;
+            _requirePriced(c.priceSource, t);
+            if (hubToken) _s.income.registerToken(t.token);
         }
 
         // Q59 OPEN: name and symbol are factory strings; the Core Vault deploys and owns its Share token.
@@ -139,15 +136,19 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
         Mandate storage stored = _s.mandate;
         stored.manager = m.manager;
         stored.hubChainId = m.hubChainId;
+        stored.hubWormholeChainId = m.hubWormholeChainId;
         stored.usdc = m.usdc;
+        for (uint256 i; i < m.tokens.length; ++i) {
+            stored.tokens.push(m.tokens[i]);
+        }
         for (uint256 i; i < m.adapters.length; ++i) {
             stored.adapters.push(m.adapters[i]);
         }
+        for (uint256 i; i < m.swapAdapters.length; ++i) {
+            stored.swapAdapters.push(m.swapAdapters[i]);
+        }
         for (uint256 i; i < m.pools.length; ++i) {
             stored.pools.push(m.pools[i]);
-        }
-        for (uint256 i; i < m.unwindOrder.length; ++i) {
-            stored.unwindOrder.push(m.unwindOrder[i]);
         }
         for (uint256 i; i < m.spokes.length; ++i) {
             stored.spokes.push(m.spokes[i]);
@@ -159,11 +160,21 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
             stored.operatingCash.push(m.operatingCash[i]);
         }
         stored.payoutFeeBps = m.payoutFeeBps;
-        stored.standardPayoutTerm = m.standardPayoutTerm;
         stored.minFirstDeposit = m.minFirstDeposit;
         stored.performanceFeeBps = m.performanceFeeBps;
         stored.managementFeeBps = m.managementFeeBps;
-        stored.maxBridgeFeeBps = m.maxBridgeFeeBps;
+    }
+
+    /// @dev DEC-123 level 1 (WP-07 B3; independent review M-03, plan R-12): every Mandate token of every chain must have
+    ///      a non-zero price from the price source when the fund is created, or once the fund holds it every mint
+    ///      reverts and every payout values it at 0; a token with no reliable source is not admitted (DEC-123 item
+    ///      1.3). Spoke tokens keep their spoke addresses in the price source (ruling 2026-09-29, Q57 b). Hub USDC is
+    ///      the unit and is never read.
+    function _requirePriced(address source, TokenConfig memory t) private view {
+        try IPriceSource(source).priceInUsdc(t.token) returns (uint256 price, uint256) {
+            if (price != 0) return;
+        } catch {}
+        revert TokenNotPriced(t.chainId, t.token);
     }
 
     /// @dev IBridgeAdapter custody rule 2: pin each hub-side bridge adapter's protocol target (and its codehash, Q17-4
@@ -348,11 +359,10 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
             escrowImplementation: escrowImplementation,
             protocolRecipient: protocolRecipient,
             managerFeeVault: managerFeeVault,
+            wormholeCore: wormholeCore,
             hubChainId: _hubChainId,
-            maxBridgeFeeBps: _maxBridgeFeeBps,
             flowFeeBps: flowFeeBps,
-            payoutFeeBps: payoutFeeBps,
-            standardPayoutTerm: standardPayoutTerm
+            payoutFeeBps: payoutFeeBps
         });
     }
 

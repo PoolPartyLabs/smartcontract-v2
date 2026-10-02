@@ -8,9 +8,7 @@ import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {IFundFactory} from "../interfaces/IFundFactory.sol";
-import {IAdapter} from "../interfaces/IAdapter.sol";
 import {ICoreVaultLifecycle} from "../interfaces/ICoreVaultLifecycle.sol";
-import {IManagerRegistry} from "../interfaces/IManagerRegistry.sol";
 import {Mandate, MandateLib, SpokeConfig, PoolConfig} from "../mandate/Mandate.sol";
 import {CoreVaultConfig} from "../core/CoreVaultTypes.sol";
 import {TransitEscrow} from "../core/TransitEscrow.sol";
@@ -48,6 +46,7 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
     bytes32 public constant ROLE_AAVE_V3_ADAPTER = "AaveV3Adapter";
     bytes32 public constant ROLE_ACROSS_BRIDGE_ADAPTER = "AcrossBridgeAdapter";
     bytes32 public constant ROLE_VALUE_REPORT_RECEIVER = "ValueReportReceiver";
+    bytes32 public constant ROLE_UNISWAP_V3_SWAP_ADAPTER = "UniswapV3SwapAdapter";
 
     /// @notice Variation band handed to every receiver: 0, disabled (Q57 (d) OPEN, stance: slot reserved, not
     ///         enforced).
@@ -64,6 +63,10 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
     address internal immutable _uniswapV4StateView;
     address internal immutable _permit2;
     address internal immutable _aaveV3Pool;
+    address internal immutable _uniswapV3Factory;
+    address internal immutable _uniswapV3SwapRouter02;
+    address internal immutable _uniswapV3QuoterV2;
+    address internal immutable _apiSigner;
     address internal immutable _managerRegistry;
     address internal immutable _priceSource;
     address internal immutable _protocolRecipient;
@@ -114,6 +117,10 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
         _uniswapV4StateView = w.uniswapV4StateView;
         _permit2 = w.permit2;
         _aaveV3Pool = w.aaveV3Pool;
+        _uniswapV3Factory = w.uniswapV3Factory;
+        _uniswapV3SwapRouter02 = w.uniswapV3SwapRouter02;
+        _uniswapV3QuoterV2 = w.uniswapV3QuoterV2;
+        _apiSigner = w.apiSigner;
         _managerRegistry = w.managerRegistry;
         _priceSource = w.priceSource;
         _protocolRecipient = w.protocolRecipient;
@@ -132,6 +139,7 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
         _storeCode(ROLE_AAVE_V3_ADAPTER, stores.aaveV3Adapter);
         _storeCode(ROLE_ACROSS_BRIDGE_ADAPTER, stores.acrossBridgeAdapter);
         _storeCode(ROLE_VALUE_REPORT_RECEIVER, stores.valueReportReceiver);
+        _storeCode(ROLE_UNISWAP_V3_SWAP_ADAPTER, stores.uniswapV3SwapAdapter);
     }
 
     function _storeCode(bytes32 role, address[] memory chunks) private {
@@ -159,12 +167,6 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
         // DEC-001, DEC-002: permissionless; whoever creates the fund is its Manager.
         if (msg.sender != m.manager) revert NotManager(msg.sender, m.manager);
         if (m.usdc != _baseToken) revert BaseTokenMismatch(m.usdc, _baseToken);
-        // DEC-115, DEC-125 item 3 (D-36): the performance fee is at least the registry's minimum at creation; the Core
-        // Vault keeps that minimum as the floor of `decreaseManagerFee`. A later change never binds a live fund.
-        uint16 minManagerFeeBps = IManagerRegistry(_managerRegistry).minManagerFeeBps();
-        if (m.performanceFeeBps < minManagerFeeBps) {
-            revert ManagerFeeBelowMinimum(m.performanceFeeBps, minManagerFeeBps);
-        }
         uint256 creationNumber = _nextCreationNumber();
         if (p.creationNumber != creationNumber) revert CreationNumberTaken(p.creationNumber, creationNumber);
         bytes32 codeHash = keccak256(p.coreVaultCreationCode);
@@ -191,7 +193,7 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
             chainId,
             abi.encode(_wormholeCore, addresses.coreVault, fundId, m.spokes, VARIATION_BAND_BPS)
         );
-        _deployCoreVault(m, addresses, p.coreVaultCreationCode, minManagerFeeBps);
+        _deployCoreVault(m, addresses, p.coreVaultCreationCode);
         _seed(addresses.coreVault, p.seedAmount);
 
         emit FundCreated(creationNumber, fundId, m.manager, m.hash(), addresses);
@@ -274,6 +276,10 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
         w.uniswapV4StateView = _uniswapV4StateView;
         w.permit2 = _permit2;
         w.aaveV3Pool = _aaveV3Pool;
+        w.uniswapV3Factory = _uniswapV3Factory;
+        w.uniswapV3SwapRouter02 = _uniswapV3SwapRouter02;
+        w.uniswapV3QuoterV2 = _uniswapV3QuoterV2;
+        w.apiSigner = _apiSigner;
         w.managerRegistry = _managerRegistry;
         w.priceSource = _priceSource;
         w.protocolRecipient = _protocolRecipient;
@@ -323,6 +329,7 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
         c.uniswapV4Adapter = _addressOf(fundId, ROLE_UNISWAP_V4_ADAPTER, chainId);
         c.aaveV3Adapter = _addressOf(fundId, ROLE_AAVE_V3_ADAPTER, chainId);
         c.acrossBridgeAdapter = _addressOf(fundId, ROLE_ACROSS_BRIDGE_ADAPTER, chainId);
+        c.uniswapV3SwapAdapter = _addressOf(fundId, ROLE_UNISWAP_V3_SWAP_ADAPTER, chainId);
     }
 
     /// @dev DEC-053, DEC-054, DEC-086, DEC-087: every address the Mandate lists, on every chain, must be the fund's own
@@ -344,6 +351,14 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
                 revert UnexpectedBridgeAdapter(chainId, adapter);
             }
         }
+        // DEC-136: the alpha's only swap adapter is the fund's own Uniswap V3 swap adapter of each chain.
+        for (uint256 i; i < m.swapAdapters.length; ++i) {
+            uint256 chainId = m.swapAdapters[i].chainId;
+            address adapter = m.swapAdapters[i].adapter;
+            if (adapter != _addressOf(fundId, ROLE_UNISWAP_V3_SWAP_ADAPTER, chainId)) {
+                revert UnexpectedSwapAdapter(chainId, adapter);
+            }
+        }
         for (uint256 i; i < m.spokes.length; ++i) {
             SpokeConfig memory s = m.spokes[i];
             bytes32 predicted = bytes32(uint256(uint160(_addressOf(fundId, ROLE_SPOKE_VAULT, s.chainId))));
@@ -355,10 +370,10 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
     // Deployment
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @dev Deploys the adapters the Mandate lists on `chainId`: Uniswap V4 and Aave V3 owned by this chain's Spoke
-    ///      Vault (DEC-054), Across owned by `bridgeVault` (the Core Vault on the hub, which sends to spokes; the Spoke
-    ///      Vault on a spoke, which sends home; DEC-087). A role the Mandate does not list here is not deployed and is
-    ///      address(0) in the result.
+    /// @dev Deploys the adapters the Mandate lists on `chainId`: Uniswap V4, Aave V3 and the Uniswap V3 swap adapter
+    ///      owned by this chain's Spoke Vault (DEC-054, DEC-136), Across owned by `bridgeVault` (the Core Vault on the
+    ///      hub, which sends to spokes; the Spoke Vault on a spoke, which sends home; DEC-087). A role the Mandate does
+    ///      not list here is not deployed and is address(0) in the result.
     function _deployChainAdapters(
         Mandate memory m,
         bytes32 fundId,
@@ -377,6 +392,11 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
             _deployAaveV3Adapter(m, fundId, chainId, c);
         } else {
             c.aaveV3Adapter = address(0);
+        }
+        if (m.isSwapAdapter(chainId, c.uniswapV3SwapAdapter)) {
+            _deployUniswapV3SwapAdapter(m, fundId, chainId, c);
+        } else {
+            c.uniswapV3SwapAdapter = address(0);
         }
         if (m.isBridgeAdapter(chainId, c.acrossBridgeAdapter)) {
             // DEC-066: the adapter constructor reverts FillDeadlineBufferTooShort on a SpokePool below 6 h; Create3
@@ -444,6 +464,32 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
         _deploy(fundId, ROLE_AAVE_V3_ADAPTER, chainId, abi.encode(c.spokeVault, _guardian, _aaveV3Pool, assets));
     }
 
+    /// @dev DEC-136 (closing note: only the Uniswap swap adapter in the alpha), DEC-153: the adapter swaps only this
+    ///      chain's Mandate tokens (item 2), pays every output to this chain's Spoke Vault and accepts routes signed by
+    ///      the API key of this chain's wiring (reading D-01; zero: no API routes, DEC-052). Its constructor checks
+    ///      that the router and the quoter answer for the factory given (`WiringMismatch`) and that the chain's base
+    ///      token is a Mandate token.
+    function _deployUniswapV3SwapAdapter(Mandate memory m, bytes32 fundId, uint256 chainId, ChainAddresses memory c)
+        private
+    {
+        if (_uniswapV3Factory == address(0)) revert ProtocolNotOnChain(ROLE_UNISWAP_V3_SWAP_ADAPTER);
+        _deploy(
+            fundId,
+            ROLE_UNISWAP_V3_SWAP_ADAPTER,
+            chainId,
+            abi.encode(
+                c.spokeVault,
+                _guardian,
+                _baseToken,
+                m.tokensOf(chainId),
+                _uniswapV3Factory,
+                _uniswapV3SwapRouter02,
+                _uniswapV3QuoterV2,
+                _apiSigner
+            )
+        );
+    }
+
     /// @dev DEC-054: one Spoke Vault per fund chain, the Hub Chain included. `wormholeCore` is zero on the hub.
     ///      DEC-096, DEC-101, DEC-116: swept excess goes to the Protocol Recipient, the fee wallet.
     function _deploySpokeVault(
@@ -471,16 +517,11 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
         );
     }
 
-    /// @dev Q59 stance: name `Pool Party Fund {n}`, symbol `PP-{n}`, never manager text. CV-OQ-3: the hub income tokens
-    ///      are read from the hub adapters' `poolTokens`, because a Mandate pool key is a hash and the Core Vault never
-    ///      calls an adapter (DEC-054). DEC-106: flow fee and Protocol Recipient are protocol wiring. DEC-127: this
-    ///      factory is the Core Vault's only seeder. DEC-125 item 3: the minimum manager fee read at creation.
-    function _deployCoreVault(
-        Mandate memory m,
-        FundAddresses memory a,
-        bytes memory creationCode,
-        uint16 minPerformanceFeeBps
-    ) private {
+    /// @dev Q59 stance: name `Pool Party Fund {n}`, symbol `PP-{n}`, never manager text. The hub income tokens are the
+    ///      Mandate's hub tokens, read by the Core Vault itself (WP-07 B2; was CV-OQ-3's `poolTokens` read here).
+    ///      DEC-106: flow fee and Protocol Recipient are protocol wiring. DEC-127: this factory is the Core Vault's
+    ///      only seeder. The fee bounds are the Mandate's own (DEC-182, DEC-184), checked by the Core Vault.
+    function _deployCoreVault(Mandate memory m, FundAddresses memory a, bytes memory creationCode) private {
         uint256 chainId = block.chainid;
         CoreVaultConfig memory c;
         c.fundId = a.fundId;
@@ -490,13 +531,12 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
         c.managerRegistry = _managerRegistry;
         c.priceSource = _priceSource;
         c.acrossSpokePool = _acrossSpokePool;
+        c.wormholeCore = _wormholeCore;
         c.protocolRecipient = _protocolRecipient;
         c.excessRecipient = _protocolRecipient;
         c.escrowImplementation = transitEscrowImplementation;
         c.flowFeeBps = _flowFeeBps;
         c.factory = address(this);
-        c.minPerformanceFeeBps = minPerformanceFeeBps;
-        c.incomeTokens = _hubIncomeTokens(m, chainId);
         string memory number = Strings.toString(a.creationNumber);
         c.shareName = string.concat("Pool Party Fund ", number);
         c.shareSymbol = string.concat("PP-", number);
@@ -514,31 +554,6 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
         IERC20(_baseToken).safeTransferFrom(msg.sender, address(this), cost);
         IERC20(_baseToken).forceApprove(coreVault, cost);
         ICoreVaultLifecycle(coreVault).seed(seedAmount);
-    }
-
-    /// @dev The distinct tokens of the Mandate's hub pools, in Mandate order (the Core Vault registers USDC first).
-    function _hubIncomeTokens(Mandate memory m, uint256 chainId) private view returns (address[] memory tokens) {
-        tokens = new address[](m.pools.length * 2);
-        uint256 count;
-        for (uint256 i; i < m.pools.length; ++i) {
-            PoolConfig memory pc = m.pools[i];
-            if (pc.chainId != chainId) continue;
-            (address token0, address token1) = IAdapter(pc.adapter).poolTokens(pc.poolKey);
-            count = _appendDistinct(tokens, count, token0);
-            count = _appendDistinct(tokens, count, token1);
-        }
-        assembly ("memory-safe") {
-            mstore(tokens, count)
-        }
-    }
-
-    function _appendDistinct(address[] memory tokens, uint256 count, address token) private pure returns (uint256) {
-        if (token == address(0)) return count;
-        for (uint256 i; i < count; ++i) {
-            if (tokens[i] == token) return count;
-        }
-        tokens[count] = token;
-        return count + 1;
     }
 
     /// @dev CREATE3 at the fund's predicted address for `role` on `chainId`, from the stored creation code.

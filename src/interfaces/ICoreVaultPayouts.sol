@@ -19,7 +19,7 @@ interface ICoreVaultPayouts {
     /// @param mode Instant or Standard.
     /// @param open Whether the request is open.
     /// @param requestedAt Timestamp of the request.
-    /// @param termEndsAt Standard: `requestedAt + standardPayoutTerm` (DEC-060); Instant: `requestedAt`.
+    /// @param termEndsAt Standard: `requestedAt + standardPayoutTerm` (DEC-060, DEC-154); Instant: `requestedAt`.
     /// @param usdcRequested Gross USDC amount requested (DEC-020, DEC-023).
     /// @param usdcOutstanding USDC still to pay after Partial Payouts (DEC-068).
     /// @param reserved USDC held in the Payout Reserve for this request; Standard only (DEC-072, DEC-077, DEC-095).
@@ -134,7 +134,8 @@ interface ICoreVaultPayouts {
     /// @notice Executes the caller's Payout Request: burn and pay atomically (DEC-047, DEC-065, DEC-074). Only the
     ///         requester. Unlike an ERC-7540 claim, it runs the missing unwind and pays in the same transaction.
     /// @dev Idle first (Instant: Free Idle only, never the Payout Reserve; Standard: its reserve, then Free Idle,
-    ///      DEC-095); otherwise automatic unwind in Mandate order of the shortfall plus 2% (DEC-069, DEC-081, DEC-097),
+    ///      DEC-095); otherwise automatic unwind of the shortfall plus 2%, hub positions in registry order until the
+    ///      proportional unwind (DEC-137, DEC-139; DEC-081, DEC-097),
     ///      of hub positions only, so no post-unwind spoke report is needed before burning (DEC-105, erratum 11 reading);
     ///      the claim is priced again after the unwind. Burns
     ///      `ShareMath.sharesToBurn(outstanding, sharePrice)` capped at the balance (DEC-020, DEC-077). A full burn
@@ -155,6 +156,7 @@ interface ICoreVaultPayouts {
     /// @notice Payout Fee on Instant Payouts, bps; immutable (DEC-006, DEC-102, DEC-110).
     function payoutFeeBps() external view returns (uint16);
 
-    /// @notice Standard Payout term, seconds (DEC-060, DEC-095).
+    /// @notice Standard Payout term, seconds: 72 hours in every fund, a protocol constant (DEC-154; corrects DEC-060,
+    ///         DEC-095 item 5).
     function standardPayoutTerm() external view returns (uint32);
 }

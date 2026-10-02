@@ -19,8 +19,10 @@ import {AccessFundFixture} from "./AccessFundFixture.sol";
 ///         compared the Mandate only with a caller-supplied hash, so the manager created the fund's Spoke Vault, at the
 ///         address the hub's Mandate names, from another Mandate with `maxBridgeFeeBps = 10,000`, and sent every unit
 ///         the hub bridged "home" for 1 base unit of USDC with itself as exclusive relayer.
-/// @notice FIX. S-9: `MandateLib.MAX_BRIDGE_FEE_BPS` refuses that Mandate at creation and both vaults refuse an
-///         exclusive relayer, so the one-send drain now FAILS (this test). S-6: the report carries the Spoke Vault's
+/// @notice FIX. S-9, then DEC-156 and DEC-162 (Mandate v2): the Mandate holds no bridge fee bound at all; the Across
+///         adapter fixes the amount to arrive from its own fee rule, capped at 1% (`AcrossBridgeAdapter.CAP_RATE`),
+///         and both vaults refuse an exclusive relayer, so the one-send drain now FAILS whatever Mandate the spoke runs
+///         (this test). S-6: the report carries the Spoke Vault's
 ///         `mandateHash` and the Core Vault rejects a report whose hash differs from its own, and S-14: `sendToSpoke`
 ///         requires an accepted report from the spoke, so the hub never funds a spoke whose rules it did not verify
 ///         (`test_SEC_S6_*` below).
@@ -38,19 +40,12 @@ contract RogueSpokeMandatePoC is AccessFundFixture {
         FundFactory spokeFactory = _spokeFactory();
         assertEq(spokeFactory.fundIdOf(HUB, 1, manager), hub.fundId, "same factory address, same fund id");
 
-        // The manager's spoke Mandate with a 100% bridge fee is refused at creation.
+        // The manager's spoke Mandate differs from the hub's (DEC-156: no Mandate field bounds the bridge fee any
+        // more). A send of everything quoted at 1 base unit with the manager as exclusive relayer carries the Across
+        // adapter's terms instead (DEC-158, DEC-162: the Spoke Vault ignores the quote argument): the amount to arrive
+        // is the rule's, whatever the Mandate or the quote say.
         FundPlan memory roguePlan = _plan();
-        roguePlan.maxBridgeFeeBps = 10_000;
-        Mandate memory rogue = _buildMandate(spokeFactory, hub.fundId, roguePlan);
-        IFundFactory.SpokeParams memory params = _spokeParams(MandateLib.hash(rogue), roguePlan);
-        vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsAboveMax.selector, 10_000, MandateLib.MAX_BRIDGE_FEE_BPS));
-        spokeFactory.createSpoke(1, rogue, params);
-
-        // At the cap, a send of everything quoted at 1 base unit with the manager as exclusive relayer carries the
-        // Across adapter's terms instead (DEC-158, DEC-162: the Spoke Vault ignores the quote argument): the amount to
-        // arrive is the rule's, whatever the Mandate's bound or the quote say.
-        roguePlan.maxBridgeFeeBps = MandateLib.MAX_BRIDGE_FEE_BPS;
+        roguePlan.spokeCap = type(uint256).max;
         SpokeVault spoke = _createSpoke(spokeFactory, hub.fundId, roguePlan);
         _arrive(spoke, hub.fundId, 500_000e6);
         uint256 amount = spoke.unallocatedBalance(address(usdg));
@@ -61,8 +56,8 @@ contract RogueSpokeMandatePoC is AccessFundFixture {
         assertEq(spokeAcross.lastRecipient(), spoke.coreVault(), "to the Core Vault");
     }
 
-    /// @notice S-6 and S-14: a Spoke Vault created from another Mandate (here a far larger Spoke Cap and another fee
-    ///         bound, both within the core caps) at the fund's address reports its own `mandateHash`; the hub rejects
+    /// @notice S-6 and S-14: a Spoke Vault created from another Mandate (here a far larger Spoke Cap and another
+    ///         performance fee, both within the core caps) at the fund's address reports its own `mandateHash`; the hub rejects
     ///         the report, so the spoke never counts in Share Assets and the hub never funds it. The same fund's honest
     ///         spoke is accepted.
     function test_SEC_S6_reportsOfASpokeRunningAnotherMandateAreRejected() public {
@@ -76,7 +71,7 @@ contract RogueSpokeMandatePoC is AccessFundFixture {
         vm.revertToState(snapshot);
 
         FundPlan memory roguePlan = _plan();
-        roguePlan.maxBridgeFeeBps = MandateLib.MAX_BRIDGE_FEE_BPS;
+        roguePlan.performanceFeeBps = MandateLib.MAX_PERFORMANCE_FEE_BPS;
         roguePlan.spokeCap = type(uint256).max;
         SpokeVault rogue = _createSpoke(spokeFactory, fundId, roguePlan);
         address spokeAddress = address(rogue);
@@ -107,7 +102,6 @@ contract RogueSpokeMandatePoC is AccessFundFixture {
 
     function _hubFund() internal returns (Hub memory hub) {
         (IFundFactory.FundAddresses memory a, Mandate memory m) = _createFund(_plan());
-        assertEq(m.maxBridgeFeeBps, 50);
         hub.fundId = a.fundId;
         hub.coreVault = a.coreVault;
         hub.mandateHash = CoreVault(a.coreVault).mandateHash();

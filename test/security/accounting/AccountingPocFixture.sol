@@ -28,7 +28,6 @@ import {
     Mandate,
     AdapterConfig,
     PoolConfig,
-    UnwindStep,
     SpokeConfig,
     BridgeAdapterConfig,
     OperatingCashConfig
@@ -49,6 +48,8 @@ import {MockWormholeCore} from "../../mocks/spoke/MockWormholeCore.sol";
 import {MockCoreBridge} from "../../mocks/receiver/MockCoreBridge.sol";
 import {MockV4} from "../../mocks/v4/MockV4.sol";
 import {MockPermit2} from "../../mocks/v4/MockPermit2.sol";
+import {MandateFixture} from "../../utils/MandateFixture.sol";
+import {MockSwapAdapter} from "../../mocks/swap/MockSwapAdapter.sol";
 
 /// @title AccountingPocFixture
 /// @notice Shared deployment for the accounting security proofs of concept: one fund made of the REAL production
@@ -61,6 +62,8 @@ import {MockPermit2} from "../../mocks/v4/MockPermit2.sol";
 ///      production: `SpokeVault.report()` publishes the payload through the Wormhole mock, and the published bytes
 ///      are delivered to the real `ValueReportReceiver` wrapped in a VAA the Core Bridge mock accepts.
 abstract contract AccountingPocFixture is Test, FundSeed {
+    using MandateFixture for Mandate;
+
     uint256 internal constant HUB = 42_161;
     uint256 internal constant SPOKE = 4663;
     uint16 internal constant WH_SPOKE = 72;
@@ -92,6 +95,8 @@ abstract contract AccountingPocFixture is Test, FundSeed {
     SpokeAcrossPool internal spokeAcross;
     SpokeBridgeAdapter internal spokeBridge;
     MockPositionAdapter internal spokeUni;
+    MockSwapAdapter internal hubSwap;
+    MockSwapAdapter internal spokeSwap;
     MockWormholeCore internal spokeWormhole;
     MockCoreBridge internal hubWormhole;
     MockV4 internal v4;
@@ -144,6 +149,8 @@ abstract contract AccountingPocFixture is Test, FundSeed {
         spokeBridge = new SpokeBridgeAdapter(guardian, address(spokeAcross));
         spokeUni = new MockPositionAdapter(guardian, false);
         spokeUni.addPool(SPOKE_POOL, address(spokeWeth), address(usdg));
+        hubSwap = new MockSwapAdapter();
+        spokeSwap = new MockSwapAdapter();
         spokeWormhole = new MockWormholeCore();
         hubWormhole = new MockCoreBridge();
         permit2 = new MockPermit2();
@@ -223,14 +230,19 @@ abstract contract AccountingPocFixture is Test, FundSeed {
         m.manager = manager;
         m.hubChainId = HUB;
         m.usdc = address(usdc);
+        m.hubWormholeChainId = MandateFixture.ARBITRUM_WORMHOLE_CHAIN_ID;
+        m.addToken(HUB, address(usdc));
+        m.addToken(HUB, address(weth));
+        m.addToken(SPOKE, address(usdg));
+        m.addToken(SPOKE, address(spokeWeth));
+        m.addSwapAdapter(HUB, address(hubSwap));
+        m.addSwapAdapter(SPOKE, address(spokeSwap));
         m.adapters = new AdapterConfig[](2);
         m.adapters[0] = AdapterConfig(HUB, hubAdapter);
         m.adapters[1] = AdapterConfig(SPOKE, address(spokeUni));
         m.pools = new PoolConfig[](2);
         m.pools[0] = PoolConfig(HUB, hubAdapter, hubPoolId);
         m.pools[1] = PoolConfig(SPOKE, address(spokeUni), SPOKE_POOL);
-        m.unwindOrder = new UnwindStep[](1);
-        m.unwindOrder[0] = UnwindStep(HUB, hubAdapter, hubPoolId);
         m.spokes = new SpokeConfig[](1);
         m.spokes[0] = SpokeConfig(
             SPOKE, WH_SPOKE, bytes32(uint256(uint160(spokeVaultAt))), address(usdg), SPOKE_CAP, MAX_REPORT_AGE
@@ -241,11 +253,9 @@ abstract contract AccountingPocFixture is Test, FundSeed {
         // No Operating Cash floor: the proofs isolate the base arithmetic from top-ups (DEC-096).
         m.operatingCash = new OperatingCashConfig[](0);
         m.payoutFeeBps = 200;
-        m.standardPayoutTerm = 72 hours;
         m.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
         m.performanceFeeBps = performanceFeeBps;
         m.managementFeeBps = 0;
-        m.maxBridgeFeeBps = 50;
     }
 
     function _config(address receiverAt, address hubVaultAt, uint16 flowFeeBps)
@@ -260,13 +270,12 @@ abstract contract AccountingPocFixture is Test, FundSeed {
         c.managerRegistry = address(registry);
         c.priceSource = address(prices);
         c.acrossSpokePool = address(hubAcross);
+        c.wormholeCore = address(hubWormhole);
         c.protocolRecipient = protocol;
         c.excessRecipient = excess;
         c.escrowImplementation = address(escrowImpl);
         c.flowFeeBps = flowFeeBps;
         c.factory = address(this);
-        c.incomeTokens = new address[](1);
-        c.incomeTokens[0] = address(weth);
         c.shareName = "Pool Party Fund 1";
         c.shareSymbol = "PP-1";
     }

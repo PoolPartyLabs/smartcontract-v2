@@ -19,7 +19,6 @@ import {
     Mandate,
     AdapterConfig,
     PoolConfig,
-    UnwindStep,
     SpokeConfig,
     BridgeAdapterConfig,
     OperatingCashConfig
@@ -37,6 +36,8 @@ import {MockPositionAdapter} from "../../mocks/spoke/MockPositionAdapter.sol";
 import {MockBridgeAdapter as SpokeBridgeMock} from "../../mocks/spoke/MockBridgeAdapter.sol";
 import {MockAcrossSpokePool as SpokeAcrossMock} from "../../mocks/spoke/MockAcrossSpokePool.sol";
 import {MockWormholeCore} from "../../mocks/spoke/MockWormholeCore.sol";
+import {MandateFixture} from "../../utils/MandateFixture.sol";
+import {MockSwapAdapter} from "../../mocks/swap/MockSwapAdapter.sol";
 
 /// @notice Review fixture (core-b): one fund, one Mandate, wired end to end on the cross-chain path with the REAL
 ///         contracts: CoreVault (+ linked CoreVaultLogic), ValueReportReceiver (over a Core Bridge stand-in that accepts
@@ -46,6 +47,8 @@ import {MockWormholeCore} from "../../mocks/spoke/MockWormholeCore.sol";
 ///         adapters' call building, the spoke position adapter, the Wormhole Core on the spoke (records the payload) and
 ///         the hub Spoke Vault (never used by these PoCs beyond construction).
 abstract contract SpokeBCrossChainBase is Test, FundSeed {
+    using MandateFixture for Mandate;
+
     uint256 internal constant HUB = 42_161;
     uint256 internal constant SPOKE = 4663;
     uint16 internal constant WH_SPOKE = 72;
@@ -75,6 +78,8 @@ abstract contract SpokeBCrossChainBase is Test, FundSeed {
     SpokeAcrossMock internal spokeAcross;
     SpokeBridgeMock internal spokeBridge;
     MockPositionAdapter internal spokeAdapter;
+    MockSwapAdapter internal hubSwap;
+    MockSwapAdapter internal spokeSwap;
     MockWormholeCore internal wormhole;
     SpokeVault internal spoke;
 
@@ -114,6 +119,8 @@ abstract contract SpokeBCrossChainBase is Test, FundSeed {
         wormhole = new MockWormholeCore();
 
         // Circular wiring: spoke vault (Mandate recipient and report emitter) -> receiver -> Core Vault.
+        hubSwap = new MockSwapAdapter();
+        spokeSwap = new MockSwapAdapter();
         uint64 n = vm.getNonce(address(this));
         address spokeAt = vm.computeCreateAddress(address(this), n);
         address receiverAt = vm.computeCreateAddress(address(this), n + 1);
@@ -150,14 +157,19 @@ abstract contract SpokeBCrossChainBase is Test, FundSeed {
         m.manager = manager;
         m.hubChainId = HUB;
         m.usdc = address(usdc);
+        m.hubWormholeChainId = MandateFixture.ARBITRUM_WORMHOLE_CHAIN_ID;
+        m.addToken(HUB, address(usdc));
+        m.addToken(HUB, address(weth));
+        m.addToken(SPOKE, address(usdg));
+        m.addToken(SPOKE, address(spokeWeth));
+        m.addSwapAdapter(HUB, address(hubSwap));
+        m.addSwapAdapter(SPOKE, address(spokeSwap));
         m.adapters = new AdapterConfig[](2);
         m.adapters[0] = AdapterConfig(HUB, hubAdapter);
         m.adapters[1] = AdapterConfig(SPOKE, address(spokeAdapter));
         m.pools = new PoolConfig[](2);
         m.pools[0] = PoolConfig(HUB, hubAdapter, HUB_POOL);
         m.pools[1] = PoolConfig(SPOKE, address(spokeAdapter), SPOKE_POOL);
-        m.unwindOrder = new UnwindStep[](1);
-        m.unwindOrder[0] = UnwindStep(HUB, hubAdapter, HUB_POOL);
         m.spokes = new SpokeConfig[](1);
         m.spokes[0] = SpokeConfig(
             SPOKE, WH_SPOKE, bytes32(uint256(uint160(spokeVault_))), address(usdg), SPOKE_CAP, MAX_REPORT_AGE
@@ -167,11 +179,9 @@ abstract contract SpokeBCrossChainBase is Test, FundSeed {
         m.bridgeAdapters[1] = BridgeAdapterConfig(SPOKE, SPOKE, address(spokeBridge));
         m.operatingCash = new OperatingCashConfig[](0);
         m.payoutFeeBps = 200;
-        m.standardPayoutTerm = 72 hours;
         m.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
         m.performanceFeeBps = 2000;
         m.managementFeeBps = 0;
-        m.maxBridgeFeeBps = 50;
     }
 
     function _config(address receiver_) internal view returns (CoreVaultConfig memory c) {
@@ -182,13 +192,12 @@ abstract contract SpokeBCrossChainBase is Test, FundSeed {
         c.managerRegistry = address(registry);
         c.priceSource = address(prices);
         c.acrossSpokePool = address(hubAcross);
+        c.wormholeCore = address(coreBridge);
         c.protocolRecipient = protocol;
         c.excessRecipient = excess;
         c.escrowImplementation = address(escrowImpl);
         c.flowFeeBps = 25;
         c.factory = address(this);
-        c.incomeTokens = new address[](1);
-        c.incomeTokens[0] = address(weth);
         c.shareName = "Pool Party Fund 1";
         c.shareSymbol = "PP-1";
     }

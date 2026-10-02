@@ -7,13 +7,14 @@ import {IManagerRegistry} from "../interfaces/IManagerRegistry.sol";
 
 /// @title ManagerRegistry
 /// @notice Per-manager properties valid across all of a manager's funds, outside the Mandate: the protocol slice of the
-///         manager fee and the minimum manager fee of new funds. See IManagerRegistry.
+///         manager fee. See IManagerRegistry.
 /// @dev DEC-106: default slice 50% of the manager fee, configurable per manager. DEC-110: a separate registry read at
 ///      every charge; a change applies from the next charge. DEC-052: a manager without an entry gets the default,
 ///      with no API dependency.
 /// @dev DEC-112: the writer is the API signature (the `Ownable2Step` owner, set to the API signer key at deployment)
 ///      and a slice stays within [`MIN_PROTOCOL_SLICE_BPS`, `MAX_PROTOCOL_SLICE_BPS`] = [500, 5,000], never 0.
-///      DEC-125 item 2 (D-35): deployed with the Hub factory and pinned in its wiring.
+///      DEC-125 item 2 (D-35): deployed with the Hub factory and pinned in its wiring. DEC-184: the registry holds
+///      only the slice; the performance fee floor is the Mandate constant `MandateLib.MIN_PERFORMANCE_FEE_BPS`.
 /// @dev DEC-022: a registry that never holds funds; deployed without a proxy all the same.
 contract ManagerRegistry is IManagerRegistry, Ownable2Step {
     /// @inheritdoc IManagerRegistry
@@ -28,19 +29,12 @@ contract ManagerRegistry is IManagerRegistry, Ownable2Step {
     /// @dev DEC-112: 5% of the manager fee, never 0.
     uint16 public constant MIN_PROTOCOL_SLICE_BPS = 500;
 
-    /// @inheritdoc IManagerRegistry
-    /// @dev DEC-115 reading confirmed by DEC-125 item 3: 10%, the V1 minimum.
-    uint16 public constant MAX_MIN_MANAGER_FEE_BPS = 1000;
-
     struct Entry {
         bool exists;
         uint16 bps;
     }
 
     mapping(address manager => Entry) internal _entries;
-
-    /// @inheritdoc IManagerRegistry
-    uint16 public minManagerFeeBps;
 
     /// @param initialOwner The writer: the API signer key (DEC-112; deployment config `REGISTRY_OWNER`).
     constructor(address initialOwner) Ownable(initialOwner) {}
@@ -66,15 +60,6 @@ contract ManagerRegistry is IManagerRegistry, Ownable2Step {
         uint16 previous = protocolSliceBps(manager);
         _entries[manager] = Entry({exists: true, bps: bps});
         emit ProtocolSliceSet(manager, previous, bps, true);
-    }
-
-    /// @inheritdoc IManagerRegistry
-    /// @dev DEC-115, DEC-125 item 3: binds funds created after the change (`FundFactory.createFund`); a live fund keeps
-    ///      the minimum it was created under as the floor of `decreaseManagerFee` (D-36).
-    function setMinManagerFeeBps(uint16 bps) external onlyOwner {
-        if (bps > MAX_MIN_MANAGER_FEE_BPS) revert MinManagerFeeAboveMax(bps, MAX_MIN_MANAGER_FEE_BPS);
-        emit MinManagerFeeSet(minManagerFeeBps, bps);
-        minManagerFeeBps = bps;
     }
 
     /// @notice Disabled: the owner can hand the writer role over (two steps) but never drop it.

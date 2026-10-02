@@ -17,9 +17,10 @@ interface ISpokeVaultUnwind {
     // Hub Chain interplay with the Core Vault
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @notice Automatic unwind in Mandate order until `usdcTarget` USDC is available, then returns the USDC proceeds
-    ///         to the Core Vault's Idle. Core Vault only; hub only.
-    /// @dev DEC-069: Mandate unwind order; DEC-081: `usdcTarget` already includes the 2% margin; DEC-097: the margin's
+    /// @notice Automatic unwind of the open positions in registry order until `usdcTarget` USDC is available, then
+    ///         returns the USDC proceeds to the Core Vault's Idle. Core Vault only; hub only.
+    /// @dev Interim order (DEC-137, DEC-139: the Mandate no longer orders the unwind; the proportional unwind of WP-09
+    ///      replaces this walk); DEC-081: `usdcTarget` already includes the 2% margin; DEC-097: the margin's
     ///      Market Costs are the fund's. Feedback question 2 (OPEN): the MVP unwinds hub positions only. Final
     ///      verification (QA3 OPEN): the vault sizes every step itself (the shortfall still needed against the
     ///      position's principal value at the pool's spot price, closing a position only when its whole value is

@@ -26,7 +26,6 @@ import {
     Mandate,
     AdapterConfig,
     PoolConfig,
-    UnwindStep,
     SpokeConfig,
     BridgeAdapterConfig,
     OperatingCashConfig
@@ -37,6 +36,9 @@ import {MockV4} from "../../mocks/v4/MockV4.sol";
 import {MockPriceSource} from "../../mocks/core/MockPriceSource.sol";
 import {MockManagerRegistry} from "../../mocks/core/MockManagerRegistry.sol";
 import {MockReportReceiver} from "../../mocks/core/MockReportReceiver.sol";
+import {MandateFixture} from "../../utils/MandateFixture.sol";
+import {MockSwapAdapter} from "../../mocks/swap/MockSwapAdapter.sol";
+import {MockWormholeCore} from "../../mocks/spoke/MockWormholeCore.sol";
 
 /// @notice A hub-only fund (OQ-08) built from the REAL contracts: CoreVault (linked CoreVaultLogic), the hub SpokeVault
 ///         (linked SpokeCrossChainLib) and the real UniswapV4Adapter, over the MockV4 pool (PoolManager, PositionManager
@@ -45,6 +47,8 @@ import {MockReportReceiver} from "../../mocks/core/MockReportReceiver.sol";
 ///         and the price source quotes exactly the pool price, so a position's value marked at the oracle equals its
 ///         pool value when the pool is at its true price.
 abstract contract HubStackFixture is Test, FundSeed {
+    using MandateFixture for Mandate;
+
     uint256 internal constant HUB = 42_161;
     bytes32 internal constant FUND_ID = keccak256("pool-party-liveness-fund");
     /// @dev Tick of 2,500 USDC (6 decimals) per WETH (18 decimals): price 2.5e-9 in base units.
@@ -60,6 +64,8 @@ abstract contract HubStackFixture is Test, FundSeed {
     MockReportReceiver internal receiver;
     TransitEscrow internal escrowImpl;
     UniswapV4Adapter internal adapter;
+    MockSwapAdapter internal hubSwap;
+    MockWormholeCore internal hubWormhole;
     SpokeVault internal hubSpoke;
     CoreVault internal vault;
     ShareToken internal shares;
@@ -98,6 +104,8 @@ abstract contract HubStackFixture is Test, FundSeed {
         receiver = new MockReportReceiver();
         escrowImpl = new TransitEscrow();
 
+        hubSwap = new MockSwapAdapter();
+        hubWormhole = new MockWormholeCore();
         uint64 nonce = vm.getNonce(address(this));
         address predictedSpoke = vm.computeCreateAddress(address(this), nonce + 1);
         address predictedCore = vm.computeCreateAddress(address(this), nonce + 2);
@@ -134,21 +142,21 @@ abstract contract HubStackFixture is Test, FundSeed {
         m.manager = manager;
         m.hubChainId = HUB;
         m.usdc = address(usdc);
+        m.hubWormholeChainId = MandateFixture.ARBITRUM_WORMHOLE_CHAIN_ID;
+        m.addToken(HUB, address(usdc));
+        m.addToken(HUB, address(weth));
+        m.addSwapAdapter(HUB, address(hubSwap));
         m.adapters = new AdapterConfig[](1);
         m.adapters[0] = AdapterConfig(HUB, address(adapter));
         m.pools = new PoolConfig[](1);
         m.pools[0] = PoolConfig(HUB, address(adapter), poolId);
-        m.unwindOrder = new UnwindStep[](1);
-        m.unwindOrder[0] = UnwindStep(HUB, address(adapter), poolId);
         m.spokes = new SpokeConfig[](0);
         m.bridgeAdapters = new BridgeAdapterConfig[](0);
         m.operatingCash = new OperatingCashConfig[](0);
         m.payoutFeeBps = 200;
-        m.standardPayoutTerm = 72 hours;
         m.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
         m.performanceFeeBps = 2000;
         m.managementFeeBps = 0;
-        m.maxBridgeFeeBps = 50;
     }
 
     function _config() internal view returns (CoreVaultConfig memory c) {
@@ -159,13 +167,12 @@ abstract contract HubStackFixture is Test, FundSeed {
         c.managerRegistry = address(registry);
         c.priceSource = address(prices);
         c.acrossSpokePool = acrossPool;
+        c.wormholeCore = address(hubWormhole);
         c.protocolRecipient = protocol;
         c.excessRecipient = excess;
         c.escrowImplementation = address(escrowImpl);
         c.flowFeeBps = 25;
         c.factory = address(this);
-        c.incomeTokens = new address[](1);
-        c.incomeTokens[0] = address(weth);
         c.shareName = "Pool Party Fund 1";
         c.shareSymbol = "PP-1";
     }

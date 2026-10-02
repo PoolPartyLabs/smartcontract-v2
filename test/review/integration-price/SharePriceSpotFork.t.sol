@@ -37,7 +37,7 @@ contract SharePriceSpotFork is IntegrationPriceBase {
 
     function _setUpFund(uint256 downPpm, uint256 upPpm) internal {
         _arbitrumOnly();
-        _createFund(_pricePlan(SPOKE_CAP), new PoolKey[](0), false);
+        _createFund(_pricePlan(SPOKE_CAP), new PoolKey[](0));
         _deposit(alice, ALICE_DEPOSIT);
         attacker = new PoolActor(IPoolManager(ARB_V4_POOL_MANAGER));
         deal(ARB_USDC, address(attacker), STAKE);
