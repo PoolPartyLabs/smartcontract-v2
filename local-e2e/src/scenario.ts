@@ -32,10 +32,12 @@ import {
   managerRegistryAbi,
   shareTokenAbi,
   spokeVaultAbi,
+  uniswapV3SwapAdapterAbi,
   uniswapV4AdapterAbi,
   valueReportReceiverAbi,
   wormholeCoreAbi,
 } from "./abis.ts";
+import { API_SLIPPAGE_BPS, quoteSwapRoute } from "./api.ts";
 import { deploy, explain, latestTimestamp, nodes, nodesUp, read, send, sendAs, simulateRevert, type Side } from "./chain.ts";
 import {
   AAVE_USDC_POOL_KEY,
@@ -62,6 +64,7 @@ import { ORDER_CONSISTENCY, ORDER_KIND, ORDER_LIFETIME, encodeOrder, hasExecuteO
 import { ensureFeedFresh } from "./price-feed.ts";
 import { RunReport } from "./report.ts";
 import { readState, type DeploymentState, type FundRecord } from "./state.ts";
+import { FEE_TIERS } from "./swap-route.ts";
 import { centerTick, currentTick, generateFees, openParams, oracleAmounts, swapParams } from "./uniswap.ts";
 import { waitForDelivery, warp, type SpokeRef } from "./warp.ts";
 
@@ -85,6 +88,8 @@ const DONATION = 1_234n * USD;
 const HALF_RANGE = 200;
 const SWING = 40;
 const SWAP_TOLERANCE_BPS = 300n;
+/** The manager's maximum loss against the pool mid on his swaps (DEC-142 item 3; 0 would mean none, D-23). */
+const MANAGER_MAX_LOSS_BPS = 100;
 const FLOW_FEE_BPS = 25n;
 const SPOKE_OPERATING_CASH_TOP_UP = BigInt(FUND_PLAN.SPOKE_OPERATING_CASH_TOP_UP);
 const INITIAL_SHARE_PRICE = 10n ** 24n;
@@ -460,18 +465,48 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     run.eq(aaveOpen.result[1], AAVE_SUPPLY, "AAVE-2: explicit amount supplied");
     run.ok("manager supplies 2,000 USDC to Aave V3 through the Aave adapter");
 
+    // DEC-136 (founder chat 1 of 2026-10-02): the manager swaps through the fund's Uniswap V3 swap adapter, never in a
+    // Mandate position pool; with no API route the adapter picks the best direct fee tier (DEC-153) and the manager's
+    // loss bound against the pool mid holds the output (DEC-142 item 3).
     const half = HUB_V4_USDC / 2n;
+    const hubSwapAdapter = fund.hub.uniswapV3SwapAdapter;
     const usdcBeforeSwap = await view<bigint>("arbitrum", hubSpoke, spokeVaultAbi, "unallocatedBalance", [ARBITRUM.usdc]);
-    const hubSwap = await tx<bigint>("arbitrum", "manager", hubSpoke, spokeVaultAbi, "swapExactInput", [
-      hubUni,
-      HUB_POOL_ID,
+    const wethBeforeSwap = await view<bigint>("arbitrum", hubSpoke, spokeVaultAbi, "unallocatedBalance", [ARBITRUM.weth]);
+    run.eq(
+      await simulateRevert("arbitrum", "manager", {
+        address: hubSpoke,
+        abi: spokeVaultAbi,
+        functionName: "swap",
+        args: [hubSwapAdapter, ARBITRUM.usdc, ARBITRUM.weth, half, 1, "0x"],
+      }),
+      "InsufficientOutput",
+      "DEC-142, D-23: a 1 bp loss bound is below any pool fee, so the swap is refused",
+    );
+    const hubSwap = await tx<bigint>("arbitrum", "manager", hubSpoke, spokeVaultAbi, "swap", [
+      hubSwapAdapter,
       ARBITRUM.usdc,
+      ARBITRUM.weth,
       half,
-      await minWethFor(half),
-      swapParams(await deadline("arbitrum")),
+      MANAGER_MAX_LOSS_BPS,
+      "0x",
     ]);
     const hubWeth = hubSwap.result;
-    run.eq(await view("arbitrum", hubSpoke, spokeVaultAbi, "unallocatedBalance", [ARBITRUM.weth]), hubWeth, "DEC-080: swap output credited");
+    const [hubSwapped] = events(hubSwap.receipt, hubSpoke, spokeVaultAbi, "Swapped");
+    const [hubAdapterSwapped] = events(hubSwap.receipt, hubSwapAdapter, uniswapV3SwapAdapterAbi, "Swapped");
+    run.eq(hubSwapped.adapter, hubSwapAdapter, "DEC-136: through the fund's swap adapter");
+    run.eq(hubSwapped.amountIn, half, "Swapped amount in");
+    run.eq(hubSwapped.amountOut, hubWeth, "Swapped amount out");
+    run.eq(Number(hubSwapped.maxLossBps), MANAGER_MAX_LOSS_BPS, "doc 15 gap 4: the event carries the manager's bound");
+    run.eq(hubSwapped.minOut, bps(hubSwapped.spotOut, 10_000n - BigInt(MANAGER_MAX_LOSS_BPS)), "DEC-142: no API route, so the minimum is the mid less the bound");
+    run.true(hubWeth >= hubSwapped.minOut, "DEC-142: the output meets the minimum");
+    run.true(hubWeth >= (await minWethFor(half)), "within 3% of the Chainlink value");
+    run.true((FEE_TIERS as readonly number[]).includes(Number(hubAdapterSwapped.directFee)), "DEC-153: the best direct V3 tier");
+    run.eq(await view("arbitrum", hubSpoke, spokeVaultAbi, "unallocatedBalance", [ARBITRUM.usdc]), usdcBeforeSwap - half, "DEC-080: exactly the input debited");
+    run.eq(await view("arbitrum", hubSpoke, spokeVaultAbi, "unallocatedBalance", [ARBITRUM.weth]), wethBeforeSwap + hubWeth, "DEC-080: swap output credited");
+    run.ok(
+      `manager swaps 1,500 USDC for ${units(hubWeth, 18, 4)} WETH through the fund's swap adapter, no API route: V3 tier ` +
+        `${Number(hubAdapterSwapped.directFee) / 10_000}%, minimum ${units(hubSwapped.minOut, 18, 4)} (mid less ${MANAGER_MAX_LOSS_BPS} bps); a 1 bp bound reverts InsufficientOutput`,
+    );
     const hubCenter = await centerTick("arbitrum", ARBITRUM.v4StateView, HUB_POOL_ID);
     const hubOpen = await tx<readonly [Hex, bigint, bigint]>("arbitrum", "manager", hubSpoke, spokeVaultAbi, "openPosition", [
       hubUni,
@@ -490,8 +525,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     );
     run.eq((await view<readonly unknown[]>("arbitrum", hubSpoke, spokeVaultAbi, "positions")).length, 2, "two hub positions");
     run.ok(
-      `manager swaps 1,500 USDC for ${units(hubWeth, 18, 4)} WETH and opens a V4 range [${hubCenter - HALF_RANGE}, ${hubCenter + HALF_RANGE}] ` +
-        `with ${units(hubUsed0, 18, 4)} WETH + ${units(hubUsed1)} USDC`,
+      `manager opens a V4 range [${hubCenter - HALF_RANGE}, ${hubCenter + HALF_RANGE}] with ${units(hubUsed0, 18, 4)} WETH + ${units(hubUsed1)} USDC`,
     );
 
     await warpBoth(3600n);
@@ -639,16 +673,45 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     );
     run.ok(`the Spoke Vault credited ${units(amountToArrive)} USDG: ${units(SPOKE_OPERATING_CASH_TOP_UP)} to Operating Cash, the rest to Unallocated Balance`);
 
+    // Founder chat 1 of 2026-10-02, DEC-143, D-01: on the spoke the manager swaps on a route the API signed for the
+    // fund's Robinhood swap adapter (the best V3 path QuoterV2 finds, its minimum the stricter of the quote and the
+    // Chainlink value, each less the API's slippage); the stricter of it and the manager's bound applies (DEC-142).
     const spokeHalf = SPOKE_V4_USDG / 2n;
-    const spokeSwap = await tx<bigint>("robinhood", "manager", spokeVault, spokeVaultAbi, "swapExactInput", [
-      spokeUni,
-      SPOKE_POOL_ID,
+    const spokeSwapAdapter = fund.spoke.uniswapV3SwapAdapter;
+    const signed = await quoteSwapRoute(
+      { ...state, fund },
+      "robinhood",
       ROBINHOOD.usdg,
+      ROBINHOOD.weth,
       spokeHalf,
+      API_SLIPPAGE_BPS,
+      spokeSwapAdapter,
+      undefined,
       await minWethFor(spokeHalf),
-      swapParams(await deadline("robinhood")),
+    );
+    run.eq(signed.adapter, spokeSwapAdapter, "D-01: the API signs for the fund's own Robinhood swap adapter");
+    run.eq(signed.signer, await view("robinhood", spokeSwapAdapter, uniswapV3SwapAdapterAbi, "routeSigner"), "D-01: the adapter's route signer is the API key");
+    const usdgBeforeSwap = await view<bigint>("robinhood", spokeVault, spokeVaultAbi, "unallocatedBalance", [ROBINHOOD.usdg]);
+    const spokeSwap = await tx<bigint>("robinhood", "manager", spokeVault, spokeVaultAbi, "swap", [
+      spokeSwapAdapter,
+      ROBINHOOD.usdg,
+      ROBINHOOD.weth,
+      spokeHalf,
+      MANAGER_MAX_LOSS_BPS,
+      signed.encodedRoute,
     ]);
     const spokeWeth = spokeSwap.result;
+    const [spokeSwapped] = events(spokeSwap.receipt, spokeVault, spokeVaultAbi, "Swapped");
+    const [spokeAdapterSwapped] = events(spokeSwap.receipt, spokeSwapAdapter, uniswapV3SwapAdapterAbi, "Swapped");
+    run.eq(spokeSwapped.adapter, spokeSwapAdapter, "DEC-136: through the fund's Robinhood swap adapter");
+    run.eq(spokeAdapterSwapped.legsHash, signed.legsHash, "DEC-143: the signed route's legs ran");
+    run.true(spokeSwapped.minOut >= signed.route.minAmountOut, "DEC-142: the API minimum holds (the stricter of it and the bound)");
+    run.true(spokeWeth >= spokeSwapped.minOut, "the output meets the minimum");
+    run.eq(await view("robinhood", spokeVault, spokeVaultAbi, "unallocatedBalance", [ROBINHOOD.usdg]), usdgBeforeSwap - spokeHalf, "DEC-080: exactly the input debited");
+    run.ok(
+      `manager swaps 1,500 USDG for ${units(spokeWeth, 18, 4)} WETH on a route the API signed (${signed.path.fees.length} hop(s), fees ` +
+        `${signed.path.fees.join("/")}; quoted ${units(signed.quotedAmountOut, 18, 4)}, signed minimum ${units(signed.route.minAmountOut, 18, 4)})`,
+    );
     const spokeCenter = await centerTick("robinhood", ROBINHOOD.v4StateView, SPOKE_POOL_ID);
     const spokeOpen = await tx<readonly [Hex, bigint, bigint]>("robinhood", "manager", spokeVault, spokeVaultAbi, "openPosition", [
       spokeUni,
@@ -660,7 +723,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     const [spokeUniPosition, spokeUsed0, spokeUsed1] = spokeOpen.result;
     run.true(spokeUsed0 > 0n && spokeUsed1 > 0n, "both tokens used on the spoke");
     run.eq((await view<readonly unknown[]>("robinhood", spokeVault, spokeVaultAbi, "positions")).length, 1, "one spoke position");
-    run.ok(`manager swaps 1,500 USDG for ${units(spokeWeth, 18, 4)} WETH on Robinhood and opens a V4 range around tick ${spokeCenter}`);
+    run.ok(`manager opens a V4 range around tick ${spokeCenter} on Robinhood with ${units(spokeUsed0, 18, 4)} WETH + ${units(spokeUsed1)} USDG`);
 
     const spokeTicks = await generateFees("robinhood", state.helpers.robinhoodSwapRouter, SPOKE_POOL_KEY, ROBINHOOD.v4StateView, SPOKE_POOL_ID, spokeCenter, SWING);
     const spokeV4Value = await view<any>("robinhood", spokeUni, uniswapV4AdapterAbi, "positionValue", [spokeUniPosition]);
