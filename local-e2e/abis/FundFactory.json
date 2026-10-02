@@ -506,6 +506,11 @@
             "name": "coreVaultCreationCode",
             "type": "bytes",
             "internalType": "bytes"
+          },
+          {
+            "name": "seedAmount",
+            "type": "uint256",
+            "internalType": "uint256"
           }
         ]
       }
@@ -1433,6 +1438,17 @@
   },
   {
     "type": "error",
+    "name": "FlowFeeAboveCap",
+    "inputs": [
+      {
+        "name": "bps",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "ForeignCreationCode",
     "inputs": [
       {
@@ -1476,6 +1492,22 @@
         "name": "library_",
         "type": "address",
         "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ManagerFeeBelowMinimum",
+    "inputs": [
+      {
+        "name": "bps",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "minBps",
+        "type": "uint16",
+        "internalType": "uint16"
       }
     ]
   },
@@ -1540,6 +1572,17 @@
   },
   {
     "type": "error",
+    "name": "NotWholeShares",
+    "inputs": [
+      {
+        "name": "shares",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "PoolKeyCountMismatch",
     "inputs": [
       {
@@ -1599,6 +1642,17 @@
         "name": "role",
         "type": "bytes32",
         "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SafeERC20FailedOperation",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
       }
     ]
   },
@@ -1707,6 +1761,11 @@
   {
     "type": "error",
     "name": "ZeroAddress",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroSharePrice",
     "inputs": []
   }
 ]

@@ -5,11 +5,12 @@ import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { decodeEventLog, getAddress, type Address, type Hex, type Log } from "viem";
-import { fundFactoryAbi, shareTokenAbi } from "./abis.ts";
-import { PRUNED_STATE_HINT, isPrunedStateError, nodes, read, type Side } from "./chain.ts";
+import { coreVaultAbi, fundFactoryAbi, shareTokenAbi, valueReportReceiverAbi } from "./abis.ts";
+import { PRUNED_STATE_HINT, isPrunedStateError, nodes, read, recordTransaction, type Side } from "./chain.ts";
 import {
   ACTOR_KEYS,
   AAVE_USDC_POOL_KEY,
+  ARBITRUM,
   FUND_PLAN,
   HUB_POOL_ID,
   HUB_POOL_KEY,
@@ -20,8 +21,9 @@ import {
   WORMHOLE_ROBINHOOD,
   actors,
 } from "./config.ts";
-import type { Logger } from "./log.ts";
-import type { FundRecord } from "./state.ts";
+import { TARGETS, layoutOf, topUpToken } from "./fund-accounts.ts";
+import { redactUrls, type Logger } from "./log.ts";
+import type { DeploymentState, FundRecord } from "./state.ts";
 
 const BROADCAST_DIR = join(STATE_DIR, "broadcast");
 
@@ -29,12 +31,22 @@ interface ForgeRun {
   output: string;
   broadcast: {
     transactions: { hash: Hex; contractName?: string; function?: string }[];
-    receipts: { transactionHash: Hex; blockNumber: Hex; logs: Log[]; status: Hex }[];
+    receipts: {
+      transactionHash: Hex;
+      blockNumber: Hex;
+      logs: Log[];
+      status: Hex;
+      from: Address;
+      to: Address | null;
+      gasUsed: Hex;
+      effectiveGasPrice: Hex;
+    }[];
     returns: Record<string, { internal_type: string; value: string }>;
   };
 }
 
-/** Runs a command in the repository root and returns its combined output; rejects with the tail of it. */
+/** Runs a command in the repository root and returns its combined output; rejects with the tail of it, its URLs cut
+ *  to their host (forge repeats the upstream URL, key included, of an error anvil forwards). */
 function run(command: string, args: string[], env: Record<string, string>, log: Logger): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd: REPO_DIR, env: { ...process.env, ...env } });
@@ -44,7 +56,7 @@ function run(command: string, args: string[], env: Record<string, string>, log: 
     child.on("error", reject);
     child.on("close", (code) => {
       if (code === 0) return resolve(output);
-      const tail = output.trim().split("\n").slice(-40).join("\n");
+      const tail = redactUrls(output.trim().split("\n").slice(-40).join("\n"));
       log.error(`${command} ${args.slice(0, 2).join(" ")} failed (exit ${code})`);
       const hint = isPrunedStateError(tail) ? `\n${PRUNED_STATE_HINT}` : "";
       reject(new Error(`${command} ${args.slice(0, 2).join(" ")} failed:\n${tail}${hint}`));
@@ -67,14 +79,42 @@ async function forgeScript(
 ): Promise<ForgeRun> {
   const node = nodes[side];
   log.info(`forge script script/${script}.s.sol`, { chain: node.chain.id, rpc: node.rpc });
+  // Fees from the node's own gas price: left to estimate them, forge asks for `eth_feeHistory`, which anvil forwards to
+  // the upstream for the fork block, and archive endpoints stop serving fee history for old blocks (Alchemy on
+  // Arbitrum: "metadata is not found") long before they stop serving state.
+  const gasPrice = await node.client.getGasPrice();
   const output = await run(
     "forge",
-    ["script", `script/${script}.s.sol`, "--rpc-url", node.rpc, "--broadcast", "--slow", "--private-key", privateKey],
+    [
+      "script",
+      `script/${script}.s.sol`,
+      "--rpc-url",
+      node.rpc,
+      "--broadcast",
+      "--slow",
+      "--private-key",
+      privateKey,
+      "--with-gas-price",
+      (gasPrice * 2n).toString(),
+      "--priority-gas-price",
+      "0",
+    ],
     { ...env, FOUNDRY_BROADCAST: BROADCAST_DIR },
     log,
   );
   const file = join(BROADCAST_DIR, `${script}.s.sol`, String(node.chain.id), "run-latest.json");
-  return { output, broadcast: JSON.parse(readFileSync(file, "utf8")) };
+  const result: ForgeRun = { output, broadcast: JSON.parse(readFileSync(file, "utf8")) };
+  for (const receipt of result.broadcast.receipts) {
+    const tx = result.broadcast.transactions.find((t) => t.hash.toLowerCase() === receipt.transactionHash.toLowerCase());
+    const what = tx?.function?.split("(")[0] ?? (tx?.contractName ? `deploy ${tx.contractName}` : "transaction");
+    recordTransaction(side, `${what} (forge ${script})`, {
+      ...receipt,
+      blockNumber: BigInt(receipt.blockNumber),
+      gasUsed: BigInt(receipt.gasUsed),
+      effectiveGasPrice: BigInt(receipt.effectiveGasPrice),
+    });
+  }
+  return result;
 }
 
 export interface FactoryDeployment {
@@ -89,12 +129,14 @@ export interface FactoryDeployment {
 }
 
 /** Protocol wiring handed to script/DeployFactory.s.sol: the fee wallet is its own actor; the operator guards the
- *  adapters and owns the ManagerRegistry. */
+ *  adapters; the API signer owns the ManagerRegistry and signs swap routes and bridge quotes (reading D-01 of DEC-112;
+ *  the scripts read `API_SIGNER` once Mandate v2 wires the swap adapters). */
 export function protocolRoles() {
   return {
     protocolRecipient: actors.protocolRecipient.address,
     adapterGuardian: actors.operator.address,
-    registryOwner: actors.operator.address,
+    registryOwner: actors.apiSigner.address,
+    apiSigner: actors.apiSigner.address,
   };
 }
 
@@ -109,6 +151,7 @@ export async function deployFactory(side: Side, log: Logger): Promise<FactoryDep
       PROTOCOL_RECIPIENT: roles.protocolRecipient,
       ADAPTER_GUARDIAN: roles.adapterGuardian,
       REGISTRY_OWNER: roles.registryOwner,
+      API_SIGNER: roles.apiSigner,
     },
     log,
   );
@@ -215,4 +258,27 @@ export async function createFund(fundFactory: Address, log: Logger): Promise<Fun
     poolKeys: { hub: [HUB_POOL_KEY], spoke: [SPOKE_POOL_KEY] },
     poolIds: { hub: [HUB_POOL_ID], spoke: [SPOKE_POOL_ID], aave: AAVE_USDC_POOL_KEY },
   };
+}
+
+/** Whether a fund is past its creation: no longer Open, holders other than the manager's seed (DEC-127: every fund is
+ *  born with shares), or a spoke report already accepted. */
+export async function fundUsed(fund: FundRecord): Promise<boolean> {
+  const at = <T>(address: Address, abi: typeof coreVaultAbi, functionName: string, args: readonly unknown[] = []) =>
+    read<T>("arbitrum", { address, abi, functionName, args });
+  const [state, supply, managerShares, reported] = await Promise.all([
+    at<number>(fund.hub.coreVault, coreVaultAbi, "fundState"),
+    at<bigint>(fund.hub.shareToken, shareTokenAbi, "totalSupply"),
+    at<bigint>(fund.hub.shareToken, shareTokenAbi, "balanceOf", [fund.manager]),
+    at<boolean>(fund.hub.valueReportReceiver, valueReportReceiverAbi, "hasReport", [BigInt(fund.spoke.spokeIndex)]),
+  ]);
+  return state !== 0 || supply !== managerShares || reported;
+}
+
+/** The deployment's default fund while it is unused, else (or when `force`) a new fund through
+ *  script/CreateFund.s.sol, after the manager's USDC is topped up for its seed (DEC-127). */
+export async function freshFund(state: DeploymentState, log: Logger, force = false): Promise<{ fund: FundRecord; created: boolean }> {
+  if (!force && !(await fundUsed(state.fund))) return { fund: state.fund, created: false };
+  const usdc = layoutOf(state, "arbitrum", ARBITRUM.usdc);
+  await topUpToken("arbitrum", usdc, actors.manager.address, TARGETS.arbitrum.usdc.manager);
+  return { fund: await createFund(state.protocol.arbitrum.fundFactory, log), created: true };
 }

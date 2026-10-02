@@ -56,6 +56,8 @@ export interface ProtocolState {
     protocolRecipient: Address;
     adapterGuardian: Address;
     registryOwner: Address;
+    /** The API's key: route and quote signer (reading D-01 of DEC-112). */
+    apiSigner: Address;
   };
   robinhood: {
     fundFactory: Address;
@@ -63,6 +65,7 @@ export interface ProtocolState {
     spokeCrossChainLib: Address;
     spokeUnwindLib: Address;
     transitEscrowImplementation: Address;
+    apiSigner: Address;
   };
 }
 
@@ -73,15 +76,30 @@ export interface BalanceLayout {
 }
 
 export interface DeploymentState {
-  version: 1;
+  /** 2: the guardian on both Cores and the API signer. */
+  version: 2;
   createdAt: string;
   nodes: { arbitrum: NodeState; robinhood: NodeState };
   actors: Record<ActorName, Address>;
-  guardian: { address: Address; coreBridge: Address; guardianSetIndex: number };
+  /** The local guardian and the guardian set it forms on each node's Core (reports verified on Arbitrum, Hub orders
+   *  on Robinhood). */
+  guardian: {
+    address: Address;
+    arbitrum: { coreBridge: Address; guardianSetIndex: number };
+    robinhood: { coreBridge: Address; guardianSetIndex: number };
+  };
   protocol: ProtocolState;
   external: { arbitrum: Record<string, Address>; robinhood: Record<string, Address> };
   fund: FundRecord;
-  helpers: { arbitrumSwapRouter: Address; robinhoodSwapRouter: Address };
+  helpers: {
+    arbitrumSwapRouter: Address;
+    robinhoodSwapRouter: Address;
+    /** A Uniswap V3 swap adapter per chain (src/adapters/UniswapV3SwapAdapter.sol) whose route signer is the API
+     *  signer and whose vault is the manager's wallet, standing in for the fund's own adapters until the factory
+     *  deploys them (Mandate v2, WP-07). The API signs routes for it; `swapAdapterVault` is the only caller of `swap`. */
+    swapAdapters: { arbitrum: Address; robinhood: Address };
+    swapAdapterVault: Address;
+  };
   storage: {
     balances: { arbitrum: BalanceLayout[]; robinhood: BalanceLayout[] };
     /** Mapping slot of `fillStatuses` in each Across SpokePool (the keeper zero-fills a new relay's status slot so a
