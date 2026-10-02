@@ -68,9 +68,9 @@ contract CoreVaultLifecycleTest is CoreVaultFixture {
         _close();
         vm.startPrank(alice);
         vm.expectRevert(abi.encodeWithSelector(ICoreVaultLifecycle.FundNotOpen.selector, CLOSING));
-        vault.requestPayout(100e6, ICoreVaultPayouts.PayoutMode.Instant);
+        vault.requestPayout(100e6, ICoreVaultPayouts.PayoutMode.Instant, 0);
         vm.expectRevert(abi.encodeWithSelector(ICoreVaultLifecycle.FundNotOpen.selector, CLOSING));
-        vault.requestPayout(100e6, ICoreVaultPayouts.PayoutMode.Standard);
+        vault.requestPayout(100e6, ICoreVaultPayouts.PayoutMode.Standard, 0);
         vm.stopPrank();
     }
 
@@ -84,7 +84,7 @@ contract CoreVaultLifecycleTest is CoreVaultFixture {
         vm.warp(block.timestamp + 72 hours);
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(ICoreVaultLifecycle.FundNotOpen.selector, CLOSING));
-        vault.claimPayout("");
+        vault.claimPayout(0);
         assertTrue(vault.payoutRequest(alice).open, "the request stays open");
         assertEq(vault.payoutReserve(), reserve, "and so does its reserve");
     }

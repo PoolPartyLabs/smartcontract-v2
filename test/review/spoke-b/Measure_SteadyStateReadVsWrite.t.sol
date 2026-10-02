@@ -28,8 +28,6 @@ contract Measure_SteadyStateReadVsWrite is SpokeBFixture {
             vm.prank(keeper);
             receiver.deliver(_vaa(payload, seq));
         }
-        vm.prank(alice);
-        vault.requestPayout(10_000e6, ICoreVaultPayouts.PayoutMode.Instant);
     }
 
     function test_measure_steadyStateDeliveryVersusPayoutRead() public {
@@ -41,7 +39,7 @@ contract Measure_SteadyStateReadVsWrite is SpokeBFixture {
         vm.cool(address(vault));
         vm.prank(alice);
         uint256 g = gasleft();
-        vault.claimPayout("");
+        vault.requestPayout(10_000e6, ICoreVaultPayouts.PayoutMode.Instant, 0); // its own claim (DEC-120 item 1)
         uint256 claimGas = g - gasleft();
         uint256 depositGas = _depositMeasured(bob, 10_000e6);
 

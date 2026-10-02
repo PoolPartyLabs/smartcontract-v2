@@ -88,7 +88,7 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
         vm.warp(block.timestamp + 72 hours);
         uint256 freeBefore = vault.freeIdle();
         vm.prank(alice);
-        try vault.claimPayout("") returns (ICoreVault.PayoutReceipt memory r) {
+        try vault.claimPayout(0) returns (ICoreVault.PayoutReceipt memory r) {
             assertLe(r.usdcGross, aliceReserve + freeBefore, "own reserve then Free Idle, nothing else");
             assertLe(r.usdcGross, r.usdcRequested);
             assertEq(r.payoutFee, 0, "Standard pays no Payout Fee");
@@ -169,8 +169,7 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
             return; // below one share: rejected (DEC-035)
         }
         // Above the balance: full burn (DEC-020).
-        vault.requestPayout(charged * 2, ICoreVaultPayouts.PayoutMode.Instant);
-        ICoreVault.PayoutReceipt memory r = vault.claimPayout("");
+        ICoreVault.PayoutReceipt memory r = vault.requestPayout(charged * 2, ICoreVaultPayouts.PayoutMode.Instant, 0);
         vm.stopPrank();
 
         assertEq(shares.balanceOf(bob), 0, "everything burned");
@@ -197,7 +196,11 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
         hubVault.moveToPosition(1000e6);
         hubVault.setPosition(address(weth), 1e18); // the position is now 1 WETH
         _deposit(bob, 1000e6);
-        _request(alice, 100e6, ICoreVaultPayouts.PayoutMode.Instant); // fully payable from Free Idle
+    }
+
+    /// @dev Alice's Instant request of 100, fully payable from Free Idle, is its own claim (DEC-120 item 1).
+    function _aliceClaims() internal returns (ICoreVault.PayoutReceipt memory) {
+        return _request(alice, 100e6, ICoreVaultPayouts.PayoutMode.Instant);
     }
 
     function test_DEC021_revertingFeedFallsBackToTheLastPriceForAPayout() public {
@@ -207,7 +210,7 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
 
         vm.expectEmit(address(vault));
         emit ICoreVault.PriceFallback(address(weth), 2.5e9);
-        ICoreVault.PayoutReceipt memory r = _claim(alice);
+        ICoreVault.PayoutReceipt memory r = _aliceClaims();
         assertEq(r.shareAssets, assetsBefore, "valued at the last known WETH price");
         assertGt(r.usdcPaid, 0);
 
@@ -227,7 +230,7 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
 
         vm.expectEmit(address(vault));
         emit ICoreVault.HubValuationFallback(2500e6);
-        ICoreVault.PayoutReceipt memory r = _claim(alice);
+        ICoreVault.PayoutReceipt memory r = _aliceClaims();
         assertEq(r.shareAssets, assetsBefore, "the hub Spoke Vault at its last known value");
         assertEq(r.unwindProceeds, 0);
         assertGt(r.usdcPaid, 0);
@@ -243,12 +246,11 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
     function test_DEC021_successfulPayoutRefreshesTheLastKnownValuation() public {
         _hubWethFund();
         prices.setPrice(address(weth), 3e9); // WETH moves to 3,000; Alice's claim records it
-        _claim(alice);
+        _aliceClaims();
         prices.setReverts(address(weth), true);
-        _request(bob, 10e6, ICoreVaultPayouts.PayoutMode.Instant);
         vm.expectEmit(address(vault));
         emit ICoreVault.PriceFallback(address(weth), 3e9);
-        _claim(bob);
+        _request(bob, 10e6, ICoreVaultPayouts.PayoutMode.Instant);
     }
 
     // ---------------------------------------------------------------------------------------------------------------

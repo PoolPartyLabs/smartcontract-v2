@@ -169,6 +169,42 @@ library SpokeLedger {
         IERC20(tokenIn).forceApprove(address(a), amountIn);
         (amountOut, spotOut, minOut) = a.swap(tokenIn, tokenOut, amountIn, maxLossBps, route);
         IERC20(tokenIn).forceApprove(address(a), 0);
+        _requireSwapped(tokenIn, tokenOut, amountIn, amountOut, inBefore, outBefore);
+    }
+
+    /// @dev A sale of the vault's own libraries (the automatic unwind, DEC-136 item 4) in the direct pool of `fee`
+    ///      that `ISwapAdapter.bestDirectFee` chose (D-21; never a caller's fee, DEC-143, D-02): `amountIn` of `tokenIn`
+    ///      leaves Unallocated Balance and the `amountOut` the adapter returns is credited to it, with `swapThrough`'s
+    ///      custody (DEC-079, DEC-080). The caller emits the event.
+    function sellDirect(
+        SpokeVaultTypes.State storage s,
+        ISwapAdapter a,
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        uint24 fee,
+        uint16 maxLossBps
+    ) internal returns (uint256 amountOut, uint256 spotOut, uint256 minOut) {
+        debitUnallocated(s, tokenIn, amountIn);
+        uint256 outBefore = IERC20(tokenOut).balanceOf(address(this));
+        uint256 inBefore = IERC20(tokenIn).balanceOf(address(this));
+        IERC20(tokenIn).forceApprove(address(a), amountIn);
+        (amountOut, spotOut, minOut) = a.swapDirect(tokenIn, tokenOut, amountIn, fee, maxLossBps);
+        IERC20(tokenIn).forceApprove(address(a), 0);
+        _requireSwapped(tokenIn, tokenOut, amountIn, amountOut, inBefore, outBefore);
+        s.unallocated[tokenOut] += amountOut;
+    }
+
+    /// @dev DEC-080: the vault's own balances show exactly `amountIn` of `tokenIn` out and at least `amountOut` of
+    ///      `tokenOut` in, so the ledger of both tokens stays backed.
+    function _requireSwapped(
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        uint256 amountOut,
+        uint256 inBefore,
+        uint256 outBefore
+    ) private view {
         uint256 debited = _decrease(tokenIn, inBefore);
         if (debited != amountIn) revert SpokeVaultTypes.SwapDebitMismatch(amountIn, debited);
         uint256 received = _increase(tokenOut, outBefore);
@@ -183,29 +219,6 @@ library SpokeLedger {
     function _increase(address token, uint256 before) private view returns (uint256) {
         uint256 balance = IERC20(token).balanceOf(address(this));
         return balance > before ? balance - before : 0;
-    }
-
-    /// @dev The automatic unwind's sale of `tokenIn` for the pool's other token in a Mandate pool, from and into
-    ///      Unallocated Balance (DEC-079, DEC-080). Interim: WP-09 moves the unwind's sales to the swap adapter (DEC-136
-    ///      item 4); nothing else swaps in a fund pool. The caller emits the event.
-    function poolSwap(
-        SpokeVaultTypes.State storage s,
-        address baseToken,
-        IAdapter a,
-        SpokeVaultTypes.PoolTokens memory p,
-        bytes32 poolKey,
-        address tokenIn,
-        uint256 amountIn,
-        uint256 minAmountOut,
-        bytes memory params
-    ) internal returns (uint256 amountOut) {
-        address tokenOut = otherToken(p, tokenIn);
-        if (amountIn == 0) revert ISpokeVault.ZeroAmount();
-        sendToAdapter(s, address(a), tokenIn, amountIn);
-        amountOut = a.swapExactInput(poolKey, tokenIn, amountIn, minAmountOut, params);
-        if (amountOut < minAmountOut) revert SpokeVaultTypes.SwapOutputBelowMinimum(amountOut, minAmountOut);
-        s.unallocated[tokenOut] += amountOut;
-        requireBacked(s, baseToken, tokenOut);
     }
 
     function otherToken(SpokeVaultTypes.PoolTokens memory p, address tokenIn) internal pure returns (address out) {

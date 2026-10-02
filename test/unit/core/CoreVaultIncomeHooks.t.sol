@@ -36,8 +36,8 @@ contract CoreVaultIncomeHooksTest is CoreVaultFixture {
     function test_DEC045_aPartialBurnKeepsTheIncomeAttributed() public {
         _deposit(alice, 1000e6);
         hubVault.forwardIncome(address(usdc), 100.1e6); // 0.10 per share over 1,001 shares (the seed's included)
-        PayoutCalls.request(vault, alice, 500e6, ICoreVaultPayouts.PayoutMode.Instant);
-        ICoreVaultPayouts.PayoutReceipt memory r = PayoutCalls.claim(vault, alice);
+        ICoreVaultPayouts.PayoutReceipt memory r =
+            PayoutCalls.request(vault, alice, 500e6, ICoreVaultPayouts.PayoutMode.Instant);
 
         assertEq(r.sharesBurned, 500e18);
         assertEq(usdc.balanceOf(alice), 490e6, "no income paid");

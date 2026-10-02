@@ -14,6 +14,8 @@ import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {TransitEscrow} from "../../../src/core/TransitEscrow.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
+import {ISpokeVaultUnwind} from "../../../src/interfaces/ISpokeVaultUnwind.sol";
 import {MockSpokeToken} from "../../mocks/spoke/MockSpokeToken.sol";
 import {MockPositionAdapter} from "../../mocks/spoke/MockPositionAdapter.sol";
 import {MockBridgeAdapter} from "../../mocks/spoke/MockBridgeAdapter.sol";
@@ -191,6 +193,20 @@ abstract contract SpokeVaultTestBase is Test {
     }
 
     /// @dev Income for a position: the tokens reach the adapter and are booked as uncollected.
+    /// @dev An automatic unwind request for `requestId` at `fracNum / fracDen` (DEC-137) with the requester's maximum
+    ///      loss (DEC-140) and mode (DEC-118, DEC-141).
+    function _unwindRequest(bytes32 requestId, uint256 fracNum, uint256 fracDen, uint16 maxLossBps, bool instant)
+        internal
+        pure
+        returns (ISpokeVaultUnwind.UnwindRequest memory r)
+    {
+        r.requestId = requestId;
+        r.fracNum = fracNum;
+        r.fracDen = fracDen;
+        r.maxLossBps = maxLossBps;
+        r.mode = instant ? ICoreVaultPayouts.PayoutMode.Instant : ICoreVaultPayouts.PayoutMode.Standard;
+    }
+
     function _earnIncome(MockPositionAdapter adapter, bytes32 positionKey, uint256 amount0, uint256 amount1) internal {
         (bytes32 poolKey,,,,,) = adapter.position(positionKey);
         (address token0, address token1,,) = adapter.pools(poolKey);

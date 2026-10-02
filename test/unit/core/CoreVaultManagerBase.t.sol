@@ -20,9 +20,13 @@ contract CoreVaultManagerBaseTest is CoreVaultFixture {
         _seedFundWith(address(vault), address(usdc), seed);
     }
 
-    function _managerRequest(uint256 amount, ICoreVault.PayoutMode mode) internal {
+    /// @dev An Instant request is its own claim (DEC-120 item 1): its receipt comes back.
+    function _managerRequest(uint256 amount, ICoreVault.PayoutMode mode)
+        internal
+        returns (ICoreVault.PayoutReceipt memory)
+    {
         vm.prank(manager);
-        vault.requestPayout(amount, mode);
+        return vault.requestPayout(amount, mode, 0);
     }
 
     /// @dev DEC-146 example: the manager creates the fund with 100,000 and adds 100,000; the peak is 200,000 shares.
@@ -37,10 +41,12 @@ contract CoreVaultManagerBaseTest is CoreVaultFixture {
         vm.expectRevert(
             abi.encodeWithSelector(ICoreVaultLifecycle.ManagerMustCloseFund.selector, 200_000e18, 80_000e18)
         );
-        vault.requestPayout(120_000e6, INSTANT);
+        vault.requestPayout(120_000e6, INSTANT, 0);
 
-        _managerRequest(90_000e6, INSTANT);
-        assertTrue(vault.payoutRequest(manager).open);
+        ICoreVault.PayoutReceipt memory r = _managerRequest(90_000e6, INSTANT);
+        assertEq(r.sharesBurned, 90_000e18, "accepted, and paid at once (DEC-120 item 1)");
+        assertEq(shares.balanceOf(manager), 110_000e18);
+        assertFalse(r.cappedByManagerBase);
         assertEq(
             uint8(vault.fundState()), uint8(ICoreVaultLifecycle.FundState.Open), "DEC-147: nothing closes on its own"
         );
@@ -53,7 +59,7 @@ contract CoreVaultManagerBaseTest is CoreVaultFixture {
         vm.expectRevert(
             abi.encodeWithSelector(ICoreVaultLifecycle.ManagerMustCloseFund.selector, 200_000e18, 99_999e18)
         );
-        vault.requestPayout(100_001e6, STANDARD);
+        vault.requestPayout(100_001e6, STANDARD, 0);
         _managerRequest(100_000e6, STANDARD);
     }
 
@@ -62,7 +68,7 @@ contract CoreVaultManagerBaseTest is CoreVaultFixture {
         _fundSeededWith(100_000e6);
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(ICoreVaultLifecycle.ManagerMustCloseFund.selector, 100_000e18, 0));
-        vault.requestPayout(1_000_000e6, STANDARD);
+        vault.requestPayout(1_000_000e6, STANDARD, 0);
     }
 
     /// @dev An odd peak: half of 3 shares is 1.5, so the balance must stay at 2 whole shares.
@@ -71,7 +77,7 @@ contract CoreVaultManagerBaseTest is CoreVaultFixture {
         assertEq(vault.managerPeakShares(), 3e18);
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(ICoreVaultLifecycle.ManagerMustCloseFund.selector, 3e18, 1e18));
-        vault.requestPayout(2e6, INSTANT);
+        vault.requestPayout(2e6, INSTANT, 0);
         _managerRequest(1e6, INSTANT);
     }
 
@@ -85,7 +91,7 @@ contract CoreVaultManagerBaseTest is CoreVaultFixture {
         vm.expectRevert(
             abi.encodeWithSelector(ICoreVaultLifecycle.ManagerMustCloseFund.selector, 100_000e18, 49_999e18)
         );
-        vault.requestPayout(55_000.01e6, INSTANT);
+        vault.requestPayout(55_000.01e6, INSTANT, 0);
         _managerRequest(55_000e6, INSTANT); // exactly 50,000 shares
     }
 
@@ -96,7 +102,7 @@ contract CoreVaultManagerBaseTest is CoreVaultFixture {
         _managerRequest(50_000e6, STANDARD); // no Payout Fee, so the Share Price stays at 1.00
         vm.warp(block.timestamp + 72 hours);
         vm.prank(manager);
-        vault.claimPayout("");
+        vault.claimPayout(0);
         assertEq(shares.balanceOf(manager), 50_000e18);
         assertEq(vault.managerPeakShares(), 100_000e18, "the peak stays");
 
@@ -133,6 +139,7 @@ contract CoreVaultManagerBaseTest is CoreVaultFixture {
         assertEq(r.sharesBurned, 50_000e18, "62,500 at 0.80, capped at the shares above the base");
         assertEq(r.usdcGross, 40_000e6);
         assertEq(r.usdcPaid, 40_000e6, "Standard, feeless fund");
+        assertTrue(r.cappedByManagerBase, "DEC-183 item 1: burns at the base, pays less and closes");
         assertEq(shares.balanceOf(manager), 50_000e18, "exactly half of the peak");
         assertFalse(vault.payoutRequest(manager).open, "the capped request closes (DEC-024: never left hanging)");
         assertEq(vault.payoutReserve(), 0, "DEC-072: what is left of its reserve is released");
@@ -142,24 +149,26 @@ contract CoreVaultManagerBaseTest is CoreVaultFixture {
         vm.expectRevert(
             abi.encodeWithSelector(ICoreVaultLifecycle.ManagerMustCloseFund.selector, 100_000e18, 49_999e18)
         );
-        vault.requestPayout(0.8e6, INSTANT);
+        vault.requestPayout(0.8e6, INSTANT, 0);
     }
 
-    /// @dev Review round 1, PoC 2: a sole-holder manager requests Instant 50,000 at 1.00 (accepted); the Share Price
-    ///      falls to 0.40. Uncapped, the claim burned all 100,000 shares and left an Open fund with no shares, which
-    ///      takes no deposit and can never be seeded again. Capped, it burns 50,000 (20,000 USDC, after an unwind of
-    ///      the Idle shortfall) and the fund keeps taking deposits.
+    /// @dev Review round 1, PoC 2: a sole-holder manager requests 50,000 at 1.00 (accepted); the Share Price falls to
+    ///      0.40 before the claim. Uncapped, the claim burned all 100,000 shares and left an Open fund with no shares,
+    ///      which takes no deposit and can never be seeded again. Capped, it burns 50,000 (20,000 USDC, after an unwind
+    ///      of the Idle shortfall) and the fund keeps taking deposits. A Standard request, since an Instant one is
+    ///      claimed at its own price (DEC-120 item 1).
     function test_D27_aSoleHolderManagerNeverEmptiesAnOpenFund() public {
         _fundSeededWith(100_000e6);
         _intoHubPosition(90_000e6);
-        _managerRequest(50_000e6, INSTANT);
+        _managerRequest(50_000e6, STANDARD);
         hubVault.setPosition(address(usdc), 30_000e6); // 40,000 over 100,000 shares
         assertEq(vault.sharePrice(), 0.4e24);
+        vm.warp(block.timestamp + 72 hours);
 
         ICoreVault.PayoutReceipt memory r = _claim(manager);
         assertEq(r.sharesBurned, 50_000e18);
         assertEq(r.usdcGross, 20_000e6);
-        assertEq(r.payoutFee, 400e6, "DEC-075: 2% Instant Payout Fee, kept in Idle for the holders (DEC-144)");
+        assertTrue(r.cappedByManagerBase, "DEC-183 item 1: the burn stopped at the base");
         assertEq(shares.totalSupply(), 50_000e18, "DEC-147: a live fund always has shares");
         assertFalse(vault.payoutRequest(manager).open);
 
@@ -215,14 +224,16 @@ contract CoreVaultManagerBaseTest is CoreVaultFixture {
         uint256 above = (shares.balanceOf(manager) - (peak - peak / 2)) / 1e18 * 1e6;
         uint256 amount = above * bound(requestBps, 1, 10_000) / 10_000;
         if (amount < 1e6) amount = 1e6;
-        _managerRequest(amount, standard ? STANDARD : INSTANT);
+        // An Instant request is claimed at once (DEC-120 item 1); one that can pay nothing reverts whole.
+        if (unwindFails) hubVault.setUnwindMode(MockHubSpokeVault.UnwindMode.Reverts);
+        vm.prank(manager);
+        try vault.requestPayout(amount, standard ? STANDARD : INSTANT, 0) {} catch {}
 
         hubVault.setPosition(address(usdc), allocated * bound(keptBps, 0, 10_000) / 10_000);
-        if (unwindFails) hubVault.setUnwindMode(MockHubSpokeVault.UnwindMode.Reverts);
         vm.warp(block.timestamp + 72 hours);
         for (uint256 i; i < 3 && vault.payoutRequest(manager).open; ++i) {
             vm.prank(manager);
-            try vault.claimPayout("") {}
+            try vault.claimPayout(0) {}
             catch {
                 break;
             }
@@ -238,8 +249,7 @@ contract CoreVaultManagerBaseTest is CoreVaultFixture {
         _fundSeededWith(100_000e6);
         _deposit(alice, 50_000e6);
         assertEq(vault.managerPeakShares(), 100_000e18, "a deposit by someone else leaves the manager's peak");
-        _request(alice, 50_000e6, INSTANT);
-        ICoreVault.PayoutReceipt memory r = _claim(alice);
+        ICoreVault.PayoutReceipt memory r = _request(alice, 50_000e6, INSTANT);
         assertEq(r.sharesBurned, 50_000e18);
         assertEq(shares.balanceOf(alice), 0);
     }

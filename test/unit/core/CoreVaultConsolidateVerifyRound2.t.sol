@@ -139,8 +139,8 @@ contract CoreVaultConsolidateVerifyRound2Test is CoreVaultFixture {
         assertEq(vault.shareAssets(), idle0 + SENT);
 
         hubVault.setBuildReverts(true);
-        _request(alice, 9975e6, ICoreVaultPayouts.PayoutMode.Instant); // above Free Idle: the unwind runs
-        ICoreVault.PayoutReceipt memory r = _claim(alice);
+        // Above Free Idle: the unwind runs.
+        ICoreVault.PayoutReceipt memory r = _request(alice, 9975e6, ICoreVaultPayouts.PayoutMode.Instant);
 
         assertGt(r.unwindProceeds, 0, "the unwind moved USDC to Idle");
         assertEq(hubVault.positionPrincipal(), SENT - r.unwindProceeds);

@@ -56,14 +56,6 @@ contract V4VaultHarness {
         return adapter.collectIncome(positionKey);
     }
 
-    function swap(bytes32 poolKey, address tokenIn, uint256 amountIn, uint256 minAmountOut, bytes calldata p)
-        external
-        returns (uint256)
-    {
-        _send(tokenIn, amountIn);
-        return adapter.swapExactInput(poolKey, tokenIn, amountIn, minAmountOut, p);
-    }
-
     function _send(address token, uint256 amount) private {
         if (amount != 0) IERC20(token).safeTransfer(address(adapter), amount);
     }

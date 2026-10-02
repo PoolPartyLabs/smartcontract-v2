@@ -174,14 +174,6 @@ contract UniswapV4AdapterAdversarialTest is Test {
         vm.expectRevert(ReentrancyGuard.ReentrancyGuardReentrantCall.selector);
         rVault.open(rId, t0, 1e24, t1, 1e24, openParams);
 
-        // 4. Re-enter `swapExactInput` while the swap output reaches the vault.
-        bytes memory swapParams =
-            abi.encode(UniswapV4Adapter.SwapExactInputParams({sqrtPriceLimitX96: 0, deadline: block.timestamp}));
-        address tokenIn = t0 == address(rnt) ? t1 : t0;
-        rnt.arm(address(rVault), abi.encodeCall(V4VaultHarness.swap, (rId, tokenIn, 1e18, 0, swapParams)));
-        vm.expectRevert(ReentrancyGuard.ReentrancyGuardReentrantCall.selector);
-        rVault.swap(rId, tokenIn, 1e18, 0, swapParams);
-
         // Nothing changed: the position is intact and every attempt was rolled back.
         rnt.disarm();
         IAdapter.PositionValue memory v = rAdapter.positionValue(positionKey);

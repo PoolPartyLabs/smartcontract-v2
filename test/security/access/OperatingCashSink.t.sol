@@ -106,8 +106,7 @@ contract OperatingCashSinkPoC is AccessFundFixture {
     function _exitAll(CoreVault core, address who) internal returns (uint256 paid) {
         uint256 before = _balance(usdc, who);
         vm.startPrank(who);
-        core.requestPayout(1_000_000e6, ICoreVaultPayouts.PayoutMode.Instant);
-        core.claimPayout("");
+        core.requestPayout(1_000_000e6, ICoreVaultPayouts.PayoutMode.Instant, 0);
         vm.stopPrank();
         paid = _balance(usdc, who) - before;
     }

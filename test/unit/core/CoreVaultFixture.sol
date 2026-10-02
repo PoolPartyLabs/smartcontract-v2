@@ -219,14 +219,31 @@ abstract contract CoreVaultFixture is Test, FundSeed {
         vm.stopPrank();
     }
 
-    function _request(address who, uint256 amount, ICoreVault.PayoutMode mode) internal {
+    /// @dev `who` opens a Payout Request with no maximum loss; an Instant one is its own claim (DEC-120 item 1), so its
+    ///      receipt comes back here.
+    function _request(address who, uint256 amount, ICoreVault.PayoutMode mode)
+        internal
+        returns (ICoreVault.PayoutReceipt memory)
+    {
         vm.prank(who);
-        vault.requestPayout(amount, mode);
+        return vault.requestPayout(amount, mode, 0);
     }
 
+    /// @dev The id of the `n`-th Payout Request opened in the fund, opened by `who`
+    ///      (`ICoreVaultPayouts.PayoutRequest.requestId`).
+    function _requestId(address who, uint96 n) internal pure returns (bytes32) {
+        return bytes32((uint256(uint160(who)) << 96) | n);
+    }
+
+    /// @dev The revert data of `revert(reason)`.
+    function _revertReason(string memory reason) internal pure returns (bytes memory) {
+        return abi.encodeWithSignature("Error(string)", reason);
+    }
+
+    /// @dev `who` claims its open request (a Standard one after its term, or the next attempt of a partial one).
     function _claim(address who) internal returns (ICoreVault.PayoutReceipt memory) {
         vm.prank(who);
-        return vault.claimPayout("");
+        return vault.claimPayout(0);
     }
 
     /// @dev `bridgeData` the mock bridge adapter reads as its amount to arrive (a stand-in for a quote an adapter

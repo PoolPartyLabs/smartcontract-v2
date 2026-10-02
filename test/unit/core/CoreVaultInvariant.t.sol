@@ -65,7 +65,7 @@ contract CoreVaultHandler is Test {
         amount = bound(amount, (price + 1e18 - 1) / 1e18, 100_000e6);
         vm.prank(who);
         vault.requestPayout(
-            amount, standard ? ICoreVaultPayouts.PayoutMode.Standard : ICoreVaultPayouts.PayoutMode.Instant
+            amount, standard ? ICoreVaultPayouts.PayoutMode.Standard : ICoreVaultPayouts.PayoutMode.Instant, 0
         );
     }
 
@@ -75,7 +75,7 @@ contract CoreVaultHandler is Test {
         if (!req.open) return;
         if (block.timestamp < req.termEndsAt) vm.warp(req.termEndsAt);
         vm.prank(who);
-        try vault.claimPayout("") {} catch {}
+        try vault.claimPayout(0) {} catch {}
     }
 
     function donate(uint256 amount) external {

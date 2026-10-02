@@ -18,7 +18,8 @@ import {IntegrationPriceBase} from "./IntegrationPriceBase.sol";
 ///         scripts), one immutable guardian for every adapter of every fund of a factory (H-07 recommendation D-2,
 ///         adapters L-05: not rotatable, no delay; the harm itself is gone with S-10), WETH priced on the Arbitrum
 ///         ETH / USD feed for both chains with a 1 h bound on mints (I-09), USDG at 1:1 (S-35), receiver variation band
-///         0 (S-29), `MAX_UNWIND_SLIPPAGE_BPS` 500 (S-2, OPEN).
+///         0 (S-29). WP-09: the unwind's 5% floor (S-2) is gone with the proportional unwind (DEC-132, DEC-140); the
+///         Standard Payout's absorption is 1% per sale (DEC-141).
 /// @dev Run: ARBITRUM_RPC_URL=https://arb1.arbitrum.io/rpc ARBITRUM_FORK_BLOCK=<head - 300>
 ///      forge test -j 1 --match-path 'test/review/integration-price/IntegrationFactsFork.t.sol' -vv
 contract IntegrationFactsFork is IntegrationPriceBase {
@@ -62,9 +63,10 @@ contract IntegrationFactsFork is IntegrationPriceBase {
         assertEq(core.excessRecipient(), recipient);
         assertEq(hubSpoke.excessRecipient(), recipient);
 
-        // The unwind's only price guard.
-        console2.log("MAX_UNWIND_SLIPPAGE_BPS", SpokeVault(address(hubSpoke)).MAX_UNWIND_SLIPPAGE_BPS());
-        assertEq(SpokeVault(address(hubSpoke)).MAX_UNWIND_SLIPPAGE_BPS(), 500, "the S-2 floor this port measured");
+        // The unwind has no price floor of its own any more (DEC-132, DEC-140: the requester's maximum is the only
+        // limit); a Standard Payout's fund absorbs up to 1% of each sale (DEC-141).
+        console2.log("STANDARD_SALE_LOSS_ABSORB_BPS", SpokeVault(address(hubSpoke)).STANDARD_SALE_LOSS_ABSORB_BPS());
+        assertEq(SpokeVault(address(hubSpoke)).STANDARD_SALE_LOSS_ABSORB_BPS(), 100, "DEC-141");
         assertEq(ps.maxPriceAge(ARB_WETH), 1 hours, "I-09: the scripts' 1 h bound against a 24 h heartbeat");
     }
 }

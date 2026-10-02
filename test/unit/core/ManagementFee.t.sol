@@ -54,8 +54,7 @@ contract ManagementFeeTest is CoreVaultFixture {
         vm.startPrank(alice);
         for (uint256 i; i < 3; ++i) {
             vm.warp(block.timestamp + YEAR);
-            vault.requestPayout(1e6, ICoreVaultPayouts.PayoutMode.Instant); // a valuation that books the fee
-            vault.claimPayout("");
+            vault.requestPayout(1e6, ICoreVaultPayouts.PayoutMode.Instant, 0); // a valuation that books the fee
         }
         vm.stopPrank();
         // The three one-share exits paid out ~3 USDC of the base along the way: 29,701 within one unit of rounding.
@@ -69,9 +68,7 @@ contract ManagementFeeTest is CoreVaultFixture {
         vm.warp(block.timestamp + YEAR);
         uint256 aliceShares = shares.balanceOf(alice);
         vm.prank(alice);
-        vault.requestPayout(FUND, ICoreVaultPayouts.PayoutMode.Instant);
-        vm.prank(alice);
-        ICoreVaultPayouts.PayoutReceipt memory r = vault.claimPayout("");
+        ICoreVaultPayouts.PayoutReceipt memory r = vault.requestPayout(FUND, ICoreVaultPayouts.PayoutMode.Instant, 0);
 
         assertEq(r.shareAssets, FUND - 10_000e6, "priced net of the liability");
         assertEq(r.sharePrice, ShareMath.sharePrice(FUND - 10_000e6, shares.totalSupply() + r.sharesBurned));

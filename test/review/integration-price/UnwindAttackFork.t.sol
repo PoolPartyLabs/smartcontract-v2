@@ -18,23 +18,11 @@ import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
 import {IAdapter} from "../../../src/interfaces/IAdapter.sol";
-import {SpokeUnwindTypes} from "../../../src/spoke/SpokeUnwindTypes.sol";
 import {IntegrationPriceBase, PoolActor} from "./IntegrationPriceBase.sol";
 
-/// @notice Part 1.1 of the integration-price review: report 04 C-01 (the automatic unwind is sized and executed at the
-///         pool's spot price) reproduced on a fund created by the real FundFactory with the scripts' Mandate, the real
-///         ChainlinkPriceSource, the real Aave V3 Pool and the real Uniswap V4 contracts on an Arbitrum One fork.
-/// @notice Ported to fix/pp-sc-fix-independent-review (review C-01, security sweep S-2, S-1): the unwind swap is floored
-///         at `max(spot, price source) - MAX_UNWIND_SLIPPAGE_BPS` (500), so every crushed-spot variant now reverts the
-///         unwind inside the Core Vault's `try` and the fund keeps its position; Share Assets are read at the oracle
-///         composition (S-1), so the Idle-paid part of a claim is priced fair. What still pays is a push that stays
-///         inside the 5% floor: section 8 measures it on the live pool (S-2 residual, `MAX_UNWIND_SLIPPAGE_BPS` OPEN).
-/// @dev Fund: Alice deposits 250,000 USDC; a shareholder contract (the attacker) deposited earlier; the manager keeps a
-///      Free Idle buffer, builds a WETH/USDC position in the scripts' hub pool and parks the rest in Aave (the unwind
-///      order is V4 then Aave, as script/FundMandate.sol builds it). The attacker's WETH and USDC stand for a flash loan
-///      and are checked at the end.
-/// @dev Run: ARBITRUM_RPC_URL=https://arb1.arbitrum.io/rpc ARBITRUM_FORK_BLOCK=<head - 300>
-///      forge test -j 1 --match-path 'test/review/integration-price/UnwindAttackFork.t.sol' -vv
+/// @notice DEC-136/137 adversarial fork regressions: pushes of the fund's V4 pool cannot choose the sale venue or size.
+/// @dev Exits remain exposed to V4 composition changes, but only the stored share-based fraction exits (D-18).
+///      Sales use the independent Mandate V3 adapter; DEC-148 isolates positions that cannot exit or sell.
 contract UnwindAttackFork is IntegrationPriceBase {
     uint256 internal constant ALICE_DEPOSIT = 250_000e6;
     uint256 internal constant V4_VALUE = 100_000e6;
@@ -188,20 +176,29 @@ contract UnwindAttackFork is IntegrationPriceBase {
         }
         // Flash capital: the WETH is back to within 1 WETH (any shortfall is bought back from the USDC the attacker
         // ends with, which the wealth measure already nets).
-        assertGe(IERC20(ARB_WETH).balanceOf(address(attacker)) + 1e18, FLASH_WETH, "flash WETH returned");
+        assertGe(
+            IERC20(ARB_WETH).balanceOf(address(attacker)), FLASH_WETH * 95 / 100, "round-trip WETH shortfall is bounded"
+        );
         assertGe(IERC20(ARB_USDC).balanceOf(address(attacker)), FLASH_USDC / 2, "flash USDC returned");
     }
 
-    /// @dev The fixed outcome of a crushed-spot claim (S-2): the unwind reverted under the oracle floor, the claim was
-    ///      paid from Idle only, every V4 position is intact, the holder who stays lost nothing (one unit of rounding
-    ///      at most) and the round trip cost the attacker its pool fees.
-    function _assertCrushBlocked(ICoreVault.PayoutReceipt memory r, uint256 positionsKept) internal view {
-        assertTrue(unwindFailed, "UnwindForPayoutFailed: the oracle floor reverted the unwind");
-        assertEq(r.unwindProceeds, 0, "nothing was unwound");
+    /// @dev The outcome of a pushed-pool claim since the proportional unwind (WP-09; DEC-137, D-18): the unwind runs
+    ///      (no price floor, DEC-132), exits only the fraction of each position the claimant's shares call for, so the
+    ///      fund keeps every position, and sells the WETH through the fund's V3 swap adapter, outside the pushed pool
+    ///      (DEC-136 item 4). What the holder who stays can lose is bounded by the V4 value that left the position
+    ///      (D-18: bounded by the fraction).
+    function _assertResidualBounded(ICoreVault.PayoutReceipt memory r, uint256 positionsKept) internal view {
+        assertFalse(unwindFailed, "no floor: the unwind ran");
+        assertGt(r.fracNum, 0, "positions were unwound");
+        assertLt(r.fracNum, r.fracDen, "a fraction below one");
         assertEq(hubSpoke.positions().length, positionsKept, "the fund keeps every position");
-        assertEq(post.v4AtOracle, pre.v4AtOracle, "V4 principal untouched");
-        assertGe(post.alice + 1, pre.alice, "the holder who stays loses nothing");
-        assertLt(int256(post.attacker), int256(pre.attacker), "the round trip costs the attacker its pool fees");
+        uint256 exited = pre.v4AtOracle - post.v4AtOracle;
+        assertLe(
+            exited,
+            Math.mulDiv(pre.v4AtOracle, r.fracNum, r.fracDen) + 2e6,
+            "DEC-137: only the claimant's fraction left the V4 position"
+        );
+        assertLe(pre.alice, post.alice + exited, "D-18: the holder who stays loses at most what left the position");
     }
 
     // ------------------------------------------------------------------ 1. shapes, deep push, claim above Free Idle
@@ -225,8 +222,8 @@ contract UnwindAttackFork is IntegrationPriceBase {
         console2.log("round trip alone costs the attacker (USD 6dp)");
         console2.logInt(cost);
         _logFixChecks(o0, o1);
-        _assertCrushBlocked(r, 2);
-        assertGt(r.usdcOutstanding, 0, "Partial Payout from Free Idle only, the rest stays requested");
+        _assertResidualBounded(r, 2);
+        assertGt(r.unwindProceeds, 0, "DEC-136: the independent route supplements Idle");
     }
 
     function test_REVIEW_C01_deepPush_inRangePlusMinus5() public {
@@ -258,7 +255,7 @@ contract UnwindAttackFork is IntegrationPriceBase {
         console2.log("round trip alone costs the attacker (USD 6dp)");
         console2.logInt(cost);
         _logFixChecks(0, 0);
-        _assertCrushBlocked(r, 2);
+        _assertResidualBounded(r, 2);
     }
 
     /// @dev Same, with liquidity left under the pushed price so the vault's sale would clear a spot floor: the exit is
@@ -292,12 +289,10 @@ contract UnwindAttackFork is IntegrationPriceBase {
 
     /// @dev DEC-144: the claimant's Payout Fee now stays in Idle and mostly goes to Alice, which more than covers the
     ///      sale's market cost at today's pool depth; net of her part of that fee, the 2% push still costs her.
-    function _assertAliceLosesNetOfTheFee(ICoreVault.PayoutReceipt memory r) internal view {
+    function _assertIndependentSalePreservesAlice(ICoreVault.PayoutReceipt memory r) internal view {
         uint256 feePart =
             Math.mulDiv(r.payoutFee, IERC20(shareToken).balanceOf(alice), IERC20(shareToken).totalSupply());
-        assertGt(
-            pre.alice + feePart, post.alice + 100e6, "Alice still loses over 100 USDC on a 2% push, net of the fee"
-        );
+        assertGe(post.alice + 2e6, pre.alice + feePart, "DEC-136: the fund-pool push no longer discounts the V3 sale");
     }
 
     function hubSqrtP0Now() internal view returns (uint160 s) {
@@ -308,7 +303,7 @@ contract UnwindAttackFork is IntegrationPriceBase {
     function test_REVIEW_C01_edgePushWithLiquidity_underTheRange_plusMinus5() public {
         ICoreVault.PayoutReceipt memory r =
             _edgeWithLiquidity(948_000, "push to -5.2% (under a +-5% range), liquidity under it");
-        _assertCrushBlocked(r, 2);
+        _assertResidualBounded(r, 2);
     }
 
     /// @dev STILL PRESENT inside the floor (S-2 residual). e5c778a: the fund lost 1.55% of the exited value (Alice
@@ -319,7 +314,7 @@ contract UnwindAttackFork is IntegrationPriceBase {
         assertFalse(unwindFailed, "the floor lets a 2% push through");
         assertGt(r.unwindProceeds, 30_000e6, "the unwind ran");
         assertEq(hubSpoke.positions().length, 2, "the V4 position was only decreased");
-        _assertAliceLosesNetOfTheFee(r);
+        _assertIndependentSalePreservesAlice(r);
         assertGe(swapOut, Math.mulDiv(swapIn, _oracle(), 1e18) * 95 / 100, "the sale is above the oracle floor");
     }
 
@@ -343,7 +338,7 @@ contract UnwindAttackFork is IntegrationPriceBase {
         _logFixChecks(o0, o1);
         assertFalse(unwindFailed, "the floor lets a 2% push through");
         assertGt(r.unwindProceeds, 30_000e6, "the unwind ran");
-        _assertAliceLosesNetOfTheFee(r);
+        _assertIndependentSalePreservesAlice(r);
     }
 
     // ------------------------------------------------------------------ 3. several positions, one pool / two pools
@@ -366,7 +361,7 @@ contract UnwindAttackFork is IntegrationPriceBase {
         (ICoreVault.PayoutReceipt memory r, uint256 gas) =
             _attack(_one(_crushLeg(hubKey, ARB_V4_STATE_VIEW, CRUSH)), "");
         _logOutcome("two positions (+-5% and +-50%) in the scripts' pool", r, gas);
-        _assertCrushBlocked(r, 3);
+        _assertResidualBounded(r, 3);
     }
 
     /// @dev A Mandate with a second hub V4 pool (the live WETH/USDC 0.3% pool), its position opened before Aave's (the
@@ -400,7 +395,7 @@ contract UnwindAttackFork is IntegrationPriceBase {
         _logOutcome("one position in each of two Mandate pools", r, gas);
         console2.log("round trip alone costs the attacker (USD 6dp)");
         console2.logInt(cost);
-        _assertCrushBlocked(r, 3);
+        _assertResidualBounded(r, 3);
     }
 
     // ------------------------------------------------------------------ 4. minimum stake, Standard payout
@@ -408,7 +403,7 @@ contract UnwindAttackFork is IntegrationPriceBase {
     /// @dev The manager allocated all Free Idle (the attacker deposited before). One share is the whole stake.
     ///      e5c778a: +99,496 for the attacker. Now the crushed unwind reverts, nothing is payable from a Free Idle of 0,
     ///      so the claim, and with it the whole attack transaction, reverts `InsufficientFreeIdle`.
-    function test_REVIEW_C01_minimumStake_oneShare_freeIdleZero_attackReverts() public {
+    function test_DEC137_minimumStake_oneShare_freeIdleZero_fractionStaysBounded() public {
         _setUpFund(100_000, 100_000, V4_VALUE, 0, 2e6);
         assertEq(IERC20(shareToken).balanceOf(address(attacker)), 1e18, "one whole share");
         assertEq(core.freeIdle(), 0);
@@ -416,22 +411,22 @@ contract UnwindAttackFork is IntegrationPriceBase {
         _fund(FLASH_WETH, FLASH_USDC);
         PoolActor.Leg[] memory legs = _one(_crushLeg(hubKey, ARB_V4_STATE_VIEW, 1e12)); // 1/1,000,000
         uint256 v4Before = _hubV4PrincipalAtOracle();
-        vm.expectPartialRevert(ICoreVault.InsufficientFreeIdle.selector);
-        attacker.attack(legs, core, "");
+        (ICoreVault.PayoutReceipt memory receipt,) = _attack(legs, "");
+        assertLe(receipt.sharesBurned, 1e18, "DEC-137: one share serves at most one share");
         assertEq(hubSpoke.positions().length, 2, "position intact");
-        assertEq(_hubV4PrincipalAtOracle(), v4Before);
+        assertLe(v4Before - _hubV4PrincipalAtOracle(), v4Before * 11 / 1_000_000 + 2e6, "one-share fraction bound");
     }
 
     /// @dev e5c778a: +99,496 with a Standard request after the term, just the same.
-    function test_REVIEW_C01_minimumStake_standardPayout_attackReverts() public {
+    function test_DEC137_minimumStake_standardPayout_fractionStaysBounded() public {
         _setUpFund(100_000, 100_000, V4_VALUE, 0, 2e6);
         attacker.requestPayout(core, 2e6, ICoreVaultPayouts.PayoutMode.Standard);
         assertEq(core.payoutRequest(address(attacker)).reserved, 0, "nothing reserved: Free Idle was 0");
         _advance(72 hours + 1);
         _fund(FLASH_WETH, FLASH_USDC);
         PoolActor.Leg[] memory legs = _one(_crushLeg(hubKey, ARB_V4_STATE_VIEW, 1e12));
-        vm.expectPartialRevert(ICoreVault.InsufficientFreeIdle.selector);
-        attacker.attack(legs, core, "");
+        (ICoreVault.PayoutReceipt memory receipt,) = _attack(legs, "");
+        assertLe(receipt.sharesBurned, 1e18, "DEC-137: one share serves at most one share");
         assertEq(hubSpoke.positions().length, 2, "position intact");
     }
 
@@ -445,10 +440,14 @@ contract UnwindAttackFork is IntegrationPriceBase {
         _deposit(bruno, STAKE);
         _allocate(core.freeIdle() - BUFFER);
         _parkMoreInAave();
-        vm.prank(bruno);
-        core.requestPayout(STAKE * 99 / 100, ICoreVaultPayouts.PayoutMode.Instant);
+        // Bruno's Instant request is his claim (DEC-120 item 1): `_brunoClaims` sends it inside the sandwich.
         _fund(FLASH_WETH, FLASH_USDC);
         legs = _one(_crushLeg(hubKey, ARB_V4_STATE_VIEW, CRUSH));
+    }
+
+    function _brunoClaims() internal returns (ICoreVault.PayoutReceipt memory) {
+        vm.prank(bruno);
+        return core.requestPayout(STAKE * 99 / 100, ICoreVaultPayouts.PayoutMode.Instant, 0);
     }
 
     function _parkMoreInAave() internal {
@@ -464,8 +463,7 @@ contract UnwindAttackFork is IntegrationPriceBase {
         uint256 brunoBefore = _wealth(bruno);
         attacker.push(legs);
         vm.recordLogs();
-        vm.prank(bruno);
-        ICoreVault.PayoutReceipt memory r = core.claimPayout("");
+        ICoreVault.PayoutReceipt memory r = _brunoClaims();
         _readUnwindEvents(vm.getRecordedLogs());
         attacker.restore(legs);
         post = _book();
@@ -473,48 +471,28 @@ contract UnwindAttackFork is IntegrationPriceBase {
         console2.log("Bruno wealth change (6dp)");
         int256 brunoChange = int256(_wealth(bruno)) - int256(brunoBefore);
         console2.logInt(brunoChange);
-        _assertCrushBlocked(r, 2);
+        _assertResidualBounded(r, 2);
     }
 
-    /// @dev Fix option (c) emulated through the claimant's own hint, as at e5c778a: Bruno floors the WETH swap at the
-    ///      oracle price less 3%. The vault's own S-2 floor already reverts the unwind; the e5c778a residual, Bruno's
-    ///      Idle-paid part priced at the pushed composition (C-02), is gone too (S-1): Alice loses nothing.
-    function test_REVIEW_C01_thirdParty_oracleFloorHint_noShareRouteResidual() public {
+    /// @dev Fix option (c) of e5c778a, the claimant's own floor, is now the requester's maximum loss (DEC-140): Bruno
+    ///      claims with a 3% maximum against the mid of the pool each sale runs in. The sale no longer runs in the
+    ///      pushed V4 pool but through the fund's V3 swap adapter (DEC-136 item 4), so the push does not reach it and the
+    ///      maximum holds; only the fraction of the V4 position his shares call for leaves it (DEC-137).
+    function test_REVIEW_C01_thirdParty_requesterMaximumHolds() public {
         PoolActor.Leg[] memory legs = _thirdPartySetUp();
-        bytes memory hints = _oracleHints(STAKE * 99 / 100 - core.freeIdle());
         pre = _book();
         attacker.push(legs);
         vm.recordLogs();
         vm.prank(bruno);
-        ICoreVault.PayoutReceipt memory r = core.claimPayout(hints);
+        ICoreVault.PayoutReceipt memory r =
+            core.requestPayout(STAKE * 99 / 100, ICoreVaultPayouts.PayoutMode.Instant, 300);
         _readUnwindEvents(vm.getRecordedLogs());
         attacker.restore(legs);
         post = _book();
-        _logOutcome("third party around Bruno's claim, Bruno's hint floors the swap at the oracle", r, 0);
-        assertTrue(unwindFailed, "UnwindForPayoutFailed: the floor reverted the unwind");
-        assertEq(hubSpoke.positions().length, 2, "the V4 position is intact");
-        assertEq(r.unwindProceeds, 0);
-        assertGt(r.usdcOutstanding, 0, "Partial Payout from Free Idle only");
-        assertGe(post.alice + 1, pre.alice, "no residual: the Share Price is read at the oracle composition (S-1)");
-    }
-
-    function _oracleHints(uint256 shortfall) internal view returns (bytes memory) {
-        IAdapter.PositionValue memory v = IAdapter(hubUniswap).positionValue(v4Position);
-        uint256 value = v.principal1 + IAdapter(hubUniswap).spotQuote(hubPoolId, ARB_WETH, v.principal0);
-        uint256 target = shortfall + shortfall * 200 / 10_000;
-        uint256 wethOut = value <= target ? v.principal0 : Math.mulDiv(v.principal0, target, value);
-        SpokeUnwindTypes.UnwindSwap[] memory swaps = new SpokeUnwindTypes.UnwindSwap[](1);
-        swaps[0] = SpokeUnwindTypes.UnwindSwap({
-            adapter: hubUniswap,
-            poolKey: hubPoolId,
-            tokenIn: ARB_WETH,
-            minAmountOut: Math.mulDiv(wethOut, _oracle(), 1e18) * 97 / 100,
-            params: _swapParams()
-        });
-        SpokeUnwindTypes.UnwindHint[] memory hints = new SpokeUnwindTypes.UnwindHint[](2);
-        hints[0] = SpokeUnwindTypes.UnwindHint({swaps: swaps});
-        hints[1] = SpokeUnwindTypes.UnwindHint({swaps: new SpokeUnwindTypes.UnwindSwap[](0)});
-        return abi.encode(hints);
+        _logOutcome("third party around Bruno's claim, Bruno's 3% maximum", r, 0);
+        assertFalse(unwindFailed, "the unwind ran");
+        assertEq(r.excludedPositions, 0, "the V3 sale held the 3% maximum");
+        _assertResidualBounded(r, 2);
     }
 
     function _sawUnwindFailed(Vm.Log[] memory logs) internal view returns (bool) {
@@ -534,19 +512,25 @@ contract UnwindAttackFork is IntegrationPriceBase {
     /// @dev Report 04 (checked and found correct, still holds): the push must use outside capital. Inside the
     ///      attacker's own unlock, the vault's exit calls the PositionManager, whose `unlock` reverts AlreadyUnlocked:
     ///      the unwind fails and the claim is paid from Free Idle only; the position survives.
-    function test_REVIEW_C01_refute_flashAccountingCannotWrapTheUnwind() public {
+    function test_DEC148_flashAccountingExcludesOnlyTheLockedV4Position() public {
         _setUpFund(100_000, 100_000, V4_VALUE, BUFFER, STAKE);
-        attacker.requestPayout(core, _holderValue(address(attacker)), ICoreVaultPayouts.PayoutMode.Instant);
+        uint256 claim = _holderValue(address(attacker));
         _fund(FLASH_WETH, FLASH_USDC);
         PoolActor.Leg memory leg = _crushLeg(hubKey, ARB_V4_STATE_VIEW, CRUSH);
         vm.recordLogs();
+        // The attacker's Instant request is its claim (DEC-120 item 1), sent inside its own unlock.
         bytes memory ret = attacker.around(
-            hubKey, true, leg.pushTo, address(core), abi.encodeCall(ICoreVaultPayouts.claimPayout, (""))
+            hubKey,
+            true,
+            leg.pushTo,
+            address(core),
+            abi.encodeCall(ICoreVaultPayouts.requestPayout, (claim, ICoreVaultPayouts.PayoutMode.Instant, uint16(0)))
         );
-        bool failed = _sawUnwindFailed(vm.getRecordedLogs());
+        _readUnwindEvents(vm.getRecordedLogs());
         ICoreVault.PayoutReceipt memory r = abi.decode(ret, (ICoreVaultPayouts.PayoutReceipt));
-        assertTrue(failed, "the unwind reverted inside the attacker's unlock");
-        assertEq(r.unwindProceeds, 0);
+        assertFalse(unwindFailed, "DEC-148: failure is isolated to the V4 position");
+        assertEq(r.excludedPositions, 1);
+        assertGt(r.unwindProceeds, 0, "Aave delivers even while V4 is locked");
         assertEq(hubSpoke.positions().length, 2, "position intact");
     }
 
@@ -767,9 +751,13 @@ contract UnwindAttackFork is IntegrationPriceBase {
         (Row memory honest, Row memory jit,) = _residual(480);
         assertTrue(jit.ran, "the floor lets a 4.8% push through");
         assertGe(jit.usdcOut, Math.mulDiv(jit.wethSold, _oracle(), 1e18) * 95 / 100, "sale above the oracle floor");
-        assertLt(jit.usdcOut, Math.mulDiv(jit.wethSold, _oracle(), 1e18) * 96 / 100, "sale over 4% under the oracle");
-        assertGt(honest.alice, jit.alice + 700e6, "the holder who stays loses over 700 USDC against an honest claim");
-        assertGt(jit.attacker, honest.attacker + 600e6, "the claimant keeps over 600 USDC over an honest claim");
+        assertGe(
+            jit.usdcOut,
+            Math.mulDiv(jit.wethSold, _oracle(), 1e18) * 99 / 100,
+            "V3 sale is independent of the pushed V4 price"
+        );
+        assertGe(jit.alice + 2e6, honest.alice, "the V4 push no longer transfers sale loss to Alice");
+        assertLe(jit.attacker, honest.attacker + 2e6, "the round trip does not enrich the claimant");
     }
 
     function test_REVIEW_C01_measure_floorResidual_push490bps() public {
@@ -783,8 +771,8 @@ contract UnwindAttackFork is IntegrationPriceBase {
         (Row memory honest, Row memory jit,) =
             _residual(480, RESIDUAL_STAKE, BUFFER, ICoreVaultPayouts.PayoutMode.Standard, 40e18);
         assertTrue(jit.ran, "the floor lets a 4.8% push through");
-        assertGt(jit.attacker, honest.attacker + 600e6, "over 600 USDC above an honest Standard exit");
-        assertGt(jit.attacker, attackerBefore, "the claimant leaves with more than its shares were worth");
+        assertLe(jit.attacker, honest.attacker + 2e6, "no gain above the honest Standard exit");
+        assertLe(jit.attacker, attackerBefore, "the round trip costs the claimant");
     }
 
     /// @dev Scale: Free Idle 0 and a 100,000 stake, so the claim needs the whole V4 position and the rest comes from

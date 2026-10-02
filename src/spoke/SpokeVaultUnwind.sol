@@ -5,37 +5,44 @@ import {ISpokeVaultUnwind} from "../interfaces/ISpokeVaultUnwind.sol";
 import {OrderCodec} from "../libraries/OrderCodec.sol";
 import {SpokeVaultBase} from "./SpokeVaultBase.sol";
 import {SpokeUnwindLib} from "./SpokeUnwindLib.sol";
+import {SpokeUnwindTypes} from "./SpokeUnwindTypes.sol";
 
 /// @title SpokeVaultUnwind
 /// @notice The hub Spoke Vault's automatic unwind for a payout, and the executors of the Core Vault's unwind and
 ///         closure orders on a spoke. See ISpokeVault.
-/// @dev The entry keeps the chain, caller and reentrancy checks; the body runs in the linked library `SpokeUnwindLib`
-///      (DEC-131). Split out of SpokeVault (WP-07 A3) so the unwind has its own source file.
+/// @dev The entries keep the chain, caller and reentrancy checks; the bodies run in the linked library
+///      `SpokeUnwindLib` (DEC-131). Split out of SpokeVault (WP-07 A3) so the unwind has its own source file.
 abstract contract SpokeVaultUnwind is SpokeVaultBase {
-    /// @notice Largest shortfall below the pool's current price, in bps, that an automatic unwind swap accepts: the
-    ///         swap's minimum output is at least the route's `IAdapter.spotQuote` less this share.
-    /// @dev OPEN parameter (QA3: the price guard of hub positions is undecided; final verification). Measured from the
-    ///      higher of the route's spot quote and the Core Vault's price-source value (security review S-2: a spot price
-    ///      can be moved within a block by the claimant); a claimant hint may only raise the minimum. Applied by the
-    ///      linked `SpokeUnwindLib`, whose constant this is (DEC-131).
-    uint256 public constant MAX_UNWIND_SLIPPAGE_BPS = SpokeUnwindLib.MAX_UNWIND_SLIPPAGE_BPS;
+    /// @notice DEC-141: in a Standard Payout the fund absorbs each unwind sale's loss up to this share of the value
+    ///         sold, in bps; the requester bears the excess. Applied by the linked `SpokeUnwindLib`, whose constant
+    ///         this is.
+    uint256 public constant STANDARD_SALE_LOSS_ABSORB_BPS = SpokeUnwindLib.STANDARD_SALE_LOSS_ABSORB_BPS;
 
     // ---------------------------------------------------------------------------------------------------------------
-    // Automatic unwind (DEC-069, DEC-081, DEC-097, DEC-131)
+    // Automatic unwind (DEC-137, DEC-140, DEC-141, DEC-148, DEC-151; DEC-131)
     // ---------------------------------------------------------------------------------------------------------------
 
     /// @inheritdoc ISpokeVaultUnwind
-    /// @dev DEC-069, DEC-081, DEC-097, DEC-131: the body lives in the linked library `SpokeUnwindLib` (see
-    ///      `SpokeUnwindLib.unwindForPayout`); the vault keeps the chain, caller and reentrancy checks.
-    /// @param unwindHints `abi.encode(SpokeUnwindTypes.UnwindHint[])`, optional, one per position in registry order.
-    function unwindForPayout(uint256 usdcTarget, bytes calldata unwindHints)
+    function unwindForPayout(UnwindRequest calldata request)
         external
         onlyOnHubChain
         nonReentrant
-        returns (uint256 usdcProceeds)
+        returns (UnwindResult memory result)
     {
         if (msg.sender != coreVault) revert NotCoreVault(msg.sender);
-        usdcProceeds = SpokeUnwindLib.unwindForPayout(_s, _config(), usdcTarget, unwindHints);
+        result = SpokeUnwindLib.unwindForPayout(_s, _config(), request);
+    }
+
+    /// @inheritdoc ISpokeVaultUnwind
+    /// @dev Not `nonReentrant`: only this vault calls it, from inside `unwindForPayout`, which holds the guard.
+    function unwindStep(bytes calldata step) external returns (bytes memory) {
+        if (msg.sender != address(this)) revert SpokeUnwindTypes.UnwindStepNotSelf(msg.sender);
+        return SpokeUnwindLib.unwindStep(_s, _config(), step);
+    }
+
+    /// @inheritdoc ISpokeVaultUnwind
+    function unwindDelivered(bytes32 requestId, address adapter, bytes32 positionKey) external view returns (bool) {
+        return _s.unwind.delivered[requestId][SpokeUnwindTypes.stepId(adapter, positionKey)];
     }
 
     // ---------------------------------------------------------------------------------------------------------------

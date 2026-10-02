@@ -55,11 +55,11 @@ contract L01_IncomeTimingCapture is CoreAHubFixture {
         // for more than her balance is worth so the burn is capped at the whole balance (DEC-020; QA23 rounding aside).
         uint256 value = ShareMath.usdcFor(minted, vault.sharePrice());
         vm.prank(mallory);
-        vault.requestPayout(2 * value, ICoreVaultPayouts.PayoutMode.Standard);
+        vault.requestPayout(2 * value, ICoreVaultPayouts.PayoutMode.Standard, 0);
         vm.warp(block.timestamp + 72 hours);
         uint256 before = usdc.balanceOf(mallory);
         vm.prank(mallory);
-        vault.claimPayout("");
+        vault.claimPayout(0);
         uint256 principalBack = usdc.balanceOf(mallory) - before;
         int256 pnl = int256(principalBack + malloryIncome) - int256(100_000e6);
         console2.log("Mallory: paid 100,000, got back principal", principalBack);

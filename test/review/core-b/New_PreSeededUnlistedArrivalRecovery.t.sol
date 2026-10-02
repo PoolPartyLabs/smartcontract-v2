@@ -40,7 +40,7 @@ contract New_PreSeededUnlistedArrivalRecovery is CoreBCrossChainFixture {
         uint256 fairAssets = vault.shareAssets();
         assertEq(fairAssets, SEED_IDLE + 997_450e6);
         vm.prank(bob);
-        vault.requestPayout(1_000_000e6, ICoreVaultPayouts.PayoutMode.Standard);
+        vault.requestPayout(1_000_000e6, ICoreVaultPayouts.PayoutMode.Standard, 0);
 
         bytes32 predicted = keccak256(abi.encode(FUND_ID, SPOKE, uint256(1)));
         usdc.mint(address(hubAcross), 1);
@@ -70,7 +70,7 @@ contract New_PreSeededUnlistedArrivalRecovery is CoreBCrossChainFixture {
         _report();
         assertEq(vault.shareAssets(), fairAssets - (ARRIVES - HOME_OUT), "only the bridge fee is gone");
         vm.prank(bob);
-        ICoreVault.PayoutReceipt memory r = vault.claimPayout("");
+        ICoreVault.PayoutReceipt memory r = vault.claimPayout(0);
         assertEq(r.usdcPaid, 497_453_250_050, "the honest payout");
         vm.expectRevert(abi.encodeWithSelector(ICoreVault.NothingToRecover.selector, home));
         vault.recoverUnlistedArrival(0, home);
@@ -87,7 +87,7 @@ contract New_PreSeededUnlistedArrivalRecovery is CoreBCrossChainFixture {
         _report();
         uint256 fairAssets = vault.shareAssets();
         vm.prank(bob);
-        vault.requestPayout(1_000_000e6, ICoreVaultPayouts.PayoutMode.Standard);
+        vault.requestPayout(1_000_000e6, ICoreVaultPayouts.PayoutMode.Standard, 0);
 
         _willArrive(HOME_OUT);
         vm.prank(manager);
@@ -107,7 +107,7 @@ contract New_PreSeededUnlistedArrivalRecovery is CoreBCrossChainFixture {
         vault.recoverUnlistedArrival(0, home);
         assertEq(vault.shareAssets(), fairAssets - (ARRIVES - HOME_OUT), "counted once, in Idle");
         vm.prank(bob);
-        ICoreVault.PayoutReceipt memory r = vault.claimPayout("");
+        ICoreVault.PayoutReceipt memory r = vault.claimPayout(0);
         assertEq(r.usdcPaid, 497_453_250_050, "the honest payout");
     }
 

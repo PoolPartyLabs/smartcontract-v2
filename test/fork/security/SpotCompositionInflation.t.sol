@@ -73,8 +73,7 @@ contract SpotCompositionInflationForkTest is EndToEndScenario {
     /// @dev A Payout claimed in that state is priced at the oracle-price Share Price and paid from Idle.
     function _claimAtTheRaisedPrice() internal {
         vm.startPrank(ana);
-        core.requestPayout(PAYOUT, ICoreVaultPayouts.PayoutMode.Instant);
-        ICoreVault.PayoutReceipt memory receipt = core.claimPayout("");
+        ICoreVault.PayoutReceipt memory receipt = core.requestPayout(PAYOUT, ICoreVaultPayouts.PayoutMode.Instant, 0);
         vm.stopPrank();
         assertEq(receipt.unwindProceeds, 0, "paid from Free Idle, nothing unwound");
         assertApproxEqRel(receipt.sharePrice, priceFair, 1e9, "S-1: the claim burned at the oracle-price Share Price");

@@ -82,8 +82,7 @@ contract CoreVaultConsolidateVerifyTest is CoreVaultFixture {
         assertEq(truth, vault.idle(), "everything is Idle again");
 
         hubVault.setBuildReverts(true);
-        _request(alice, 100e6, ICoreVaultPayouts.PayoutMode.Instant);
-        ICoreVault.PayoutReceipt memory r = _claim(alice);
+        ICoreVault.PayoutReceipt memory r = _request(alice, 100e6, ICoreVaultPayouts.PayoutMode.Instant);
         assertEq(r.shareAssets, truth, "the fallback must not count the returned 1,000 a second time");
     }
 
@@ -95,10 +94,9 @@ contract CoreVaultConsolidateVerifyTest is CoreVaultFixture {
         assertEq(truth, vault.idle() + 1000e6, "the 1,000 moved to the hub Spoke Vault");
 
         hubVault.setBuildReverts(true);
-        _request(alice, 100e6, ICoreVaultPayouts.PayoutMode.Instant);
         vm.expectEmit(address(vault));
         emit ICoreVault.HubValuationFallback(1000e6);
-        ICoreVault.PayoutReceipt memory r = _claim(alice);
+        ICoreVault.PayoutReceipt memory r = _request(alice, 100e6, ICoreVaultPayouts.PayoutMode.Instant);
         assertEq(r.shareAssets, truth, "the fallback must count the allocated 1,000");
     }
 
