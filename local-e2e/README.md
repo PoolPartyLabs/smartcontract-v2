@@ -3,7 +3,8 @@
 Two long-lived local anvil nodes, one forking **Arbitrum One** (Hub Chain, chain id 42161, port 8545) and one forking
 **Robinhood Chain** (Spoke Chain, chain id 4663, port 8546), with the whole protocol deployed through the repository's
 real deployment scripts, a keeper that stands in for what does not exist locally (the Across relayers and the Wormhole
-guardians), and a scenario runner that drives one fund end to end over JSON-RPC with real signed transactions.
+guardians, in both directions), a scenario runner that drives one fund end to end over JSON-RPC with real signed
+transactions, a minimal API with the API signer's key, and a run report for every run.
 
 It is a developer tool for the API and frontend teams (and for anyone who wants to watch the contracts interact), not
 production code. Everything the contracts talk to is the real mainnet contract as of the fork block; only the off-chain
@@ -14,17 +15,21 @@ actors are simulated.
 - Foundry 1.7+ (`anvil`, `forge`) on the `PATH`: <https://getfoundry.sh>
 - Node 24 and pnpm (10 or later)
 - `bash`, `curl`, `lsof` (macOS or Linux)
-- Network access to an Arbitrum One and a Robinhood Chain RPC (the public endpoints work, see
-  [Troubleshooting](#troubleshooting) for how long)
+- Network access to an Arbitrum One and a Robinhood Chain RPC. An archive endpoint is best: one Alchemy key serves both
+  chains (Alchemy supports Robinhood Chain mainnet as well as Arbitrum One). Export `ARBITRUM_RPC_URL` and
+  `ROBINHOOD_RPC_URL` (and, for reproducible runs, `ARBITRUM_FORK_BLOCK` and `ROBINHOOD_FORK_BLOCK`) in the shell that
+  runs `pnpm run up`, for instance by sourcing a local env file; the harness prints the upstream host only, never the
+  URL. The public endpoints work for short sessions (see [Troubleshooting](#troubleshooting)).
 
 ## Quick start
 
 ```bash
 cd local-e2e
 pnpm install
-pnpm run up                        # build, fork, deploy, fund, guardian, warm-up: about a minute
-pnpm keeper --auto-report 600      # in another terminal: Across fills, VAAs, reports every 10 min
-pnpm scenario                      # the end-to-end scenario over JSON-RPC: about 40 s
+pnpm run up                        # build, fork, deploy, fund, guardians, seeded fund, warm-up: about a minute
+pnpm keeper --auto-report 600      # in another terminal: Across fills, VAAs both ways, reports every 10 min
+pnpm scenario                      # the end-to-end scenario over JSON-RPC (about 40 s), with a run report
+pnpm api:probe                     # the API's concepts over HTTP, with a run report
 pnpm status                        # nodes, keeper, addresses, fund books, freshness, balances
 pnpm down                          # stops the keeper and both forks
 ```
@@ -39,17 +44,17 @@ actor keys below, and read every address from `local-e2e/.state/deployment.json`
 
 | Command | What it does |
 |---|---|
-| `pnpm run up [--warm-up scenario\|none]` | `forge build`; starts both forks (`scripts/start-forks.sh`); `script/DeployFactory.s.sol` on both nodes with the operator's key (same factory address required, DEC-054); `script/CreateFund.s.sol` with the manager's key (`createFund` on the hub, `createSpoke` on Robinhood); replaces the hub Wormhole guardian set with the local guardian and self-tests a VAA; re-stamps Chainlink; finds the storage layouts the keeper needs; deploys the trader's swap routers; funds the actors (clearing the EIP-7702 delegations the public keys carry on mainnet); writes `.state/deployment.json`; then warms the fork caches (see [Troubleshooting](#troubleshooting)) |
+| `pnpm run up [--warm-up scenario\|none]` | `forge build`; starts both forks (`scripts/start-forks.sh`); `script/DeployFactory.s.sol` on both nodes with the operator's key (same factory address required, DEC-054; the API signer owns the ManagerRegistry); replaces the guardian set of both Wormhole Cores with the local guardian and self-tests a VAA in each direction; re-stamps Chainlink; finds the storage layouts the keeper needs; deploys the trader's swap routers and a Uniswap V3 swap adapter per chain for the API's signed routes; funds the actors (clearing the EIP-7702 delegations the public keys carry on mainnet); `script/CreateFund.s.sol` with the manager's key (`createFund` with the manager's seed on the hub, DEC-127; `createSpoke` on Robinhood); writes `.state/deployment.json`; then warms the fork caches (see [Troubleshooting](#troubleshooting)) |
 | `pnpm down` | Stops the keeper and both forks through their pid files (never another anvil), removes `deployment.json`, keeps the logs |
-| `pnpm keeper [--auto-report <s>] [--vaa-delay <s>] [--fill-delay <s>] [--fill-mode auto\|real\|simulated]` | The long-running keeper (see [Keeper](#keeper)); Ctrl-C finishes running work and exits |
-| `pnpm scenario [--keeper auto\|inprocess\|external] [--new-fund]` | The end-to-end scenario (see [Scenario](#scenario)); exits non-zero on the first failed assertion |
+| `pnpm keeper [--auto-report <s>] [--vaa-delay <s>] [--order-delay <s>] [--fill-delay <s>] [--fill-mode auto\|real\|simulated]` | The long-running keeper (see [Keeper](#keeper)); Ctrl-C finishes running work and exits |
+| `pnpm scenario [--keeper auto\|inprocess\|external] [--new-fund]` | The end-to-end scenario (see [Scenario](#scenario)); exits non-zero on the first failed assertion; writes a [run report](#run-reports) |
 | `pnpm warp <duration> [--no-report]` | Advances **both** clocks (`3600`, `90s`, `30m`, `72h`, `3d`; `0` just refreshes), re-stamps Chainlink and publishes a fresh report from every spoke, delivered by the running keeper or directly |
 | `pnpm status` | Nodes, keeper, deployment, fund books, report and price freshness, actor balances |
 | `pnpm abis` | Re-exports `abis/*.json` from `forge build` (commit the result when the contracts change) |
-| `pnpm api` | A minimal read-and-build API over both forks on `127.0.0.1:8787` (see [API probe](#api-probe)) |
-| `pnpm api:probe` | Starts that API in-process with the keeper and checks, over HTTP, the concepts the product API relies on; run it on a fresh `up` |
+| `pnpm api` | A minimal API over both forks on `127.0.0.1:8787`, holding the API signer's key (see [API probe](#api-probe)) |
+| `pnpm api:probe` | Starts that API in-process with the keeper and checks, over HTTP, the concepts the product API relies on, on an unused fund (a fresh one when the deployed fund was used); writes a [run report](#run-reports) |
 | `pnpm exec tsx src/fund-accounts.ts` | Tops every actor up again (idempotent) |
-| `pnpm exec tsx src/guardian.ts` | Re-applies the guardian override (idempotent) and self-tests a VAA |
+| `pnpm exec tsx src/guardian.ts` | Re-applies the guardian override on both Cores (idempotent) and self-tests a VAA in each direction |
 
 ## What is real and what is simulated
 
@@ -59,11 +64,12 @@ actor keys below, and read every address from `local-e2e/.state/deployment.json`
 | Uniswap V4 (PoolManager, PositionManager, StateView, the WETH/USDC and WETH/USDG 0.05% pools), Aave V3 Pool, USDC, USDG, WETH | Real contracts and liquidity as of the fork block | Live |
 | Across SpokePools | Real: deposits go through `depositV3` on the live pool, fills through the live pool's `fillRelay` | Live |
 | Across relayer | **Simulated by the keeper**, which fills every deposit to a fund vault through the real `SpokePool.fillRelay` as a funded relayer, so the pool itself transfers the output token and calls `handleV3AcrossMessage`. A simulated fill (pool impersonated) is only a logged fallback | Independent relayers, fill speed and willingness depend on fees |
-| Across quotes | Built locally: `outputAmount` = input minus a fee within `maxBridgeFeeBps`, `quoteTimestamp` = latest block | Across API (`/suggested-fees`) |
+| Across send terms | Fixed by the fund's Across bridge adapter (DEC-158, DEC-162): the amount to arrive from its fee rule over the route's last sends, quote time = the block, no exclusivity; nobody passes a quote (`quoteSend` shows it first) | Same contracts; the API may later relay a signed quote (R-162-B, WP-11) |
 | Across refunds and repayments | **None**: no dataworker, no bundles; an unfilled deposit stays unrefunded | Refund of the full input to the escrow after the fill deadline, by bundle |
-| Wormhole Cores | Real contracts: `report()` publishes on the Robinhood Core, `parseAndVerifyVM` runs on the Arbitrum Core | Live |
-| Wormhole guardians | **Simulated**: one local guardian (the SDK's devnet key) replaces the Arbitrum Core's guardian set in storage (quorum 1 of 1); the keeper signs after `KEEPER_VAA_DELAY_SECONDS` | 13 of 19 guardians, after 15 to 20 minutes of Robinhood finality |
-| VAA delivery and report cadence | The keeper (`deliver` is permissionless; `--auto-report` calls `report()`) | The protocol's keeper (or anyone) |
+| Wormhole Cores | Real contracts: `report()` publishes on the Robinhood Core and `parseAndVerifyVM` runs on the Arbitrum Core; Hub orders publish on the Arbitrum Core and verify on the Robinhood Core | Live |
+| Wormhole guardians | **Simulated**: one local guardian (the SDK's devnet key) replaces the guardian set of **both** Cores in storage (quorum 1 of 1); the keeper signs reports after `KEEPER_VAA_DELAY_SECONDS` and orders after `KEEPER_ORDER_DELAY_SECONDS` | 13 of 19 guardians, after 15 to 20 minutes of Robinhood finality for reports, at once for instant-consistency orders |
+| VAA delivery and report cadence | The keeper (`deliver` and `executeOrder` are permissionless; `--auto-report` calls `report()`); the API publishes a report after each deposit (DEC-159) | The protocol's keeper, the API (or anyone) |
+| Uniswap V3 (swaps, DEC-136) | Real factory, QuoterV2, SwapRouter02 and pools; the API signs routes with QuoterV2 on the fork for a swap adapter per chain whose vault is the manager's wallet, until the factory deploys each fund's own (WP-07) | The Pool Party API signs routes from the Uniswap Trading API's quote |
 | Chainlink ETH / USD | Real feed with its answer frozen at the fork block; the round's timestamp is re-stamped by the keeper and by `warp` (no rounds are posted on a fork) | Live rounds (heartbeat and deviation) |
 | Balances | Written into the tokens' balance mappings (USDC, USDG) and wrapped from ETH (WETH) | Real funds |
 | Time | Both anvil clocks, advanced together by `warp` | Wall clock |
@@ -84,20 +90,25 @@ use them on a real network.**
 | stranger | 5 | `0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc` | `0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba` | Permissionless calls, donations |
 | protocolRecipient | 6 | `0x976EA74026E726554dB657fA54763abd0C3a0aa9` | `0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e` | Protocol Recipient: flow fee, protocol slice, swept excess (DEC-106) |
 | trader | 7 | `0x14dC79964da2C08b23698B3D3cc7Ca32193d9955` | `0x4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356` | Swaps in the V4 pools to generate fees (50M USDC and USDG, 10,000 WETH per chain) |
+| apiSigner | 8 | `0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f` | `0xdbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97` | The Pool Party API's key (reading D-01 of DEC-112): ManagerRegistry owner (`REGISTRY_OWNER`), route signer of the swap adapters and future quote signer of the bridge adapters (`API_SIGNER`), sender of the report after each deposit (DEC-159) |
 
-Every actor has 10,000 ETH on both nodes; the manager and the stranger also hold 10,000 USDC and 10,000 USDG. Because
-the keys are public, all eight accounts carry an EIP-7702 delegation (to a sweeper) on Arbitrum One and Robinhood Chain;
-funding clears it on the forks so the actors are plain EOAs. The local Wormhole guardian is
+The operator (account 0) deploys the factories and guards the adapters. Every actor has 10,000 ETH on both nodes; the
+manager and the stranger also hold 10,000 USDC and 10,000 USDG (the manager's seed of each fund comes out of his USDC).
+Because the keys are public, all nine accounts carry an EIP-7702 delegation (to a sweeper) on Arbitrum One and Robinhood
+Chain; funding clears it on the forks so the actors are plain EOAs. The local Wormhole guardian is
 `0xbeFA429d57cD18b7F8A4d91A2da9AB4AF05d0FBe` (key in `src/config.ts`).
 
 ## The default fund
 
 `up` creates fund `PP-1` with `script/CreateFund.s.sol`, the Mandate of the end-to-end fork scenario: hub Uniswap V4
-WETH/USDC 0.05% plus Aave V3 USDC, spoke Uniswap V4 WETH/USDG 0.05%, Across in both directions, a Spoke Cap of 4,000
-USDC, a maximum bridge fee of 4 bps, a 2% Payout Fee, a 72 h Standard Payout term, a 20% performance fee, no management
-fee, a 100 USDC minimum first deposit and a Robinhood `maxReportAge` of 1,588 s. `SPOKE_CAP`, `MIN_FIRST_DEPOSIT`,
-`PERFORMANCE_FEE_BPS` and `MAX_BRIDGE_FEE_BPS` override the values (the variables the script reads). More funds can be
-created with the same script or from the frontend; the keeper serves every fund the factories create.
+WETH/USDC 0.05% plus Aave V3 USDC, spoke Uniswap V4 WETH/USDG 0.05%, Across in both directions (the adapter's fee rule
+fixes every send, DEC-162; the Mandate's `maxBridgeFeeBps` is a dead field until Mandate v2), a Spoke Cap of 4,000 USDC,
+a 2% Payout Fee, a 72 h Standard Payout term, a 20% performance fee, no management fee, a 100 USDC minimum first
+deposit and a Robinhood `maxReportAge` of 1,588 s. The manager seeds it in the creation transaction (DEC-127): 100 USDC,
+99 shares at 1.00 after the 25 bps flow fee. `SPOKE_CAP`, `MIN_FIRST_DEPOSIT`, `SEED_AMOUNT` (default
+`MIN_FIRST_DEPOSIT`), `PERFORMANCE_FEE_BPS` and `MAX_BRIDGE_FEE_BPS` override the values (the variables the script
+reads). More funds can be created with the same script or from the frontend; the keeper serves every fund the
+factories create.
 
 ## The state file
 
@@ -105,24 +116,28 @@ created with the same script or from the frontend; the keeper serves every fund 
 
 ```jsonc
 {
-  "version": 1,
+  "version": 2,
   "createdAt": "2026-09-30T13:07:32.000Z",
   "nodes": {
     "arbitrum":  { "rpc": "http://127.0.0.1:8545", "chainId": 42161, "forkBlockNumber": 510354801, "forkBlockTimestamp": 1790773620 },
     "robinhood": { "rpc": "http://127.0.0.1:8546", "chainId": 4663,  "forkBlockNumber": 76538423,  "forkBlockTimestamp": 1790773621 }
   },
-  "actors": { "operator": "0x…", "manager": "0x…", "ana": "0x…", "bruno": "0x…", "keeper": "0x…", "stranger": "0x…", "protocolRecipient": "0x…", "trader": "0x…" },
-  "guardian": { "address": "0xbeFA…0FBe", "coreBridge": "0xa5f2…CA46", "guardianSetIndex": 8 },
+  "actors": { "operator": "0x…", "manager": "0x…", "ana": "0x…", "bruno": "0x…", "keeper": "0x…", "stranger": "0x…", "protocolRecipient": "0x…", "trader": "0x…", "apiSigner": "0x…" },
+  "guardian": { "address": "0xbeFA…0FBe",
+                "arbitrum":  { "coreBridge": "0xa5f2…CA46", "guardianSetIndex": 8 },
+                "robinhood": { "coreBridge": "0x141f…87FB", "guardianSetIndex": 8 } },
   "protocol": {
     "arbitrum":  { "fundFactory", "create3Deployer", "coreVaultLogic", "spokeCrossChainLib", "spokeUnwindLib",
                    "managerRegistry", "priceSource", "transitEscrowImplementation", "protocolRecipient", "adapterGuardian",
-                   "registryOwner" },
-    "robinhood": { "fundFactory", "create3Deployer", "spokeCrossChainLib", "spokeUnwindLib", "transitEscrowImplementation" }
+                   "registryOwner", "apiSigner" },
+    "robinhood": { "fundFactory", "create3Deployer", "spokeCrossChainLib", "spokeUnwindLib", "transitEscrowImplementation",
+                   "apiSigner" }
   },
   "external": { "arbitrum": { "usdc", "weth", "acrossSpokePool", "wormholeCore", "v4PoolManager", "v4PositionManager", "v4StateView",
-                              "aaveV3Pool", "aaveV3AddressesProvider", "aUsdc", "ethUsdFeed", "permit2", "deterministicDeployer" },
+                              "aaveV3Pool", "aaveV3AddressesProvider", "aUsdc", "ethUsdFeed", "permit2", "deterministicDeployer",
+                              "v3Factory", "v3QuoterV2", "v3SwapRouter02" },
                 "robinhood": { "usdg", "weth", "acrossSpokePool", "wormholeCore", "v4PoolManager", "v4PositionManager", "v4StateView",
-                               "permit2", "deterministicDeployer" } },
+                               "permit2", "deterministicDeployer", "v3Factory", "v3QuoterV2", "v3SwapRouter02" } },
   "fund": {
     "creationNumber": "1", "fundId": "0x…", "mandateHash": "0x…", "manager": "0x…", "shareSymbol": "PP-1",
     "hub":   { "chainId": 42161, "coreVault", "shareToken", "managerFeeVault", "valueReportReceiver", "spokeVault",
@@ -131,7 +146,8 @@ created with the same script or from the frontend; the keeper serves every fund 
     "poolKeys": { "hub": [ { "currency0", "currency1", "fee": 500, "tickSpacing": 10, "hooks" } ], "spoke": [ { … } ] },
     "poolIds":  { "hub": ["0xfc7b…8653"], "spoke": ["0xfcfa…6593"], "aave": "0x…af88…5831" }
   },
-  "helpers": { "arbitrumSwapRouter": "0x…", "robinhoodSwapRouter": "0x…" },
+  "helpers": { "arbitrumSwapRouter": "0x…", "robinhoodSwapRouter": "0x…",
+               "swapAdapters": { "arbitrum": "0x…", "robinhood": "0x…" }, "swapAdapterVault": "0x…" },
   "storage": {
     "balances": { "arbitrum": [ { "token": "USDC", "mappingSlot": "9" } ], "robinhood": [ { "token": "USDG", "mappingSlot": "1" } ] },
     "acrossFillStatusesSlot": { "arbitrum": "2162", "robinhood": "2262" },
@@ -145,7 +161,7 @@ manager keys: an app can hard-code them for local development, and the factory a
 
 ## Keeper
 
-`pnpm keeper` replaces three off-chain parties on the two forks:
+`pnpm keeper` replaces four off-chain parties on the two forks:
 
 1. **Across relayer.** Watches `FundsDeposited` on both SpokePools; for a deposit whose recipient is a known fund's vault
    on the other node (its Spoke Vault on Robinhood, its Core Vault on the hub) it builds the relay data from the event
@@ -158,11 +174,17 @@ manager keys: an app can hard-code them for local development, and the factory a
    `0x1771…edd8`) both expose this bytes32 `fillRelay` (selector `0xdeff4b24`, verified in their bytecode), so the real
    path is the default; if it failed for another reason the keeper would fall back to impersonating the pool, and says
    so loudly (`--fill-mode real` forbids the fallback, `simulated` forces it).
-2. **Wormhole guardians.** Watches `LogMessagePublished` on the Robinhood Core for messages from known Spoke Vaults,
-   waits `KEEPER_VAA_DELAY_SECONDS`, builds the VAA v1 (the source block's timestamp, nonce, emitter chain 72, the Spoke
-   Vault as emitter, sequence, consistency level, payload), signs the double keccak of its body with the local
-   guardian and calls `ValueReportReceiver.deliver(vaa)` on the hub, in sequence order per emitter.
-3. **The protocol's keeper.** `--auto-report <seconds>` calls `SpokeVault.report()` on every known spoke on a cadence,
+2. **Wormhole guardians, spoke to Hub.** Watches `LogMessagePublished` on the Robinhood Core for messages from known
+   Spoke Vaults, waits `KEEPER_VAA_DELAY_SECONDS`, builds the VAA v1 (the source block's timestamp, nonce, emitter chain
+   72, the Spoke Vault as emitter, sequence, consistency level, payload), signs the double keccak of its body with the
+   local guardian and calls `ValueReportReceiver.deliver(vaa)` on the hub, in sequence order per emitter.
+3. **Wormhole guardians, Hub to spoke (orders, DEC-120, DEC-139).** Watches `LogMessagePublished` on the Arbitrum Core
+   for messages from known Core Vaults (an `OrderCodec` order at instant consistency), waits
+   `KEEPER_ORDER_DELAY_SECONDS`, signs the VAA (emitter chain 23, the Core Vault as emitter) for the Robinhood Core and
+   calls the fund's `SpokeVault.executeOrder(vaa)` there, paying the Robinhood Core's message fee for the report the
+   Spoke Vault publishes in the same transaction; orders of one emitter run in sequence order (DEC-093). `executeOrder`
+   is detected in the Spoke Vault's code: until it exists (WP-07) the keeper logs the order and skips it.
+4. **The protocol's keeper.** `--auto-report <seconds>` calls `SpokeVault.report()` on every known spoke on a cadence,
    so the hub never sees a report older than `maxReportAge` (1,588 s) and deposits keep working; it also re-stamps the
    Chainlink round when it is older than `KEEPER_FEED_MAX_AGE_SECONDS`.
 
@@ -172,7 +194,8 @@ the fork block; every action is idempotent.
 
 | Environment | Default | Meaning |
 |---|---|---|
-| `KEEPER_VAA_DELAY_SECONDS` | 3 | Delay before a VAA is delivered; set 900 to 1200 to feel production finality |
+| `KEEPER_VAA_DELAY_SECONDS` | 3 | Delay before a report's VAA is delivered; set 900 to 1200 to feel production finality |
+| `KEEPER_ORDER_DELAY_SECONDS` | 1 | Delay before a Hub order is executed on the spoke (instant consistency) |
 | `KEEPER_FILL_DELAY_SECONDS` | 1 | Delay before a deposit is filled |
 | `KEEPER_AUTO_REPORT_SECONDS` | 0 (off) | Report cadence, same as `--auto-report` |
 | `KEEPER_FILL_MODE` | `auto` | `auto`, `real` or `simulated` |
@@ -198,22 +221,33 @@ running keeper, or directly when no keeper runs). Never use `evm_increaseTime` o
 ## Scenario
 
 `pnpm scenario` reproduces the phases of `test/fork/e2e/EndToEnd.t.sol` over JSON-RPC, with signed transactions from
-the actors and assertions at every step (each cites its decision), and adds one: Principal coming home through Across,
-which exercises the keeper's fill on Arbitrum.
+the actors and assertions at every step (each cites its decision), and adds three: Principal coming home through
+Across (the keeper's fill on Arbitrum), the Hub-to-spoke order channel, and the closure.
 
-1. The fund as created: one factory address on both chains, the spoke's Mandate hash equals the hub's, every Mandate rule
-2. Ana deposits 10,000 USDC (minimum first deposit refusal, 25 bps flow fee, 9,975 whole shares at 1.00)
+1. The fund as created: one factory address on both chains, the spoke's Mandate hash equals the hub's, every Mandate
+   rule; the manager's seed from the creation transaction (DEC-127: 99 shares at 1.00 after the flow fee, the first peak)
+2. Ana deposits 10,000 USDC after the seed (25 bps flow fee, 9,975 whole shares at 1.00)
 3. Hub allocation, Aave supply, a V4 position, a one-hour warp, the trader's fees; Share Assets as the sum of buckets
-4. 4,000 USDC to Robinhood through the live Across SpokePool (Spoke Cap and bridge fee refusals, the deposit's fields)
+4. 4,000 USDC to Robinhood with no bridge parameter (DEC-158): the Across adapter's `quoteSend` is the amount to arrive
+   (initial rate plus the fixed part, DEC-162), the Spoke Cap refusal, a manager quote refused (`QuotesNotSupported`),
+   the deposit's fields (quote time = the block, no exclusivity) and `SendPriced`
 5. The keeper's fill through the Robinhood pool's `fillRelay`, the arrival, a WETH/USDG position and fees
 6. `report()` on the real Robinhood Core, the VAA delivered by the keeper, `ArrivalConfirmed`, the spoke value priced
-7. 500 USDG of Principal sent home, filled on Arbitrum, credited to Idle once a report lists it
-8. Hub income collected and forwarded; the 20% fee split at collection (Protocol Recipient, ManagerFeeVault, holders)
+7. 500 USDG of Principal sent home with a zero quote, at the spoke adapter's `quoteSend`, filled on Arbitrum, credited
+   to Idle once a report lists it
+8. Hub income collected and forwarded; the 20% fee split at collection (Protocol Recipient, ManagerFeeVault, holders);
+   the net attributed pro rata to Ana and the manager's seed
 9. Bruno deposits 11,000 USDC at the new Share Price, owing none of the income already collected
 10. Ana's Income Withdrawal
 11. Ana's Standard Payout: request, a 72 h warp of both clocks with a fresh report, the claim from Idle
-12. Bruno's Instant Payout above Free Idle, with the automatic unwind of the hub V4 position
+12. Bruno's Instant Payout above Free Idle, with the automatic unwind of the hub V4 position; the Payout Fee stays in
+    Idle (DEC-144)
 13. Invariants: Payout Reserve within Idle, whole shares, Share Assets = sum of buckets, a donation swept
+14. The order channel: until the Core Vault publishes orders itself, an UNWIND order is published from its address on
+    the live Arbitrum Core (instant consistency); the keeper relays it (skipped until the Spoke Vault has
+    `executeOrder`), and its VAA passes `OrderVerifier` on the live Robinhood Core through the test receiver, once
+15. The manager's base (`ManagerMustCloseFund` under half of the peak, DEC-146) and `closeFund`: Closing refuses
+    deposits, requests, claims and a second closure; Income Withdrawal stays open
 
 Keeper: `--keeper auto` (default) uses a running `pnpm keeper` if its pid file is live, else starts the keeper
 in-process (and stops it at the end); `inprocess` and `external` force one. For CI-style runs:
@@ -222,14 +256,16 @@ in-process (and stops it at the end); `inprocess` and `external` force one. For 
 pnpm run up && pnpm scenario --keeper inprocess; status=$?; pnpm down; exit $status
 ```
 
-The scenario needs an unused fund: on a deployment whose fund already has shares it creates a fresh one through
-`script/CreateFund.s.sol` (`--new-fund` forces that), so it can run any number of times on the same nodes.
+The scenario needs an unused fund: once the deployed fund has holders besides the manager's seed, a spoke report or
+left Open, it creates a fresh one through `script/CreateFund.s.sol` (`--new-fund` forces that), so it can run any
+number of times on the same nodes.
 
 ## API probe
 
 `src/api.ts` is the smallest API that shows what the product API needs from the contracts: it reads chain state and
-builds unsigned transactions, never holds a key, and every number it returns is read from the contracts or obtained by
-`eth_call` against the fork's state. Routes:
+builds unsigned transactions for the user, and every number it returns is read from the contracts or obtained by
+`eth_call` against the fork's state. It holds one key, the API signer's (account 8): it signs swap routes and publishes
+the report after each deposit. Routes:
 
 | Route | What it returns |
 |---|---|
@@ -239,27 +275,45 @@ builds unsigned transactions, never holds a key, and every number it returns is 
 | `GET /quote/deposit?from=&amount=` | the exact shares and USDC charged, by simulating `deposit`, or the decoded revert (`StaleSpokeReport`, `StalePrice`, `SharePriceBelowOneUnit`, ...) |
 | `GET /quote/claim?from=` | the exact payout receipt by simulating `claimPayout` with the API's hints |
 | `GET /quote/swap?tokenIn=&amountIn=` | a manager swap minimum: the oracle value less 1% (the vault enforces none: security review S-8, open) |
+| `GET /quote/swap-route?chain=&tokenIn=&tokenOut=&amountIn=&slippageBps=&adapter=` | the best single Uniswap V3 path QuoterV2 quotes on the fork (1,000,000 gas per quote, D-21), direct in one of the four fee tiers or two hops through another Mandate token of the adapter (D-52), over the tiers with at least 1% of the pair's deepest in-range liquidity, signed by the API signer as the EIP-712 `SwapRoute` of `UniswapV3SwapAdapter` (domain bound to the adapter); `encodedRoute` is the `route` argument of `swap`; the minimum is the quote less `slippageBps` (default 100) |
+| `GET /quote/bridge?direction=to-spoke\|to-hub&amount=` | what the fund's Across adapter fixes for a send of `amount` now (`quoteSend`: amount to arrive, fee, rate) and the route's fee state; `signed: false` until signed quotes (R-162-B, WP-11) |
+| `GET /share-price/history?fromBlock=&toBlock=` | the Share Price, Share Assets and shares at every hub block where the Core Vault emitted an event, with the event names |
 | `POST /tx/deposit`, `/tx/request`, `/tx/claim`, `/tx/swap` | unsigned transactions (approval first when needed); `/tx/deposit` answers 409 while mints are closed |
+| `POST /report/after-deposit {txHash}` | DEC-159: checks the transaction is a deposit into the fund, publishes `report()` on every spoke with the API signer and waits for the keeper to deliver it (or, with no keeper running, delivers it with the harness guardian) |
 | `GET /events?fromBlock=` | the Core Vault's events, decoded |
 
-`pnpm api:probe` (on a fresh `pnpm run up`) drives those routes and checks: the deposit quote equals the minted shares;
-the keeper's first report makes the spoke count; past the report lifetime with no new report `/health` shows mints
-closed, the chain reverts `StaleSpokeReport` and the API refuses to build a deposit, while an Instant payout from Idle
-still executes and pays exactly what `/quote/claim` said; a fresh report reopens mints; a 1,000 USDC hub swap built by
-the API respects its oracle minimum on the live pool and the same swap at 0 bps reverts `InsufficientOutput`; every
-step ended with an event the indexer served; a holder's value equals shares times the Share Price.
+`pnpm api:probe` drives those routes on an unused fund (the deployed one, or a fresh one) and checks: the deposit quote
+equals the minted shares; the report the API publishes right after the deposit is delivered by the keeper and is the
+Hub's latest (DEC-159); past the report lifetime with no new report `/health` shows mints closed, the chain reverts
+`StaleSpokeReport` and the API refuses to build a deposit, while an Instant payout from Idle still executes and pays
+exactly what `/quote/claim` said; a fresh report reopens mints; a 1,000 USDC hub swap built by the API respects its
+oracle minimum on the live pool and the same swap at 0 bps reverts `InsufficientOutput`; the bridge quote is exactly
+what the adapter fixed for a send to Robinhood and a send home (DEC-162); a route the API signed executes through the
+swap adapter on the live V3 pools of each chain for its quoted output, and a tampered minimum reverts
+`InvalidRouteSignature`; every step ended with an event the indexer served; the Share Price history holds every mint
+at its price; a holder's value equals shares times the Share Price.
+
+## Run reports
+
+Every `pnpm scenario` and `pnpm api:probe` run writes `local-e2e/reports/<UTC time>-<kind>.json` and `.md`
+(`src/report.ts`), passed or failed: the steps and assertions, the gas of every transaction the run sent (the forge
+broadcasts of `createFund` included) and per verb, the Share Price timeline (at each phase start, and at every hub block
+with a Core Vault event), the fee ledger summed from the vaults' events (flow fee of the seed, the deposits and the
+payouts; Payout Fee kept in Idle; performance fee with its manager part and protocol slice per token; management fee
+once the Core Vault accrues one; bridge fees per direction), the balances at the end, the commit and the fork blocks.
+Git ignores them; commit a run worth keeping with `git add -f`.
 
 ## Environment
 
 | Variable | Default | Used by |
 |---|---|---|
-| `ARBITRUM_RPC_URL`, `ROBINHOOD_RPC_URL` | the repo `.env`, else the public endpoints | the forks' upstreams |
-| `ARBITRUM_FORK_BLOCK`, `ROBINHOOD_FORK_BLOCK` | latest | fork blocks, **process environment only** (the repo `.env` pins old blocks for the forge fork suites, which a public RPC no longer serves) |
+| `ARBITRUM_RPC_URL`, `ROBINHOOD_RPC_URL` | the process environment, then the repo `.env`, else the public endpoints | the forks' upstreams (an archive endpoint, such as one Alchemy key for both chains, keeps any fork block usable) |
+| `ARBITRUM_FORK_BLOCK`, `ROBINHOOD_FORK_BLOCK` | latest | fork blocks, **process environment only** (the repo `.env` pins old blocks for the forge fork suites, which a public RPC no longer serves); pin them with an archive endpoint for reproducible runs |
 | `LOCAL_E2E_ARBITRUM_PORT`, `LOCAL_E2E_ROBINHOOD_PORT` | 8545, 8546 | every script |
 | `LOCAL_E2E_API_PORT` | 8787 | `pnpm api`, `pnpm api:probe` |
 | `LOCAL_E2E_ANVIL_CUPS`, `LOCAL_E2E_ANVIL_RETRIES`, `LOCAL_E2E_ANVIL_BACKOFF_MS` | 150, 10, 1000 | anvil's upstream rate limit, retries and backoff |
 | `LOCAL_E2E_HARDFORK` | prague | both nodes |
-| `SPOKE_CAP`, `MIN_FIRST_DEPOSIT`, `PERFORMANCE_FEE_BPS`, `MAX_BRIDGE_FEE_BPS` | 4,000 USDC, 100 USDC, 2000, 4 | the funds `up` and `scenario` create |
+| `SPOKE_CAP`, `MIN_FIRST_DEPOSIT`, `SEED_AMOUNT`, `PERFORMANCE_FEE_BPS`, `MAX_BRIDGE_FEE_BPS` | 4,000 USDC, 100 USDC, `MIN_FIRST_DEPOSIT`, 2000, 4 (dead field) | the funds `up`, `scenario` and `api:probe` create |
 | `KEEPER_*` | see [Keeper](#keeper) | the keeper |
 
 ## Troubleshooting
@@ -278,8 +332,13 @@ balance) when the upstream refuses it, since such a key never existed upstream. 
 after the window, with the hint: a fund created later (`pnpm scenario` on a used deployment creates one; its
 `createSpoke` then fails on Robinhood and leaves a hub-only fund behind), a new address touching a token for the first
 time, a price range the pools never visited. Then either `pnpm down && pnpm run up` (a minute), or, for day-long
-sessions, point the forks at an archive endpoint: `ARBITRUM_RPC_URL` at Alchemy or dRPC, `ROBINHOOD_RPC_URL` at
-QuickNode or Chainstack.
+sessions, point both forks at an archive endpoint: one Alchemy key serves Arbitrum One and Robinhood Chain alike
+(`https://arb-mainnet.g.alchemy.com/v2/<key>` and `https://robinhood-mainnet.g.alchemy.com/v2/<key>`). With an archive
+upstream the warm-up is not needed (`pnpm run up --warm-up none`), and pinned fork blocks stay usable for days.
+
+**`Failed to get EIP-1559 fees ... metadata is not found`.** An archive endpoint stops serving fee history for old
+blocks long before it stops serving state, so the harness hands forge the node's own gas price instead of letting it
+estimate fees; a script of your own against a pinned fork needs `--with-gas-price` and `--priority-gas-price` too.
 
 **Rate limits (HTTP 429, timeouts during `up`).** anvil retries with backoff; lower `LOCAL_E2E_ANVIL_CUPS` for the
 public endpoints, or use a provider key.
@@ -303,9 +362,14 @@ files in `.state/broadcast/`.
 
 ## How it differs from production
 
-- **Guardians.** One local key signs with quorum 1 of 1; production VAAs carry 13 of 19 guardian signatures and appear
-  only after Robinhood reaches finality (15 to 20 minutes for the finalized consistency level the reports use). Set
-  `KEEPER_VAA_DELAY_SECONDS=1200` to feel it.
+- **Guardians.** One local key signs with quorum 1 of 1 on both Cores; production VAAs carry 13 of 19 guardian
+  signatures and appear only after Robinhood reaches finality (15 to 20 minutes for the finalized consistency level the
+  reports use), at once for the instant-consistency orders. Set `KEEPER_VAA_DELAY_SECONDS=1200` to feel it.
+- **Orders.** Until the Core Vault publishes orders (WP-09 on) and the Spoke Vault executes them (WP-07), the scenario
+  publishes one from the Core Vault's address and the keeper only logs it.
+- **The API signer.** Its key is a public anvil key held by the local API; in production it is the API's own key, the
+  ManagerRegistry owner and the route and quote signer wired at deployment (reading D-01). The harness's swap adapters
+  name the manager's wallet as their vault until the factory deploys each fund's own adapter (WP-07).
 - **Across.** Real SpokePools, but one keeper fills every deposit to a fund vault at whatever fee the quote left, within
   seconds. Production relayers fill only profitable deposits, quotes come from the Across API, and an unfilled deposit
   is refunded to its TransitEscrow after the fill deadline by the dataworker's bundle, which does not exist locally.
@@ -322,16 +386,21 @@ local-e2e/
   abis/                 ABIs of the protocol contracts (pnpm abis)
   scripts/              start-forks.sh, stop-forks.sh, export-abis.sh
   src/config.ts         chains, protocol addresses, ports, actors, guardian key, Mandate plan defaults
-  src/chain.ts          RPC clients, anvil methods, transactions, revert decoding, pruned-state hint
-  src/deploy.ts         DeployFactory and CreateFund through forge
+  src/chain.ts          RPC clients, anvil methods, transactions and their gas log, revert decoding, pruned-state hint
+  src/deploy.ts         DeployFactory and CreateFund through forge, the fresh-fund rule
   src/fund-accounts.ts  balances and approvals
-  src/guardian.ts       guardian set override and VAA signing
+  src/guardian.ts       guardian set override on both Cores and VAA signing
+  src/orders.ts         the Hub-to-spoke order (OrderCodec) and executeOrder detection
   src/price-feed.ts     Chainlink re-stamp
-  src/keeper.ts         Across filler, VAA relayer, auto-report
+  src/keeper.ts         Across filler, VAA relayer both ways, auto-report
   src/warp.ts           time warp on both nodes
   src/scenario.ts       the end-to-end scenario
   src/uniswap.ts        TickMath, adapter params, trader swings
+  src/swap-route.ts     V3 paths quoted by QuoterV2 and the API signer's EIP-712 route signature
+  src/history.ts        Share Price history and fee ledger from the vaults' events
+  src/report.ts         run reports
   src/up.ts, status.ts  the up and status commands
-  src/api.ts            the minimal read-and-build API; src/api-probe.ts drives it over HTTP
+  src/api.ts            the minimal API; src/api-probe.ts drives it over HTTP
+  reports/              run reports (gitignored)
   .state/               pids, logs, deployment.json, broadcast files (gitignored)
 ```

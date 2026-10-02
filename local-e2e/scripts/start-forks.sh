@@ -6,7 +6,8 @@
 #
 # Environment:
 #   ARBITRUM_RPC_URL, ROBINHOOD_RPC_URL  upstream RPCs (process environment, then the repo .env, then the public
-#                                        endpoints of .env.example)
+#                                        endpoints of .env.example); an archive endpoint is best, and one Alchemy key
+#                                        serves both chains. Only the host is ever printed.
 #   ARBITRUM_FORK_BLOCK, ROBINHOOD_FORK_BLOCK
 #                                        fork blocks, read from the process environment only (default: latest). The
 #                                        repo .env pins old blocks for the forge fork suites; a public RPC no longer

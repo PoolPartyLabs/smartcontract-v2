@@ -120,7 +120,7 @@ export const PRUNED_STATE_HINT =
   "hint: the upstream RPC no longer serves the state at the fork block. Public Arbitrum and Robinhood RPCs keep only " +
   "about 1 hour and 10 minutes of state, so a fork on them can only read storage it cached early. Restart with " +
   "`pnpm down && pnpm run up` (it forks at latest and warms the cache), or set ARBITRUM_RPC_URL / ROBINHOOD_RPC_URL " +
-  "to an archive endpoint (Alchemy or dRPC for Arbitrum, QuickNode or Chainstack for Robinhood) for long sessions.";
+  "to an archive endpoint for long sessions (one Alchemy key serves both Arbitrum One and Robinhood Chain).";
 
 /** The revert name and arguments of a failed call, when an ABI knows the error. */
 export function revertOf(err: unknown): { name: string; args: readonly unknown[] } | undefined {
