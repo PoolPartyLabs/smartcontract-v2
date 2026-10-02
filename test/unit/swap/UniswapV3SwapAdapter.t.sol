@@ -1,0 +1,411 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.28;
+
+import {console2} from "forge-std/Test.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
+import {UniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
+import {AdapterGuard} from "../../../src/adapters/AdapterGuard.sol";
+import {ISwapAdapter} from "../../../src/interfaces/ISwapAdapter.sol";
+import {IAdapterGuard} from "../../../src/interfaces/IAdapterGuard.sol";
+import {MockV3Pool, MockMiswiredPeriphery} from "../../mocks/swap/MockV3.sol";
+import {SwapAdapterTestBase} from "./SwapAdapterTestBase.sol";
+
+/// @notice The Uniswap V3 swap adapter without the API (DEC-153), its custody, its guard and the caller's maximum loss
+///         (DEC-140, DEC-142), against the mock V3 stack.
+contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
+    // ------------------------------------------------------------------------------------------------------------
+    // Construction and size
+    // ------------------------------------------------------------------------------------------------------------
+
+    function test_DEC136_constructorStoresTheWiringAndTheMandateTokens() public view {
+        assertEq(adapter.vault(), address(this));
+        assertEq(adapter.guardian(), guardian);
+        assertEq(adapter.baseToken(), address(base));
+        assertEq(adapter.routeSigner(), apiSigner);
+        assertEq(address(adapter.v3Factory()), address(factory));
+        assertEq(address(adapter.swapRouter()), address(router));
+        assertEq(address(adapter.quoterV2()), address(quoter));
+        assertTrue(adapter.isMandateToken(address(base)));
+        assertTrue(adapter.isMandateToken(address(weth)));
+        assertTrue(adapter.isMandateToken(address(stock)));
+        assertTrue(adapter.isMandateToken(address(usdt)));
+        assertFalse(adapter.isMandateToken(address(outsider)));
+        (, string memory name, string memory version, uint256 chainId, address verifyingContract,,) =
+            adapter.eip712Domain();
+        assertEq(name, "Pool Party Swap Adapter");
+        assertEq(version, "1");
+        assertEq(chainId, block.chainid);
+        assertEq(verifyingContract, address(adapter));
+    }
+
+    function test_DEC136_constructorRejectsZeroAddresses() public {
+        address[] memory tokens = _mandate4();
+        vm.expectRevert(UniswapV3SwapAdapter.ZeroAddress.selector);
+        new UniswapV3SwapAdapter(
+            address(0), guardian, address(base), tokens, address(factory), address(router), address(quoter), apiSigner
+        );
+        vm.expectRevert(AdapterGuard.ZeroGuardian.selector);
+        new UniswapV3SwapAdapter(
+            address(this),
+            address(0),
+            address(base),
+            tokens,
+            address(factory),
+            address(router),
+            address(quoter),
+            apiSigner
+        );
+        tokens[2] = address(0);
+        vm.expectRevert(UniswapV3SwapAdapter.ZeroAddress.selector);
+        _deploy(apiSigner, tokens);
+    }
+
+    function test_DEC136_constructorRejectsABaseTokenOutsideTheMandate() public {
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(weth);
+        vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.TokenNotInMandate.selector, address(base)));
+        _deploy(apiSigner, tokens);
+    }
+
+    /// @dev SwapRouter02 derives every pool from its factory, so the router and the quoter must use the factory the
+    ///      adapter validates pools against.
+    function test_DEC153_constructorRejectsARouterOrQuoterOfAnotherFactory() public {
+        address other = address(new MockMiswiredPeriphery(makeAddr("other factory")));
+        address[] memory tokens = _mandate4();
+        vm.expectRevert(UniswapV3SwapAdapter.WiringMismatch.selector);
+        new UniswapV3SwapAdapter(
+            address(this), guardian, address(base), tokens, address(factory), other, address(quoter), apiSigner
+        );
+        vm.expectRevert(UniswapV3SwapAdapter.WiringMismatch.selector);
+        new UniswapV3SwapAdapter(
+            address(this), guardian, address(base), tokens, address(factory), address(router), other, apiSigner
+        );
+    }
+
+    /// @dev DEC-131 (b4): every production contract fits Arbitrum One's 24,576 bytes. Interim check until the suite's
+    ///      size test (WP-01) lists this contract.
+    function test_DEC131_fitsTheSmallestCodeLimit() public view {
+        uint256 size = vm.getDeployedCode("UniswapV3SwapAdapter.sol:UniswapV3SwapAdapter").length;
+        console2.log("UniswapV3SwapAdapter runtime bytes", size, "margin", 24_576 - size);
+        assertLe(size, 24_576);
+        assertEq(address(adapter).code.length, size);
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // DEC-153: without the API the adapter picks the best direct V3 fee tier
+    // ------------------------------------------------------------------------------------------------------------
+
+    function test_DEC153_emptyRouteSwapsInTheTierWithTheHighestQuote() public {
+        uint256 expected = _out(AMOUNT, 500, 0);
+        _fund(address(weth), AMOUNT);
+        vm.expectEmit(address(adapter));
+        emit ISwapAdapter.Swapped(address(weth), address(base), AMOUNT, expected, AMOUNT, 500, bytes32(0));
+        (uint256 out, uint256 spot) = adapter.swap(address(weth), address(base), AMOUNT, NO_MAX, "");
+        assertEq(out, expected, "0.05% tier");
+        assertEq(spot, AMOUNT, "mid value at price 1");
+        assertEq(base.balanceOf(address(this)), expected, "output reached the vault");
+        _assertNothingKept(address(weth));
+    }
+
+    function test_DEC153_bestDirectFeeIsOpenToAnyoneAndMatchesTheSwap() public {
+        vm.prank(stranger);
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), AMOUNT);
+        assertEq(fee, 500);
+        assertEq(quoted, _out(AMOUNT, 500, 0));
+        (uint256 out,) = _swap(address(weth), address(base), AMOUNT, NO_MAX, "");
+        assertEq(out, quoted, "the swap pays the chosen tier's quote");
+    }
+
+    function test_DEC153_missingTiersAreSkipped() public {
+        factory.createPool(address(stock), address(usdt), 3000, PRICE_ONE, LIQUIDITY);
+        factory.createPool(address(stock), address(usdt), 10_000, PRICE_ONE, LIQUIDITY);
+        (uint24 fee,) = adapter.bestDirectFee(address(stock), address(usdt), AMOUNT);
+        assertEq(fee, 3000);
+    }
+
+    /// @dev D-21: a tier without in-range liquidity is not quoted, even when its fee would make it the best.
+    function test_DEC153_zeroLiquidityTierIsSkippedWithoutAQuote() public {
+        wethBase[0].setImpactBps(0);
+        wethBase[0].setLiquidity(0);
+        (uint24 fee,) = adapter.bestDirectFee(address(weth), address(base), AMOUNT);
+        assertEq(fee, 500);
+        assertEq(quoter.quotes(address(wethBase[0])), 0, "never quoted");
+        assertEq(quoter.quotes(address(wethBase[1])), 1);
+    }
+
+    function test_DEC153_aRevertingQuoteIsSkipped() public {
+        wethBase[1].setMode(MockV3Pool.Mode.QuoteReverts);
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(address(weth), address(base), AMOUNT);
+        assertEq(fee, 3000, "0.3% beats 0.01% with 60 bps of impact");
+        assertEq(quoted, _out(AMOUNT, 3000, 0));
+    }
+
+    /// @dev D-21: a griefed tier (an empty or dust pool whose quote walks the tick bitmap) costs at most the cap, the
+    ///      other tiers still compete, and the swap completes.
+    function test_DEC153_aGriefedTierCostsAtMostTheQuoteGasCap() public {
+        wethBase[0].setImpactBps(0);
+        wethBase[0].setMode(MockV3Pool.Mode.QuoteBurnsGas);
+        _fund(address(weth), AMOUNT);
+        uint256 g = gasleft();
+        (uint256 out,) = adapter.swap(address(weth), address(base), AMOUNT, NO_MAX, "");
+        uint256 used = g - gasleft();
+        console2.log("swap gas with a griefed tier", used);
+        assertEq(out, _out(AMOUNT, 500, 0), "the 0.05% tier filled");
+        assertGt(used, adapter.QUOTE_GAS_CAP(), "the griefed quote burned its cap");
+        assertLt(used, adapter.QUOTE_GAS_CAP() + 600_000, "and no more");
+    }
+
+    /// @dev DEC-153 accepted consequence: a pair without a direct V3 pool has no route without the API.
+    function test_DEC153_aPairWithoutADirectPoolHasNoRoute() public {
+        _fund(address(stock), AMOUNT);
+        vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.NoRoute.selector, address(stock), address(usdt)));
+        adapter.swap(address(stock), address(usdt), AMOUNT, NO_MAX, "");
+        vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.NoRoute.selector, address(stock), address(usdt)));
+        adapter.bestDirectFee(address(stock), address(usdt), AMOUNT);
+    }
+
+    function test_DEC153_noTierQuotingIsNoRoute() public {
+        for (uint256 i; i < 4; ++i) {
+            wethBase[i].setMode(MockV3Pool.Mode.QuoteReverts);
+        }
+        _fund(address(weth), AMOUNT);
+        vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.NoRoute.selector, address(weth), address(base)));
+        adapter.swap(address(weth), address(base), AMOUNT, NO_MAX, "");
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // DEC-140, DEC-142: the caller's optional maximum loss against the pre-trade mid value
+    // ------------------------------------------------------------------------------------------------------------
+
+    /// @dev The maximum counts the pool fee: 4 bps cannot pass the 0.05% pool, 5 bps can.
+    function test_DEC142_maximumLossCountsThePoolFee() public {
+        _fund(address(weth), AMOUNT);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ISwapAdapter.InsufficientOutput.selector, _out(AMOUNT, 500, 0), AMOUNT * 9996 / 10_000
+            )
+        );
+        adapter.swap(address(weth), address(base), AMOUNT, 4, "");
+        (uint256 out,) = adapter.swap(address(weth), address(base), AMOUNT, 5, "");
+        assertEq(out, _out(AMOUNT, 500, 0));
+    }
+
+    /// @dev D-23: 0 and anything from 10,000 up mean "no maximum"; 1 to 9,999 bind. Every tier loses half to price
+    ///      impact here, so the 0.01% tier (the lowest fee) is the best.
+    function test_D23_zeroOrFullBpsMeanNoMaximum() public {
+        for (uint256 i; i < 4; ++i) {
+            wethBase[i].setImpactBps(5000);
+        }
+        uint256 expected = _out(AMOUNT, 100, 5000);
+        uint16[3] memory none = [uint16(0), 10_000, type(uint16).max];
+        for (uint256 i; i < 3; ++i) {
+            (uint256 out,) = _swap(address(weth), address(base), AMOUNT, none[i], "");
+            assertEq(out, expected, "sold at whatever price (DEC-132 item 2)");
+        }
+        _fund(address(weth), AMOUNT);
+        vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.InsufficientOutput.selector, expected, AMOUNT / 2));
+        adapter.swap(address(weth), address(base), AMOUNT, 5000, "");
+        (uint256 passed,) = adapter.swap(address(weth), address(base), AMOUNT, 5001, "");
+        assertEq(passed, expected);
+    }
+
+    function testFuzz_DEC142_maximumLossBoundsTheOutput(uint16 maxLossBps, uint16 impactBps) public {
+        impactBps = uint16(bound(impactBps, 0, 9999));
+        for (uint256 i; i < 4; ++i) {
+            wethBase[i].setImpactBps(impactBps);
+        }
+        uint256 expected = _out(AMOUNT, 100, impactBps);
+        _fund(address(weth), AMOUNT);
+        bool bounded = maxLossBps != 0 && maxLossBps < 10_000;
+        uint256 minOut = bounded ? AMOUNT * (10_000 - maxLossBps) / 10_000 : 0;
+        if (expected < minOut) {
+            vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.InsufficientOutput.selector, expected, minOut));
+            adapter.swap(address(weth), address(base), AMOUNT, maxLossBps, "");
+        } else {
+            (uint256 out, uint256 spot) = adapter.swap(address(weth), address(base), AMOUNT, maxLossBps, "");
+            assertEq(out, expected);
+            assertEq(spot, AMOUNT);
+            assertGe(out, minOut);
+            _assertNothingKept(address(weth));
+        }
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // DEC-118, D-19, D-20: spotOut is the mid value before the trade
+    // ------------------------------------------------------------------------------------------------------------
+
+    function test_DEC118_spotValueIsTheMidPriceInBothDirections() public {
+        // Price 4: one token0 is worth four token1.
+        MockV3Pool pool = factory.createPool(address(stock), address(usdt), 500, uint160(1 << 97), LIQUIDITY);
+        (address t0, address t1) = (pool.token0(), pool.token1());
+        assertEq(adapter.spotValue(t0, t1, AMOUNT, 500), AMOUNT * 4);
+        assertEq(adapter.spotValue(t1, t0, AMOUNT, 500), AMOUNT / 4);
+        vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.PoolNotFound.selector, t0, t1, uint24(3000)));
+        adapter.spotValue(t0, t1, AMOUNT, 3000);
+        vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.InvalidFee.selector, uint24(2500)));
+        adapter.spotValue(t0, t1, AMOUNT, 2500);
+    }
+
+    /// @dev The pool's mid price moves after a swap; `spotOut` is the price read before it.
+    function test_DEC118_spotOutIsReadBeforeTheTrade() public {
+        wethBase[1].setDriftBps(100);
+        (, uint256 spot) = _swap(address(weth), address(base), AMOUNT, NO_MAX, "");
+        assertEq(spot, AMOUNT, "pre-trade mid value");
+        assertLt(adapter.spotValue(address(weth), address(base), AMOUNT, 500), AMOUNT, "the trade moved the price");
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // Custody
+    // ------------------------------------------------------------------------------------------------------------
+
+    function test_custodyPullsExactlyTheInputAndKeepsNothing() public {
+        weth.mint(address(this), 1e18);
+        (uint256 out,) = _swap(address(weth), address(base), AMOUNT, NO_MAX, "");
+        assertEq(weth.balanceOf(address(this)), 1e18, "only amountIn left the vault");
+        assertEq(base.balanceOf(address(this)), out);
+        _assertNothingKept(address(weth));
+    }
+
+    function test_custodyNeedsTheVaultApproval() public {
+        weth.mint(address(this), AMOUNT);
+        weth.approve(address(adapter), AMOUNT - 1);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IERC20Errors.ERC20InsufficientAllowance.selector, address(adapter), AMOUNT - 1, AMOUNT
+            )
+        );
+        adapter.swap(address(weth), address(base), AMOUNT, NO_MAX, "");
+    }
+
+    /// @dev A fill that stops before spending the whole input (a price limit) reverts; nothing moves.
+    function test_custodyRevertsOnAPartialFill() public {
+        router.setPartialBps(1);
+        _fund(address(weth), AMOUNT);
+        vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.PartialFill.selector, 0, AMOUNT / 10_000));
+        adapter.swap(address(weth), address(base), AMOUNT, NO_MAX, "");
+        assertEq(weth.balanceOf(address(this)), AMOUNT);
+    }
+
+    /// @dev A donation to the adapter neither blocks a swap nor is spent by it.
+    function test_custodyADonationNeitherBlocksNorFundsASwap() public {
+        weth.mint(address(adapter), 5);
+        (uint256 out,) = _swap(address(weth), address(base), AMOUNT, NO_MAX, "");
+        assertEq(out, _out(AMOUNT, 500, 0));
+        assertEq(weth.balanceOf(address(adapter)), 5, "the donation stays where it was");
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // Access, tokens and the guard (DEC-056, DEC-058, DEC-136 item 2)
+    // ------------------------------------------------------------------------------------------------------------
+
+    function test_DEC136_onlyTheVaultSwaps() public {
+        vm.startPrank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.NotVault.selector, stranger));
+        adapter.swap(address(weth), address(base), AMOUNT, NO_MAX, "");
+        vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.NotVault.selector, stranger));
+        adapter.swapDirect(address(weth), address(base), AMOUNT, 500, NO_MAX);
+        vm.stopPrank();
+    }
+
+    function test_DEC136_onlyMandateTokensAndDistinctNonZeroInputs() public {
+        bytes4 notInMandate = ISwapAdapter.TokenNotInMandate.selector;
+        vm.expectRevert(abi.encodeWithSelector(notInMandate, address(outsider)));
+        adapter.swap(address(outsider), address(base), AMOUNT, NO_MAX, "");
+        vm.expectRevert(abi.encodeWithSelector(notInMandate, address(outsider)));
+        adapter.swap(address(weth), address(outsider), AMOUNT, NO_MAX, "");
+        vm.expectRevert(abi.encodeWithSelector(notInMandate, address(outsider)));
+        adapter.swapDirect(address(outsider), address(base), AMOUNT, 500, NO_MAX);
+        vm.expectRevert(abi.encodeWithSelector(notInMandate, address(outsider)));
+        adapter.bestDirectFee(address(outsider), address(base), AMOUNT);
+        vm.expectRevert(abi.encodeWithSelector(notInMandate, address(outsider)));
+        adapter.spotValue(address(base), address(outsider), AMOUNT, 500);
+
+        vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.IdenticalTokens.selector, address(weth)));
+        adapter.swap(address(weth), address(weth), AMOUNT, NO_MAX, "");
+        vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.IdenticalTokens.selector, address(weth)));
+        adapter.bestDirectFee(address(weth), address(weth), AMOUNT);
+
+        vm.expectRevert(ISwapAdapter.ZeroAmount.selector);
+        adapter.swap(address(weth), address(base), 0, NO_MAX, "");
+        vm.expectRevert(ISwapAdapter.ZeroAmount.selector);
+        adapter.swapDirect(address(weth), address(base), 0, 500, NO_MAX);
+        vm.expectRevert(ISwapAdapter.ZeroAmount.selector);
+        adapter.bestDirectFee(address(weth), address(base), 0);
+    }
+
+    /// @dev DEC-056: pause is a quarantine of entries. A swap out of the base token (or between two non-base tokens)
+    ///      is an entry; a sale into the base token is the exit and always passes.
+    function test_DEC056_pauseBlocksEntriesNeverSalesIntoTheBaseToken() public {
+        factory.createPool(address(weth), address(stock), 500, PRICE_ONE, LIQUIDITY);
+        vm.prank(guardian);
+        adapter.setPaused(true);
+
+        _fund(address(base), AMOUNT);
+        vm.expectRevert(IAdapterGuard.AdapterPaused.selector);
+        adapter.swap(address(base), address(weth), AMOUNT, NO_MAX, "");
+        vm.expectRevert(IAdapterGuard.AdapterPaused.selector);
+        adapter.swapDirect(address(base), address(weth), AMOUNT, 500, NO_MAX);
+        _fund(address(weth), AMOUNT);
+        vm.expectRevert(IAdapterGuard.AdapterPaused.selector);
+        adapter.swap(address(weth), address(stock), AMOUNT, NO_MAX, "");
+
+        (uint256 out,) = adapter.swap(address(weth), address(base), AMOUNT, NO_MAX, "");
+        assertGt(out, 0, "exit open while paused");
+        (out,) = _directSwap(address(stock), address(base), AMOUNT, 500);
+        assertGt(out, 0, "swapDirect exit open while paused");
+    }
+
+    /// @dev DEC-058: a deprecated adapter is withdraw-only: only sales into the base token run.
+    function test_DEC058_deprecationKeepsOnlyTheExit() public {
+        vm.prank(guardian);
+        adapter.deprecate();
+        _fund(address(base), AMOUNT);
+        vm.expectRevert(IAdapterGuard.AdapterIsDeprecated.selector);
+        adapter.swap(address(base), address(weth), AMOUNT, NO_MAX, "");
+        (uint256 out,) = _swap(address(weth), address(base), AMOUNT, NO_MAX, "");
+        assertEq(out, _out(AMOUNT, 500, 0), "exit open after deprecation");
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // swapDirect (D-21): the vault's own libraries reuse a tier bestDirectFee chose
+    // ------------------------------------------------------------------------------------------------------------
+
+    function test_D21_swapDirectUsesTheGivenTier() public {
+        _fund(address(weth), AMOUNT);
+        vm.expectEmit(address(adapter));
+        emit ISwapAdapter.Swapped(address(weth), address(base), AMOUNT, _out(AMOUNT, 3000, 0), AMOUNT, 3000, bytes32(0));
+        (uint256 out, uint256 spot) = adapter.swapDirect(address(weth), address(base), AMOUNT, 3000, NO_MAX);
+        assertEq(out, _out(AMOUNT, 3000, 0));
+        assertEq(spot, AMOUNT);
+        assertEq(quoter.quotes(address(wethBase[2])), 0, "no quote: the tier was chosen before");
+        _assertNothingKept(address(weth));
+    }
+
+    function test_D21_swapDirectAppliesTheMaximumLoss() public {
+        _fund(address(weth), AMOUNT);
+        vm.expectPartialRevert(ISwapAdapter.InsufficientOutput.selector);
+        adapter.swapDirect(address(weth), address(base), AMOUNT, 3000, 29);
+        (uint256 out,) = adapter.swapDirect(address(weth), address(base), AMOUNT, 3000, 30);
+        assertEq(out, _out(AMOUNT, 3000, 0));
+    }
+
+    function test_D21_swapDirectRejectsNonTiersAndMissingPools() public {
+        _fund(address(weth), AMOUNT);
+        vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.InvalidFee.selector, uint24(2500)));
+        adapter.swapDirect(address(weth), address(base), AMOUNT, 2500, NO_MAX);
+        _fund(address(stock), AMOUNT);
+        vm.expectRevert(
+            abi.encodeWithSelector(ISwapAdapter.PoolNotFound.selector, address(stock), address(base), uint24(3000))
+        );
+        adapter.swapDirect(address(stock), address(base), AMOUNT, 3000, NO_MAX);
+    }
+
+    function _directSwap(address tokenIn, address tokenOut, uint256 amountIn, uint24 fee)
+        internal
+        returns (uint256, uint256)
+    {
+        _fund(tokenIn, amountIn);
+        return adapter.swapDirect(tokenIn, tokenOut, amountIn, fee, NO_MAX);
+    }
+}
