@@ -9,7 +9,8 @@ import {Mandate} from "../mandate/Mandate.sol";
 import {ShareMath} from "../libraries/ShareMath.sol";
 import {ShareToken} from "./ShareToken.sol";
 import {CoreVaultBase, CoreVaultConfig} from "./CoreVaultBase.sol";
-import {CoreVaultWiring} from "./CoreVaultTypes.sol";
+import {CoreVaultWiring, STANDARD_PAYOUT_TERM} from "./CoreVaultTypes.sol";
+import {CoreVaultClosureLogic} from "./CoreVaultClosureLogic.sol";
 import {CoreVaultPayout} from "./CoreVaultPayout.sol";
 import {CoreVaultLogic} from "./CoreVaultLogic.sol";
 import {CoreVaultIncomeLogic} from "./CoreVaultIncomeLogic.sol";
@@ -147,6 +148,34 @@ contract CoreVault is CoreVaultPayout {
     /// @inheritdoc ICoreVaultLifecycle
     function closingStartedAt() external view returns (uint64) {
         return _s.closingStartedAt;
+    }
+
+    function closingDeadline() external view returns (uint256) {
+        return uint256(_s.closingStartedAt) + STANDARD_PAYOUT_TERM;
+    }
+
+    function closureRequestId() external view returns (bytes32) {
+        return CoreVaultClosureLogic.requestId(_s, fundId);
+    }
+
+    function closedSupply() external view returns (uint256) {
+        return _s.closedSupply;
+    }
+
+    function closedIdle() external view returns (uint256) {
+        return _s.closedIdle;
+    }
+
+    function unwindAllAfterDeadline() external payable nonReentrant {
+        CoreVaultClosureLogic.unwindAll(_s, _wiring(), msg.value);
+    }
+
+    function finalizeClosure() external nonReentrant {
+        CoreVaultClosureLogic.finalize(_s, _wiring());
+    }
+
+    function exitClosedFund(address holder) external nonReentrant returns (uint256 paid) {
+        return CoreVaultClosureLogic.exit(_s, _wiring(), holder);
     }
 
     /// @inheritdoc ICoreVaultLifecycle

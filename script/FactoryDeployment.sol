@@ -33,6 +33,7 @@ abstract contract FactoryDeployment is CommonBase {
     string internal constant CORE_VAULT_ARTIFACT = "out/CoreVault.sol/CoreVault.json";
     string internal constant CORE_VAULT_LOGIC_ARTIFACT = "out/CoreVaultLogic.sol/CoreVaultLogic.json";
     string internal constant CORE_VAULT_LOGIC_ID = "src/core/CoreVaultLogic.sol:CoreVaultLogic";
+    string internal constant CORE_VAULT_CLOSURE_LOGIC_ID = "src/core/CoreVaultClosureLogic.sol:CoreVaultClosureLogic";
     string internal constant CORE_VAULT_INCOME_LOGIC_ARTIFACT =
         "out/CoreVaultIncomeLogic.sol/CoreVaultIncomeLogic.json";
     string internal constant CORE_VAULT_INCOME_LOGIC_ID = "src/core/CoreVaultIncomeLogic.sol:CoreVaultIncomeLogic";
@@ -127,6 +128,7 @@ abstract contract FactoryDeployment is CommonBase {
         FundFactory factory;
         address spokeIncomeLib;
         address coreVaultIncomeCollectionLogic;
+        address coreVaultClosureLogic;
     }
 
     /// @notice Deploys the whole protocol stack of this chain (Arbitrum One or Robinhood Chain) and its factory.
@@ -249,6 +251,9 @@ abstract contract FactoryDeployment is CommonBase {
         d.coreVaultLogic = _library(_linkedToCoreVaultLibraries(CORE_VAULT_LOGIC_ARTIFACT, d), deploy);
         d.coreVaultPayoutLogic = _library(_linkedToCoreVaultLibraries(CORE_VAULT_PAYOUT_LOGIC_ARTIFACT, d), deploy);
         d.coreVaultTransitLogic = _library(_linkedToCoreVaultLibraries(CORE_VAULT_TRANSIT_LOGIC_ARTIFACT, d), deploy);
+        d.coreVaultClosureLogic = _library(
+            _linkedToCoreVaultLibraries("out/CoreVaultClosureLogic.sol/CoreVaultClosureLogic.json", d), deploy
+        );
     }
 
     /// @notice A library's address under `LIBRARY_SALT`, deployed there first when `deploy` is set.
@@ -342,13 +347,14 @@ abstract contract FactoryDeployment is CommonBase {
         pure
         returns (string[] memory ids, address[] memory libraries)
     {
-        ids = new string[](5);
-        libraries = new address[](5);
+        ids = new string[](6);
+        libraries = new address[](6);
         (ids[0], libraries[0]) = (CORE_VAULT_LOGIC_ID, d.coreVaultLogic);
         (ids[1], libraries[1]) = (CORE_VAULT_TRANSIT_LOGIC_ID, d.coreVaultTransitLogic);
         (ids[2], libraries[2]) = (CORE_VAULT_INCOME_LOGIC_ID, d.coreVaultIncomeLogic);
         (ids[3], libraries[3]) = (CORE_VAULT_PAYOUT_LOGIC_ID, d.coreVaultPayoutLogic);
         (ids[4], libraries[4]) = (CORE_VAULT_INCOME_COLLECTION_LOGIC_ID, d.coreVaultIncomeCollectionLogic);
+        (ids[5], libraries[5]) = (CORE_VAULT_CLOSURE_LOGIC_ID, d.coreVaultClosureLogic);
     }
 
     /// @notice The Spoke Vault creation code linked to the deployment's Spoke Vault libraries (the code the factory

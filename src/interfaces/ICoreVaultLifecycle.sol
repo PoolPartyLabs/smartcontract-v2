@@ -20,6 +20,45 @@ pragma solidity 0.8.28;
 ///      (DEC-117 item 4) and the manager keeps every unwind verb. The Closed state (DEC-150) is reached by the
 ///      closure's finalization.
 interface ICoreVaultLifecycle {
+    /// @notice CLOSE completion proof in the accepted spoke report's unwindResults (DEC-149, DEC-163).
+    /// @dev The WP-12 executor must report cumulative excess Market Cost for this closure, not just the last attempt.
+    struct ClosureResult {
+        bytes32 requestId;
+        uint32 attempt;
+        uint256 excessCost;
+        bool complete;
+    }
+
+    event FundClosed(
+        uint64 closedAt,
+        uint256 closedSupply,
+        uint256 closedIdle,
+        uint256 closingSharePrice,
+        uint256 managementFeePaid,
+        uint256 managerSharesBurned,
+        uint256 excessCostDeducted
+    );
+    event ClosedFundExited(address indexed holder, uint256 shares, uint256 gross, uint256 flowFee, uint256 paid);
+    event ClosureUnwindFailed(bytes reason);
+    error FundNotClosing(FundState state);
+    error FundNotClosed(FundState state);
+    error ClosingDeadlineNotReached(uint256 deadline);
+    error ClosureNotReady();
+
+    function closingDeadline() external view returns (uint256);
+    function closureRequestId() external view returns (bytes32);
+    function closedSupply() external view returns (uint256);
+    function closedIdle() external view returns (uint256);
+    /// @notice Full Standard unwind and CLOSE publication (DEC-147/149): manager anytime while Closing, anyone
+    ///         strictly after the 72-hour deadline. Repeatable for excluded positions and expired orders.
+    function unwindAllAfterDeadline() external payable;
+    /// @notice Finalizes only on empty fresh reports, completed CLOSE orders, no transit and converted income;
+    ///         pays management fees, burns and pays the manager, then freezes the remaining split (DEC-114/163/167).
+    function finalizeClosure() external;
+    /// @notice Pays only holder, anytime after closure, at shares * closedIdle / closedSupply, with the flow fee
+    ///         but no Payout Fee or report; clears their open request and pays income (DEC-150/163/167).
+    function exitClosedFund(address holder) external returns (uint256 paid);
+
     /// @notice Open -> Closing -> Closed (DEC-147, DEC-149, DEC-150); never backwards.
     enum FundState {
         Open,
