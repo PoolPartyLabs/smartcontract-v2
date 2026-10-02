@@ -49,7 +49,10 @@ struct CoreVaultConfig {
     string shareSymbol;
 }
 
-/// @notice Immutable addresses the Core Vault hands to its external library on every call.
+/// @notice Immutable addresses and terms the Core Vault hands to its external libraries on every call.
+/// @param flowFeeBps ICoreVault.flowFeeBps (DEC-106, DEC-113).
+/// @param payoutFeeBps ICoreVault.payoutFeeBps (DEC-075, DEC-144).
+/// @param standardPayoutTerm ICoreVault.standardPayoutTerm (DEC-060, DEC-095).
 struct CoreVaultWiring {
     bytes32 fundId;
     bytes32 mandateHash;
@@ -65,6 +68,9 @@ struct CoreVaultWiring {
     address managerFeeVault;
     uint256 hubChainId;
     uint16 maxBridgeFeeBps;
+    uint16 flowFeeBps;
+    uint16 payoutFeeBps;
+    uint32 standardPayoutTerm;
 }
 
 /// @dev Transient slot of the Core Vault's unwinding flag: set while the Core Vault waits on

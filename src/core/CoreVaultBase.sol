@@ -347,7 +347,10 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
             protocolRecipient: protocolRecipient,
             managerFeeVault: managerFeeVault,
             hubChainId: _hubChainId,
-            maxBridgeFeeBps: _maxBridgeFeeBps
+            maxBridgeFeeBps: _maxBridgeFeeBps,
+            flowFeeBps: flowFeeBps,
+            payoutFeeBps: payoutFeeBps,
+            standardPayoutTerm: standardPayoutTerm
         });
     }
 
