@@ -142,16 +142,16 @@ contract EndToEndAdversarialForkTest is EndToEndScenario {
     }
 
     // -----------------------------------------------------------------------------------------------------------------
-    // DEC-014 vs CS-OQ-1 (OPEN): the main scenario collects the hub income before Bruno enters. Here Bruno enters first
-    // and the income generated entirely before his entry is collected after it.
+    // DEC-014, DEC-138 (closes CS-OQ-1 and security review S-15): the main scenario collects the hub income after Bruno
+    // enters. Here the income is generated entirely before his entry and collected after it.
     // -----------------------------------------------------------------------------------------------------------------
 
-    /// @dev DEC-014 says a new entrant gets nothing of income generated before entry, regardless of when it is
-    ///      collected. The CS-OQ-1 stance (docs/OPEN-QUESTIONS.md) attributes at collection to the holders of that
-    ///      moment, so on the live stack Bruno captures a pro-rata share of the V4 fees and Aave interest that were
-    ///      earned while Ana was the only holder, and can withdraw it at once. Pinned here on the fork as evidence for
-    ///      the founder's ruling; the unit pin is `test_DEC014_OPEN_incomeGeneratedBeforeEntryIsSharedWhenCollectedAfterIt`.
-    function test_DEC014_OPEN_forkIncomeGeneratedBeforeBrunoIsSharedWhenCollectedAfterHim() public {
+    /// @dev DEC-014: a new entrant gets nothing of income generated before entry, regardless of when it is collected.
+    ///      DEC-138 makes it so: Bruno's mint recognizes the hub income first (the hub Spoke Vault's counters, read in
+    ///      the valuation), for Ana and the manager's seed only. Pinned on the live stack (the V4 fees and Aave interest
+    ///      earned while Ana was the only holder); the unit pin is
+    ///      `test_DEC138_incomeGeneratedBeforeEntryIsNotSharedWhenCollectedAfterIt`.
+    function test_DEC138_forkIncomeGeneratedBeforeBrunoIsNotHisWhenCollectedAfterHim() public {
         _createForks();
         _phase1CreateFund();
         _phase2AnaDeposits();
@@ -171,20 +171,19 @@ contract EndToEndAdversarialForkTest is EndToEndScenario {
         uint256 supply = IERC20(shareToken).totalSupply();
         assertEq(MANAGER_SEED_SHARES + anaShares + brunoShares, supply, "the manager's seed shares too (DEC-127)");
 
-        (uint256 netUsdc, uint256 netWeth) = _collectHubIncome();
-        uint256 brunoUsdc = core.attributedIncome(bruno, ARB_USDC);
-        uint256 brunoWeth = core.attributedIncome(bruno, ARB_WETH);
-        assertGt(brunoUsdc, 0, "CS-OQ-1 stance: the entrant shares income generated before his entry (DEC-014 tension)");
-        assertGt(brunoWeth, 0);
-        assertApproxEqAbs(brunoUsdc, Math.mulDiv(netUsdc, brunoShares, supply), 1, "pro rata at collection");
-        assertApproxEqAbs(brunoWeth, Math.mulDiv(netWeth, brunoShares, supply), 1);
-        assertApproxEqAbs(core.attributedIncome(ana, ARB_USDC), Math.mulDiv(netUsdc, anaShares, supply), 1);
-        assertLt(core.attributedIncome(ana, ARB_USDC), netUsdc, "Ana no longer receives all of what she earned");
-
-        uint256 before = IERC20(ARB_USDC).balanceOf(bruno);
+        uint256 heldBefore = core.incomeCollection().heldDollars;
         vm.prank(bruno);
-        assertEq(core.withdrawIncome(ARB_USDC), brunoUsdc, "DEC-073: and he can withdraw it at once");
-        assertEq(IERC20(ARB_USDC).balanceOf(bruno) - before, brunoUsdc);
-        emit log_named_decimal_uint("Income generated before Bruno's entry that Bruno captured (USDC)", brunoUsdc, 6);
+        core.requestIncomeWithdrawal(0); // collected after Bruno's entry
+        uint256 converted = core.incomeCollection().heldDollars - heldBefore;
+        assertGt(converted, 0);
+        assertEq(core.incomeOwed(bruno), 0, "DEC-014: nothing generated before his entry is Bruno's");
+        assertApproxEqAbs(
+            core.incomeOwed(ana), Math.mulDiv(converted, anaShares, anaShares + MANAGER_SEED_SHARES), 2, "all Ana's"
+        );
+        vm.prank(bruno);
+        assertEq(core.withdrawIncome(), 0, "and he has nothing to withdraw");
+        emit log_named_decimal_uint(
+            "Income generated before Bruno's entry, all Ana's and the seed's (USDC)", converted, 6
+        );
     }
 }

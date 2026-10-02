@@ -12,6 +12,7 @@ import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {MockPositionAdapter} from "../../mocks/spoke/MockPositionAdapter.sol";
 import {MockCoreVault} from "../../mocks/spoke/MockCoreVault.sol";
 import {MockSwapAdapter} from "../../mocks/swap/MockSwapAdapter.sol";
+import {UniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
 
 /// @notice Hub role on a pinned Arbitrum One fork with native USDC: allocation from the Core Vault, positions, the
 ///         automatic unwind in Mandate order back to Idle, income forwarding and the same-chain report reader.
@@ -41,6 +42,22 @@ contract SpokeVaultArbitrumForkTest is SpokeVaultForkBase {
             hubSwap: address(new MockSwapAdapter()),
             spokeSwap: makeAddr("spokeSwap")
         });
+        TransitEscrow escrow = new TransitEscrow();
+        address[] memory tokens = new address[](2);
+        tokens[0] = ARB_USDC;
+        tokens[1] = ARB_WETH;
+        a.hubSwap = address(
+            new UniswapV3SwapAdapter(
+                vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1),
+                guardian,
+                ARB_USDC,
+                tokens,
+                0x1F98431c8aD98523631AE4a59f267346ea31F984,
+                0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45,
+                0x61fFE014bA17989E743c5F6cB21bF9697530B21e,
+                address(0)
+            )
+        );
         vault = new SpokeVault(
             _mandate(a),
             FUND_ID,
@@ -49,7 +66,7 @@ contract SpokeVaultArbitrumForkTest is SpokeVaultForkBase {
             ARB_USDC,
             ARB_SPOKE_POOL,
             address(0),
-            address(new TransitEscrow()),
+            address(escrow),
             excessRecipient
         );
         hubUni.setVault(address(vault));
@@ -81,17 +98,16 @@ contract SpokeVaultArbitrumForkTest is SpokeVaultForkBase {
         assertEq(aavePrincipal, 200e6);
     }
 
-    function test_DEC092_forkArbitrum_incomeForwardedAndDonationSwept() public {
+    function test_DEC172_forkArbitrum_incomeCollectedForTheCoreVaultAndDonationSwept() public {
         core.allocate(vault, 1000e6);
         vm.prank(manager);
         (bytes32 key,,) = vault.openPosition(address(hubAave), AAVE_USDC, 500e6, 0, "");
         deal(ARB_USDC, address(hubAave), USDC.balanceOf(address(hubAave)) + 3e6);
         hubAave.earnIncome(key, 3e6, 0);
         assertEq(vault.cumulativeIncome(ARB_USDC), 3e6);
-        vm.prank(manager);
-        vault.collectIncome(address(hubAave), key);
-        assertEq(vault.forwardIncomeToCoreVault(ARB_USDC), 3e6);
+        core.collectIncome(vault, 0); // DEC-172: the Core Vault's collection, USDC to the Core Vault
         assertEq(core.incomeReceived(ARB_USDC), 3e6);
+        assertEq(vault.collectedIncome(ARB_USDC), 0);
         assertEq(vault.cumulativeIncome(ARB_USDC), 3e6);
 
         deal(ARB_USDC, address(vault), USDC.balanceOf(address(vault)) + 42e6);
@@ -101,5 +117,26 @@ contract SpokeVaultArbitrumForkTest is SpokeVaultForkBase {
 
         vm.expectRevert(ISpokeVault.NotOnSpokeChain.selector);
         vault.report();
+    }
+
+    function test_DEC172_forkArbitrum_hubWethIncomeSoldThroughLiveV3Adapter() public {
+        core.allocate(vault, 1000e6);
+        vm.prank(manager);
+        (bytes32 key,,) = vault.openPosition(address(hubUni), HUB_POOL, 0, 500e6, "");
+        deal(ARB_WETH, address(hubUni), 0.1e18);
+        deal(ARB_USDC, address(hubUni), USDC.balanceOf(address(hubUni)) + 10e6);
+        hubUni.earnIncome(key, 0.1e18, 10e6);
+        uint256 before = USDC.balanceOf(address(core));
+        (address[] memory tokens, uint256[] memory sold, uint256[] memory obtained) = core.collectIncome(vault, 0);
+        assertEq(tokens[0], ARB_USDC);
+        assertEq(sold[0], 10e6);
+        assertEq(tokens[1], ARB_WETH);
+        assertEq(sold[1], 0.1e18);
+        assertGt(obtained[1], 0);
+        assertEq(USDC.balanceOf(address(core)) - before, obtained[0] + obtained[1]);
+        assertEq(vault.collectedIncome(ARB_WETH), 0);
+        assertEq(vault.collectedIncome(ARB_USDC), 0);
+        assertEq(vault.cumulativeIncome(ARB_WETH), 0.1e18);
+        assertEq(vault.unallocatedBalance(ARB_USDC), 500e6);
     }
 }

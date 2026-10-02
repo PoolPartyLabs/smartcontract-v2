@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {ISpokeVaultIncome} from "../../../src/interfaces/ISpokeVaultIncome.sol";
 import {console2} from "forge-std/console2.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
@@ -111,9 +112,12 @@ contract New_PreSeededUnlistedArrivalRecovery is CoreBCrossChainFixture {
         assertEq(r.usdcPaid, 497_453_250_050, "the honest payout");
     }
 
-    /// @dev On main the pre-seeded Income send home was recovered as Principal at once (no fee, no income). Now the
-    ///      recovery waits, the listing report arrives first and the transfer is split as Income.
-    function test_REVIEW_NEW_S04_preSeededIncomeSendHomeIsSplitAsIncome() public {
+    /// @dev On main the pre-seeded Income send home was recovered as Principal at once (no fee, no income); the fix made
+    ///      the recovery wait for the listing report, which credits it as Income. Since WP-10 the manager cannot send
+    ///      Income home at all outside a collection order (DEC-122, DEC-161: the Hub converts Income only with the
+    ///      collection's sale record), so this path is closed at its source; a collection's Income send is credited by
+    ///      the listed kind and held for its result (test/unit/core/CoreVaultIncome.t.sol).
+    function test_REVIEW_NEW_S04_aManualIncomeSendHomeNoLongerExists() public {
         _deposit(alice, 1_000_000e6);
         _report(); // S-14
         usdg.mint(address(spokeAcross), 10_000e6);
@@ -123,26 +127,8 @@ contract New_PreSeededUnlistedArrivalRecovery is CoreBCrossChainFixture {
             10_000e6,
             TransitMessage.encode(FUND_ID, HUB, keccak256("income"), TransferKind.Income)
         );
-        bytes32 predicted = keccak256(abi.encode(FUND_ID, SPOKE, uint256(1)));
-        usdc.mint(address(hubAcross), 1);
-        _fillOnHub(predicted, 1, TransferKind.Principal);
-
-        vm.warp(block.timestamp + 6 hours + ReportCodec.HUB_BOUND_RETENTION + 2 * uint256(MAX_REPORT_AGE));
-        _refreshPrices();
-        _report();
-        _willArrive(9995e6);
         vm.prank(manager);
-        bytes32 home = spoke.sendToHub(10_000e6, TransferKind.Income, 0);
-        assertEq(home, predicted);
-        vm.warp(block.timestamp + 2 minutes);
-        _fillOnHub(home, 9995e6, TransferKind.Income);
-        address feeVault = vault.managerFeeVault();
-
-        vm.expectRevert();
-        vault.recoverUnlistedArrival(0, home);
-        _report();
-        assertEq(usdc.balanceOf(feeVault), 999_500_000, "20% performance fee, half of it to the manager");
-        assertEq(vault.collectedIncome(address(usdc)), 7_996_000_000, "7,996 attributed to holders as income");
-        console2.log("seed left held apart", vault.unmatchedArrivals());
+        vm.expectRevert(ISpokeVaultIncome.IncomeSentOnlyByCollection.selector);
+        spoke.sendToHub(10_000e6, TransferKind.Income, 0);
     }
 }

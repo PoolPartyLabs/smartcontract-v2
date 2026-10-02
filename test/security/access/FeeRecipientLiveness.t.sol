@@ -127,10 +127,10 @@ contract FeeRecipientLivenessPoC is AccessFundFixture {
         address feeVault = core.managerFeeVault();
         fiatUsdc.blacklist(feeVault);
 
-        // The hand-off to the Core Vault goes through; the manager's portion is owed to its fee vault.
-        hub.forwardIncomeToCoreVault(address(usdc));
+        // The collection goes through (DEC-161, DEC-172); the manager's portion is owed to its fee vault.
+        core.requestIncomeWithdrawal(0);
         assertEq(hub.collectedIncome(address(usdc)), 0);
-        assertGt(core.collectedIncome(address(usdc)), 0, "S-12: the holders' share reached the accumulator");
+        assertGt(core.incomeCollection().heldDollars, 0, "S-12: the holders' share was converted");
         uint256 owed = core.owedFees(address(usdc), feeVault);
         assertGt(owed, 0, "S-12: the manager's portion is owed, not lost");
         assertEq(core.performanceFeeBps(), 2000, "no need to give up the fee");

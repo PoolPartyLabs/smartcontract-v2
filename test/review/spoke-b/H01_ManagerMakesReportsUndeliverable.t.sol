@@ -47,7 +47,8 @@ contract H01_ManagerMakesReportsUndeliverable is SpokeBFixture {
         );
         spoke.openPosition(address(spokeAdapter), SPOKE_POOL, 0, 1, "");
         _incomeArrival(SpokeVaultTypes.MAX_HUB_BOUND_IN_FLIGHT);
-        _dustSendsHome(SpokeVaultTypes.MAX_HUB_BOUND_IN_FLIGHT, TransferKind.Income);
+        // WP-10: the manager sends only Principal home (income goes through a collection order, DEC-122).
+        _dustSendsHome(SpokeVaultTypes.MAX_HUB_BOUND_IN_FLIGHT, TransferKind.Principal);
         _dustArrivals(256);
 
         (bytes memory payload, uint64 seq, uint256 reportGas) = _publishMeasured();
