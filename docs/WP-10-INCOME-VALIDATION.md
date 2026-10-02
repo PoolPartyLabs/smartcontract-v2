@@ -134,3 +134,44 @@ No finding is declined. No separate low finding is listed in the review; cheap a
 lengths before marking results seen, and recheck repeated results for closure instead of returning early. The plan
 deviation is bounded report refresh with permanently retained sale metadata rather than a last-eight-only recovery
 window. DEC-145 and the other handoff deferrals are unchanged; no new spec divergence is adopted.
+
+## PR #18 round-two recovery fix
+
+The round-two high finding is fixed by a bounded permissionless retry of `recoverUnlistedArrival(spokeIndex, transitId)`.
+A first recovery still reserves an unclassified arrival while Income is unresolved. A retry releases that per-id
+reservation to Idle only when `finalCollectionDone` proves all sources have zero recognized income and fee units,
+zero pending spokes and zero open collection results. This uses authenticated report/collection accounting, not the
+Across message's claimed kind. The retry deletes the reservation and decreases held dollars without increasing the
+transit's already-credited amount, preventing duplicate recovery or double counting by a late report.
+
+No report format, spoke fixture, compiler setting or new entry point changes. The source/token scan uses the existing
+Mandate bounds; each call releases one identified reservation, with no iteration over accumulated arrival ids.
+Keepers must retry reserved arrivals after the final Income result closes. Genuine recovered Income remains reserved
+until its retained sale result reconciles and closes normally (DEC-080, DEC-092, DEC-122, DEC-124, DEC-161).
+
+`ExpiredPrincipalRecoveryTest.test_principalRecoveryMustNotStayReservedAfterUnrelatedIncomeCloses` fails before the fix
+with `NothingToRecover` on its retry, and passes after it: after a five-day outage the previously stranded 100 USDC
+returns to Idle, both Income Withdrawals finish, and only two base units of rounding dust remain held. Tests also
+reject retries during pending collections, open results and recognized income on either source, reject repeated
+recovery, prove a late Principal listing cannot double-credit, and keep a genuine Income arrival out of Idle even
+when its Across message falsely claims Principal. All round-one regressions remain green.
+
+| Runtime bytes / margin to 24,576 | Before round two | After round two |
+| --- | ---: | ---: |
+| CoreVaultTransitLogic | 14,744 / 9,832 | 15,069 / 9,507 |
+| CoreVault | 21,914 / 2,662 | 21,914 / 2,662 |
+| SpokeVault | 22,748 / 1,828 | 22,748 / 1,828 |
+| CoreVaultIncomeLogic | 12,101 / 12,475 | 12,101 / 12,475 |
+| CoreVaultIncomeCollectionLogic | 16,530 / 8,046 | 16,530 / 8,046 |
+| SpokeIncomeLib | 11,577 / 12,999 | 11,577 / 12,999 |
+| SpokeCrossChainLib | 12,112 / 12,464 | 12,112 / 12,464 |
+
+Full green bar: build with sizes and formatting check pass; size tests 3/3 (all 22 production contracts and linked
+libraries); non-fork tests 1,271 across 171 suites; full fork tests 218 across 51 suites with the archive RPC environment
+sourced in the same shell; focused round-one/round-two tests 79 across three suites, including inherited tests.
+No failures or skips. The smallest production margin is 1,828 bytes; none is below 1,000. Existing compiler/lint
+warnings are unchanged. No harness services start, and no processes require cleanup.
+
+Plan deviation: allow reservation release after globally settled Income rather than adding retained Principal report
+metadata. This is the review's alternative recovery design and preserves the existing ABI. No new spec divergence,
+declined finding or deferred fix remains in this round.
