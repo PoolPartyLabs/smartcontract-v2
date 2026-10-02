@@ -38,7 +38,7 @@ interface IFundFactory {
     /// @param uniswapV3SwapRouter02 SwapRouter02 wired to `uniswapV3Factory`.
     /// @param uniswapV3QuoterV2 QuoterV2 wired to `uniswapV3Factory`.
     /// @param apiSigner The Pool Party API key of this chain (reading D-01): the swap adapters' route signer and the
-    ///        Across adapters' quoter; zero for a chain without API (every contract works without it, DEC-052).
+    ///        Across adapters' quoter (WP-11); zero for a chain without API (every contract works without it, DEC-052).
     ///        Rotation needs a new factory (LC-16).
     /// @param managerRegistry Per-manager protocol slice registry; hub only (DEC-106, DEC-110).
     /// @param priceSource Prices non-USDC quantities into USDC; hub only (docs/ARCHITECTURE.md §5, OPEN).

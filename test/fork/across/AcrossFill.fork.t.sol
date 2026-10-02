@@ -134,7 +134,7 @@ contract AcrossFillForkTest is Test {
         returns (AcrossHarnessVault harness, AcrossBridgeAdapter adapter)
     {
         harness = new AcrossHarnessVault();
-        adapter = new AcrossBridgeAdapter(address(harness), guardian, spokePool);
+        adapter = new AcrossBridgeAdapter(address(harness), guardian, spokePool, address(0));
         harness.pin(adapter);
         deal(inputToken, address(harness), 2 * INPUT_AMOUNT);
     }

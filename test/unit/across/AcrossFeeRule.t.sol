@@ -36,7 +36,7 @@ contract AcrossFeeRuleTest is Test {
         pool = new MockAcrossSpokePool(405_000);
         usdg = new MockAcrossToken("Global Dollar", "USDG");
         vault = new AcrossHarnessVault();
-        adapter = new AcrossBridgeAdapter(address(vault), guardian, address(pool));
+        adapter = new AcrossBridgeAdapter(address(vault), guardian, address(pool), address(0));
         vault.pin(adapter);
         usdg.mint(address(vault), 1_000_000_000e6);
     }

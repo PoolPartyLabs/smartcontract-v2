@@ -31,7 +31,7 @@ contract AcrossBridgeAdapterAdversarialTest is Test {
     function setUp() public {
         vm.warp(1_790_000_000);
         pool = new MockAcrossSpokePool(INITIAL_DEPOSIT_ID);
-        adapter = new AcrossBridgeAdapter(vault, guardian, address(pool));
+        adapter = new AcrossBridgeAdapter(vault, guardian, address(pool), address(0));
         usdc = new MockAcrossToken("USD Coin", "USDC");
     }
 
@@ -97,7 +97,7 @@ contract AcrossBridgeAdapterAdversarialTest is Test {
     /// stays untouched.
     function test_DEC090_buildSendCannotBeUsedToMutateTheSpokePool() public {
         MaliciousAcrossSpokePool malicious = new MaliciousAcrossSpokePool();
-        AcrossBridgeAdapter viaMalicious = new AcrossBridgeAdapter(vault, guardian, address(malicious));
+        AcrossBridgeAdapter viaMalicious = new AcrossBridgeAdapter(vault, guardian, address(malicious), address(0));
         IBridgeAdapter.SendRequest memory req = _request();
         vm.prank(vault);
         vm.expectRevert();
@@ -109,7 +109,7 @@ contract AcrossBridgeAdapterAdversarialTest is Test {
     /// adapter never exists with an empty target the vault would approve.
     function test_DEC058_constructorRejectsTargetWithoutCode() public {
         vm.expectRevert();
-        new AcrossBridgeAdapter(vault, guardian, makeAddr("eoa-target"));
+        new AcrossBridgeAdapter(vault, guardian, makeAddr("eoa-target"), address(0));
     }
 
     /// DEC-066: at the uint32 time horizon the deadline arithmetic reverts (checked) rather than wrapping to a
@@ -130,7 +130,7 @@ contract AcrossBridgeAdapterAdversarialTest is Test {
     /// that builds and executes in one transaction (the harness) always gets the id the pool assigns.
     function test_DEC090_strangerDepositBetweenBuildAndExecuteShiftsTheId() public {
         AcrossHarnessVault harness = new AcrossHarnessVault();
-        AcrossBridgeAdapter viaHarness = new AcrossBridgeAdapter(address(harness), guardian, address(pool));
+        AcrossBridgeAdapter viaHarness = new AcrossBridgeAdapter(address(harness), guardian, address(pool), address(0));
         harness.pin(viaHarness);
         usdc.mint(address(harness), 2000e6);
         IBridgeAdapter.SendRequest memory req = _request();

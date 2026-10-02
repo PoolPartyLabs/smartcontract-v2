@@ -27,7 +27,7 @@ contract AcrossBufferReductionTest is Test {
         pool = new MockAcrossSpokePool(1);
         usdg = new MockAcrossToken("Global Dollar", "USDG");
         spokeVault = new AcrossHarnessVault();
-        adapter = new AcrossBridgeAdapter(address(spokeVault), makeAddr("guardian"), address(pool));
+        adapter = new AcrossBridgeAdapter(address(spokeVault), makeAddr("guardian"), address(pool), address(0));
         spokeVault.pin(adapter);
         usdg.mint(address(spokeVault), 10_000e6);
     }

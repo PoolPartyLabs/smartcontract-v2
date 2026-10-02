@@ -124,8 +124,8 @@ abstract contract CrossChainFixture is Test, FundSeed {
         (spokeAdapter, spokePoolKey) = _deploySpokePositionAdapter(predictedSpoke);
         require(spokeAdapter == predictedSpokeAdapter, "fixture: spoke adapter address");
 
-        hubBridge = new AcrossBridgeAdapter(predictedCore, guardian, address(hubPool));
-        spokeBridge = new AcrossBridgeAdapter(predictedSpoke, guardian, address(spokePool));
+        hubBridge = new AcrossBridgeAdapter(predictedCore, guardian, address(hubPool), address(0));
+        spokeBridge = new AcrossBridgeAdapter(predictedSpoke, guardian, address(spokePool), address(0));
         require(address(hubBridge) == predictedHubBridge && address(spokeBridge) == predictedSpokeBridge, "fixture");
 
         Mandate memory m = _mandate(predictedSpoke);

@@ -407,8 +407,13 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
         }
         if (m.isBridgeAdapter(chainId, c.acrossBridgeAdapter)) {
             // DEC-066: the adapter constructor reverts FillDeadlineBufferTooShort on a SpokePool below 6 h; Create3
-            // bubbles it as this call's revert reason.
-            _deploy(fundId, ROLE_ACROSS_BRIDGE_ADAPTER, chainId, abi.encode(bridgeVault, _guardian, _acrossSpokePool));
+            // bubbles it as this call's revert reason. Reading D-01: the API key is the adapter's quoter (WP-11).
+            _deploy(
+                fundId,
+                ROLE_ACROSS_BRIDGE_ADAPTER,
+                chainId,
+                abi.encode(bridgeVault, _guardian, _acrossSpokePool, _apiSigner)
+            );
         } else {
             c.acrossBridgeAdapter = address(0);
         }

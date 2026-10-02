@@ -184,7 +184,7 @@ abstract contract CoreVaultFixture is Test, FundSeed {
     {
         acrossPool = new AcrossPoolStandIn(1);
         address predictedVault = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1);
-        across = new AcrossBridgeAdapter(predictedVault, makeAddr("guardian"), address(acrossPool));
+        across = new AcrossBridgeAdapter(predictedVault, makeAddr("guardian"), address(acrossPool), address(0));
         Mandate memory m = _mandate(2000);
         m.bridgeAdapters[0] = BridgeAdapterConfig(SPOKE, HUB, address(across));
         _deploy(m, _config(25));
