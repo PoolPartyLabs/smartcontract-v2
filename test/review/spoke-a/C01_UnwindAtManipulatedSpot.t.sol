@@ -46,8 +46,9 @@ contract C01_UnwindAtManipulatedSpot is SpokeAHubFixture {
         assertEq(hubVault.positions().length, 1, "position kept");
         assertEq(r.usdcPaid, 17_053_413_712, "paid from Free Idle only");
         assertTrue(vault.payoutRequest(mallory).open, "partial payout, request stays open");
-        // Share Assets fall only by what Mallory was paid gross; Alice's value is untouched.
-        assertEq(vault.shareAssets(), 1_000_000_992_467);
-        assertEq(_valueOf(alice), aliceBefore, "the holder who stays loses nothing");
+        // Share Assets fall only by what Mallory was paid gross less her Payout Fee, which stays in Idle (DEC-144);
+        // Alice's value is untouched, and the fee even raises it.
+        assertEq(vault.shareAssets(), 1_000_000_992_467 + r.payoutFee);
+        assertGe(_valueOf(alice), aliceBefore, "the holder who stays loses nothing");
     }
 }

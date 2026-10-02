@@ -101,11 +101,14 @@ contract FundSystemHandler is Test {
     /// @notice Bridge fees the fund got back through recognized refunds: a holder who entered between the send and
     ///         the refund legitimately gains a part of it.
     uint256 public refundedBridgeFees;
+    /// @notice Payout Fees of executed Instant Payouts: they stay in Idle (DEC-144), so the holders who stay
+    ///         legitimately gain them.
+    uint256 public payoutFees;
     /// @notice Principal that entered the fund's ledgers from outside: what deposits bought, plus Principal a
     ///         stranger bridged to the Spoke Vault.
     uint256 public principalIn;
-    /// @notice Principal that left the fund's ledgers: payouts (gross less the Payout Fee, which stays in Operating
-    ///         Cash) and the bridge fee of every filled Principal transfer.
+    /// @notice Principal that left the fund's ledgers: payouts (gross less the Payout Fee, which stays in Idle,
+    ///         DEC-144) and the bridge fee of every filled Principal transfer.
     uint256 public principalOut;
     /// @notice Principal strangers bridged to the Spoke Vault (value of unknown origin, DEC-080).
     uint256 public strangerSpokePrincipal;
@@ -206,6 +209,7 @@ contract FundSystemHandler is Test {
             assertEq(r.sharesBurned % 1e18, 0, "DEC-091: whole shares");
             paidOut[who] += r.usdcPaid;
             principalOut += r.usdcGross - r.payoutFee;
+            payoutFees += r.payoutFee;
             returnedFromHubVault += hubVaultBefore - _hubVaultPrincipal();
             ++valueOps;
             ++done["claimPayout"];

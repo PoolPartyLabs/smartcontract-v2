@@ -205,15 +205,16 @@ contract CoreVaultSetupTest is CoreVaultFixture {
         assertLe(vault.payoutReserve(), vault.idle());
     }
 
-    function test_DEC102_payoutFeeFeedsOperatingCashAboveFloor() public {
+    /// @dev DEC-144: the top-up is a logic of its own; the Payout Fee stays in Idle.
+    function test_DEC144_payoutFeeStaysOutOfOperatingCash() public {
         _deposit(alice, 1000e6);
         vm.prank(manager);
         vault.setOperatingCashParameters(1e6, 3e6);
         _request(alice, 100e6, ICoreVault.PayoutMode.Instant);
         ICoreVault.PayoutReceipt memory r = _claim(alice);
-        // Topped up 3 first (below floor), then the 2% Payout Fee of the amount paid out.
+        // Topped up 3 first (below floor); the 2% Payout Fee of the amount paid out stays in Idle.
         assertEq(r.payoutFee, r.usdcGross * 200 / 10_000);
-        assertEq(vault.operatingCash(), 3e6 + r.payoutFee);
+        assertEq(vault.operatingCash(), 3e6);
     }
 
     // ---------------------------------------------------------------------------------------------------------------

@@ -229,9 +229,9 @@ contract CoreVault is CoreVaultTransit {
         r.usdcRequested = req.usdcRequested;
         r.sharesBurned = c.shares;
         r.usdcGross = ShareMath.usdcFor(c.shares, c.price);
-        // DEC-075, DEC-102: Payout Fee on Instant only, whole to Operating Cash.
+        // DEC-075: Payout Fee on Instant only. DEC-144 items 4-5 (corrects DEC-102 items 2-4): it stays in Idle, in USDC.
         if (req.mode == PayoutMode.Instant) r.payoutFee = ShareMath.bpsOf(r.usdcGross, payoutFeeBps);
-        // DEC-106, LC-143 reading: flow fee on the amount paid out, deducted from what the shareholder receives.
+        // DEC-106, DEC-113: flow fee on the amount paid out, deducted from what the shareholder receives.
         r.flowFee = ShareMath.flowFee(r.usdcGross, flowFeeBps);
         r.usdcPaid = r.usdcGross - r.payoutFee - r.flowFee;
         r.sharePrice = c.price;
@@ -246,11 +246,11 @@ contract CoreVault is CoreVaultTransit {
 
         // Effects. DEC-014: checkpoint with the balance before the burn.
         _s.income.checkpoint(msg.sender, c.balance);
-        _s.idle -= r.usdcGross;
+        // DEC-144: the Payout Fee never leaves Idle, so it raises the Share Price of those who stay (R-144-A).
+        _s.idle -= r.usdcGross - r.payoutFee;
         uint256 reserved = req.reserved;
         uint256 used = Math.min(reserved, r.usdcGross);
         reserved -= used;
-        _s.operatingCash += r.payoutFee;
         if (c.complete) {
             // Closed: release what is left of the reserve (DEC-072) and the request.
             req.open = false;

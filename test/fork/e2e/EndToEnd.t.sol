@@ -658,7 +658,7 @@ abstract contract EndToEndScenario is EndToEndBase {
         assertEq(receipt.sharePrice, ShareMath.sharePrice(receipt.shareAssets, receipt.totalShares), "DEC-105");
         assertEq(receipt.usdcGross, ShareMath.usdcFor(receipt.sharesBurned, receipt.sharePrice));
         assertEq(receipt.payoutFee, ShareMath.bpsOf(receipt.usdcGross, 200), "DEC-102: 2% Payout Fee");
-        assertEq(core.operatingCash() - plan.operatingCash, receipt.payoutFee, "DEC-102: into Operating Cash");
+        assertEq(core.operatingCash(), plan.operatingCash, "DEC-144: the Payout Fee stays in Idle");
         assertEq(receipt.flowFee, ShareMath.flowFee(receipt.usdcGross, FLOW_FEE_BPS), "DEC-106");
         assertEq(receipt.usdcPaid, receipt.usdcGross - receipt.payoutFee - receipt.flowFee);
         assertEq(IERC20(ARB_USDC).balanceOf(bruno) - plan.brunoUsdc, receipt.usdcPaid);

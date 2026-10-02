@@ -123,7 +123,8 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         assertEq(r.sharesBurned, 5000e18);
     }
 
-    function test_DEC102_instantWorkedExample30000() public {
+    /// @dev DEC-144 (corrects DEC-102 items 2-4): the Payout Fee stays in Idle, never in Operating Cash.
+    function test_DEC144_instantWorkedExample30000() public {
         _deposit(alice, 40_000e6);
         _request(alice, 30_000e6, INSTANT);
         ICoreVault.PayoutReceipt memory r = _claim(alice);
@@ -131,7 +132,8 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         assertEq(r.payoutFee, 600e6, "2% Payout Fee");
         assertEq(r.flowFee, 75e6, "25 bps flow fee on the amount paid out (LC-143 reading)");
         assertEq(r.usdcPaid, 29_325e6);
-        assertEq(vault.operatingCash(), 600e6, "Payout Fee whole to Operating Cash");
+        assertEq(vault.operatingCash(), 0, "the Payout Fee never enters Operating Cash");
+        assertEq(vault.idle(), 39_900e6 - 30_000e6 + 600e6, "Idle drops by usdcGross - payoutFee");
         assertEq(usdc.balanceOf(protocol), 100e6 + 75e6);
         assertEq(usdc.balanceOf(alice), 29_325e6);
     }
@@ -185,7 +187,7 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         assertEq(r.sharePrice, ONE, "DEC-105: one price after the unwind");
         // payoutSettlementPrice = 408 / 800 shares, same scale as Share Price; recorded only (DEC-084, DEC-105).
         assertEq(r.payoutSettlementPrice, 0.51e24);
-        assertEq(vault.idle(), 8e6);
+        assertEq(vault.idle(), 8e6 + r.payoutFee, "the 8 left plus the 16 Payout Fee (DEC-144)");
     }
 
     function test_DEC080_unwindCreditsOnlyWhatReturnToIdleCredited() public {
@@ -234,10 +236,14 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         ICoreVault.PayoutRequest memory req = vault.payoutRequest(alice);
         assertTrue(req.open);
         assertEq(req.usdcOutstanding, 400e6);
-        // Once the unwind works again, the next claim unwinds the rest and closes the request.
+        // Once the unwind works again, the next claim unwinds the rest and closes the request. DEC-144: the first
+        // claim's Payout Fee stayed in Idle and raised the Share Price, so the 400 outstanding burn fewer shares.
         hubVault.setUnwindMode(MockHubSpokeVault.UnwindMode.Callback);
         r = _claim(alice);
-        assertEq(r.usdcGross, 400e6);
+        assertGt(r.sharePrice, ONE);
+        assertEq(r.sharesBurned, ShareMath.sharesToBurn(400e6, r.sharePrice));
+        assertEq(r.usdcGross, ShareMath.usdcFor(r.sharesBurned, r.sharePrice));
+        assertLe(r.usdcGross, 400e6);
         assertEq(r.usdcOutstanding, 0);
         assertFalse(vault.payoutRequest(alice).open);
     }

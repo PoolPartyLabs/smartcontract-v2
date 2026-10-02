@@ -44,7 +44,8 @@ contract CoreVaultFinalVerifyTest is CoreVaultFixture {
         vm.warp(block.timestamp + 72 hours);
         ICoreVault.PayoutReceipt memory b = _claim(bob);
         assertEq(b.sharesBurned, 1e18);
-        assertEq(b.usdcGross, 1e6);
+        // DEC-144: alice's Payout Fee stayed in Idle and raised the Share Price to 9,878 / 9,876.
+        assertEq(b.usdcGross, 1.000202e6);
         assertFalse(b.closedBelowOneShare);
         assertFalse(vault.payoutRequest(bob).open);
         assertEq(vault.payoutReserve(), 0);

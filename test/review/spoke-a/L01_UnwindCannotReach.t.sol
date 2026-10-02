@@ -38,9 +38,16 @@ contract L01_UnwindCannotReach is SpokeAHubFixture {
         assertEq(r.usdcOutstanding, 2_503_992_469);
         assertTrue(vault.payoutRequest(mallory).open);
         assertEq(hubVault.unallocatedBalance(address(weth)), 400e18);
+        // DEC-144: the first claim's Payout Fee stayed in Idle; a retry is paid from that Free Idle alone (plus the
+        // sub-share remainder), still unwinding nothing, and the request stays open.
+        uint256 free = vault.freeIdle();
+        assertGe(free, r.payoutFee);
         vm.prank(mallory);
-        vm.expectRevert();
-        vault.claimPayout("");
+        ICoreVault.PayoutReceipt memory again = vault.claimPayout("");
+        assertEq(again.unwindProceeds, 0);
+        assertLe(again.usdcGross, free);
+        assertTrue(vault.payoutRequest(mallory).open);
+        assertEq(hubVault.unallocatedBalance(address(weth)), 400e18);
     }
 }
 

@@ -158,15 +158,16 @@ contract StaticReviewFindingsTest is CoreVaultFixture {
         vault.claimPayout("");
     }
 
-    /// @dev DEC-102: the Payout Fee of every Instant Payout goes whole to Operating Cash. With no spend verb and no
-    ///      closure, that USDC leaves the holders for good on the honest path too.
-    function test_POC_SA03_payoutFeeIsLockedInOperatingCash() public {
+    /// @dev SA-03, fixed by DEC-144 (corrects DEC-102 items 2-4): the Payout Fee of an Instant Payout used to go
+    ///      whole to Operating Cash, which nothing spends; it now stays in Idle and in Share Assets.
+    function test_DEC144_SA03_payoutFeeStaysInShareAssets() public {
+        uint256 idleBefore = vault.idle();
         _request(alice, 5000e6, ICoreVault.PayoutMode.Instant);
         ICoreVault.PayoutReceipt memory receipt = _claim(alice);
         assertEq(receipt.payoutFee, 100e6, "2% of 5,000");
-        assertEq(vault.operatingCash(), 100e6);
+        assertEq(vault.operatingCash(), 0);
+        assertEq(vault.idle(), idleBefore - receipt.usdcGross + receipt.payoutFee);
         assertEq(vault.sweepExcess(address(usdc)), 0);
-        // Nothing in ICoreVault decreases `operatingCash`; it is outside Share Assets (DEC-013).
         assertEq(vault.shareAssets(), vault.idle());
     }
 

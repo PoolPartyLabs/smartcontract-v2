@@ -50,7 +50,10 @@ contract SpotCompositionExitPoC is AccessFundFixture {
         v4.setTick(poolId, 0);
 
         assertEq(attackBurn, honestBurn, "S-1: the exit burns what an honest exit burns");
-        assertApproxEqAbs(core.shareAssets(), fairAssets - 190_000e6, 1e6, "the fund paid the same 190,000 USDC");
+        // DEC-144: the 2% Payout Fee (3,800) stays in Idle.
+        assertApproxEqAbs(
+            core.shareAssets(), fairAssets - 190_000e6 + 3800e6, 1e6, "the fund paid the same 190,000 USDC gross"
+        );
     }
 
     /// @dev An Instant Payout of `amount` by the attacker; returns the shares burned.

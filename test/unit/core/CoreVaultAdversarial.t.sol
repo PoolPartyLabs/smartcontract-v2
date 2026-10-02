@@ -229,7 +229,7 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         assertEq(shares.balanceOf(alice), 0, "the exit completed");
         assertEq(usdc.balanceOf(alice), 1000e6 + r.usdcPaid, "the re-entering deposit never ran");
         assertEq(vault.owedFees(address(mal), alice), owed, "the refused income is owed to alice");
-        assertEq(vault.idle(), 0);
+        assertEq(vault.idle(), r.payoutFee, "only the Payout Fee stays in Idle (DEC-144)");
     }
 
     // ---------------------------------------------------------------------------------------------------------------

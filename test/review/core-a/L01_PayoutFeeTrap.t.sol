@@ -41,7 +41,7 @@ contract L01_PayoutFeeTrap is CoreVaultFixture {
         assertEq(r.flowFee, 5e6);
         assertEq(r.usdcPaid, 445e6);
         assertFalse(vault.payoutRequest(alice).open, "the request closed");
-        assertEq(vault.operatingCash(), 50e6);
+        assertEq(vault.operatingCash(), 0, "DEC-144: the Payout Fee stays in Idle");
 
         // The holder is free to open a Standard request next (no trap).
         _request(alice, 400e6, ICoreVault.PayoutMode.Standard);

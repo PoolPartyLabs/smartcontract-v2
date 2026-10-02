@@ -62,7 +62,7 @@ contract POC_OperatingCashFreeze is CoreVaultFixture {
         // ledger keeps the amount out of everything sweepable. Resetting the parameters does not move it back either.
         vm.prank(manager);
         vault.setOperatingCashParameters(0, 0);
-        assertEq(vault.operatingCash(), 50_000e6 + r.payoutFee); // the Payout Fee joined the dead bucket too
+        assertEq(vault.operatingCash(), 50_000e6); // DEC-144: the Payout Fee stays in Idle, never in this bucket
         assertEq(vault.sweepExcess(address(usdc)), 0);
         assertEq(usdc.balanceOf(address(vault)), vault.idle() + vault.operatingCash());
     }
