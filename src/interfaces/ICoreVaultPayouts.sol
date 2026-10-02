@@ -22,14 +22,14 @@ interface ICoreVaultPayouts {
     /// @param termEndsAt Standard: `requestedAt + standardPayoutTerm` (DEC-060, DEC-154); Instant: `requestedAt`.
     /// @param usdcRequested Gross USDC amount requested (DEC-020, DEC-023).
     /// @param usdcOutstanding USDC still to pay after Partial Payouts (DEC-068).
-    /// @param reserved USDC held in the Payout Reserve: a Standard reservation, or the Idle and Hub proceeds earmarked
+    /// @param reserved USDC held in the Payout Reserve: a Standard reservation, or Idle, Hub and spoke proceeds earmarked
     ///        while a cross-chain claim awaits settlement (DEC-105, DEC-139).
     /// @param requestId The request's id: the requester's address in the high 160 bits and the Core Vault's request
     ///        counter in the low 96 (`OrderCodec.Order.requestId`). The hub Spoke Vault remembers per id which
     ///        positions already delivered (DEC-151).
     /// @param maxLossBps The requester's maximum loss per sale of the automatic unwind, in bps, as given at the
     ///        request or at the last claim; 0 or >= 10,000 for none (DEC-140, DEC-148, D-23, DEC-178 item 2).
-    /// @param attempt Automatic unwinds of positions run for this request so far (DEC-151).
+    /// @param attempt Automatic unwind attempts, advancing on every new spoke publication (DEC-151).
     /// @param fracNum Numerator of the share of every position the automatic unwind takes, the 2% margin included,
     ///        fixed at the first attempt that unwinds positions (DEC-137, DEC-151, D-11); 0 until then.
     /// @param fracDen Denominator of that share; 0 until the first attempt that unwinds positions.
