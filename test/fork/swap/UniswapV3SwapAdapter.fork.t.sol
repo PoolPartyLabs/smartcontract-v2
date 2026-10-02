@@ -20,6 +20,8 @@ import {SwapForkBase} from "./SwapForkBase.sol";
 ///      whose in-range liquidity was about 7x the 0.3% tier's on 2026-10-02).
 contract UniswapV3SwapAdapterForkTest is SwapForkBase {
     uint16 internal constant NO_MAX = 0;
+    /// @dev V3 TickMath.MAX_SQRT_RATIO; QuoterV2 swaps token1 for token0 up to one below it when given no limit.
+    uint160 internal constant MAX_SQRT_RATIO = 1_461_446_703_485_210_103_287_273_052_203_988_822_378_723_970_342;
     bytes32 internal constant DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
 
@@ -103,6 +105,30 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
         console2.log("griefed pair, adapter.swap gas", used, "out", out);
         assertGt(out, 0, "the real tier filled");
         assertLt(used, 2_500_000, "bounded by the quote gas cap");
+    }
+
+    /// @dev A drained tier (review round 1): two new tokens at price 1, a 0.05% full-range pool and a 1% pool with more
+    ///      liquidity but only in ticks [-200, 200]. Selling 497 of token1 drains the 1% pool, whose quote (about 479.6)
+    ///      beats the full fill of the 0.05% pool (about 473.2) because QuoterV2 drops the unspent input of an exact
+    ///      input. Its price ends at the limit, so the adapter skips it and the sale fills in the 0.05% tier. Anyone can
+    ///      place such liquidity at the market price, at no arbitrage loss.
+    function test_arbitrum_noApi_drainedTierDoesNotOutbidATierThatFills() public {
+        V3Chain memory c = _arbitrum();
+        (address t0, address t1) = _drainablePair(c);
+        uint256 amountIn = 497e18;
+        uint256 fullOut = _assertTheDrainedTierQuotesMore(c, t1, t0, amountIn);
+
+        _setUpWithBase(c, t0, _tokens2(t0, t1));
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(t1, t0, amountIn);
+        assertEq(uint256(fee), 500, "the best tier that fills");
+        assertEq(quoted, fullOut);
+        (uint256 out,,) = _swap(t1, t0, amountIn, NO_MAX, "", "no API, a drained 1% tier next to a 0.05% tier");
+        assertEq(out, fullOut, "the sale fills in the 0.05% tier");
+
+        // What choosing the drained tier would have done.
+        _fund(t1, amountIn);
+        vm.expectPartialRevert(ISwapAdapter.PartialFill.selector);
+        adapter.swapDirect(t1, t0, amountIn, 10_000, NO_MAX);
     }
 
     /// @dev DEC-153 accepted consequence: a Mandate token without a direct V3 pool against the base token has no route
@@ -269,11 +295,46 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
     // -----------------------------------------------------------------------------------------------------------
 
     function _setUp(V3Chain memory c, address[] memory tokens) internal {
+        _setUpWithBase(c, c.base, tokens);
+    }
+
+    function _setUpWithBase(V3Chain memory c, address base, address[] memory tokens) internal {
         chain = c;
         (apiSigner, apiKey) = makeAddrAndKey("pool-party-api");
         adapter = new UniswapV3SwapAdapter(
-            address(this), guardian, c.base, tokens, address(c.factory), address(c.router), address(c.quoter), apiSigner
+            address(this), guardian, base, tokens, address(c.factory), address(c.router), address(c.quoter), apiSigner
         );
+    }
+
+    /// @dev Two new tokens at price 1: a 0.05% pool with L = 1e22 over the full range, and a 1% pool with L = 4.82e22
+    ///      only in ticks [-200, 200] (about 480 of each token), which a sale of 497 drains.
+    function _drainablePair(V3Chain memory c) internal returns (address t0, address t1) {
+        (t0, t1) = _sorted(address(new ForkToken("AAA")), address(new ForkToken("BBB")));
+        DustMinter minter = new DustMinter();
+        IUniswapV3Pool full = IUniswapV3Pool(c.factory.createPool(t0, t1, 500));
+        full.initialize(2 ** 96);
+        minter.mint(full, -887_270, 887_270, 1e22);
+        IUniswapV3Pool thin = IUniswapV3Pool(c.factory.createPool(t0, t1, 10_000));
+        thin.initialize(2 ** 96);
+        minter.mint(thin, -200, 200, 4.82e22);
+    }
+
+    /// @dev QuoterV2 on its own: the drained 1% tier quotes more than the 0.05% tier, and only because its price ends at
+    ///      the limit (selling token1 raises the price). Returns the 0.05% quote.
+    function _assertTheDrainedTierQuotesMore(V3Chain memory c, address tokenIn, address tokenOut, uint256 amountIn)
+        internal
+        returns (uint256 fullOut)
+    {
+        assertGt(uint160(tokenIn), uint160(tokenOut), "selling token1");
+        (uint256 thinOut, uint160 thinAfter,,) = c.quoter
+        .quoteExactInputSingle(IQuoterV2.QuoteExactInputSingleParams(tokenIn, tokenOut, amountIn, 10_000, 0));
+        uint160 fullAfter;
+        (fullOut, fullAfter,,) =
+            c.quoter.quoteExactInputSingle(IQuoterV2.QuoteExactInputSingleParams(tokenIn, tokenOut, amountIn, 500, 0));
+        console2.log("drained 1% quote", thinOut, "full 0.05% quote", fullOut);
+        assertGt(thinOut, fullOut, "the drained tier quotes more");
+        assertEq(thinAfter, MAX_SQRT_RATIO - 1, "because it stopped at the price limit");
+        assertLt(fullAfter, MAX_SQRT_RATIO - 1, "the 0.05% tier fills");
     }
 
     /// @dev The vault side: holds exactly `amount` and approves the adapter for it.
@@ -423,6 +484,10 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
         (uint8 v, bytes32 rr, bytes32 ss) = vm.sign(key, keccak256(abi.encodePacked("\x19\x01", domain, structHash)));
         r.signature = abi.encodePacked(rr, ss, v);
         return abi.encode(r);
+    }
+
+    function _sorted(address a, address b) internal pure returns (address, address) {
+        return a < b ? (a, b) : (b, a);
     }
 
     function _tokens2(address a, address b) internal pure returns (address[] memory t) {
