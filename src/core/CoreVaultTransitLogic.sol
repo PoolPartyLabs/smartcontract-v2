@@ -205,6 +205,10 @@ library CoreVaultTransitLogic {
     ///      while the latest accepted report still showed the principal on the spoke: Idle and that report counted
     ///      the transfer twice and a claimant was overpaid. The recovered amount joins `credited`, so a later listing
     ///      of the same id nets it out; a stranger's dust becomes a donation to Idle.
+    /// @dev DEC-080, DEC-092, DEC-161: a recovery reserved while Income is unresolved can be retried once every
+    ///      recognized token and fee unit, pending spoke and open result is settled. The bounded source/token check
+    ///      uses authenticated report and collection accounting, never the Across message kind. The amount was
+    ///      already credited on its first recovery, so releasing the reservation must not credit the transit again.
     function recoverUnlistedArrival(
         CoreVaultState storage s,
         CoreVaultWiring memory w,
@@ -215,6 +219,14 @@ library CoreVaultTransitLogic {
         SpokeConfig storage spoke = s.mandate.spokes[spokeIndex];
         uint256 originChainId = spoke.chainId;
         HubBoundTransfer storage h = s.hubBound[CoreVaultLogic.hubBoundKey(originChainId, transitId)];
+        amount = s.incomeBook.recoveredIncome[spokeIndex][transitId];
+        if (amount != 0 && CoreVaultIncomeLogic.finalCollectionDone(s, w)) {
+            delete s.incomeBook.recoveredIncome[spokeIndex][transitId];
+            s.incomeBook.heldDollars -= amount;
+            s.idle += amount;
+            emit ICoreVault.UnlistedArrivalRecovered(transitId, originChainId, amount);
+            return amount;
+        }
         amount = h.pending;
         if (h.listed != 0 || amount == 0) revert ICoreVault.NothingToRecover(transitId);
         uint256 builtAfter = uint256(h.pendingSince) + uint256(spoke.maxReportAge);
