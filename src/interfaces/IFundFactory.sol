@@ -38,8 +38,10 @@ interface IFundFactory {
     ///        (DEC-096, DEC-101): the fee wallet (DEC-116).
     /// @param guardian Immutable guardian of every adapter's pause and deprecation flags (ruling 2026-09-29, Q17-2b).
     /// @param flowFeeBps Protocol flow fee handed to every Core Vault (DEC-106: 25 bps default; DEC-110: at most 100).
-    /// @param coreVaultLogic The CoreVaultLogic library linked into the Core Vault creation code; hub only.
-    /// @param coreVaultCreationCodeHash keccak256 of the Core Vault creation code linked to `coreVaultLogic`, without
+    /// @param coreVaultLogic The CoreVaultLogic library linked into the Core Vault creation code; hub only. The only
+    ///        Core Vault library whose code the constructor checks.
+    /// @param coreVaultCreationCodeHash keccak256 of the Core Vault creation code linked to the Core Vault libraries
+    ///        (`CoreVaultLogic`, `CoreVaultTransitLogic`, `CoreVaultIncomeLogic`, `CoreVaultPayoutLogic`), without
     ///        constructor arguments; hub only. `createFund` refuses any other code.
     /// @param spokeCrossChainLib The SpokeCrossChainLib library linked into the stored Spoke Vault creation code.
     struct ProtocolWiring {
