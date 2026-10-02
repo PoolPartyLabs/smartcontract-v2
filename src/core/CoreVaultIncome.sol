@@ -34,7 +34,8 @@ abstract contract CoreVaultIncome is CoreVaultBase {
     }
 
     /// @inheritdoc ICoreVault
-    /// @dev LC-100 stance: pays `min(owed, collectedIncome(token))`. No Payout Fee and no flow fee (LC-143 reading).
+    /// @dev LC-100 stance: pays `min(owed, collectedIncome(token))`. No Payout Fee (DEC-075: Instant Payouts only) and
+    ///      no flow fee (DEC-113, which closes LC-143: deposits and Payouts only, never an Income Withdrawal).
     function withdrawIncome(address token) external nonReentrant returns (uint256 amount) {
         if (!_s.income.isRegistered(token)) revert UnknownIncomeToken(token);
         _s.income.checkpoint(msg.sender, _sharesOf(msg.sender));
