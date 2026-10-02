@@ -42,8 +42,8 @@ interface ISwapAdapter is IAdapterGuard {
     ///      The route is amount-agnostic, because an unwind sells an amount only known on-chain (DEC-136 item 4,
     ///      DEC-137): the input is split by weight and `minAmountOut` is scaled to the amount actually sold.
     /// @param paths Packed V3 paths from `tokenIn` to `tokenOut`, one per split; at most `MAX_LEGS`, each at most
-    ///        `MAX_HOPS` hops, every token a Mandate token (D-52), every fee one of the four tiers, every pool deployed by
-    ///        the V3 factory.
+    ///        `MAX_HOPS` hops, every fee one of the four tiers, every pool deployed by the V3 factory. Only `tokenIn`
+    ///        and `tokenOut` must be Mandate tokens; an intermediate hop may be any token (DEC-173).
     /// @param weightsBps Share of the input per path, each above zero, summing to 10,000; the last path takes the
     ///        rounding remainder.
     /// @param quotedAmountIn Input amount the API quoted; non-zero.
@@ -82,7 +82,7 @@ interface ISwapAdapter is IAdapterGuard {
     /// @notice `tokenIn` equals `tokenOut`.
     error IdenticalTokens(address token);
 
-    /// @notice A token of the swap or of a route hop is not a Mandate token on this chain (DEC-136 item 2, D-52).
+    /// @notice The swap's input or output token is not a Mandate token on this chain (DEC-136 item 2, DEC-173).
     error TokenNotInMandate(address token);
 
     /// @notice No direct V3 pool of the pair quoted a fill of the whole input within the gas cap (DEC-153: no route

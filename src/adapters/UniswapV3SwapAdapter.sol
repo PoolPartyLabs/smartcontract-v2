@@ -102,7 +102,8 @@ contract UniswapV3SwapAdapter is AdapterGuard, EIP712, ISwapAdapter {
     /// @param guardian_ Immutable guardian of the quarantine and deprecation flags (DEC-021, DEC-058; R128-31: the
     ///        factory's guardian).
     /// @param baseToken_ The vault's base token; must be one of `mandateTokens_`.
-    /// @param mandateTokens_ This chain's Mandate tokens (DEC-136 item 2): the only tokens a swap or a route hop may use.
+    /// @param mandateTokens_ This chain's Mandate tokens (DEC-136 item 2): the only tokens a swap may take in or pay
+    ///        out; an API route's intermediate hops may be any token (DEC-173).
     /// @param v3Factory_ The chain's Uniswap V3 factory.
     /// @param swapRouter_ The chain's SwapRouter02.
     /// @param quoterV2_ The chain's QuoterV2.
@@ -354,9 +355,11 @@ contract UniswapV3SwapAdapter is AdapterGuard, EIP712, ISwapAdapter {
         if (amountOut < minOut) revert InsufficientOutput(amountOut, minOut);
     }
 
-    /// @dev Validates `path` (from `tokenIn` to `tokenOut`, 1 to `MAX_HOPS` hops, Mandate tokens only, the four tiers
-    ///      only, every pool deployed by `v3Factory`) and returns `amountIn` valued along it at each pool's current
-    ///      `sqrtPriceX96`, without fee or price impact (DEC-118, D-19, D-20).
+    /// @dev Validates `path` (from `tokenIn` to `tokenOut`, 1 to `MAX_HOPS` hops, the four tiers only, every pool
+    ///      deployed by `v3Factory`) and returns `amountIn` valued along it at each pool's current `sqrtPriceX96`,
+    ///      without fee or price impact (DEC-118, D-19, D-20). DEC-173: only the first and last tokens must be Mandate
+    ///      tokens, and the caller checked both (`_requirePair`); an intermediate hop token may be any token, since it
+    ///      enters and leaves the route within the swap and never stays in the fund.
     function _spotAlong(bytes memory path, uint256 amountIn, address tokenIn, address tokenOut)
         private
         view
@@ -372,7 +375,6 @@ contract UniswapV3SwapAdapter is AdapterGuard, EIP712, ISwapAdapter {
         for (uint256 off = ADDR_SIZE; off < len; off += HOP_SIZE) {
             uint24 fee = _readFee(path, off);
             address b = _readAddress(path, off + 3);
-            if (!isMandateToken[b]) revert TokenNotInMandate(b);
             if (fee != 100 && fee != 500 && fee != 3000 && fee != 10_000) revert InvalidFee(fee);
             address pool = v3Factory.getPool(a, b, fee);
             if (pool == address(0)) revert PoolNotFound(a, b, fee);

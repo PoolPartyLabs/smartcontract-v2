@@ -251,12 +251,21 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
         assertEq(out, quoted, "pays the route's quote");
     }
 
-    /// @dev D-52 (DEC-136 item 2): only Mandate tokens. With USDT outside the Mandate the same signed route is refused.
-    function test_arbitrum_api_rejectsTokenOutsideMandate() public {
+    /// @dev DEC-173: only the route's first and last tokens must be Mandate tokens. With USDT outside the Mandate the
+    ///      signed split route through USDT runs, pays the route's quote, and leaves no USDT with the vault.
+    function test_arbitrum_api_hopOutsideMandateRuns() public {
         _setUp(_arbitrum(), _tokens2(ARB_WETH, ARB_USDC));
+        assertFalse(adapter.isMandateToken(ARB_USDT));
         (bytes[] memory paths, uint16[] memory w) = _arbSplitRoute();
+        uint256 quoted = _quotePaths(paths, w, 10e18);
         bytes memory route = _signRoute(paths, w, ARB_WETH, ARB_USDC, 10e18, 0, apiKey);
-        _expectRefused(route, abi.encodeWithSelector(ISwapAdapter.TokenNotInMandate.selector, ARB_USDT));
+        // Balances compared before and after: the fork's test addresses may already hold USDT dust.
+        uint256 vaultUsdt = IERC20(ARB_USDT).balanceOf(address(this));
+        uint256 adapterUsdt = IERC20(ARB_USDT).balanceOf(address(adapter));
+        (uint256 out,,) = _swap(ARB_WETH, ARB_USDC, 10e18, NO_MAX, route, "API route through USDT outside the Mandate");
+        assertEq(out, quoted, "pays the route's quote");
+        assertEq(IERC20(ARB_USDT).balanceOf(address(this)), vaultUsdt, "the hop token never reaches the vault");
+        assertEq(IERC20(ARB_USDT).balanceOf(address(adapter)), adapterUsdt, "nor stays in the adapter");
     }
 
     /// @dev DEC-143: a route the API did not sign is the caller choosing the route.

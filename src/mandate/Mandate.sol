@@ -11,7 +11,8 @@ struct AdapterConfig {
 
 /// @notice A token the fund may hold on one chain.
 /// @dev DEC-136 closing note item 2 (a swap adapter swaps only tokens the Mandate has), DEC-123 level 1 (every token is
-///      priced on the hub at creation), reading D-52 (every hop of an API route is a Mandate token).
+///      priced on the hub at creation), DEC-173 (an API route's first and last tokens; its intermediate hops may be
+///      any token).
 struct TokenConfig {
     uint256 chainId;
     address token;

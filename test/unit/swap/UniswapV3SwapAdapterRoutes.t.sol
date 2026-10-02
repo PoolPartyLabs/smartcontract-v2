@@ -8,7 +8,8 @@ import {SwapAdapterTestBase} from "./SwapAdapterTestBase.sol";
 
 /// @notice Routes from the Pool Party API (DEC-129 default path, DEC-136, DEC-143; founder, 2026-10-02: "receive the
 ///         route from uniswap api that we'll send via our api's signed interaction"): only a route signed by the route
-///         signer changes the route (D-01, D-02), within Mandate tokens (D-52), the four V3 tiers and factory pools.
+///         signer changes the route (D-01, D-02), from and to Mandate tokens (DEC-173), in the four V3 tiers and factory
+///         pools.
 contract UniswapV3SwapAdapterRoutesTest is SwapAdapterTestBase {
     /// @dev The API's encoder depends on this exact string.
     function test_D01_routeTypeHashIsTheDocumentedOne() public view {
@@ -128,20 +129,45 @@ contract UniswapV3SwapAdapterRoutesTest is SwapAdapterTestBase {
     }
 
     // ------------------------------------------------------------------------------------------------------------
-    // What a signed route may contain (D-52, DEC-153 tiers, factory pools, shape)
+    // What a signed route may contain (DEC-173, DEC-153 tiers, factory pools, shape)
     // ------------------------------------------------------------------------------------------------------------
 
-    /// @dev D-52 (DEC-136 item 2): every hop token is a Mandate token. With USDT outside the Mandate, the same
-    ///      signed route through USDT is refused.
-    function test_D52_aHopThroughATokenOutsideTheMandateIsRefused() public {
+    /// @dev DEC-173: only the route's first and last tokens must be Mandate tokens. With USDT outside the Mandate, the
+    ///      signed split route through USDT runs and pays the vault; USDT never stays in the fund.
+    function test_DEC173_aHopThroughATokenOutsideTheMandateRuns() public {
         address[] memory tokens = new address[](3);
         (tokens[0], tokens[1], tokens[2]) = (address(base), address(weth), address(stock));
         adapter = _deploy(apiSigner, tokens);
+        assertFalse(adapter.isMandateToken(address(usdt)));
         (bytes[] memory paths, uint16[] memory w) = _splitLegs();
-        _expectRefused(
-            _route(paths, w, address(weth), address(base), AMOUNT, 0, apiKey),
-            abi.encodeWithSelector(ISwapAdapter.TokenNotInMandate.selector, address(usdt))
+        uint256 leg0 = AMOUNT * 6000 / 10_000;
+        uint256 expected = _out(_out(leg0, 500, 0), 100, 0) + _out(AMOUNT - leg0, 500, 0);
+
+        (uint256 out,) = _swap(
+            address(weth),
+            address(base),
+            AMOUNT,
+            NO_MAX,
+            _route(paths, w, address(weth), address(base), AMOUNT, 0, apiKey)
         );
+        assertEq(out, expected, "the leg through USDT ran");
+        assertEq(base.balanceOf(address(this)), expected);
+        assertEq(usdt.balanceOf(address(this)), 0, "the hop token never reaches the vault");
+        assertEq(usdt.balanceOf(address(adapter)), 0, "nor stays in the adapter");
+        _assertNothingKept(address(weth));
+    }
+
+    /// @dev DEC-173 keeps DEC-136 item 2 at the route's ends: a signed route whose first or last token is outside the
+    ///      Mandate is refused, even when its paths are valid.
+    function test_DEC173_aRouteEndOutsideTheMandateIsRefused() public {
+        (bytes[] memory paths, uint16[] memory w) = _one(_path1(address(weth), 500, address(usdt)));
+        address[] memory tokens = new address[](3);
+        (tokens[0], tokens[1], tokens[2]) = (address(base), address(weth), address(stock));
+        adapter = _deploy(apiSigner, tokens);
+        bytes memory route = _route(paths, w, address(weth), address(usdt), AMOUNT, 0, apiKey);
+        _fund(address(weth), AMOUNT);
+        vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.TokenNotInMandate.selector, address(usdt)));
+        adapter.swap(address(weth), address(usdt), AMOUNT, NO_MAX, route);
     }
 
     function test_DEC153_aNonStandardFeeIsRefusedEvenWhenSigned() public {
