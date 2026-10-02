@@ -7,8 +7,12 @@ import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {CoreMockToken} from "./CoreMockTokens.sol";
 
 /// @notice The hub Spoke Vault surface the Core Vault uses: `buildReport`, `collectedIncome`, `receiveFromCoreVault`,
-///         `unwindForPayout`. Its Unallocated Balance is the USDC the Core Vault allocated; one synthetic position holds
-///         `positionPrincipal` of a token; cumulative income counters are set by the test.
+///         `unwindForPayout`, `collectIncomeAll`. Its Unallocated Balance is the USDC the Core Vault allocated; one
+///         synthetic position holds `positionPrincipal` of a token; cumulative income counters are set by the test.
+/// @dev Hub income (WP-10): `earn` advances a token's monotonic counter (what the Core Vault recognizes at every mint
+///      and burn) and the income a collection will find; `collectIncomeAll` takes it all, sells every non-USDC token at
+///      the rate the test set (`setSaleRate`; none set: the sale fails and the token stays) and pays the Core Vault the
+///      USDC obtained.
 contract MockHubSpokeVault {
     enum UnwindMode {
         Callback, // transfers USDC and calls ICoreVault.returnToIdle
@@ -34,6 +38,12 @@ contract MockHubSpokeVault {
     address[] internal _incomeTokens;
     mapping(address => uint256) public cumulativeIncome;
     mapping(address => uint256) public collectedIncome;
+    mapping(address => uint256) public collectable;
+    mapping(address => uint256) public saleRate;
+    mapping(address => uint256) public saleUnit;
+    bool public collectReverts;
+    uint16 public lastMaxLossBps;
+    uint256 public collections;
 
     constructor(address usdc_) {
         usdc = usdc_;
@@ -77,18 +87,63 @@ contract MockHubSpokeVault {
     }
 
     function setCumulativeIncome(address token, uint256 amount) external {
-        bool known;
-        for (uint256 i; i < _incomeTokens.length; ++i) {
-            if (_incomeTokens[i] == token) known = true;
-        }
-        if (!known) _incomeTokens.push(token);
+        _track(token);
         cumulativeIncome[token] = amount;
     }
 
-    /// @notice Simulates collected income forwarded to the Core Vault: mints and calls `receiveCollectedIncome`.
-    function forwardIncome(address token, uint256 amount) external {
-        CoreMockToken(token).mint(coreVault, amount);
-        ICoreVault(coreVault).receiveCollectedIncome(token, amount);
+    /// @notice Income in the hub positions: the counter grows by `amount` and a collection will find it.
+    function earn(address token, uint256 amount) external {
+        _track(token);
+        cumulativeIncome[token] += amount;
+        collectable[token] += amount;
+    }
+
+    /// @notice USDC (6 decimals) per whole `token` a collection's sale obtains; 0 makes the sale fail.
+    function setSaleRate(address token, uint256 usdcPerUnit, uint256 unit) external {
+        saleRate[token] = usdcPerUnit;
+        saleUnit[token] = unit;
+    }
+
+    /// @notice ISpokeVaultIncome.collectIncomeAll: takes every token's collectable income, sells it at the set rate and
+    ///         pays the USDC to the Core Vault.
+    function collectIncomeAll(uint16 maxLossBps)
+        external
+        returns (address[] memory tokens, uint256[] memory sold, uint256[] memory obtained)
+    {
+        require(msg.sender == coreVault, "not core");
+        require(!collectReverts, "collect reverts");
+        lastMaxLossBps = maxLossBps;
+        ++collections;
+        tokens = _incomeTokens;
+        sold = new uint256[](tokens.length);
+        obtained = new uint256[](tokens.length);
+        uint256 total;
+        for (uint256 i; i < tokens.length; ++i) {
+            address token = tokens[i];
+            uint256 amount = collectable[token];
+            if (amount == 0) continue;
+            if (token == usdc) {
+                (sold[i], obtained[i]) = (amount, amount);
+            } else if (saleRate[token] != 0) {
+                (sold[i], obtained[i]) = (amount, amount * saleRate[token] / saleUnit[token]);
+            } else {
+                continue;
+            }
+            collectable[token] = 0;
+            total += obtained[i];
+        }
+        if (total != 0) CoreMockToken(usdc).mint(coreVault, total);
+    }
+
+    function setCollectReverts(bool r) external {
+        collectReverts = r;
+    }
+
+    function _track(address token) internal {
+        for (uint256 i; i < _incomeTokens.length; ++i) {
+            if (_incomeTokens[i] == token) return;
+        }
+        _incomeTokens.push(token);
     }
 
     /// @notice Simulates `returnToCoreVault`: transfers Unallocated USDC and calls `returnToIdle`.

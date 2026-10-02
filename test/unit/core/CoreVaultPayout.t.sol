@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {ICoreVaultIncome} from "../../../src/interfaces/ICoreVaultIncome.sol";
 import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
@@ -289,9 +291,9 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         _deployAtMinimumFees();
         _deposit(alice, 1000e6);
         _deposit(bob, 1000e6);
-        hubVault.forwardIncome(address(usdc), 200.1e6); // 0.10 per share over 2,001 shares (the seed's included)
+        _hubIncomeCollected(address(usdc), 200.1e6); // 0.10 per share over 2,001 shares (the seed's included)
         _request(alice, 1000e6, INSTANT);
-        uint256 owed = vault.attributedIncome(alice, address(usdc));
+        uint256 owed = _incomeOf(alice);
         assertApproxEqAbs(owed, _netOfMinimumFee(100e6), 1);
         vm.expectEmit(address(vault));
         emit ICoreVaultIncome.IncomeWithdrawn(alice, address(usdc), owed);
@@ -299,51 +301,49 @@ contract CoreVaultPayoutTest is CoreVaultFixture {
         assertEq(r.sharesBurned, 1000e18);
         // 1,000 gross minus 2% Payout Fee plus the income, in the same transaction.
         assertEq(usdc.balanceOf(alice), 980e6 + owed);
-        assertEq(vault.attributedIncome(alice, address(usdc)), 0);
+        assertEq(_incomeOf(alice), 0);
     }
 
-    /// Independent review (verification plan CF-2; DEC-021, DEC-045): an income token that refuses the transfer to the
-    /// holder (paused, blocklisting it) used to revert the full-burn claim and with it the exit of the principal. The
-    /// claim now completes; that token's income is owed to the holder and paid by the permissionless claimOwedFees.
-    function test_REVIEW_CF2_incomeTokenThatRefusesTheHolderNeverBlocksTheExit() public {
+    /// Independent review (verification plan CF-2; DEC-021, DEC-045): an income transfer the holder cannot receive
+    /// (a USDC blocklist entry) used to revert the full-burn claim and with it the exit of the principal. The claim now
+    /// completes; the income is owed to the holder (`IncomeTransferOwed`, checklist doc 15 gap 16) and paid by the
+    /// permissionless claimOwedFees.
+    function test_REVIEW_CF2_incomeTransferThatRefusesTheHolderNeverBlocksTheExit() public {
         _deployAtMinimumFees();
         _deposit(alice, 1000e6);
         _deposit(bob, 1000e6);
-        hubVault.forwardIncome(address(usdc), 200.1e6); // per share over 2,001 shares (the seed's included)
-        hubVault.forwardIncome(address(weth), 0.50025e18);
+        _hubIncomeCollected(address(usdc), 200.1e6); // per share over 2,001 shares (the seed's included)
         _request(alice, 1000e6, INSTANT);
-        uint256 owedUsdc = vault.attributedIncome(alice, address(usdc));
-        uint256 owedWeth = vault.attributedIncome(alice, address(weth));
-        assertApproxEqAbs(owedWeth, _netOfMinimumFee(0.25e18), 1);
+        uint256 owed = _incomeOf(alice);
+        assertApproxEqAbs(owed, _netOfMinimumFee(100e6), 1);
 
-        // WETH refuses every transfer to alice (a pause or a blocklist entry of the token's issuer).
-        vm.mockCallRevert(address(weth), abi.encodeWithSignature("transfer(address,uint256)", alice), "paused");
+        // USDC refuses the income transfer to alice (a blocklist entry of the issuer).
+        vm.mockCallRevert(address(usdc), abi.encodeCall(IERC20.transfer, (alice, owed)), "blocklisted");
         vm.expectEmit(address(vault));
-        emit ICoreVaultIncome.FeeAccrued(address(weth), alice, owedWeth);
+        emit ICoreVaultIncome.IncomeTransferOwed(alice, address(usdc), owed);
         ICoreVault.PayoutReceipt memory r = _claim(alice);
 
         assertEq(r.sharesBurned, 1000e18, "the exit completed");
-        assertEq(usdc.balanceOf(alice), 980e6 + owedUsdc, "principal and USDC income paid");
-        assertEq(weth.balanceOf(alice), 0, "the refused token was not paid");
-        assertEq(vault.owedFees(address(weth), alice), owedWeth, "and is owed to the holder");
-        assertEq(vault.attributedIncome(alice, address(weth)), 0);
+        assertEq(usdc.balanceOf(alice), 980e6, "principal paid");
+        assertEq(vault.owedFees(address(usdc), alice), owed, "the income is owed to the holder");
+        assertEq(_incomeOf(alice), 0);
 
-        // Once the token transfers again, anyone pays it to the holder.
+        // Once the transfer goes through again, anyone pays it to the holder.
         vm.clearMockedCalls();
         vm.prank(bob);
-        vault.claimOwedFees(address(weth), alice);
-        assertEq(weth.balanceOf(alice), owedWeth);
-        assertEq(vault.owedFees(address(weth), alice), 0);
+        vault.claimOwedFees(address(usdc), alice);
+        assertEq(usdc.balanceOf(alice), 980e6 + owed);
+        assertEq(vault.owedFees(address(usdc), alice), 0);
     }
 
     function test_DEC045_partialBurnKeepsIncomeAttributed() public {
         _deployAtMinimumFees();
         _deposit(alice, 1000e6);
-        hubVault.forwardIncome(address(usdc), 100.1e6); // 0.10 per share over 1,001 shares (the seed's included)
+        _hubIncomeCollected(address(usdc), 100.1e6); // 0.10 per share over 1,001 shares (the seed's included)
         _request(alice, 500e6, INSTANT);
         _claim(alice);
         assertEq(usdc.balanceOf(alice), 490e6);
-        assertApproxEqAbs(vault.attributedIncome(alice, address(usdc)), _netOfMinimumFee(100e6), 1);
+        assertApproxEqAbs(_incomeOf(alice), _netOfMinimumFee(100e6), 1);
     }
 
     function test_Q57_idlePaidPayoutIgnoresStaleReportAndPrice() public {

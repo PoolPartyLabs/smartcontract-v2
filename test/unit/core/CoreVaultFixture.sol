@@ -201,10 +201,45 @@ abstract contract CoreVaultFixture is Test, FundSeed {
         return _deploy(_mandate(MandateLib.MIN_PERFORMANCE_FEE_BPS), _config(0));
     }
 
-    /// @dev What enters the shareholders' index out of `income` collected by a `_deployAtMinimumFees` vault: the income
-    ///      less its 10% performance fee (DEC-107, DEC-184; `CoreVaultIncomeLogic.collectIncome` rounds the fee down).
+    /// @dev What enters the shareholders' index out of `income` recognized by a `_deployAtMinimumFees` vault: the income
+    ///      less its 10% performance fee (DEC-107, DEC-117 item 3, DEC-184; the fee rounds down at recognition).
     function _netOfMinimumFee(uint256 income) internal pure returns (uint256) {
         return income - income * MandateLib.MIN_PERFORMANCE_FEE_BPS / 10_000;
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Income (DEC-117, DEC-138, DEC-161, DEC-172)
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// @dev `amount` of `token` earned by the hub positions: the hub Spoke Vault's counter grows (recognized at the next
+    ///      mint, burn or Income Withdrawal request) and a collection will find it.
+    function _earnHubIncome(address token, uint256 amount) internal {
+        hubVault.earn(token, amount);
+    }
+
+    /// @dev A collection of the Hub income now (any Income Withdrawal request runs one, DEC-122, DEC-172): recognizes
+    ///      what the hub positions earned since the last recognition and converts it to USDC.
+    function _collectHubIncome() internal {
+        vm.prank(makeAddr("incomeKeeper"));
+        vault.requestIncomeWithdrawal(0);
+    }
+
+    /// @dev The old "collected income reaches the Core Vault" in one step: `amount` of `token` earned by the hub
+    ///      positions, recognized and converted now (WETH sells at the hub mock's rate: set it first).
+    function _hubIncomeCollected(address token, uint256 amount) internal {
+        _earnHubIncome(token, amount);
+        _collectHubIncome();
+    }
+
+    /// @dev USDC of Attributed Income `who` can withdraw now.
+    function _incomeOf(address who) internal view returns (uint256) {
+        return vault.incomeOwed(who);
+    }
+
+    /// @dev USDC the Core Vault holds for holders' income (converted and not taken, plus Income credited and not
+    ///      converted yet).
+    function _heldIncome() internal view returns (uint256) {
+        return vault.incomeCollection().heldDollars;
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -329,6 +364,6 @@ abstract contract CoreVaultFixture is Test, FundSeed {
 
     /// @dev USDC the vault holds that its ledger does not account for.
     function _ledgerUsdc() internal view returns (uint256) {
-        return vault.idle() + vault.operatingCash() + vault.collectedIncome(address(usdc)) + vault.unmatchedArrivals();
+        return vault.idle() + vault.operatingCash() + _heldIncome() + vault.unmatchedArrivals();
     }
 }

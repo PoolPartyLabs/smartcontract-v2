@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {ICoreVaultIncome} from "../../../src/interfaces/ICoreVaultIncome.sol";
 import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
@@ -125,30 +124,30 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         (,, uint256 capInFlight,) = vault.spokeCapUsage(0);
         assertEq(capInFlight, 400e6, "but it counts toward the Spoke Cap (DEC-066 B1)");
         pool.fill(address(vault), address(usdc), 400e6, _homeMessage(id, TransferKind.Income));
-        // Split at collection (ruling 2026-09-29): 80 of fees leave, 320 net stays for holders; never Idle.
-        assertEq(vault.collectedIncome(address(usdc)), 320e6, "credited to collected income, never Idle");
+        // DEC-161: held for the collection result it carries, converted when the Hub reads it; never Idle.
+        assertEq(_heldIncome(), 400e6, "held for holders' income, never Idle");
         assertEq(vault.sharePrice(), priceBefore, "the arrival does not move the Share Price either");
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // DEC-014 vs ruling 2026-09-29: income is attributed when it is collected, to the holders of that moment. Income
-    // generated in a hub position before an entrant's deposit but collected after it is therefore shared with the
-    // entrant (reported as an open question); income collected before the entry is not.
+    // DEC-014, DEC-138 (corrects the ruling of 2026-09-29, DEC-128 item 4): income is recognized at every mint and burn,
+    // so income generated in a hub position before an entrant's deposit is not the entrant's even when it is collected
+    // after the entry (security review S-15, closed).
     // ---------------------------------------------------------------------------------------------------------------
 
-    function test_DEC014_OPEN_incomeGeneratedBeforeEntryIsSharedWhenCollectedAfterIt() public {
+    function test_DEC138_incomeGeneratedBeforeEntryIsNotSharedWhenCollectedAfterIt() public {
         _deployAtMinimumFees();
         // 10,000 shares; the manager's seed share takes 0.10 of every 1,000.10 below (DEC-127).
         _deposit(ana, 10_000e6);
-        hubVault.forwardIncome(address(usdc), 1000.1e6); // collected before Bruno: Ana's (and the seed share's)
-        hubVault.setCumulativeIncome(address(usdc), 1000.1e6 + 2100.1e6); // generated, not yet collected
-        _deposit(bruno, 11_000e6); // 11,000 shares
-        assertEq(vault.attributedIncome(bruno, address(usdc)), 0, "nothing collected since Bruno entered");
-        assertApproxEqAbs(vault.attributedIncome(ana, address(usdc)), _netOfMinimumFee(1000e6), 1, "all Ana's");
-        // The 2,100 generated before Bruno's entry is collected after it: shared pro rata (10,000 / 11,000).
-        hubVault.forwardIncome(address(usdc), 2100.1e6);
-        assertApproxEqAbs(vault.attributedIncome(ana, address(usdc)), _netOfMinimumFee(2000e6), 2);
-        assertApproxEqAbs(vault.attributedIncome(bruno, address(usdc)), _netOfMinimumFee(1100e6), 2);
+        _hubIncomeCollected(address(usdc), 1000.1e6); // collected before Bruno: Ana's (and the seed share's)
+        _earnHubIncome(address(usdc), 2100.1e6); // generated before Bruno, not yet collected
+        _deposit(bruno, 11_000e6); // 11,000 shares; his mint's valuation recognizes the 2,100.10 first
+        assertEq(_incomeOf(bruno), 0, "nothing of it is Bruno's");
+        _collectHubIncome(); // collected after Bruno's entry
+        assertEq(_incomeOf(bruno), 0, "still nothing: it was recognized before he entered (S-15 closed)");
+        assertApproxEqAbs(
+            _incomeOf(ana), _netOfMinimumFee(3100.2e6) * 10_000 / 10_001, 2, "Ana's share, excluding the seed"
+        );
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -176,19 +175,26 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // Reentrancy through a hook-bearing income token: Income Withdrawal and the full-burn income payment.
+    // Reentrancy through a hook-bearing income token: the Core Vault never moves an income token in kind.
     // ---------------------------------------------------------------------------------------------------------------
 
-    function _deployWithReenteringToken() internal returns (ReenteringIncomeToken mal) {
-        mal = new ReenteringIncomeToken();
+    /// @dev DEC-124, DEC-172: the hub Spoke Vault sells every income token and the Core Vault holds and pays USDC only,
+    ///      so a hook-bearing token in the Mandate has no transfer of the Core Vault's to re-enter through (the guard on
+    ///      Income Withdrawal and the full-burn payment stays).
+    function test_Reentrancy_theCoreVaultNeverTransfersAnIncomeTokenInKind() public {
+        ReenteringIncomeToken mal = new ReenteringIncomeToken();
         prices.setPrice(address(mal), 1e18); // a Mandate token must be priced at creation (DEC-123 level 1, M-03)
         Mandate memory m = _mandate(2000);
         m.addToken(HUB, address(mal)); // WP-07 B2: the hub income tokens are the Mandate's hub tokens
         _deploy(m, _config(25));
         _deposit(alice, 10_000e6);
-        // 80 to the holders (Alice's 9,975 shares and the manager's seed share), 20 of fees transferred out at once.
-        hubVault.forwardIncome(address(mal), 100e18);
-        assertApproxEqAbs(vault.attributedIncome(alice, address(mal)), uint256(80e18) * 9975 / 9976, 2);
+        mal.arm(address(vault), abi.encodeCall(ICoreVaultIncome.withdrawIncome, ()));
+        hubVault.setSaleRate(address(mal), 1e6, 1e18);
+        _hubIncomeCollected(address(mal), 100e18); // sold for 100 USDC: 80 to the holders, 20 of fees
+        vm.prank(alice);
+        assertApproxEqAbs(vault.withdrawIncome(), uint256(80e6) * 9975 / 9976, 2);
+        assertTrue(mal.armed(), "the token was never transferred by the Core Vault");
+        assertEq(mal.balanceOf(address(vault)), 0);
     }
 
     /// Independent review M-03 (hub half): a hub pool token the price source cannot price used to be accepted, and
@@ -204,37 +210,6 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
 
     function deployWith(Mandate memory m) external {
         _deploy(m, _config(25));
-    }
-
-    function test_Reentrancy_incomeTokenReenteringWithdrawIncomeIsRefused() public {
-        ReenteringIncomeToken mal = _deployWithReenteringToken();
-        mal.arm(address(vault), abi.encodeCall(ICoreVaultIncome.withdrawIncome, (address(mal))));
-        vm.prank(alice);
-        vm.expectRevert(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector);
-        vault.withdrawIncome(address(mal));
-        assertApproxEqAbs(
-            vault.attributedIncome(alice, address(mal)), uint256(80e18) * 9975 / 9976, 2, "nothing was taken"
-        );
-        assertEq(vault.collectedIncome(address(mal)), 80e18);
-    }
-
-    /// The re-entry is refused by the guard. Since the independent review's CF-2 fix (DEC-021) the refused income
-    /// transfer no longer reverts the exit: the burn and the USDC payment stand, the token's income is owed to alice.
-    function test_Reentrancy_incomeTokenReenteringDepositDuringFullBurnIsRefused() public {
-        ReenteringIncomeToken mal = _deployWithReenteringToken();
-        usdc.mint(alice, 1000e6);
-        vm.prank(alice);
-        usdc.approve(address(vault), 1000e6);
-        mal.arm(address(vault), abi.encodeCall(ICoreVault.deposit, (1000e6, 0)));
-        _request(alice, 20_000e6, ICoreVaultPayouts.PayoutMode.Instant); // more than the balance: full burn (DEC-020)
-        uint256 owed = vault.attributedIncome(alice, address(mal));
-        assertGt(owed, 0);
-        vm.prank(alice);
-        ICoreVault.PayoutReceipt memory r = vault.claimPayout("");
-        assertEq(shares.balanceOf(alice), 0, "the exit completed");
-        assertEq(usdc.balanceOf(alice), 1000e6 + r.usdcPaid, "the re-entering deposit never ran");
-        assertEq(vault.owedFees(address(mal), alice), owed, "the refused income is owed to alice");
-        assertEq(vault.idle(), SEED_IDLE + r.payoutFee, "the seed's Idle and the Payout Fee (DEC-144) stay");
     }
 
     // ---------------------------------------------------------------------------------------------------------------

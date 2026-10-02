@@ -14,12 +14,15 @@ import {CoreVaultFixture} from "./CoreVaultFixture.sol";
 contract CoreVaultMandateV2Test is CoreVaultFixture {
     using MandateFixture for Mandate;
 
-    /// @dev The fixture lists USDC and WETH on the hub, USDG and Robinhood WETH on the spoke.
-    function test_DEC136_incomeTokensAreTheMandateHubTokens() public view {
-        address[] memory tokens = vault.incomeTokens();
-        assertEq(tokens.length, 2);
-        assertEq(tokens[0], address(usdc), "USDC first");
-        assertEq(tokens[1], address(weth));
+    /// @dev The fixture lists USDC and WETH on the hub, USDG and Robinhood WETH on the spoke: the Hub income source
+    ///      (0) holds the hub's, the spoke's source (1) the spoke's (DEC-161, doc 10 section 6).
+    function test_DEC136_incomeTokensAreTheMandateTokensOfEachSource() public view {
+        assertTrue(vault.incomeToken(0, address(usdc)).registered, "USDC on the Hub");
+        assertTrue(vault.incomeToken(0, address(weth)).registered);
+        assertFalse(vault.incomeToken(0, address(usdg)).registered, "a spoke token is not a Hub income token");
+        assertTrue(vault.incomeToken(1, address(usdg)).registered, "the spoke's own source");
+        assertTrue(vault.incomeToken(1, address(spokeWeth)).registered);
+        assertFalse(vault.incomeToken(1, address(usdc)).registered);
         assertEq(vault.mandate().tokens.length, 4, "the Mandate copy keeps every chain's tokens");
     }
 

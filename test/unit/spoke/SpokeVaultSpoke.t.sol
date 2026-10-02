@@ -439,12 +439,10 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
 
     function test_DEC096_topUpLimitedToUnallocatedBalance() public {
         _arrive(4e6, ARRIVAL, TransferKind.Principal);
-        _arrive(50e6, keccak256("income"), TransferKind.Income);
-        _willArrive(50e6);
-        vm.prank(manager);
-        vault.sendToHub(50e6, TransferKind.Income, 0);
-        assertEq(vault.operatingCash(), 4e6);
+        _arrive(50e6, keccak256("income"), TransferKind.Income); // a value-moving operation: the top-up runs again
+        assertEq(vault.operatingCash(), 4e6, "never out of the collected income bucket");
         assertEq(vault.unallocatedBalance(address(usdg)), 0);
+        assertEq(vault.collectedIncome(address(usdg)), 50e6);
     }
 
     function test_DEC096_noTopUpAtOrAboveFloor() public {
@@ -763,26 +761,18 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         vault.sendToHub(10e6, TransferKind.Principal, 0);
     }
 
-    function test_DEC092_incomeSendDebitsCollectedBucket() public {
+    /// @dev DEC-122, DEC-124, DEC-161 (WP-10): income goes home only through a collection order, with the sale record
+    ///      the Hub converts it by; the manager's Income send is refused and the bucket waits.
+    function test_DEC122_theManagerCannotSendIncomeHome() public {
         _disableOperatingCash();
         _arrive(100e6, ARRIVAL, TransferKind.Principal);
         _arrive(50e6, keccak256("income"), TransferKind.Income);
-        _willArrive(60e6);
-        vm.startPrank(manager);
-        vm.expectRevert(
-            abi.encodeWithSelector(ISpokeVault.InsufficientCollectedIncome.selector, address(usdg), 50e6, 60e6)
-        );
-        vault.sendToHub(60e6, TransferKind.Income, 0);
         _willArrive(50e6);
-        bytes32 id = vault.sendToHub(50e6, TransferKind.Income, 0);
-        vm.stopPrank();
-        assertEq(vault.collectedIncome(address(usdg)), 0);
+        vm.prank(manager);
+        vm.expectRevert(ISpokeVaultIncome.IncomeSentOnlyByCollection.selector);
+        vault.sendToHub(50e6, TransferKind.Income, 0);
+        assertEq(vault.collectedIncome(address(usdg)), 50e6);
         assertEq(vault.unallocatedBalance(address(usdg)), 100e6);
-        (,,, TransferKind kind) = TransitMessage.decode(spokePool.deposit(0).message);
-        assertEq(uint8(kind), uint8(TransferKind.Income));
-        assertEq(uint8(vault.hubBoundTransit(id).kind), uint8(TransferKind.Income));
-        // CV-OQ-1: the report tells the hub it is income, so the hub keeps it out of Share Assets (DEC-092).
-        assertEq(uint8(vault.buildReport().inFlightToHub[0].kind), uint8(TransferKind.Income));
     }
 
     function test_DEC098_reportCarriesCollectedIncomeAndOperatingCash() public {
@@ -793,59 +783,6 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         assertEq(r.collectedIncome[0].token, address(usdg));
         assertEq(r.collectedIncome[0].amount, 7e6);
         assertEq(r.unallocated[0].amount, 90e6, "neither is in Unallocated Balance");
-    }
-
-    function test_CVOQ2_wethIncomeSwappedIntoBaseTokenThenSentHomeAsIncome() public {
-        _disableOperatingCash();
-        bytes32 key = _openSpokePosition(0.2e18, 200e6, 10_000);
-        _earnIncome(spokeUni, key, 0.01e18, 0);
-        vm.prank(manager);
-        vault.collectIncome(address(spokeUni), key);
-        assertEq(vault.collectedIncome(address(weth)), 0.01e18);
-        uint256 unallocatedUsdg = vault.unallocatedBalance(address(usdg));
-        uint256 unallocatedWeth = vault.unallocatedBalance(address(weth));
-
-        // 2,000 USDG per WETH through the Mandate swap adapter (DEC-136), with a 1% maximum loss (DEC-142).
-        vm.expectEmit(address(vault));
-        emit ISpokeVaultIncome.IncomeSwapped(
-            address(spokeSwap), address(weth), address(usdg), 0.01e18, 20e6, 20e6, 100, 19.8e6
-        );
-        vm.prank(manager);
-        uint256 out = vault.swapCollectedIncome(address(spokeSwap), address(weth), 0.01e18, 100, "");
-        assertEq(out, 20e6);
-        // DEC-092: the swap stays inside the collected income bucket.
-        assertEq(vault.collectedIncome(address(weth)), 0);
-        assertEq(vault.collectedIncome(address(usdg)), 20e6);
-        assertEq(vault.unallocatedBalance(address(usdg)), unallocatedUsdg);
-        assertEq(vault.unallocatedBalance(address(weth)), unallocatedWeth);
-
-        _willArrive(20e6);
-        vm.prank(manager);
-        bytes32 id = vault.sendToHub(20e6, TransferKind.Income, 0);
-        assertEq(uint8(vault.hubBoundTransit(id).kind), uint8(TransferKind.Income));
-        assertEq(vault.hubBoundTransit(id).outputToken, address(usdc), "lands on the hub as USDC");
-        assertEq(vault.collectedIncome(address(usdg)), 0);
-    }
-
-    function test_CVOQ2_swapCollectedIncomeOnlyFromIncomeIntoTheBaseToken() public {
-        _disableOperatingCash();
-        _arrive(100e6, ARRIVAL, TransferKind.Principal);
-        _arrive(50e6, keccak256("income"), TransferKind.Income);
-        vm.startPrank(manager);
-        // The output is always the base token: USDG income has nothing to swap into (the adapter refuses).
-        vm.expectRevert(abi.encodeWithSelector(ISwapAdapter.IdenticalTokens.selector, address(usdg)));
-        vault.swapCollectedIncome(address(spokeSwap), address(usdg), 10e6, 0, "");
-        // Only the collected income bucket is spent, never Unallocated Balance.
-        vm.expectRevert(abi.encodeWithSelector(ISpokeVault.InsufficientCollectedIncome.selector, address(weth), 0, 1));
-        vault.swapCollectedIncome(address(spokeSwap), address(weth), 1, 0, "");
-        vm.stopPrank();
-        vm.prank(stranger);
-        vm.expectRevert(abi.encodeWithSelector(ISpokeVault.NotManager.selector, stranger));
-        vault.swapCollectedIncome(address(spokeSwap), address(weth), 1, 0, "");
-        _deployHub();
-        vm.prank(manager);
-        vm.expectRevert(ISpokeVault.NotOnSpokeChain.selector);
-        vault.swapCollectedIncome(address(hubSwap), address(weth), 1, 0, "");
     }
 
     function test_DEC080_sendAboveUnallocatedReverts() public {
@@ -1057,7 +994,7 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         vm.expectRevert(ISpokeVault.NotOnHubChain.selector);
         vault.returnToCoreVault(1);
         vm.expectRevert(ISpokeVault.NotOnHubChain.selector);
-        vault.forwardIncomeToCoreVault(address(usdg));
+        vault.collectIncomeAll(0);
         vm.expectRevert(ISpokeVault.NotOnHubChain.selector);
         vault.unwindForPayout(1, "");
     }

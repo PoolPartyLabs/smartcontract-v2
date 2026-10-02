@@ -267,9 +267,10 @@ contract CoreVaultAdversarialRound2Test is CoreVaultFixture {
         pool.fill(address(vault), address(usdc), 5, _homeMessage(id, TransferKind.Principal)); // stranger's dust
         assertEq(vault.idle(), idle0, "the message cannot relabel income into Idle");
         pool.fill(address(vault), address(usdc), 400e6, _homeMessage(id, TransferKind.Income)); // the real fill
-        // Ruling 2026-09-29: the income credited is split at once; fees leave to the protocol and the fee vault.
+        // DEC-161: the income credited is held for its collection result; no fee leaves before the conversion.
         uint256 feesOut = usdc.balanceOf(protocol) - protocol0 + usdc.balanceOf(vault.managerFeeVault());
-        assertEq(vault.collectedIncome(address(usdc)) + feesOut, 400e6, "exactly the listed amount, as income");
+        assertEq(feesOut, 0);
+        assertEq(_heldIncome(), 400e6, "exactly the listed amount, as income");
         assertEq(vault.unmatchedArrivals(), 5, "the same amount is held apart for good");
         assertEq(vault.idle(), idle0, "Idle never moved");
         assertEq(usdc.balanceOf(address(vault)), _ledgerUsdc());
