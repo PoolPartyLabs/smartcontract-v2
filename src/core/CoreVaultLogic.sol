@@ -7,6 +7,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {SqrtPriceMath} from "@uniswap/v4-core/src/libraries/SqrtPriceMath.sol";
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
+import {ICoreVaultIncome} from "../interfaces/ICoreVaultIncome.sol";
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {IValueReportReceiver} from "../interfaces/IValueReportReceiver.sol";
 import {IPriceSource} from "../interfaces/IPriceSource.sol";
@@ -23,7 +24,8 @@ import {CoreVaultState, CoreVaultWiring} from "./CoreVaultTypes.sol";
 /// @dev Exists only to keep the Core Vault's runtime bytecode under the 24,576-byte limit without changing compiler
 ///      settings. The Core Vault applies access control, the reentrancy guard and the Operating Cash top-up before
 ///      calling in. Events are emitted with the Core Vault as their address; the library's own events and errors are
-///      declared in ICoreVault, which the Core Vault implements, so they are in the Core Vault's ABI.
+///      declared in ICoreVault (`FeeAccrued` in ICoreVaultIncome, which ICoreVault inherits), which the Core Vault
+///      implements, so they are in the Core Vault's ABI.
 /// @dev Deployment (reported as an assumption): the operator deploys this library once per chain and links its
 ///      address into the Core Vault's creation code, whose hash the FundFactory pins, so the library address is part
 ///      of each fund's trust surface (immutable: no proxy, no upgrade path, DEC-022, DEC-058). ARCHITECTURE §6
@@ -422,7 +424,7 @@ library CoreVaultLogic {
         if (amount == 0 || IERC20(token).trySafeTransfer(recipient, amount)) return;
         s.owedFees[token][recipient] += amount;
         s.owedFeesTotal[token] += amount;
-        emit ICoreVault.FeeAccrued(token, recipient, amount);
+        emit ICoreVaultIncome.FeeAccrued(token, recipient, amount);
     }
 
     /// @notice Key of a spoke-to-hub transfer: transit ids are unique per sending vault, so the origin chain is part of

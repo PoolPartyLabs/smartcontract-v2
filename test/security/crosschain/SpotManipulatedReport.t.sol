@@ -12,6 +12,7 @@ import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol"
 
 import {UniswapV4Adapter} from "../../../src/adapters/UniswapV4Adapter.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {MockPermit2} from "../../mocks/v4/MockPermit2.sol";
 import {MockV4} from "../../mocks/v4/MockV4.sol";
 import {CrossChainFixture} from "./helpers/CrossChainFixture.sol";
@@ -94,7 +95,7 @@ contract SpotManipulatedReportPoC is CrossChainFixture {
         assertApproxEqRel(honestAssets, 1_196_550e6, 0.001e18, "Idle 297,000 + spoke 899,550");
 
         vm.prank(attacker);
-        core.requestPayout(250_000e6, ICoreVault.PayoutMode.Standard);
+        core.requestPayout(250_000e6, ICoreVaultPayouts.PayoutMode.Standard);
         skip(72 hours);
         _reportAndDeliver(900);
         assertApproxEqRel(core.shareAssets(), honestAssets, 0.0001e18, "nothing moved in 72 hours");

@@ -9,6 +9,7 @@ import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 
 import {CoreVault} from "../../../src/core/CoreVault.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {IAdapter} from "../../../src/interfaces/IAdapter.sol";
 import {V4SwapRouter} from "../../mocks/v4/V4SwapRouter.sol";
 import {HubFundFixture} from "./HubFundFixture.sol";
@@ -87,7 +88,7 @@ contract UnwindSpotSandwichTest is HubFundFixture {
         _arbToExternalPrice();
 
         // A Standard Payout above Free Idle: the claim will unwind the shortfall.
-        attacker.request(150_000e6, ICoreVault.PayoutMode.Standard);
+        attacker.request(150_000e6, ICoreVaultPayouts.PayoutMode.Standard);
         vm.warp(block.timestamp + 72 hours);
     }
 
@@ -116,7 +117,7 @@ contract UnwindSpotSandwichTest is HubFundFixture {
         // S-2: the fund's WETH was not sold at the crashed price; the unwind reverted and the claim was paid from Idle.
         assertEq(wethSold, 0, "S-2: no unwind swap at the crashed spot");
         assertEq(r.unwindProceeds, 0, "S-2: nothing unwound");
-        assertTrue(_emitted(logs, ICoreVault.UnwindForPayoutFailed.selector), "S-2: the unwind reverted");
+        assertTrue(_emitted(logs, ICoreVaultPayouts.UnwindForPayoutFailed.selector), "S-2: the unwind reverted");
 
         assertGe(_wealth(victim) + 500e6, victimHonest, "S-2: the victim loses nothing to the sandwich");
         assertLe(_wealth(address(attacker)), attackerHonest + _fair(dump), "S-2: the attacker gains nothing");

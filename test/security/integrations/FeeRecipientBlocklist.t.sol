@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {BlocklistToken} from "./mocks/BlocklistToken.sol";
 import {HubFundFixture} from "./HubFundFixture.sol";
 
@@ -20,7 +21,7 @@ contract FeeRecipientBlocklistTest is HubFundFixture {
         _deposit(alice, 500_000e6);
         _deposit(bob, 300_000e6);
         vm.prank(alice);
-        core.requestPayout(100_000e6, ICoreVault.PayoutMode.Standard);
+        core.requestPayout(100_000e6, ICoreVaultPayouts.PayoutMode.Standard);
         vm.warp(block.timestamp + 72 hours);
         // The fund goes on working until the fee wallet is blocklisted.
         prices.setPrice(address(weth), WETH_PRICE_1E18);
@@ -42,7 +43,7 @@ contract FeeRecipientBlocklistTest is HubFundFixture {
         assertEq(standard.usdcOutstanding, 0, "S-12: the matured Standard Payout completes");
 
         vm.prank(bob);
-        core.requestPayout(50_000e6, ICoreVault.PayoutMode.Instant);
+        core.requestPayout(50_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         vm.prank(bob);
         ICoreVault.PayoutReceipt memory instant = core.claimPayout("");
         assertEq(instant.usdcOutstanding, 0, "S-12: the Instant Payout completes");

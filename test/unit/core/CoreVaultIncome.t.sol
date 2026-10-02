@@ -2,6 +2,8 @@
 pragma solidity 0.8.28;
 
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultIncome} from "../../../src/interfaces/ICoreVaultIncome.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {IManagerFeeVault} from "../../../src/interfaces/IManagerFeeVault.sol";
 import {ManagerFeeVault} from "../../../src/core/ManagerFeeVault.sol";
 import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
@@ -33,10 +35,10 @@ contract CoreVaultIncomeTest is CoreVaultFixture {
     function test_DEC107_threeWaySplitAtCollectionWorkedExample() public {
         // docs/OPEN-QUESTIONS.md (DEC-109 payment form): 1,000 USDC + 0.5 WETH at 20% performance and a 50% slice.
         vm.expectEmit(address(vault));
-        emit ICoreVault.CollectedIncomeReceived(address(usdc), 1000e6, 100e6, 100e6, 5000);
+        emit ICoreVaultIncome.CollectedIncomeReceived(address(usdc), 1000e6, 100e6, 100e6, 5000);
         hubVault.forwardIncome(address(usdc), 1000e6);
         vm.expectEmit(address(vault));
-        emit ICoreVault.CollectedIncomeReceived(address(weth), 0.5e18, 0.05e18, 0.05e18, 5000);
+        emit ICoreVaultIncome.CollectedIncomeReceived(address(weth), 0.5e18, 0.05e18, 0.05e18, 5000);
         hubVault.forwardIncome(address(weth), 0.5e18);
 
         // Protocol: 100 USDC + 0.05 WETH, transferred at once (on top of the deposit flow fee).
@@ -71,7 +73,7 @@ contract CoreVaultIncomeTest is CoreVaultFixture {
         hubVault.setPositionIncome(50e6);
         _deliver(_spokeIncome(_spokeReport(0, 0), address(usdg), 300e6));
         _deposit(bob, 1000e6);
-        _request(bob, 10e6, ICoreVault.PayoutMode.Instant);
+        _request(bob, 10e6, ICoreVaultPayouts.PayoutMode.Instant);
         _claim(bob);
         assertEq(vault.incomeState(address(usdc)).index, 0);
         assertEq(vault.incomeState(address(usdc)).distributed, 0);
@@ -107,7 +109,7 @@ contract CoreVaultIncomeTest is CoreVaultFixture {
 
     function test_DEC073_withdrawIncomeUnknownTokenReverts() public {
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.UnknownIncomeToken.selector, address(usdg)));
+        vm.expectRevert(abi.encodeWithSelector(ICoreVaultIncome.UnknownIncomeToken.selector, address(usdg)));
         vault.withdrawIncome(address(usdg));
     }
 
@@ -129,7 +131,7 @@ contract CoreVaultIncomeTest is CoreVaultFixture {
     function test_DEC110_decreasedManagerFeeAppliesFromTheNextCollection() public {
         hubVault.forwardIncome(address(usdc), 1000e6); // 200 at 20%
         vm.expectEmit(address(vault));
-        emit ICoreVault.ManagerFeeDecreased(2000, 1000, 0, 0);
+        emit ICoreVaultIncome.ManagerFeeDecreased(2000, 1000, 0, 0);
         vm.prank(manager);
         vault.decreaseManagerFee(1000, 0);
         assertEq(vault.performanceFeeBps(), 1000);
@@ -141,9 +143,9 @@ contract CoreVaultIncomeTest is CoreVaultFixture {
 
     function test_DEC110_managerFeeNeverIncreases() public {
         vm.startPrank(manager);
-        vm.expectRevert(ICoreVault.ManagerFeeNotDecreasing.selector);
+        vm.expectRevert(ICoreVaultIncome.ManagerFeeNotDecreasing.selector);
         vault.decreaseManagerFee(2500, 0);
-        vm.expectRevert(ICoreVault.ManagerFeeNotDecreasing.selector);
+        vm.expectRevert(ICoreVaultIncome.ManagerFeeNotDecreasing.selector);
         vault.decreaseManagerFee(2000, 0);
         vm.stopPrank();
         vm.prank(alice);
@@ -153,7 +155,7 @@ contract CoreVaultIncomeTest is CoreVaultFixture {
 
     function test_DEC108_managementFeeMustStayZero() public {
         vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.ManagementFeeNotSupported.selector, 10));
+        vm.expectRevert(abi.encodeWithSelector(ICoreVaultIncome.ManagementFeeNotSupported.selector, 10));
         vault.decreaseManagerFee(1000, 10);
         assertEq(vault.managementFeeBps(), 0);
     }
@@ -165,7 +167,7 @@ contract CoreVaultIncomeTest is CoreVaultFixture {
         );
         assertEq(vault.incomeState(address(usdc)).distributed, 0, "the report alone attributes nothing");
         vm.expectEmit(address(vault));
-        emit ICoreVault.CollectedIncomeReceived(address(usdc), 100e6, 10e6, 10e6, 5000);
+        emit ICoreVaultIncome.CollectedIncomeReceived(address(usdc), 100e6, 10e6, 10e6, 5000);
         pool.fill(
             address(vault), address(usdc), 100e6, TransitMessage.encode(FUND_ID, SPOKE, homeId, TransferKind.Income)
         );

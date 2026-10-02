@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {TransitState} from "../../../src/interfaces/FundTypes.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {CoreVaultFixture} from "./CoreVaultFixture.sol";
@@ -138,7 +139,7 @@ contract CoreVaultConsolidateVerifyRound2Test is CoreVaultFixture {
         assertEq(vault.shareAssets(), idle0 + SENT);
 
         hubVault.setBuildReverts(true);
-        _request(alice, 9975e6, ICoreVault.PayoutMode.Instant); // above Free Idle: the unwind runs
+        _request(alice, 9975e6, ICoreVaultPayouts.PayoutMode.Instant); // above Free Idle: the unwind runs
         ICoreVault.PayoutReceipt memory r = _claim(alice);
 
         assertGt(r.unwindProceeds, 0, "the unwind moved USDC to Idle");

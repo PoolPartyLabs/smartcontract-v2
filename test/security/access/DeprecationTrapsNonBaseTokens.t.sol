@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {IFundFactory} from "../../../src/interfaces/IFundFactory.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {IAdapterGuard} from "../../../src/interfaces/IAdapterGuard.sol";
 import {CoreVault} from "../../../src/core/CoreVault.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
@@ -50,7 +51,7 @@ contract DeprecationTrapsNonBaseTokensPoC is AccessFundFixture {
     /// @dev With the flag the claim still unwinds the position and pays in full.
     function test_SEC_S10_deprecationNoLongerBreaksTheAutomaticUnwindOfAClaim() public {
         vm.prank(alice);
-        core.requestPayout(400_000e6, ICoreVault.PayoutMode.Instant);
+        core.requestPayout(400_000e6, ICoreVaultPayouts.PayoutMode.Instant);
 
         uint256 snapshot = vm.snapshotState();
         vm.prank(alice);
@@ -88,11 +89,11 @@ contract DeprecationTrapsNonBaseTokensPoC is AccessFundFixture {
 
         // Alice and Bob, with the same shares, are paid the same.
         vm.startPrank(alice);
-        core.requestPayout(498_000e6, ICoreVault.PayoutMode.Instant);
+        core.requestPayout(498_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         ICoreVault.PayoutReceipt memory first = core.claimPayout("");
         vm.stopPrank();
         vm.startPrank(bob);
-        core.requestPayout(498_000e6, ICoreVault.PayoutMode.Instant);
+        core.requestPayout(498_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         ICoreVault.PayoutReceipt memory second = core.claimPayout("");
         vm.stopPrank();
         assertEq(first.usdcOutstanding, 0);

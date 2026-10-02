@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 import {console2} from "forge-std/console2.sol";
-import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
 import {SpokeBFixture} from "./SpokeBFixture.sol";
@@ -29,7 +29,7 @@ contract Measure_SteadyStateReadVsWrite is SpokeBFixture {
             receiver.deliver(_vaa(payload, seq));
         }
         vm.prank(alice);
-        vault.requestPayout(10_000e6, ICoreVault.PayoutMode.Instant);
+        vault.requestPayout(10_000e6, ICoreVaultPayouts.PayoutMode.Instant);
     }
 
     function test_measure_steadyStateDeliveryVersusPayoutRead() public {

@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {ICoreVault} from "../interfaces/ICoreVault.sol";
+import {ICoreVaultIncome} from "../interfaces/ICoreVaultIncome.sol";
 import {IManagerRegistry} from "../interfaces/IManagerRegistry.sol";
 import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 import {CoreVaultState, CoreVaultWiring} from "./CoreVaultTypes.sol";
@@ -17,7 +17,7 @@ import {CoreVaultLogic} from "./CoreVaultLogic.sol";
 ///      `CoreVaultLogic.payFee` is internal, so it is compiled in); the Core Vault, `CoreVaultTransitLogic` and
 ///      `CoreVaultPayoutLogic` call it through its linked address, which is part of the Core Vault's creation code and
 ///      trust surface (immutable: no proxy, no upgrade path, DEC-022, DEC-058).
-/// @dev Events are emitted with the Core Vault as their address; they and the errors are declared in ICoreVault.
+/// @dev Events are emitted with the Core Vault as their address; they and the errors are declared in ICoreVaultIncome.
 library CoreVaultIncomeLogic {
     using IncomeAccumulator for IncomeAccumulator.State;
 
@@ -51,7 +51,7 @@ library CoreVaultIncomeLogic {
         uint256 net = amount - managerFee - slice;
         s.collectedIncome[token] += net;
         s.income.distribute(token, net, IERC20(w.shareToken).totalSupply());
-        emit ICoreVault.CollectedIncomeReceived(token, amount, managerFee, slice, sliceBps);
+        emit ICoreVaultIncome.CollectedIncomeReceived(token, amount, managerFee, slice, sliceBps);
         CoreVaultLogic.payFee(s, token, w.protocolRecipient, slice);
         CoreVaultLogic.payFee(s, token, w.managerFeeVault, managerFee);
     }
@@ -87,7 +87,7 @@ library CoreVaultIncomeLogic {
             if (amount == 0) continue;
             s.collectedIncome[token] -= amount;
             CoreVaultLogic.payFee(s, token, holder, amount);
-            emit ICoreVault.IncomeWithdrawn(holder, token, amount);
+            emit ICoreVaultIncome.IncomeWithdrawn(holder, token, amount);
         }
     }
 }

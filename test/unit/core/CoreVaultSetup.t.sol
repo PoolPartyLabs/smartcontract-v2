@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {Vm} from "forge-std/Vm.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ExpensePayer} from "../../../src/interfaces/FundTypes.sol";
 import {CoreVault} from "../../../src/core/CoreVault.sol";
 import {CoreVaultConfig} from "../../../src/core/CoreVaultTypes.sol";
@@ -184,7 +185,7 @@ contract CoreVaultSetupTest is CoreVaultFixture {
         vault.allocateToHubSpokeVault(996e6 + SEED_IDLE); // Free Idle 1
         vm.prank(manager);
         vault.setOperatingCashParameters(5e6, 10e6);
-        _request(alice, 1e6, ICoreVault.PayoutMode.Standard); // reserves the last unit
+        _request(alice, 1e6, ICoreVaultPayouts.PayoutMode.Standard); // reserves the last unit
         vm.warp(block.timestamp + 72 hours);
         // Operating Cash 0, floor 5, top-up 10, Free Idle 0: cash cannot be restored.
         vm.expectEmit(address(vault));
@@ -195,7 +196,7 @@ contract CoreVaultSetupTest is CoreVaultFixture {
 
     function test_DEC072_topUpNeverTakesThePayoutReserve() public {
         _deposit(alice, 1000e6);
-        _request(alice, 5000e6, ICoreVault.PayoutMode.Standard); // reserves all Idle
+        _request(alice, 5000e6, ICoreVaultPayouts.PayoutMode.Standard); // reserves all Idle
         vm.prank(manager);
         vault.setOperatingCashParameters(1e6, 3e6);
         vm.prank(manager);
@@ -210,7 +211,7 @@ contract CoreVaultSetupTest is CoreVaultFixture {
         _deposit(alice, 1000e6);
         vm.prank(manager);
         vault.setOperatingCashParameters(1e6, 3e6);
-        _request(alice, 100e6, ICoreVault.PayoutMode.Instant);
+        _request(alice, 100e6, ICoreVaultPayouts.PayoutMode.Instant);
         ICoreVault.PayoutReceipt memory r = _claim(alice);
         // Topped up 3 first (below floor); the 2% Payout Fee of the amount paid out stays in Idle.
         assertEq(r.payoutFee, r.usdcGross * 200 / 10_000);
@@ -264,7 +265,7 @@ contract CoreVaultSetupTest is CoreVaultFixture {
         hubVault.setPositionIncome(7e6);
         vm.prank(manager);
         vault.setOperatingCashParameters(1e6, 2e6);
-        _request(alice, 10e6, ICoreVault.PayoutMode.Instant);
+        _request(alice, 10e6, ICoreVaultPayouts.PayoutMode.Instant);
         _claim(alice);
         assertEq(vault.grossAssets(), vault.shareAssets() + vault.operatingCash() + 80e6 + 7e6);
     }

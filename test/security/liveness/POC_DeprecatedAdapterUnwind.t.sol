@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {Vm} from "forge-std/Vm.sol";
 import {HubStackFixture} from "./HubStackFixture.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {IAdapterGuard} from "../../../src/interfaces/IAdapterGuard.sol";
 import {UniswapV4Adapter} from "../../../src/adapters/UniswapV4Adapter.sol";
 
@@ -21,7 +22,7 @@ contract POC_DeprecatedAdapterUnwind is HubStackFixture {
         bytes32 positionKey = _openHubPosition(100_000e6, 50_000e6, 50_000e6); // 20 WETH + 50,000 USDC in range
         assertEq(vault.freeIdle(), SEED_IDLE + 99_500e6);
 
-        _request(alice, 150_000e6, ICoreVault.PayoutMode.Instant);
+        _request(alice, 150_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         uint256 snapshot = vm.snapshotState();
         ICoreVault.PayoutReceipt memory before = _claim(alice);
         assertEq(before.usdcOutstanding, 0);
@@ -54,7 +55,10 @@ contract POC_DeprecatedAdapterUnwind is HubStackFixture {
     function _sawUnwindFailed() internal view returns (bool) {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         for (uint256 i; i < logs.length; ++i) {
-            if (logs[i].emitter == address(vault) && logs[i].topics[0] == ICoreVault.UnwindForPayoutFailed.selector) {
+            if (
+                logs[i].emitter == address(vault)
+                    && logs[i].topics[0] == ICoreVaultPayouts.UnwindForPayoutFailed.selector
+            ) {
                 return true;
             }
         }

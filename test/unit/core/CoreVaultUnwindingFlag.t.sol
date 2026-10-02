@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {CORE_VAULT_UNWINDING_SLOT} from "../../../src/core/CoreVaultTypes.sol";
 import {MockHubSpokeVault} from "../../mocks/core/MockHubSpokeVault.sol";
 import {CoreVaultFixture} from "./CoreVaultFixture.sol";
@@ -13,7 +14,7 @@ import {CoreVaultFixture} from "./CoreVaultFixture.sol";
 ///         Vault's `returnToIdle` is accepted inside an unwind and refused inside any other guarded entry, before and
 ///         after an unwind in the same transaction, whether the unwind returned or reverted.
 contract CoreVaultUnwindingFlagTest is CoreVaultFixture {
-    ICoreVault.PayoutMode internal constant INSTANT = ICoreVault.PayoutMode.Instant;
+    ICoreVault.PayoutMode internal constant INSTANT = ICoreVaultPayouts.PayoutMode.Instant;
 
     function _allocateToPosition(uint256 amount) internal {
         vm.prank(manager);
@@ -59,7 +60,7 @@ contract CoreVaultUnwindingFlagTest is CoreVaultFixture {
         _allocateToPosition(600e6 + SEED_IDLE); // Idle 400 left
         _request(alice, 800e6, INSTANT);
         vm.expectEmit(address(vault));
-        emit ICoreVault.UnwindForPayoutFailed(408e6);
+        emit ICoreVaultPayouts.UnwindForPayoutFailed(408e6);
         ICoreVault.PayoutReceipt memory r = _claim(alice);
         assertEq(r.unwindProceeds, 0, "DEC-056: the claim went on with Idle");
         _expectCallbackRefused();

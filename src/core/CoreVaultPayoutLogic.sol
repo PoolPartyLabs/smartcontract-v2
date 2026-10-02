@@ -6,6 +6,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {TransientSlot} from "@openzeppelin/contracts/utils/TransientSlot.sol";
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../interfaces/ICoreVaultPayouts.sol";
 import {ICoreVaultLifecycle} from "../interfaces/ICoreVaultLifecycle.sol";
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {ShareMath} from "../libraries/ShareMath.sol";
@@ -25,8 +26,8 @@ import {CoreVaultIncomeLogic} from "./CoreVaultIncomeLogic.sol";
 ///      `CoreVaultLogic` (the valuation) and `CoreVaultIncomeLogic` (the full-burn income payment) through their own
 ///      linked addresses, so its creation code links them and its address is part of the Core Vault's creation code
 ///      and trust surface (immutable: no proxy, no upgrade path, DEC-022, DEC-058).
-/// @dev Events are emitted with the Core Vault as their address; they and the errors are declared in ICoreVault and
-///      ICoreVaultLifecycle.
+/// @dev Events are emitted with the Core Vault as their address; they and the errors are declared in
+///      ICoreVaultPayouts, ICoreVault and ICoreVaultLifecycle.
 library CoreVaultPayoutLogic {
     using SafeERC20 for IERC20;
     using IncomeAccumulator for IncomeAccumulator.State;
@@ -54,7 +55,7 @@ library CoreVaultPayoutLogic {
     // Payout Request (DEC-020, DEC-024, DEC-060, DEC-072, DEC-077, DEC-095)
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @notice ICoreVault.requestPayout after the guard, the zero-amount check and the open-fund check.
+    /// @notice ICoreVaultPayouts.requestPayout after the guard, the zero-amount check and the open-fund check.
     /// @dev Priced like a claim (payout liveness, DEC-021, DEC-056: a failing valuation dependency falls back to the
     ///      last known value, never a revert on age, OQ-10), so the reserve bound and the one-share floor use the Share
     ///      Price the holder would be paid at if the claim ran now. DEC-146: the manager's request may not cross the
@@ -63,21 +64,23 @@ library CoreVaultPayoutLogic {
         CoreVaultState storage s,
         CoreVaultWiring memory w,
         uint256 usdcAmount,
-        ICoreVault.PayoutMode mode
+        ICoreVaultPayouts.PayoutMode mode
     ) public {
-        ICoreVault.PayoutRequest storage req = s.requests[msg.sender];
+        ICoreVaultPayouts.PayoutRequest storage req = s.requests[msg.sender];
         // DEC-024, DEC-046: one open request per address, never cancellable.
-        if (req.open) revert ICoreVault.PayoutRequestAlreadyOpen(msg.sender);
+        if (req.open) revert ICoreVaultPayouts.PayoutRequestAlreadyOpen(msg.sender);
         uint256 balance = IERC20(w.shareToken).balanceOf(msg.sender);
-        if (balance == 0) revert ICoreVault.NoShares(msg.sender);
+        if (balance == 0) revert ICoreVaultPayouts.NoShares(msg.sender);
         (uint256 assets,) = CoreVaultLogic.recordValuation(s, w, false);
         uint256 price = ShareMath.sharePrice(assets, IERC20(w.shareToken).totalSupply());
         // DEC-035 spirit, DEC-077 (final verification): a request below one share's price could never burn a share.
-        if (ShareMath.sharesToBurn(usdcAmount, price) == 0) revert ICoreVault.PayoutBelowOneShare(usdcAmount, price);
+        if (ShareMath.sharesToBurn(usdcAmount, price) == 0) {
+            revert ICoreVaultPayouts.PayoutBelowOneShare(usdcAmount, price);
+        }
         if (msg.sender == w.manager) _requireManagerBase(s, balance, usdcAmount, price);
         uint256 reserved;
         uint64 termEndsAt = uint64(block.timestamp);
-        if (mode == ICoreVault.PayoutMode.Standard) {
+        if (mode == ICoreVaultPayouts.PayoutMode.Standard) {
             // DEC-072, DEC-095: Standard reserves USDC and starts the term (DEC-060). OPEN reading (final verification,
             // docs/OPEN-QUESTIONS.md FV-OQ-1): the reserve is bounded by the requester's share value now (DEC-020: the
             // most a request can pay is the whole balance), so a small holder cannot lock Free Idle (DEC-017).
@@ -86,7 +89,7 @@ library CoreVaultPayoutLogic {
             termEndsAt += w.standardPayoutTerm;
         }
         // DEC-077: nothing is burned or locked at request.
-        s.requests[msg.sender] = ICoreVault.PayoutRequest({
+        s.requests[msg.sender] = ICoreVaultPayouts.PayoutRequest({
             mode: mode,
             open: true,
             requestedAt: uint64(block.timestamp),
@@ -95,7 +98,7 @@ library CoreVaultPayoutLogic {
             usdcOutstanding: usdcAmount,
             reserved: reserved
         });
-        emit ICoreVault.PayoutRequested(msg.sender, mode, usdcAmount, reserved, termEndsAt);
+        emit ICoreVaultPayouts.PayoutRequested(msg.sender, mode, usdcAmount, reserved, termEndsAt);
     }
 
     /// @notice DEC-146, DEC-147 item 1, D-27: a manager request that would leave the manager's balance below half of
@@ -130,21 +133,21 @@ library CoreVaultPayoutLogic {
     // DEC-102, DEC-105, DEC-106)
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @notice ICoreVault.claimPayout after the guard, the open-fund check, the request checks and the Operating Cash
-    ///         top-up; `balance` is the claimant's share balance, checked non-zero.
+    /// @notice ICoreVaultPayouts.claimPayout after the guard, the open-fund check, the request checks and the Operating
+    ///         Cash top-up; `balance` is the claimant's share balance, checked non-zero.
     /// @dev See `CoreVaultPayout.claimPayout` for the rules (OQ-07, DEC-105, DEC-146, DEC-147, D-26, D-27).
     function claimPayout(
         CoreVaultState storage s,
         CoreVaultWiring memory w,
         uint256 balance,
         bytes calldata unwindHints
-    ) public returns (ICoreVault.PayoutReceipt memory receipt) {
-        ICoreVault.PayoutRequest storage req = s.requests[msg.sender];
+    ) public returns (ICoreVaultPayouts.PayoutReceipt memory receipt) {
+        ICoreVaultPayouts.PayoutRequest storage req = s.requests[msg.sender];
         Claim memory c;
         c.balance = balance;
         c.burnable = msg.sender == w.manager ? _managerBurnable(s, c.balance) : c.balance;
 
-        ICoreVault.NavConsolidation memory consolidation = _priceClaim(s, w, c, req);
+        ICoreVaultPayouts.NavConsolidation memory consolidation = _priceClaim(s, w, c, req);
         // DEC-067, DEC-095: Idle first (Instant: Free Idle only; Standard: its reserve, then Free Idle).
         if (c.wanted > c.available) {
             // DEC-081, DEC-097: unwind in Mandate order the shortfall plus 2%, proceeds to Idle.
@@ -164,8 +167,8 @@ library CoreVaultPayoutLogic {
             if (c.shares == 0) revert ICoreVault.InsufficientFreeIdle(c.wanted, c.available);
         }
         receipt = _executePayout(s, w, c, req);
-        if (c.complete) emit ICoreVault.PayoutExecuted(msg.sender, receipt, consolidation);
-        else emit ICoreVault.PartialPayoutExecuted(msg.sender, receipt, consolidation);
+        if (c.complete) emit ICoreVaultPayouts.PayoutExecuted(msg.sender, receipt, consolidation);
+        else emit ICoreVaultPayouts.PartialPayoutExecuted(msg.sender, receipt, consolidation);
     }
 
     /// @notice Prices the claim at the current Share Assets and sizes what it wants.
@@ -173,8 +176,8 @@ library CoreVaultPayoutLogic {
         CoreVaultState storage s,
         CoreVaultWiring memory w,
         Claim memory c,
-        ICoreVault.PayoutRequest storage req
-    ) private returns (ICoreVault.NavConsolidation memory consolidation) {
+        ICoreVaultPayouts.PayoutRequest storage req
+    ) private returns (ICoreVaultPayouts.NavConsolidation memory consolidation) {
         // Payout liveness (DEC-021, DEC-056): a failing valuation dependency falls back to the last known value.
         (c.shareAssets, consolidation) = CoreVaultLogic.recordValuation(s, w, false);
         c.totalShares = IERC20(w.shareToken).totalSupply();
@@ -182,7 +185,7 @@ library CoreVaultPayoutLogic {
         // DEC-077, DEC-020: floor(outstanding / price) whole shares, capped at the balance (the manager: at the base).
         c.wanted = ShareMath.usdcFor(_sharesFor(c, req.usdcOutstanding), c.price);
         c.available = s.idle - s.payoutReserve;
-        if (req.mode == ICoreVault.PayoutMode.Standard) c.available += req.reserved;
+        if (req.mode == ICoreVaultPayouts.PayoutMode.Standard) c.available += req.reserved;
     }
 
     /// @dev Security review S-18 (DEC-021, DEC-056, FV-OQ-2): at a zero Share Price with shares outstanding (a total
@@ -215,7 +218,7 @@ library CoreVaultPayoutLogic {
             CORE_VAULT_UNWINDING_SLOT.asBoolean().tstore(false);
         } catch {
             CORE_VAULT_UNWINDING_SLOT.asBoolean().tstore(false);
-            emit ICoreVault.UnwindForPayoutFailed(target);
+            emit ICoreVaultPayouts.UnwindForPayoutFailed(target);
         }
         proceeds = s.idle - idleBefore;
     }
@@ -225,15 +228,17 @@ library CoreVaultPayoutLogic {
         CoreVaultState storage s,
         CoreVaultWiring memory w,
         Claim memory c,
-        ICoreVault.PayoutRequest storage req
-    ) private returns (ICoreVault.PayoutReceipt memory r) {
+        ICoreVaultPayouts.PayoutRequest storage req
+    ) private returns (ICoreVaultPayouts.PayoutReceipt memory r) {
         r.mode = req.mode;
         r.usdcRequested = req.usdcRequested;
         r.sharesBurned = c.shares;
         r.usdcGross = ShareMath.usdcFor(c.shares, c.price);
         // DEC-075: Payout Fee on Instant only. DEC-144 items 4-5 (corrects DEC-102 items 2-4): it stays in Idle, in
         // USDC.
-        if (req.mode == ICoreVault.PayoutMode.Instant) r.payoutFee = ShareMath.bpsOf(r.usdcGross, w.payoutFeeBps);
+        if (req.mode == ICoreVaultPayouts.PayoutMode.Instant) {
+            r.payoutFee = ShareMath.bpsOf(r.usdcGross, w.payoutFeeBps);
+        }
         // DEC-106, DEC-113: flow fee on the amount paid out, deducted from what the shareholder receives.
         r.flowFee = ShareMath.flowFee(r.usdcGross, w.flowFeeBps);
         r.usdcPaid = r.usdcGross - r.payoutFee - r.flowFee;

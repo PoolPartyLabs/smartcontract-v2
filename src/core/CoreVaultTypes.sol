@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {ICoreVault} from "../interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../interfaces/ICoreVaultPayouts.sol";
 import {ICoreVaultLifecycle} from "../interfaces/ICoreVaultLifecycle.sol";
 import {Transit, TransferKind} from "../interfaces/FundTypes.sol";
 import {Mandate} from "../mandate/Mandate.sol";
@@ -159,7 +159,7 @@ struct CoreVaultState {
     uint256 transitNonce;
     IncomeAccumulator.State income;
     mapping(address token => uint256) collectedIncome;
-    mapping(address shareholder => ICoreVault.PayoutRequest) requests;
+    mapping(address shareholder => ICoreVaultPayouts.PayoutRequest) requests;
     mapping(bytes32 transitId => Transit) transits;
     mapping(bytes32 transitId => uint256) transitSpoke;
     mapping(uint256 spokeIndex => SpokeBook) spokeBooks;

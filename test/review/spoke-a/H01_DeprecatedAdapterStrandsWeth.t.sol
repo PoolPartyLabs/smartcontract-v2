@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {console2} from "forge-std/Test.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {IAdapterGuard} from "../../../src/interfaces/IAdapterGuard.sol";
 import {UniswapV4Adapter} from "../../../src/adapters/UniswapV4Adapter.sol";
 import {SpokeAHubFixture} from "./SpokeAHubFixture.sol";
@@ -22,7 +23,7 @@ contract H01_DeprecatedAdapterStrandsWeth is SpokeAHubFixture {
         exactKey = _managerSuppliesExact(500_000e6); // exact-value USDC, second in the unwind order
         _unwindSwapsAtOracle();
         // Free Idle ~47,372 USDC; Mallory's shares are worth ~49,875 USDC.
-        _request(mallory, 49_000e6, ICoreVault.PayoutMode.Instant);
+        _request(mallory, 49_000e6, ICoreVaultPayouts.PayoutMode.Instant);
     }
 
     /// @dev Control: before the deprecation the claim needs ~1,580 USDC of unwind and is paid in full.
@@ -84,7 +85,7 @@ contract H01_DeprecatedAdapterStrandsWeth is SpokeAHubFixture {
         _claim(mallory);
         assertFalse(vault.payoutRequest(mallory).open);
         uint256 aliceValue = _valueOf(alice);
-        _request(alice, aliceValue, ICoreVault.PayoutMode.Instant);
+        _request(alice, aliceValue, ICoreVaultPayouts.PayoutMode.Instant);
         ICoreVault.PayoutReceipt memory r = _claim(alice);
         console2.log("alice asked", aliceValue);
         console2.log("alice paid (gross)", r.usdcGross);

@@ -3,6 +3,8 @@ pragma solidity 0.8.28;
 
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultIncome} from "../../../src/interfaces/ICoreVaultIncome.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {TransitState, TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {CoreVaultConfig} from "../../../src/core/CoreVaultTypes.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
@@ -207,7 +209,7 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
 
     function test_Reentrancy_incomeTokenReenteringWithdrawIncomeIsRefused() public {
         ReenteringIncomeToken mal = _deployWithReenteringToken();
-        mal.arm(address(vault), abi.encodeCall(ICoreVault.withdrawIncome, (address(mal))));
+        mal.arm(address(vault), abi.encodeCall(ICoreVaultIncome.withdrawIncome, (address(mal))));
         vm.prank(alice);
         vm.expectRevert(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector);
         vault.withdrawIncome(address(mal));
@@ -225,7 +227,7 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         vm.prank(alice);
         usdc.approve(address(vault), 1000e6);
         mal.arm(address(vault), abi.encodeCall(ICoreVault.deposit, (1000e6, 0)));
-        _request(alice, 20_000e6, ICoreVault.PayoutMode.Instant); // more than the balance: full burn (DEC-020)
+        _request(alice, 20_000e6, ICoreVaultPayouts.PayoutMode.Instant); // more than the balance: full burn (DEC-020)
         uint256 owed = vault.attributedIncome(alice, address(mal));
         assertGt(owed, 0);
         vm.prank(alice);
@@ -251,7 +253,7 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         vault.allocateToHubSpokeVault(5000e6);
         hubVault.moveToPosition(5000e6);
         bobRequest = bound(bobRequest, 1e6, 20_000e6);
-        _request(bob, bobRequest, ICoreVault.PayoutMode.Standard);
+        _request(bob, bobRequest, ICoreVaultPayouts.PayoutMode.Standard);
         uint256 reserve = vault.payoutReserve();
         // FV-OQ-1 reading (final verification): bounded by Bob's 9,975 shares at 1.00, below Free Idle (14,950).
         assertEq(reserve, bobRequest < 9975e6 ? bobRequest : 9975e6);
@@ -260,7 +262,7 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         hubVault.setPosition(address(usdc), bound(positionPrincipal, 0, 20_000e6));
         hubVault.setUnwindMode(MockHubSpokeVault.UnwindMode.Reverts); // Idle only, DEC-068 partial if short
         aliceRequest = bound(aliceRequest, 2e6, 20_000e6); // at least one share up to 1.75 (DEC-035 spirit)
-        _request(alice, aliceRequest, ICoreVault.PayoutMode.Instant);
+        _request(alice, aliceRequest, ICoreVaultPayouts.PayoutMode.Instant);
         vm.prank(alice);
         try vault.claimPayout("") returns (ICoreVault.PayoutReceipt memory r) {
             assertLe(r.usdcGross, 14_950e6 + SEED_IDLE - reserve, "Instant paid from Free Idle only");
@@ -285,7 +287,7 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         hubVault.moveToPosition(9001e6);
         // The position gained: Share Assets 10,075 on 9,976 shares (the manager's seed share included).
         hubVault.setPosition(address(usdc), 9100e6);
-        _request(alice, 5000e6, ICoreVault.PayoutMode.Standard);
+        _request(alice, 5000e6, ICoreVaultPayouts.PayoutMode.Standard);
         assertEq(vault.payoutReserve(), 975e6);
         hubVault.setUnwindMode(MockHubSpokeVault.UnwindMode.Reverts);
         vm.warp(block.timestamp + 72 hours);

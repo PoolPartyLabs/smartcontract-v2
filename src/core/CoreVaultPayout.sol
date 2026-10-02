@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {ICoreVault} from "../interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../interfaces/ICoreVaultPayouts.sol";
 import {CoreVaultTransit} from "./CoreVaultTransit.sol";
 import {CoreVaultPayoutLogic} from "./CoreVaultPayoutLogic.sol";
 
@@ -19,7 +19,7 @@ abstract contract CoreVaultPayout is CoreVaultTransit {
     // Payout Request (DEC-020, DEC-024, DEC-060, DEC-072, DEC-077, DEC-095)
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @inheritdoc ICoreVault
+    /// @inheritdoc ICoreVaultPayouts
     /// @dev Priced like a claim (payout liveness, DEC-021, DEC-056: a failing valuation dependency falls back to the
     ///      last known value, never a revert on age, OQ-10), so the reserve bound and the one-share floor use the Share
     ///      Price the holder would be paid at if the claim ran now.
@@ -35,7 +35,7 @@ abstract contract CoreVaultPayout is CoreVaultTransit {
     // DEC-102, DEC-105, DEC-106)
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @inheritdoc ICoreVault
+    /// @inheritdoc ICoreVaultPayouts
     /// @dev OQ-07: a Standard Payout is claimable only after its term. Feedback question 2 (OPEN): the automatic unwind
     ///      reaches hub positions only (`ISpokeVault.unwindForPayout` on the hub Spoke Vault), so DEC-105 needs no new
     ///      spoke report (erratum 11 reading). Q57 reading: an Idle-paid payout never reverts on a stale report or
@@ -65,7 +65,7 @@ abstract contract CoreVaultPayout is CoreVaultTransit {
     // Views
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @inheritdoc ICoreVault
+    /// @inheritdoc ICoreVaultPayouts
     function payoutRequest(address shareholder) external view returns (PayoutRequest memory) {
         return _s.requests[shareholder];
     }

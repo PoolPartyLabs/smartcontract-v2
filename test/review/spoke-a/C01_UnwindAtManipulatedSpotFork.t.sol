@@ -12,6 +12,7 @@ import {IStateView} from "@uniswap/v4-periphery/src/interfaces/IStateView.sol";
 import {CoreVault} from "../../../src/core/CoreVault.sol";
 import {UniswapV4Adapter} from "../../../src/adapters/UniswapV4Adapter.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {SpokeAForkBase, PoolTrader} from "./SpokeAForkBase.sol";
 
 /// @notice A shareholder contract that runs the whole attack in one transaction: it moves the real pool, claims its
@@ -29,7 +30,7 @@ contract UnwindAttacker is PoolTrader {
     function depositAndRequest(uint256 amount, uint256 request) external {
         usdc.approve(address(core), amount);
         core.deposit(amount, 0);
-        core.requestPayout(request, ICoreVault.PayoutMode.Instant);
+        core.requestPayout(request, ICoreVaultPayouts.PayoutMode.Instant);
     }
 
     /// @param crushTick Tick the WETH sale pushes the pool to.

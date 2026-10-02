@@ -3,7 +3,7 @@ pragma solidity 0.8.28;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {ICoreVault} from "../interfaces/ICoreVault.sol";
+import {ICoreVaultIncome} from "../interfaces/ICoreVaultIncome.sol";
 import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 import {CoreVaultBase} from "./CoreVaultBase.sol";
 import {CoreVaultIncomeLogic} from "./CoreVaultIncomeLogic.sol";
@@ -22,7 +22,7 @@ abstract contract CoreVaultIncome is CoreVaultBase {
     using SafeERC20 for IERC20;
     using IncomeAccumulator for IncomeAccumulator.State;
 
-    /// @inheritdoc ICoreVault
+    /// @inheritdoc ICoreVaultIncome
     /// @dev DEC-080: credited only when the tokens are already above the ledger. Moves value out (the fee transfers),
     ///      so it takes the reentrancy guard; the hub Spoke Vault never forwards income from inside a payout's unwind.
     function receiveCollectedIncome(address token, uint256 amount) external nonReentrant {
@@ -33,7 +33,7 @@ abstract contract CoreVaultIncome is CoreVaultBase {
         CoreVaultIncomeLogic.collectIncome(_s, _wiring(), token, amount);
     }
 
-    /// @inheritdoc ICoreVault
+    /// @inheritdoc ICoreVaultIncome
     /// @dev LC-100 stance: pays `min(owed, collectedIncome(token))`. No Payout Fee (DEC-075: Instant Payouts only) and
     ///      no flow fee (DEC-113, which closes LC-143: deposits and Payouts only, never an Income Withdrawal).
     function withdrawIncome(address token) external nonReentrant returns (uint256 amount) {
@@ -42,7 +42,7 @@ abstract contract CoreVaultIncome is CoreVaultBase {
         amount = _takeIncome(msg.sender, token);
     }
 
-    /// @inheritdoc ICoreVault
+    /// @inheritdoc ICoreVaultIncome
     function claimOwedFees(address token, address recipient) external nonReentrant returns (uint256 amount) {
         amount = _s.owedFees[token][recipient];
         if (amount == 0) revert ZeroAmount();
@@ -60,7 +60,7 @@ abstract contract CoreVaultIncome is CoreVaultBase {
         emit IncomeWithdrawn(holder, token, amount);
     }
 
-    /// @inheritdoc ICoreVault
+    /// @inheritdoc ICoreVaultIncome
     /// @dev DEC-110: the manager fee only decreases, with immediate effect. Ruling 2026-09-29: fees are charged at
     ///      collection only, so nothing has accrued at the old rate. DEC-108, LC-144: the management fee must stay 0.
     ///      DEC-115, DEC-125 item 3 (D-36): never below the registry's minimum manager fee in force at creation.
@@ -83,43 +83,43 @@ abstract contract CoreVaultIncome is CoreVaultBase {
     // Views
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @inheritdoc ICoreVault
+    /// @inheritdoc ICoreVaultIncome
     function incomeTokens() external view returns (address[] memory) {
         return _s.income.tokens;
     }
 
-    /// @inheritdoc ICoreVault
+    /// @inheritdoc ICoreVaultIncome
     function attributedIncome(address shareholder, address token) external view returns (uint256) {
         if (!_s.income.isRegistered(token)) return 0;
         return _s.income.owed(shareholder, token, _sharesOf(shareholder));
     }
 
-    /// @inheritdoc ICoreVault
+    /// @inheritdoc ICoreVaultIncome
     function collectedIncome(address token) external view returns (uint256) {
         return _s.collectedIncome[token];
     }
 
-    /// @inheritdoc ICoreVault
+    /// @inheritdoc ICoreVaultIncome
     function owedFees(address token, address recipient) external view returns (uint256) {
         return _s.owedFees[token][recipient];
     }
 
-    /// @inheritdoc ICoreVault
+    /// @inheritdoc ICoreVaultIncome
     function ownerlessIncome(address token) external view returns (uint256) {
         return _s.income.tokenIncome[token].ownerless;
     }
 
-    /// @inheritdoc ICoreVault
+    /// @inheritdoc ICoreVaultIncome
     function incomeState(address token) external view returns (IncomeAccumulator.TokenIncome memory) {
         return _s.income.tokenIncome[token];
     }
 
-    /// @inheritdoc ICoreVault
+    /// @inheritdoc ICoreVaultIncome
     function performanceFeeBps() external view returns (uint16) {
         return _s.performanceFeeBps;
     }
 
-    /// @inheritdoc ICoreVault
+    /// @inheritdoc ICoreVaultIncome
     function managementFeeBps() external view returns (uint16) {
         return _s.managementFeeBps;
     }

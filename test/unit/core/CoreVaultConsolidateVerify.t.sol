@@ -2,6 +2,8 @@
 pragma solidity 0.8.28;
 
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultIncome} from "../../../src/interfaces/ICoreVaultIncome.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {CoreVaultFixture} from "./CoreVaultFixture.sol";
@@ -80,7 +82,7 @@ contract CoreVaultConsolidateVerifyTest is CoreVaultFixture {
         assertEq(truth, vault.idle(), "everything is Idle again");
 
         hubVault.setBuildReverts(true);
-        _request(alice, 100e6, ICoreVault.PayoutMode.Instant);
+        _request(alice, 100e6, ICoreVaultPayouts.PayoutMode.Instant);
         ICoreVault.PayoutReceipt memory r = _claim(alice);
         assertEq(r.shareAssets, truth, "the fallback must not count the returned 1,000 a second time");
     }
@@ -93,7 +95,7 @@ contract CoreVaultConsolidateVerifyTest is CoreVaultFixture {
         assertEq(truth, vault.idle() + 1000e6, "the 1,000 moved to the hub Spoke Vault");
 
         hubVault.setBuildReverts(true);
-        _request(alice, 100e6, ICoreVault.PayoutMode.Instant);
+        _request(alice, 100e6, ICoreVaultPayouts.PayoutMode.Instant);
         vm.expectEmit(address(vault));
         emit ICoreVault.HubValuationFallback(1000e6);
         ICoreVault.PayoutReceipt memory r = _claim(alice);
@@ -119,7 +121,7 @@ contract CoreVaultConsolidateVerifyTest is CoreVaultFixture {
         assertEq(usdc.balanceOf(address(vault)), _ledgerUsdc());
 
         vm.expectEmit(address(vault));
-        emit ICoreVault.CollectedIncomeReceived(address(usdc), 100e6, 10e6, 10e6, 5000);
+        emit ICoreVaultIncome.CollectedIncomeReceived(address(usdc), 100e6, 10e6, 10e6, 5000);
         _deliver(_inFlightToHub(_spokeReport(0, 0), id, 100e6, TransferKind.Income));
 
         assertEq(vault.unmatchedArrivals(), 0, "matched in full");

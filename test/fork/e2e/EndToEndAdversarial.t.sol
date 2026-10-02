@@ -5,6 +5,7 @@ import {Vm} from "forge-std/Vm.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {IAdapter} from "../../../src/interfaces/IAdapter.sol";
 import {ShareMath} from "../../../src/libraries/ShareMath.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
@@ -34,7 +35,7 @@ contract EndToEndAdversarialForkTest is EndToEndScenario {
 
         _onArbitrum();
         vm.prank(ana);
-        core.requestPayout(ANA_PAYOUT, ICoreVault.PayoutMode.Standard);
+        core.requestPayout(ANA_PAYOUT, ICoreVaultPayouts.PayoutMode.Standard);
         uint256 reserve = core.payoutReserve();
         assertEq(reserve, ANA_PAYOUT, "DEC-072: Ana's request reserved in full");
         uint256 idleBefore = core.idle();
@@ -44,7 +45,7 @@ contract EndToEndAdversarialForkTest is EndToEndScenario {
         InstantPlan memory plan = _planInstant();
         assertLt(plan.request, idleBefore, "the request is covered by Idle, not by Free Idle");
         vm.prank(bruno);
-        core.requestPayout(plan.request, ICoreVault.PayoutMode.Instant);
+        core.requestPayout(plan.request, ICoreVaultPayouts.PayoutMode.Instant);
 
         bytes memory hints = _unwindHints(plan.target);
         vm.recordLogs();
@@ -126,7 +127,7 @@ contract EndToEndAdversarialForkTest is EndToEndScenario {
         uint256 request = core.freeIdle() / 2;
         assertGt(request, 0);
         vm.startPrank(ana);
-        core.requestPayout(request, ICoreVault.PayoutMode.Instant);
+        core.requestPayout(request, ICoreVaultPayouts.PayoutMode.Instant);
         ICoreVault.PayoutReceipt memory receipt = core.claimPayout("");
         vm.stopPrank();
         assertEq(receipt.unwindProceeds, 0, "DEC-067: Free Idle paid");

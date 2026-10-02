@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
 import {IFundFactory} from "../../../src/interfaces/IFundFactory.sol";
 import {IAcrossSpokePool} from "../../../src/interfaces/external/IAcrossSpokePool.sol";
@@ -132,7 +133,7 @@ contract Fork_RelayerAndOperatingCash is XChainBase {
         _phase2AnaDeposits();
         uint256 brunoShares = _depositAs(bruno, 10_000e6);
         vm.prank(bruno);
-        core.requestPayout(5000e6, ICoreVault.PayoutMode.Standard);
+        core.requestPayout(5000e6, ICoreVaultPayouts.PayoutMode.Standard);
         uint256 free = core.freeIdle();
         uint256 assets = core.shareAssets();
 

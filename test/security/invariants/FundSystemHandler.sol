@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {CoreBridgeVM, GuardianSignature} from "wormhole-sdk/interfaces/ICoreBridge.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
 import {Transit, TransitState, TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
@@ -188,7 +189,10 @@ contract FundSystemHandler is Test {
         uint256 worth = ShareMath.usdcFor(balance, price);
         amount = bound(amount, oneShare, worth * 2 > oneShare ? worth * 2 : oneShare);
         vm.prank(who);
-        try s.core.requestPayout(amount, standard ? ICoreVault.PayoutMode.Standard : ICoreVault.PayoutMode.Instant) {
+        try s.core
+            .requestPayout(
+                amount, standard ? ICoreVaultPayouts.PayoutMode.Standard : ICoreVaultPayouts.PayoutMode.Instant
+            ) {
             ++done["requestPayout"];
         } catch {}
         _observe();

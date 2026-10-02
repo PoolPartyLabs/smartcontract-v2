@@ -15,6 +15,7 @@ import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {IStateView} from "@uniswap/v4-periphery/src/interfaces/IStateView.sol";
 import {LiquidityAmounts} from "@uniswap/v4-periphery/src/libraries/LiquidityAmounts.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
 import {IAdapter} from "../../../src/interfaces/IAdapter.sol";
 import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
@@ -213,7 +214,7 @@ contract UnwindAttackFork is IntegrationPriceBase {
     ///      88,915 / 88,917 / 88,894 and the attacker gained 88,318 / 88,319 / 88,274.
     function _deepCrush(uint256 downPpm, uint256 upPpm, string memory title) internal {
         _setUpFund(downPpm, upPpm, V4_VALUE, BUFFER, STAKE);
-        attacker.requestPayout(core, _holderValue(address(attacker)), ICoreVault.PayoutMode.Instant);
+        attacker.requestPayout(core, _holderValue(address(attacker)), ICoreVaultPayouts.PayoutMode.Instant);
         _fund(FLASH_WETH, FLASH_USDC);
         PoolActor.Leg[] memory legs = _one(_crushLeg(hubKey, ARB_V4_STATE_VIEW, CRUSH));
         int256 cost = _roundTripCost(legs);
@@ -246,7 +247,7 @@ contract UnwindAttackFork is IntegrationPriceBase {
     ///      oracle floor (S-2) now stops it a fortiori.
     function test_REVIEW_C01_edgePush_partialExit_plusMinus5() public {
         _setUpFund(50_000, 50_000, V4_VALUE, BUFFER, 60_000e6);
-        attacker.requestPayout(core, _holderValue(address(attacker)), ICoreVault.PayoutMode.Instant);
+        attacker.requestPayout(core, _holderValue(address(attacker)), ICoreVaultPayouts.PayoutMode.Instant);
         _fund(FLASH_WETH, FLASH_USDC);
         PoolActor.Leg[] memory legs =
             _one(_pushLeg(hubKey, ARB_V4_STATE_VIEW, TickMath.getSqrtPriceAtTick(lastLower - hubKey.tickSpacing)));
@@ -267,7 +268,7 @@ contract UnwindAttackFork is IntegrationPriceBase {
         returns (ICoreVault.PayoutReceipt memory r)
     {
         _setUpFund(50_000, 50_000, V4_VALUE, BUFFER, 60_000e6);
-        attacker.requestPayout(core, _holderValue(address(attacker)), ICoreVault.PayoutMode.Instant);
+        attacker.requestPayout(core, _holderValue(address(attacker)), ICoreVaultPayouts.PayoutMode.Instant);
         _fund(FLASH_WETH, 200_000e6);
         uint160 pushTo = uint160(Math.mulDiv(hubSqrtP0Now(), Math.sqrt(pushPpm * 1e12), 1e9));
         PoolActor.Leg[] memory legs = _one(_jitLeg(hubKey, ARB_V4_STATE_VIEW, pushTo, 40e18));
@@ -326,7 +327,7 @@ contract UnwindAttackFork is IntegrationPriceBase {
     ///      -585).
     function test_POC_REVIEW_C01_pushInsideTheFloor_2pct_saleIntoNativeLiquidity() public {
         _setUpFund(50_000, 50_000, V4_VALUE, BUFFER, 60_000e6);
-        attacker.requestPayout(core, _holderValue(address(attacker)), ICoreVault.PayoutMode.Instant);
+        attacker.requestPayout(core, _holderValue(address(attacker)), ICoreVaultPayouts.PayoutMode.Instant);
         _fund(FLASH_WETH, 200_000e6);
         uint160 pushTo = uint160(Math.mulDiv(hubSqrtP0Now(), Math.sqrt(uint256(980_000) * 1e12), 1e9));
         PoolActor.Leg[] memory legs = _one(_pushLeg(hubKey, ARB_V4_STATE_VIEW, pushTo));
@@ -359,7 +360,7 @@ contract UnwindAttackFork is IntegrationPriceBase {
         _openAround(hubKey, 500_000, 500_000, 50_000e6);
         _parkRestInAave();
         assertEq(hubSpoke.positions().length, 3, "two V4 positions and Aave");
-        attacker.requestPayout(core, _holderValue(address(attacker)), ICoreVault.PayoutMode.Instant);
+        attacker.requestPayout(core, _holderValue(address(attacker)), ICoreVaultPayouts.PayoutMode.Instant);
         _fund(FLASH_WETH, FLASH_USDC);
         (ICoreVault.PayoutReceipt memory r, uint256 gas) =
             _attack(_one(_crushLeg(hubKey, ARB_V4_STATE_VIEW, CRUSH)), "");
@@ -387,7 +388,7 @@ contract UnwindAttackFork is IntegrationPriceBase {
         _parkRestInAave();
         assertEq(hubSpoke.positions().length, 3, "one position per V4 pool and Aave");
 
-        attacker.requestPayout(core, _holderValue(address(attacker)), ICoreVault.PayoutMode.Instant);
+        attacker.requestPayout(core, _holderValue(address(attacker)), ICoreVaultPayouts.PayoutMode.Instant);
         _fund(FLASH_WETH, FLASH_USDC);
         PoolActor.Leg[] memory legs = new PoolActor.Leg[](2);
         legs[0] = _crushLeg(hubKey, ARB_V4_STATE_VIEW, CRUSH);
@@ -409,7 +410,7 @@ contract UnwindAttackFork is IntegrationPriceBase {
         _setUpFund(100_000, 100_000, V4_VALUE, 0, 2e6);
         assertEq(IERC20(shareToken).balanceOf(address(attacker)), 1e18, "one whole share");
         assertEq(core.freeIdle(), 0);
-        attacker.requestPayout(core, 2e6, ICoreVault.PayoutMode.Instant);
+        attacker.requestPayout(core, 2e6, ICoreVaultPayouts.PayoutMode.Instant);
         _fund(FLASH_WETH, FLASH_USDC);
         PoolActor.Leg[] memory legs = _one(_crushLeg(hubKey, ARB_V4_STATE_VIEW, 1e12)); // 1/1,000,000
         uint256 v4Before = _hubV4PrincipalAtOracle();
@@ -422,7 +423,7 @@ contract UnwindAttackFork is IntegrationPriceBase {
     /// @dev e5c778a: +99,496 with a Standard request after the term, just the same.
     function test_REVIEW_C01_minimumStake_standardPayout_attackReverts() public {
         _setUpFund(100_000, 100_000, V4_VALUE, 0, 2e6);
-        attacker.requestPayout(core, 2e6, ICoreVault.PayoutMode.Standard);
+        attacker.requestPayout(core, 2e6, ICoreVaultPayouts.PayoutMode.Standard);
         assertEq(core.payoutRequest(address(attacker)).reserved, 0, "nothing reserved: Free Idle was 0");
         _advance(72 hours + 1);
         _fund(FLASH_WETH, FLASH_USDC);
@@ -443,7 +444,7 @@ contract UnwindAttackFork is IntegrationPriceBase {
         _allocate(core.freeIdle() - BUFFER);
         _parkMoreInAave();
         vm.prank(bruno);
-        core.requestPayout(STAKE * 99 / 100, ICoreVault.PayoutMode.Instant);
+        core.requestPayout(STAKE * 99 / 100, ICoreVaultPayouts.PayoutMode.Instant);
         _fund(FLASH_WETH, FLASH_USDC);
         legs = _one(_crushLeg(hubKey, ARB_V4_STATE_VIEW, CRUSH));
     }
@@ -516,7 +517,10 @@ contract UnwindAttackFork is IntegrationPriceBase {
 
     function _sawUnwindFailed(Vm.Log[] memory logs) internal view returns (bool) {
         for (uint256 i; i < logs.length; ++i) {
-            if (logs[i].emitter == address(core) && logs[i].topics[0] == ICoreVault.UnwindForPayoutFailed.selector) {
+            if (
+                logs[i].emitter == address(core)
+                    && logs[i].topics[0] == ICoreVaultPayouts.UnwindForPayoutFailed.selector
+            ) {
                 return true;
             }
         }
@@ -530,14 +534,15 @@ contract UnwindAttackFork is IntegrationPriceBase {
     ///      the unwind fails and the claim is paid from Free Idle only; the position survives.
     function test_REVIEW_C01_refute_flashAccountingCannotWrapTheUnwind() public {
         _setUpFund(100_000, 100_000, V4_VALUE, BUFFER, STAKE);
-        attacker.requestPayout(core, _holderValue(address(attacker)), ICoreVault.PayoutMode.Instant);
+        attacker.requestPayout(core, _holderValue(address(attacker)), ICoreVaultPayouts.PayoutMode.Instant);
         _fund(FLASH_WETH, FLASH_USDC);
         PoolActor.Leg memory leg = _crushLeg(hubKey, ARB_V4_STATE_VIEW, CRUSH);
         vm.recordLogs();
-        bytes memory ret =
-            attacker.around(hubKey, true, leg.pushTo, address(core), abi.encodeCall(ICoreVault.claimPayout, ("")));
+        bytes memory ret = attacker.around(
+            hubKey, true, leg.pushTo, address(core), abi.encodeCall(ICoreVaultPayouts.claimPayout, (""))
+        );
         bool failed = _sawUnwindFailed(vm.getRecordedLogs());
-        ICoreVault.PayoutReceipt memory r = abi.decode(ret, (ICoreVault.PayoutReceipt));
+        ICoreVault.PayoutReceipt memory r = abi.decode(ret, (ICoreVaultPayouts.PayoutReceipt));
         assertTrue(failed, "the unwind reverted inside the attacker's unlock");
         assertEq(r.unwindProceeds, 0);
         assertEq(hubSpoke.positions().length, 2, "position intact");
@@ -563,7 +568,7 @@ contract UnwindAttackFork is IntegrationPriceBase {
         _allocate(core.freeIdle() - BUFFER);
         v4Position = _openAround(hubKey, 100_000, 100_000, value);
         _parkRestInAave();
-        attacker.requestPayout(core, _holderValue(address(attacker)), ICoreVault.PayoutMode.Instant);
+        attacker.requestPayout(core, _holderValue(address(attacker)), ICoreVaultPayouts.PayoutMode.Instant);
     }
 
     function _deepPoolAttack(uint256 value, string memory title) internal returns (int256 profit) {
@@ -677,7 +682,7 @@ contract UnwindAttackFork is IntegrationPriceBase {
     {
         _setUpFund(50_000, 50_000, V4_VALUE, buffer, stake);
         attacker.requestPayout(core, _holderValue(address(attacker)), mode);
-        if (mode == ICoreVault.PayoutMode.Standard) _advance(72 hours + 1);
+        if (mode == ICoreVaultPayouts.PayoutMode.Standard) _advance(72 hours + 1);
         _fund(FLASH_WETH, 200_000e6);
         uint160 start = hubSqrtP0Now();
         uint160 pushTo = _sqrtUnderOracle(bps);
@@ -715,7 +720,7 @@ contract UnwindAttackFork is IntegrationPriceBase {
         native = _measureRow(_one(_pushLeg(hubKey, ARB_V4_STATE_VIEW, pushTo)));
 
         console2.log("===== S-2 residual, +-5% position of 100,000; stake / Free Idle", stake, buffer);
-        console2.log("Standard claim (1) or Instant (0)", mode == ICoreVault.PayoutMode.Standard ? 1 : 0);
+        console2.log("Standard claim (1) or Instant (0)", mode == ICoreVaultPayouts.PayoutMode.Standard ? 1 : 0);
         console2.log(
             "start price vs oracle (ppm)",
             Math.mulDiv(Math.mulDiv(start, start, 1 << 96), 1e24, Math.mulDiv(_oracle(), 1 << 96, 1))
@@ -731,7 +736,7 @@ contract UnwindAttackFork is IntegrationPriceBase {
     }
 
     function _residual(uint256 bps) internal returns (Row memory honest, Row memory jit, Row memory native) {
-        return _residual(bps, RESIDUAL_STAKE, BUFFER, ICoreVault.PayoutMode.Instant, 40e18);
+        return _residual(bps, RESIDUAL_STAKE, BUFFER, ICoreVaultPayouts.PayoutMode.Instant, 40e18);
     }
 
     function test_REVIEW_C01_measure_floorResidual_push100bps() public {
@@ -774,7 +779,7 @@ contract UnwindAttackFork is IntegrationPriceBase {
     ///      scripts' value), so it repeats whenever the manager allocates the re-deposited stake.
     function test_POC_REVIEW_C01_floorResidual_push480bps_standardClaimExitsAboveItsShareValue() public {
         (Row memory honest, Row memory jit,) =
-            _residual(480, RESIDUAL_STAKE, BUFFER, ICoreVault.PayoutMode.Standard, 40e18);
+            _residual(480, RESIDUAL_STAKE, BUFFER, ICoreVaultPayouts.PayoutMode.Standard, 40e18);
         assertTrue(jit.ran, "the floor lets a 4.8% push through");
         assertGt(jit.attacker, honest.attacker + 600e6, "over 600 USDC above an honest Standard exit");
         assertGt(jit.attacker, attackerBefore, "the claimant leaves with more than its shares were worth");
@@ -783,10 +788,10 @@ contract UnwindAttackFork is IntegrationPriceBase {
     /// @dev Scale: Free Idle 0 and a 100,000 stake, so the claim needs the whole V4 position and the rest comes from
     ///      Aave; the loss grows with the WETH the unwind sells (narrow liquidity for 100 WETH under the push).
     function test_REVIEW_C01_measure_floorResidual_push400bps_wholePosition() public {
-        _residual(400, 100_000e6, 0, ICoreVault.PayoutMode.Instant, 100e18);
+        _residual(400, 100_000e6, 0, ICoreVaultPayouts.PayoutMode.Instant, 100e18);
     }
 
     function test_REVIEW_C01_measure_floorResidual_push450bps_wholePosition() public {
-        _residual(450, 100_000e6, 0, ICoreVault.PayoutMode.Instant, 100e18);
+        _residual(450, 100_000e6, 0, ICoreVaultPayouts.PayoutMode.Instant, 100e18);
     }
 }

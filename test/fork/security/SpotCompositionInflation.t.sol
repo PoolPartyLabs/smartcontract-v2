@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {IAdapter} from "../../../src/interfaces/IAdapter.sol";
 import {IPriceSource} from "../../../src/interfaces/IPriceSource.sol";
 import {EndToEndScenario} from "../e2e/EndToEnd.t.sol";
@@ -72,7 +73,7 @@ contract SpotCompositionInflationForkTest is EndToEndScenario {
     /// @dev A Payout claimed in that state is priced at the oracle-price Share Price and paid from Idle.
     function _claimAtTheRaisedPrice() internal {
         vm.startPrank(ana);
-        core.requestPayout(PAYOUT, ICoreVault.PayoutMode.Instant);
+        core.requestPayout(PAYOUT, ICoreVaultPayouts.PayoutMode.Instant);
         ICoreVault.PayoutReceipt memory receipt = core.claimPayout("");
         vm.stopPrank();
         assertEq(receipt.unwindProceeds, 0, "paid from Free Idle, nothing unwound");
