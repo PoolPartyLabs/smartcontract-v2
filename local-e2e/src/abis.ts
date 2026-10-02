@@ -69,11 +69,11 @@ export const wormholeCoreAbi = parseAbi([
 ]);
 
 /** The order channel's consumer (`SpokeVault.executeOrder`, WP-07 plan D4) and the errors of
- *  src/libraries/OrderVerifier.sol and OrderCodec.sol, for the keeper's relay before the entry is in the exported
- *  Spoke Vault ABI. */
+ *  src/libraries/OrderVerifier.sol and OrderCodec.sol, which the Spoke Vault reverts with from its linked library, for
+ *  the keeper's relay. `OrderExecuted` matches the Spoke Vault's (indexed `kind` and `orderId`). */
 export const orderChannelAbi = parseAbi([
   "function executeOrder(bytes vaa) payable returns (uint64 reportSequence)",
-  "event OrderExecuted(uint8 kind, bytes32 orderId, uint64 wormholeSequence)",
+  "event OrderExecuted(uint8 indexed kind, bytes32 indexed orderId, uint64 wormholeSequence)",
   "error InvalidOrderVaa(string reason)",
   "error OrderEmitterChainMismatch(uint16 emitterChainId)",
   "error OrderEmitterMismatch(bytes32 emitterAddress)",
