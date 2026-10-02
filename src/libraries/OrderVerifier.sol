@@ -38,7 +38,10 @@ interface IOrderVaaParser {
 ///      4. the sequence is at least `minSequence` (`OrderSequenceTooLow`): the DEC-093 rule, strictly greater than
 ///         the last accepted order, which rejects a replay and an older order delivered after a newer one;
 ///      5. the payload decodes with the current `OrderCodec` version (`OrderCodec.decode`);
-///      6. the payload's fund id is the fund's own (`OrderFundMismatch`).
+///      6. the payload's fund id is the fund's own (`OrderFundMismatch`);
+///      7. the order's deadline has not passed (`OrderExpired`), doc 32 §4.2 confirmed by DEC-120: the Hub writes
+///         `deadline = publish time + OrderCodec.ORDER_LIFETIME`, so a spoke created or funded later cannot be made to
+///         execute older orders.
 /// @dev The consistency level is not checked: the Core Vault is the only accepted emitter and always publishes with
 ///      `OrderCodec.CONSISTENCY_INSTANT` (DEC-120 item 1).
 /// @dev The caller keeps `minSequence`: 0 before any order and the returned `sequence + 1` after each accepted one.
@@ -61,6 +64,9 @@ library OrderVerifier {
 
     /// @notice The order belongs to another fund.
     error OrderFundMismatch(bytes32 fundId);
+
+    /// @notice The order's deadline has passed.
+    error OrderExpired(uint64 deadline);
 
     /// @notice Verifies an order VAA and returns the order and its Wormhole sequence.
     /// @param core The spoke chain's Wormhole Core.
@@ -87,5 +93,6 @@ library OrderVerifier {
         if (sequence < minSequence) revert OrderSequenceTooLow(minSequence, sequence);
         o = OrderCodec.decode(vm.payload);
         if (o.fundId != fundId) revert OrderFundMismatch(o.fundId);
+        if (block.timestamp > o.deadline) revert OrderExpired(o.deadline);
     }
 }

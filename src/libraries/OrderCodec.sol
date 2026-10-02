@@ -38,6 +38,18 @@ library OrderCodec {
     /// @notice Wormhole nonce: a batching tag only; replay protection is the (emitter, sequence) pair (DEC-093).
     uint32 internal constant NONCE = 0;
 
+    /// @notice How long a Spoke Vault accepts an order after the Hub published it: `publish` writes
+    ///         `deadline = block.timestamp + ORDER_LIFETIME` (doc 32 §4.2, confirmed by DEC-120: the order carries a
+    ///         deadline). OPEN: the value is not in the register; one hour is the DEC-016 objective for an Instant
+    ///         Payout, while delivery takes seconds to minutes at instant consistency.
+    /// @dev Without a deadline the strict sequence (DEC-093) guards only a spoke that already accepted a later order:
+    ///      a Spoke Vault created after orders were published, or one that held no value when they were published (and
+    ///      so was not reached, DEC-120 item 1), could be made to execute any increasing subset of the fund's whole
+    ///      order history. The deadline bounds that to the orders of the last hour, and bounds how long an executor
+    ///      can wait to time the sales (each loss is measured just before its sale, DEC-118, DEC-132). An expired
+    ///      order never blocks a later one (gaps are accepted); the request's retry republishes it (DEC-151).
+    uint64 internal constant ORDER_LIFETIME = 1 hours;
+
     /// @notice Highest payout mode value; mirrors `ICoreVault.PayoutMode` (Instant = 0, Standard = 1, DEC-075).
     uint8 internal constant MAX_PAYOUT_MODE = 1;
 
@@ -47,6 +59,8 @@ library OrderCodec {
     /// @param requestId What the order serves: the Payout Request (requester and request nonce) for `UNWIND`, the
     ///        closure for `CLOSE`, the collection for `COLLECT`. Chosen by the Hub.
     /// @param attempt Retry counter of the same request (DEC-151); a retry is a new order with a new id.
+    /// @param deadline Last second (Unix time) at which a Spoke Vault accepts the order. Written by `publish`
+    ///        (`ORDER_LIFETIME`), whatever the caller wrote; `OrderVerifier` refuses the order after it.
     /// @param fracNum Numerator of the share of every position to unwind, the 2% margin included (DEC-137, DEC-081).
     /// @param fracDen Denominator of that share; nonzero and at least `fracNum` for `UNWIND`.
     /// @param maxLossBps The requester's optional maximum loss per sale, in bps (DEC-140, DEC-148, DEC-156 item 2).
@@ -59,6 +73,7 @@ library OrderCodec {
         bytes32 fundId;
         bytes32 requestId;
         uint32 attempt;
+        uint64 deadline;
         uint256 fracNum;
         uint256 fracDen;
         uint16 maxLossBps;
@@ -125,16 +140,20 @@ library OrderCodec {
         if (o.payoutMode > MAX_PAYOUT_MODE) revert InvalidPayoutMode(o.payoutMode);
     }
 
-    /// @notice Publishes an order on the Hub's Wormhole Core with instant consistency (DEC-120 item 1).
+    /// @notice Publishes an order on the Hub's Wormhole Core with instant consistency (DEC-120 item 1), valid for
+    ///         `ORDER_LIFETIME`.
     /// @dev Must run in the Core Vault's context (the Core Vault itself or a linked library it delegatecalls): the Core
     ///      records the caller as the emitter, and every Spoke Vault accepts only the Core Vault (DEC-111). Libraries
     ///      cannot be payable, so the entry point passes its `msg.value` as `messageFee`; the Core requires exactly
     ///      `ICoreBridge.messageFee()` (0 on Arbitrum One today) and reverts otherwise.
+    /// @dev Writes `o.deadline` (and a `CLOSE`'s 1/1, `check`) into the caller's order, so no caller can publish an
+    ///      order that never expires; the caller reads the deadline there after the call.
     /// @param core The Hub's Wormhole Core.
-    /// @param o The order; `check`ed before publishing.
+    /// @param o The order; its deadline is set, then it is `check`ed before publishing.
     /// @param messageFee Native amount forwarded as the Wormhole message fee.
     /// @return sequence The Wormhole sequence of the order (per emitter, from 0).
     function publish(address core, Order memory o, uint256 messageFee) internal returns (uint64 sequence) {
+        o.deadline = uint64(block.timestamp) + ORDER_LIFETIME;
         sequence = ICoreBridge(core).publishMessage{value: messageFee}(NONCE, encode(o), CONSISTENCY_INSTANT);
     }
 }

@@ -19,7 +19,9 @@ import {OrderReceiverHarness, OrderVerifierHarness} from "../../mocks/wormhole/O
 ///         Chain Core (`vm.store`, the SDK's WormholeOverride, as in `ValueReportReceiverFork.t.sol`) and verified there
 ///         through `OrderVerifier` by a stand-in Spoke Vault. Same-size guardian set and quorum as the live one, so the
 ///         verification gas is realistic.
-/// @dev Fresh pins at run time (`ARBITRUM_FORK_BLOCK`, `ROBINHOOD_FORK_BLOCK`); no block-specific constants.
+/// @dev Fresh pins at run time (`ARBITRUM_FORK_BLOCK`, `ROBINHOOD_FORK_BLOCK`); no block-specific constants. Both
+///      pins are taken at the same moment, so the two forks' clocks are within a minute of each other, well inside
+///      an order's lifetime (`OrderCodec.ORDER_LIFETIME`).
 contract OrderChannelForkTest is Test {
     using AdvancedWormholeOverride for ICoreBridge;
 
@@ -128,6 +130,8 @@ contract OrderChannelForkTest is Test {
         uint256 arbFee = arbCore.messageFee();
         OrderCodec.Order memory o = _unwind(FUND, 1);
         (VaaBody memory pm, uint256 publishGas) = _publish(ARB_WORMHOLE_CORE, coreVault, o);
+        o.deadline = uint64(block.timestamp) + OrderCodec.ORDER_LIFETIME; // written by the publisher (doc 32 4.2)
+        uint256 publishedAt = block.timestamp;
         console2.log("Arbitrum Core messageFee (wei):", arbFee);
         console2.log("publish gas (entry + OrderCodec.publish + live Arbitrum Core):", publishGas);
 
@@ -139,7 +143,10 @@ contract OrderChannelForkTest is Test {
         assertEq(pm.payload, OrderCodec.encode(o));
         assertEq(arbCore.nextSequence(address(coreVault)), expected + 1);
 
+        assertEq(pm.envelope.timestamp, publishedAt, "the VAA's timestamp is the Hub's publish time");
+
         bytes memory vaa = _signOnRobinhood(pm);
+        assertLe(block.timestamp, o.deadline, "the Robinhood fork's clock is inside the order's lifetime");
         console2.log("Robinhood Core messageFee (wei):", ICoreBridge(RH_WORMHOLE_CORE).messageFee());
         console2.log("order VAA bytes (live-size guardian quorum):", vaa.length);
 
@@ -180,6 +187,26 @@ contract OrderChannelForkTest is Test {
     // -----------------------------------------------------------------------------------------------------------------
     // Rejections on the live Robinhood Core
     // -----------------------------------------------------------------------------------------------------------------
+
+    /// @dev Doc 32 4.2, confirmed by DEC-120: the order carries a deadline, written on Arbitrum as publish time plus
+    ///      `ORDER_LIFETIME`. On the live Robinhood Core the spoke accepts it up to that second and refuses it from the
+    ///      next one, so a Spoke Vault created or funded later cannot be made to execute older orders.
+    function test_DEC120_forkRejectsAnOrderPastItsDeadline() public {
+        vm.selectFork(arbitrumFork);
+        uint64 deadline = uint64(block.timestamp) + OrderCodec.ORDER_LIFETIME;
+        VaaBody memory pm = _publishOnArbitrum(coreVault, _unwind(FUND, 1));
+        assertEq(OrderCodec.decode(pm.payload).deadline, deadline);
+        bytes memory vaa = _signOnRobinhood(pm);
+
+        vm.warp(deadline + 1);
+        vm.expectRevert(abi.encodeWithSelector(OrderVerifier.OrderExpired.selector, deadline));
+        spokeVault.execute(vaa);
+        assertEq(spokeVault.minSequence(), 0);
+
+        vm.warp(deadline);
+        (, uint64 sequence) = spokeVault.execute(vaa);
+        assertEq(sequence, pm.envelope.sequence, "the deadline second itself is accepted");
+    }
 
     function test_DEC093_forkRejectsAReplay() public {
         bytes memory vaa = _signOnRobinhood(_publishOnArbitrum(coreVault, _unwind(FUND, 1)));

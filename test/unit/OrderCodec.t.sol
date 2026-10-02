@@ -29,6 +29,7 @@ contract OrderCodecTest is Test {
         o.fundId = FUND;
         o.requestId = keccak256(abi.encode(address(0xA11CE), uint256(1)));
         o.attempt = 1;
+        o.deadline = 1_800_000_000;
         o.fracNum = 1457;
         o.fracDen = 10_000;
         o.maxLossBps = 150;
@@ -52,6 +53,7 @@ contract OrderCodecTest is Test {
         OrderCodec.Order memory d = h.decode(payload);
         _same(o, d);
         assertEq(d.fracNum, 1457);
+        assertEq(d.deadline, 1_800_000_000, "doc 32 section 4.2: the deadline travels");
         assertEq(d.maxLossBps, 150, "DEC-140: the requester's maximum travels");
         assertEq(d.payoutMode, uint8(ICoreVault.PayoutMode.Instant), "DEC-118, DEC-141: the mode travels");
     }
@@ -98,6 +100,7 @@ contract OrderCodecTest is Test {
 
         OrderCodec.Order memory same = _unwind();
         same.fracNum = 1;
+        same.deadline = 1;
         same.maxLossBps = 0;
         same.data = hex"01";
         assertEq(h.orderId(same), id, "the terms of an order do not change its id");
@@ -205,6 +208,7 @@ contract OrderCodecTest is Test {
 
     function test_DEC120_publishesWithInstantConsistencyAndTheCoreVaultAsEmitter() public {
         OrderCodec.Order memory o = _unwind();
+        o.deadline = uint64(block.timestamp) + OrderCodec.ORDER_LIFETIME; // what publish writes
         vm.expectEmit(address(coreVault));
         emit OrderPublisherHarness.OrderPublished(OrderCodec.UNWIND, h.orderId(o), 0);
         uint64 sequence = coreVault.publish(address(core), o);
@@ -217,6 +221,21 @@ contract OrderCodecTest is Test {
         assertEq(p.value, 0);
 
         assertEq(coreVault.publish(address(core), o), 1, "per-emitter sequence");
+    }
+
+    /// @dev Doc 32 §4.2 (confirmed by DEC-120): the order carries a deadline. The publisher writes it from its own
+    ///      clock, so a Hub caller can publish neither an order that never expires nor one already expired.
+    function test_DEC120_publishWritesTheDeadlineWhateverTheCallerWrote() public {
+        vm.warp(1_900_000_000);
+        uint64[3] memory written = [uint64(0), 1, type(uint64).max];
+        for (uint256 i; i < written.length; ++i) {
+            OrderCodec.Order memory o = _unwind();
+            o.deadline = written[i];
+            uint64 sequence = coreVault.publish(address(core), o);
+            OrderCodec.Order memory d = h.decode(core.published(sequence).payload);
+            assertEq(d.deadline, 1_900_000_000 + 1 hours, "deadline = publish time + ORDER_LIFETIME");
+        }
+        assertEq(OrderCodec.ORDER_LIFETIME, 1 hours);
     }
 
     function test_publishForwardsTheMessageFee() public {
@@ -245,6 +264,7 @@ contract OrderCodecTest is Test {
     function testFuzz_roundTripOfAnyValidUnwind(
         bytes32 requestId,
         uint32 attempt,
+        uint64 deadline,
         uint256 fracNum,
         uint256 fracDen,
         uint16 maxLossBps,
@@ -258,6 +278,7 @@ contract OrderCodecTest is Test {
             fundId: FUND,
             requestId: requestId,
             attempt: attempt,
+            deadline: deadline,
             fracNum: fracNum,
             fracDen: fracDen,
             maxLossBps: maxLossBps,

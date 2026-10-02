@@ -30,11 +30,13 @@ contract OrderVerifierTest is Test {
         verifier = new OrderVerifierHarness();
     }
 
-    function _unwind(uint32 attempt) internal pure returns (OrderCodec.Order memory o) {
+    /// @dev With the deadline `publish` would write now, so a hand-crafted VAA of it is live.
+    function _unwind(uint32 attempt) internal view returns (OrderCodec.Order memory o) {
         o.kind = OrderCodec.UNWIND;
         o.fundId = FUND;
         o.requestId = keccak256(abi.encode(address(0xA11CE), uint256(1)));
         o.attempt = attempt;
+        o.deadline = uint64(block.timestamp) + OrderCodec.ORDER_LIFETIME;
         o.fracNum = 1457;
         o.fracDen = 10_000;
         o.payoutMode = uint8(ICoreVault.PayoutMode.Standard);
@@ -77,6 +79,7 @@ contract OrderVerifierTest is Test {
         collect.fundId = FUND;
         collect.requestId = bytes32(uint256(1));
         (bytes memory second,) = _publish(collect);
+        vm.warp(block.timestamp + 10 minutes); // each order is delivered within its lifetime
         OrderCodec.Order memory close;
         close.kind = OrderCodec.CLOSE;
         close.fundId = FUND;
@@ -165,6 +168,79 @@ contract OrderVerifierTest is Test {
         spokeVault.execute(vaa);
     }
 
+    /// @dev Doc 32 §4.2, confirmed by DEC-120: the order carries a deadline; the Hub writes publish time plus
+    ///      `ORDER_LIFETIME`. The spoke accepts it up to that second and refuses it from the next one.
+    function test_DEC120_acceptsAnOrderUntilItsDeadlineAndRefusesItAfter() public {
+        OrderCodec.Order memory o = _unwind(1);
+        (bytes memory vaa,) = _publish(o);
+        uint64 deadline = o.deadline;
+        assertEq(deadline, block.timestamp + 1 hours);
+
+        vm.warp(deadline + 1);
+        vm.expectRevert(abi.encodeWithSelector(OrderVerifier.OrderExpired.selector, deadline));
+        spokeVault.execute(vaa);
+        assertEq(spokeVault.minSequence(), 0, "an expired order moves nothing");
+
+        vm.warp(deadline);
+        (, uint64 sequence) = spokeVault.execute(vaa);
+        assertEq(sequence, 0, "the deadline second itself is accepted");
+    }
+
+    /// @dev An expired order never blocks a later one: the request's retry (DEC-151) republishes and is accepted.
+    function test_DEC151_anExpiredOrderIsServedByItsRetry() public {
+        (bytes memory first,) = _publish(_unwind(1)); // sequence 0, never delivered in time
+        vm.warp(block.timestamp + OrderCodec.ORDER_LIFETIME + 1);
+        vm.expectRevert();
+        spokeVault.execute(first);
+
+        (bytes memory retry,) = _publish(_unwind(2)); // sequence 1
+        (OrderCodec.Order memory d, uint64 sequence) = spokeVault.execute(retry);
+        assertEq(sequence, 1);
+        assertEq(d.attempt, 2);
+    }
+
+    /// @dev Regression of the review PoC: without a deadline, a Spoke Vault created (or first funded) after orders
+    ///      were published accepted any increasing subset of the fund's whole order history, because the strict
+    ///      sequence only guards a spoke that already accepted a later order and gaps are accepted. Ten unwinds of 20%
+    ///      run on spoke A; a year later a third party delivered orders 0, 3, 6 and 9 to a new spoke B, unwinding 59%
+    ///      of its allocation. Every one of them is now refused, and a new order still reaches B.
+    function test_DEC120_aLateSpokeCannotBeMadeToExecuteTheOrderHistory() public {
+        bytes[] memory history = new bytes[](10);
+        for (uint32 i; i < 10; ++i) {
+            OrderCodec.Order memory o = _unwind(i + 1);
+            o.fracNum = 2000;
+            (history[i],) = _publish(o);
+            spokeVault.execute(history[i]);
+        }
+        assertEq(spokeVault.executedCount(), 10);
+
+        vm.warp(block.timestamp + 365 days);
+        OrderReceiverHarness lateSpoke = new OrderReceiverHarness(address(core), WH_ARBITRUM, address(coreVault), FUND);
+        uint64 lastDeadline = _unwind(0).deadline - 365 days;
+        uint256[4] memory picked = [uint256(0), 3, 6, 9];
+        vm.startPrank(makeAddr("third party"));
+        for (uint256 i; i < picked.length; ++i) {
+            vm.expectRevert(abi.encodeWithSelector(OrderVerifier.OrderExpired.selector, lastDeadline));
+            lateSpoke.execute(history[picked[i]]);
+        }
+        vm.stopPrank();
+        assertEq(lateSpoke.executedCount(), 0);
+        assertEq(lateSpoke.minSequence(), 0);
+
+        (bytes memory fresh,) = _publish(_unwind(11));
+        (, uint64 sequence) = lateSpoke.execute(fresh);
+        assertEq(sequence, 10, "a gap is accepted: the new order reaches the late spoke");
+    }
+
+    /// @dev The same history on a spoke that existed but was not reached (no value when the orders were published,
+    ///      DEC-120 item 1): once the manager funds it, the old orders are expired.
+    function test_DEC120_aSpokeFundedLaterCannotBeMadeToExecuteMissedOrders() public {
+        (bytes memory missed,) = _publish(_unwind(1));
+        vm.warp(block.timestamp + 2 hours); // the manager allocates to this spoke afterwards
+        vm.expectRevert();
+        spokeVault.execute(missed);
+    }
+
     function test_rejectsAPayloadThatIsNotAnOrder() public {
         // a signed message from the Core Vault in an unknown layout (e.g. a future version)
         bytes memory vaa = core.craft(WH_ARBITRUM, _coreVaultEmitter(), 0, 200, abi.encode(uint256(2), _unwind(1)));
@@ -237,6 +313,20 @@ contract OrderVerifierTest is Test {
             (, uint64 accepted) =
                 verifier.verify(address(core), vaa, WH_ARBITRUM, address(coreVault), minSequence, FUND);
             assertEq(accepted, sequence);
+        }
+    }
+
+    function testFuzz_DEC120_acceptsAnOrderIffNotPastItsDeadline(uint64 deadline, uint64 nowTs) public {
+        OrderCodec.Order memory o = _unwind(1);
+        o.deadline = deadline;
+        bytes memory vaa = core.craft(WH_ARBITRUM, _coreVaultEmitter(), 0, 200, abi.encode(OrderCodec.VERSION, o));
+        vm.warp(nowTs);
+        if (nowTs > deadline) {
+            vm.expectRevert(abi.encodeWithSelector(OrderVerifier.OrderExpired.selector, deadline));
+            verifier.verify(address(core), vaa, WH_ARBITRUM, address(coreVault), 0, FUND);
+        } else {
+            (OrderCodec.Order memory d,) = verifier.verify(address(core), vaa, WH_ARBITRUM, address(coreVault), 0, FUND);
+            assertEq(d.deadline, deadline);
         }
     }
 
