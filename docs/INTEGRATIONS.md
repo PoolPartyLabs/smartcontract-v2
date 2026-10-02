@@ -1,5 +1,8 @@
 # External integrations (verified on chain, 2026-09-29)
 
+Integration behavior below is synced to **`main` `1db9a9d`, 2026-10-02**, through PR #15, DEC-001..DEC-187.
+The address/protocol observations remain dated; reverify for deployment rather than assuming this docs sync probes them.
+
 Every address below was probed with `cast` against the public RPCs on 2026-09-29. Re-verify before any
 mainnet deployment. All chain ids are EVM chain ids unless marked as Wormhole chain ids.
 
@@ -56,6 +59,26 @@ Not available on Robinhood Chain: native USDC, CCTP, Aave (so the Aave adapter e
 
 ## Interfaces used
 
+- **V3 swaps:** per-fund `UniswapV3SwapAdapter`, V3 factory discovery/QuoterV2 and SwapRouter02; signed EIP-712
+  split/multihop routes or on-chain direct tier selection. Arbitrum QuoterV2
+  `0x61fFE014bA17989E743c5F6cB21bF9697530B21e`, SwapRouter02 `0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45`;
+  Robinhood QuoterV2 `0x33e885eD0Ec9bF04EcfB19341582aADCb4c8A9E7`, router in table above (PR #4/#12 wiring).
+- **API helpers:** `GET /quote/swap-route` signs for the fund's adapter; `POST /tx/swap` builds the manager's
+  `swap(swapAdapter, tokenIn, tokenOut, amountIn, maxLossBps, route)` transaction; `POST /report/after-deposit`
+  requests/delivers reports off-chain (PR #9/#15). With slippage 0, caller maximum 0 means unbounded, not zero loss;
+  the route's signed minimum still applies. This API is a reference helper, not a production-service certification.
+- **Across fee rule:** only the adapter sets output, timestamp/deadline and zero exclusivity; nonempty `bridgeData`
+  refused, `sendToHub(amount, kind, bridgeRank)` has no quote slot. No signed bridge-fee quoter (DEC-176).
+  Rate mean of own last 3 sends (missing slots at 0.08%), floor 0.03%, x1.5 expiry step, rate cap 1%, plus 0.03
+  input-token units. Own rates are stored, not inferred from other users' logs (PR #2/#12/#13).
+- **Report/order payloads:** ReportCodec v4, finalized consistency 202, opaque empty result blobs; OrderCodec v1,
+  instant consistency 200, authenticated permissionless delivery to `executeOrder`. All kind executors currently
+  revert. **WP-12 spoke orders — in progress; WP-10 income dollar index — in progress.**
+- **Income/closure integration:** **WP-09 proportional unwind — in progress; WP-13 closure — in progress.**
+  Do not publish missing payout settlement/collection/closed-exit APIs as usable baseline features.
+- **Refund research:** 2026-10-02 sample 57–99 min after deadline, not an SLA. `fillStatuses` takes relay hash, not
+  deposit id. Across endpoint/route limits are external service data and require operational revalidation.
+
 - **Across**: `depositV3(address depositor, address recipient, address inputToken, address outputToken, uint256
   inputAmount, uint256 outputAmount, uint256 destinationChainId, address exclusiveRelayer, uint32 quoteTimestamp,
   uint32 fillDeadline, uint32 exclusivityDeadline, bytes message)` on the origin SpokePool. A contract recipient
@@ -87,5 +110,6 @@ Not available on Robinhood Chain: native USDC, CCTP, Aave (so the Aave adapter e
 
 `wormhole-solidity-sdk` v1.0.0 ships `WormholeOverride`, which replaces the guardian set on a forked Core with
 keys the test controls, so tests can craft VAAs that the real Arbitrum Core verifies. `test/fork/Toolchain.t.sol`
-proves the setup. Across fills are simulated by dealing the output token to the recipient and calling
-`handleV3AcrossMessage` from the SpokePool address.
+proves the setup. Some legacy fixture fills deal output and impersonate the SpokePool; newer integration tests and
+the harness use live `fillRelay` with locally controlled fork actors. Wormhole guardian sets are locally controlled
+in tests; successful fork verification is not a live production guardian attestation.

@@ -303,6 +303,30 @@
   },
   {
     "type": "function",
+    "name": "acknowledgeSpokeTransit",
+    "inputs": [
+      {
+        "name": "spokeIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "transitId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "sequence",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
     "name": "acrossSpokePool",
     "inputs": [],
     "outputs": [
@@ -1444,6 +1468,11 @@
             "name": "awaitingSettlement",
             "type": "bool",
             "internalType": "bool"
+          },
+          {
+            "name": "pendingLeaverCost",
+            "type": "uint256",
+            "internalType": "uint256"
           }
         ]
       }

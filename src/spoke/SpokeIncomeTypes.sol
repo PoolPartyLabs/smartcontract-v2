@@ -30,6 +30,7 @@ library SpokeIncomeTypes {
         address[] tokens;
         uint256[] sold;
         uint256[] obtained;
+        uint256 amountToArrive;
     }
 
     /// @notice The income collection's state inside `SpokeVaultTypes.State`.
@@ -52,5 +53,7 @@ library SpokeIncomeTypes {
         uint256 unsentBase;
         uint256 resendBase;
         mapping(uint64 resultId => bool) awaitingResend;
+        mapping(bytes32 transitId => uint64) resultOf;
+        uint64[] refundQueue;
     }
 }

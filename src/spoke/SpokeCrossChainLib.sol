@@ -91,7 +91,9 @@ library SpokeCrossChainLib {
         returns (uint256 amount)
     {
         Transit storage t = s.hubBoundTransits[transitId];
-        if (t.state != TransitState.Sent) revert ISpokeVault.UnknownTransit(transitId);
+        if (t.state != TransitState.Sent && t.state != TransitState.ExpiryAttested) {
+            revert ISpokeVault.UnknownTransit(transitId);
+        }
         if (block.timestamp <= t.fillDeadline) revert ISpokeVault.FillDeadlineNotReached(transitId, t.fillDeadline);
         if (!_refundLanded(t, baseToken)) revert ISpokeVault.NoRefund(transitId);
         amount = _recognize(s, t, baseToken, transitId);
@@ -118,8 +120,17 @@ library SpokeCrossChainLib {
         amount = t.amountSent;
         t.state = TransitState.RefundRecognized;
         _removeInFlight(s, transitId);
-        if (t.kind == TransferKind.Principal) s.unallocated[baseToken] += amount;
-        else s.collectedIncome[baseToken] += amount;
+        if (t.kind == TransferKind.Principal) {
+            s.unallocated[baseToken] += amount;
+        } else {
+            s.collectedIncome[baseToken] += amount;
+            uint64 resultId = s.income.resultOf[transitId];
+            if (resultId != 0 && !s.income.awaitingResend[resultId]) {
+                s.income.awaitingResend[resultId] = true;
+                s.income.resendBase += amount;
+                s.income.refundQueue.push(resultId);
+            }
+        }
         emit ISpokeVault.TransitRefundRecognized(transitId, amount);
         address bridge = t.bridgeAdapter;
         try IBridgeAdapter(bridge).noteExpiry(t.bridgeRef) {}
@@ -142,8 +153,11 @@ library SpokeCrossChainLib {
         for (uint256 i = s.inFlightIds.length; i > 0; --i) {
             bytes32 id = s.inFlightIds[i - 1];
             Transit storage t = s.hubBoundTransits[id];
-            if (block.timestamp > t.fillDeadline && _refundLanded(t, baseToken)) _recognize(s, t, baseToken, id);
-            else if (!_stillInFlight(t)) _removeInFlight(s, id);
+            if (t.state == TransitState.Sent && block.timestamp > t.fillDeadline && _refundLanded(t, baseToken)) {
+                _recognize(s, t, baseToken, id);
+            } else if (!_stillInFlight(t)) {
+                _removeInFlight(s, id);
+            }
         }
     }
 

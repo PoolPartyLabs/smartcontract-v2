@@ -240,7 +240,7 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         try vault.requestPayout(aliceRequest, ICoreVaultPayouts.PayoutMode.Instant, 0) returns (
             ICoreVault.PayoutReceipt memory r
         ) {
-            assertLe(r.usdcGross, 14_950e6 + SEED_IDLE - reserve, "Instant paid from Free Idle only");
+            assertLe(r.usdcPaid + r.flowFee, 14_950e6 + SEED_IDLE - reserve, "Instant paid from Free Idle only");
             assertLe(r.usdcGross, r.usdcRequested);
             assertEq(r.payoutFee, r.usdcGross * 200 / 10_000);
         } catch (bytes memory err) {

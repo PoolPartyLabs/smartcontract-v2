@@ -8,6 +8,10 @@
     "node": ">=24"
   },
   "scripts": {
+    "test:alpha": "tsx --test src/alpha-relay.test.ts",
+    "alpha:keeper": "tsx src/alpha.ts keeper",
+    "alpha:api": "tsx src/alpha.ts api",
+    "alpha:rehearsal": "tsx src/alpha-rehearsal.ts",
     "check:urls": "tsx scripts/check-url-redaction.ts",
     "check:lifecycle": "tsx scripts/check-lifecycle.ts",
     "typecheck": "tsc --noEmit",
@@ -25,7 +29,7 @@
     "viem": "^2.57.0"
   },
   "devDependencies": {
-    "@types/node": "^26.6.3",
+    "@types/node": "^24.19.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   }

@@ -23,5 +23,12 @@ library CoreVaultPayoutTypes {
         mapping(bytes32 requestId => uint256) marketCost;
         mapping(bytes32 requestId => uint256) leaverCost;
         mapping(bytes32 requestId => uint256) proceeds;
+        mapping(bytes32 requestId => mapping(uint256 spokeIndex => bytes32[])) transits;
+        mapping(bytes32 key => SpokeUnwindTypes.OrderResult) transitResults;
+        mapping(bytes32 key => address) transitHolder;
+        mapping(bytes32 key => uint256) reservedCredit;
+        mapping(bytes32 key => uint256) paidMarketCost;
+        mapping(bytes32 key => uint256) paidLeaverCost;
+        mapping(bytes32 key => bool) proceedsConsumed;
     }
 }

@@ -30,12 +30,14 @@ contract DeployFactory is Script, FactoryDeployment {
         console.log("Create3Deployer", d.create3Deployer);
         console.log("SpokeCrossChainLib", d.spokeCrossChainLib);
         console.log("SpokeUnwindLib", d.spokeUnwindLib);
+        console.log("SpokeCloseLib", d.spokeCloseLib);
         console.log("SpokeIncomeLib", d.spokeIncomeLib);
         console.log("CoreVaultLogic", d.coreVaultLogic);
         console.log("CoreVaultTransitLogic", d.coreVaultTransitLogic);
         console.log("CoreVaultIncomeLogic", d.coreVaultIncomeLogic);
         console.log("CoreVaultIncomeCollectionLogic", d.coreVaultIncomeCollectionLogic);
         console.log("CoreVaultPayoutLogic", d.coreVaultPayoutLogic);
+        console.log("CoreVaultClosureLogic", d.coreVaultClosureLogic);
         console.log("API signer", apiSigner);
         console.log("ManagerRegistry", d.managerRegistry);
         console.log("ChainlinkPriceSource", d.priceSource);

@@ -32,13 +32,53 @@ library CoreVaultClosureLogic {
         uint256 paid;
     }
 
+    function seed(
+        CoreVaultState storage state,
+        CoreVaultWiring memory wiring,
+        uint256 usdcAmount,
+        uint256 minFirstDeposit
+    ) public returns (uint256 shares) {
+        if (state.managerPeakShares != 0 || IERC20(wiring.shareToken).totalSupply() != 0) {
+            revert ICoreVaultLifecycle.AlreadySeeded();
+        }
+        if (usdcAmount < minFirstDeposit) revert ICoreVault.BelowMinFirstDeposit(usdcAmount, minFirstDeposit);
+        uint256 price = ShareMath.INITIAL_SHARE_PRICE;
+        (uint256 minted, uint256 usdcForShares, uint256 fee) =
+            ShareMath.previewDeposit(usdcAmount, wiring.flowFeeBps, price);
+        if (minted == 0) revert ICoreVault.DepositBelowOneShare(usdcAmount - fee, price);
+        shares = minted;
+
+        CoreVaultIncomeLogic.beforeBalanceChange(state, wiring, wiring.manager, 0);
+        state.idle += usdcForShares;
+        state.managerPeakShares = shares;
+        emit ICoreVaultLifecycle.FundSeeded(wiring.manager, usdcForShares, fee, shares);
+
+        IERC20(wiring.usdc).safeTransferFrom(msg.sender, address(this), usdcForShares + fee);
+        CoreVaultLogic.payFee(state, wiring.usdc, wiring.protocolRecipient, fee);
+        ShareToken(wiring.shareToken).mint(wiring.manager, shares);
+        CoreVaultIncomeLogic.afterMint(state, wiring, wiring.manager, shares);
+    }
+
+    function closeFund(CoreVaultState storage state, CoreVaultWiring memory wiring) public {
+        if (state.fundState != ICoreVaultLifecycle.FundState.Open) {
+            revert ICoreVaultLifecycle.FundNotOpen(state.fundState);
+        }
+        if (state.managementFeeBps != 0) CoreVaultLogic.recordValuation(state, wiring, false);
+        state.fundState = ICoreVaultLifecycle.FundState.Closing;
+        state.closingStartedAt = uint64(block.timestamp);
+        emit ICoreVaultLifecycle.FundClosing(uint64(block.timestamp));
+    }
+
     function onReportAccepted(
         CoreVaultState storage state,
         CoreVaultWiring memory wiring,
         uint256 spokeIndex,
         ReportCodec.Report memory report
     ) public {
-        if (state.fundState != ICoreVaultLifecycle.FundState.Closing || report.unwindResults.length == 0) return;
+        if (
+            state.fundState != ICoreVaultLifecycle.FundState.Closing
+                || !SpokeUnwindTypes.validResults(report.unwindResults)
+        ) return;
         SpokeUnwindTypes.OrderResult[] memory results =
             abi.decode(report.unwindResults, (SpokeUnwindTypes.OrderResult[]));
         bytes32 closureId = requestId(state, wiring.fundId);
@@ -216,7 +256,7 @@ library CoreVaultClosureLogic {
         uint256 spokeIndex,
         bytes memory blob
     ) private view returns (uint256) {
-        if (blob.length == 0) revert ICoreVaultLifecycle.ClosureNotReady();
+        if (!SpokeUnwindTypes.validResults(blob)) revert ICoreVaultLifecycle.ClosureNotReady();
         SpokeUnwindTypes.OrderResult[] memory results = abi.decode(blob, (SpokeUnwindTypes.OrderResult[]));
         bytes32 closureId = requestId(state, wiring.fundId);
         bytes32[] storage transits = state.closureTransits[spokeIndex];

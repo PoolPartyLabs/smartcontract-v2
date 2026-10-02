@@ -1,5 +1,80 @@
 # WP-09: proportional automatic unwind on the Hub
 
+## PR #19 round-2 correction
+
+H-2 is resolved by a terminal settlement for pending requester Market Costs worth less than
+one whole share. The claim sizes that debt to one share instead of zero, still subject to the
+holder balance, pre-unwind served-share cap, manager base (DEC-146), fresh reports (DEC-160),
+and the existing cash check including the protocol flow fee. A genuine cash shortfall remains
+retryable; rounding alone no longer leaves a funded request open (DEC-151).
+
+When that one-share burn settles all pending cost and the gross outstanding is below its
+value, the entire net share value is retained as `leaverCost`; no rounding surplus is paid to
+the requester. The Payout Fee also remains in Idle, and the flow fee is paid normally.
+`pendingLeaverCost` becomes zero, the request closes, and its remaining Payout Reserve is
+released. No requester Market Cost is silently charged to remaining holders (DEC-118/141).
+
+**Explicit spec divergence:** DEC-061/077 normally floor payout burns and leave the remainder
+in the requester's shares. Per the round-2 instruction, terminal cost settlement instead burns
+one whole share and retains the sub-share surplus for the fund. Ordinary payout sizing still
+floors; this exception applies only to pending Market Costs and never increases the cash
+payout. The extra retained value is strictly less than one share. This is an explicit
+fund-favoring rounding rule, not a claim that the register already specifies it.
+
+The regression recreates the review's exact state: 0.399743 USDC pending cost, 89,696 investor
+shares, and 89,902 USDC Idle. It checks that zero available cash defers the burn, then restoring
+Idle settles the debt with one share, keeps the net value in the fund, and permits a new
+1,000-USDC Instant Payout. The completion suite also covers fee-bearing Standard Payouts,
+manager-base protection, both modes at five fund sizes from 1,000 to 100,000,000 USDC, and
+two 512-run fuzz properties over sizes, losses from 0% to 100%, and flow fees from 0 to 100 bps.
+Every funded request and its subsequent request close; cost allocation, reserve release,
+cash outflow, and share balances are checked throughout. Replacing the payout logic with the
+round-1 implementation makes both named Instant/Standard completion regressions fail.
+
+### Round-2 validation (October 2, 2026)
+
+- `forge build --sizes`, `forge fmt --check`, and `git diff --check`: pass.
+- Size inventory: 3/3 tests, 1 suite; all production contracts and linked libraries fit 24,576 bytes.
+- H-1 regressions: 6/6 tests, including two 512-run fuzz properties, remain green.
+- H-2 regressions: 7/7 tests, including two 512-run fuzz properties, pass.
+- Full non-fork suite: 1,186/1,186 tests, 169 suites, no failures or skips.
+- Full fork suite: 216/216 tests, 52 suites, no failures or skips; archive RPC environment
+  sourced in the same shell, concurrency 4. No fork fixtures or CI shard membership changed.
+
+| Runtime | Round-1 bytes | Round-2 bytes | Margin |
+|---|---:|---:|---:|
+| Core Vault | 21,487 | 21,487 | 3,089 |
+| CoreVaultPayoutLogic | 11,597 | 11,758 | 12,818 |
+| Spoke Vault | 23,096 | 23,096 | 1,480 |
+| SpokeUnwindLib | 11,530 | 11,530 | 13,046 |
+
+Only CoreVaultPayoutLogic grows (+161 bytes). Spoke Vault remains tightest; no production
+contract or linked library has a margin under 1,000 bytes. The complete unchanged inventory
+(runtime bytes / margin) is:
+
+| Runtime | Bytes | Margin |
+|---|---:|---:|
+| AaveV3Adapter | 9,893 | 14,683 |
+| AcrossBridgeAdapter | 6,713 | 17,863 |
+| UniswapV3SwapAdapter | 10,586 | 13,990 |
+| UniswapV4Adapter | 14,369 | 10,207 |
+| ManagerFeeVault | 1,077 | 23,499 |
+| ManagerRegistry | 1,603 | 22,973 |
+| ShareToken | 1,822 | 22,754 |
+| TransitEscrow | 894 | 23,682 |
+| Create3Deployer | 1,342 | 23,234 |
+| FundFactory | 18,347 | 6,229 |
+| ChainlinkPriceSource | 1,709 | 22,867 |
+| ValueReportReceiver | 8,080 | 16,496 |
+| CoreVaultLogic | 13,739 | 10,837 |
+| CoreVaultTransitLogic | 14,229 | 10,347 |
+| CoreVaultIncomeLogic | 5,929 | 18,647 |
+| SpokeCrossChainLib | 11,904 | 12,672 |
+| SpokeIncomeLib | 698 | 23,878 |
+
+No new scope or plan deviation beyond terminal cost rounding. The standing selected-tier
+reference/spec conflict documented below remains unresolved and outside this correction.
+
 ## Design
 
 - Idle pays first. Available USDC includes Free Idle, a Standard Payout's own Payout Reserve,
@@ -52,6 +127,8 @@ After merging `origin/main` (`1db9a9d`) into the branch:
   excludes V4 while Aave delivers; a relaxed retry sells only undelivered positions.
 - Sixteen positions unwind in 5,180,975 gas, below the 32,000,000 Arbitrum transaction cap.
   This is the unwind call alone, not the test's factory deployment/setup gas.
+  It measures repeated WETH/USDC positions with successful tier caching, not a worst-case bound
+  for sixteen distinct tokens or repeated exclusions that roll back the quote cache.
 
 | Runtime | Main bytes | WP-09 bytes | Remaining margin |
 |---|---:|---:|---:|
@@ -63,6 +140,47 @@ After merging `origin/main` (`1db9a9d`) into the branch:
 | AaveV3Adapter | 10,158 | 9,893 | 14,683 |
 
 No production contract or linked library has a margin below 1,000 bytes. Spoke Vault is tightest.
+
+## PR #19 round-1 correction
+
+H-1's two regression examples failed before the correction: Instant fund absorption was
+9,998.04 USDC; Standard fund absorption was 9,996.104040 USDC against a 102 USDC cap.
+
+Partial burns now use the largest whole-share amount whose actual Idle outflow fits available
+cash: net payment plus the flow fee, excluding the retained Payout Fee and settled requester
+Market Costs. Pre-unwind served-share and manager-base caps still apply. Binary search uses at
+most 256 iterations, independently of the number of positions (DEC-033/105/118/141).
+
+`PayoutRequest.pendingLeaverCost` retains every unsettled requester cost. The next attempt adds
+that balance back to its post-unwind NAV, deducts only costs it can settle, and carries the rest
+again. Receipts report only the new sale costs allocated to the fund; charging a previous
+attempt's debt cannot produce negative or additional fund absorption (DEC-118/141/151).
+An outstanding gross amount of zero does not discard pending costs: a debt-only retry can burn
+remaining shares to settle them. Gross outstanding reduction saturates at zero. If the holder
+has exhausted its shares, or no cash exists to pay the flow fee, debt remains on the open
+request rather than being silently allocated to the fund.
+
+The register overrides the plan's gross-cash partial-burn formula. The ABI adds one field to
+the request getter; there is no upgrade or migration of existing immutable funds. Pending costs
+are request accounting, not a newly introduced Share Assets bucket or a collectible receivable
+for other valuation paths. The existing D-17 NAV add-back is used for the request's settlement.
+
+Validation after the correction: build/sizes, formatting, size inventory (3/3), non-fork tests
+(1,179 in 168 suites), and the entire fork suite (216 in 52 suites) pass. Six new tests include
+two 512-run properties varying fund sizes, requested amounts, losses from 0% through 100%, and
+flow fees from 0 through 100 bps. They check absorption caps, exact net-value reconciliation,
+maximal affordable whole-share burns, delivery memory, pending debt and charge-once retries.
+Existing reserve/callback/fallback tests now exercise actual net cash rather than gross cash.
+
+| Runtime | Before correction | After correction | Remaining margin |
+|---|---:|---:|---:|
+| Core Vault | 21,433 | 21,487 | 3,089 |
+| CoreVaultPayoutLogic | 11,085 | 11,597 | 12,979 |
+| Spoke Vault | 23,096 | 23,096 | 1,480 |
+| SpokeUnwindLib | 11,530 | 11,530 | 13,046 |
+
+All production contracts and linked libraries remain within 24,576 bytes; none is below
+1,000 bytes of headroom. No shared fork fixture or new fork scenario file changes.
 
 ## Deviations and spec divergences
 

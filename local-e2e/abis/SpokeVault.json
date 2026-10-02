@@ -1419,6 +1419,19 @@
   },
   {
     "type": "function",
+    "name": "refreshIncomeResults",
+    "inputs": [
+      {
+        "name": "resultIds",
+        "type": "uint64[]",
+        "internalType": "uint64[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "report",
     "inputs": [],
     "outputs": [
@@ -3194,6 +3207,11 @@
   },
   {
     "type": "error",
+    "name": "TooManyIncomeResults",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "TooManyTokens",
     "inputs": [
       {
@@ -3249,6 +3267,17 @@
         "name": "chainId",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnknownIncomeResult",
+    "inputs": [
+      {
+        "name": "resultId",
+        "type": "uint64",
+        "internalType": "uint64"
       }
     ]
   },
@@ -3536,6 +3565,22 @@
   },
   {
     "type": "error",
+    "name": "InvalidTransitOutcome",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "OrderAlreadyExecuted",
+    "inputs": [
+      {
+        "name": "orderId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "OrderEmitterChainMismatch",
     "inputs": [
       {
@@ -3588,6 +3633,11 @@
         "internalType": "uint256"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "OrderResultCapacity",
+    "inputs": []
   },
   {
     "type": "error",

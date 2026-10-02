@@ -16,6 +16,7 @@ import {SpokeVaultTypes} from "./SpokeVaultTypes.sol";
 import {SpokeCrossChainLib} from "./SpokeCrossChainLib.sol";
 import {SpokeLedger} from "./SpokeLedger.sol";
 import {SpokeUnwindLib} from "./SpokeUnwindLib.sol";
+import {SpokeCloseLib} from "./SpokeCloseLib.sol";
 import {SpokeUnwindTypes} from "./SpokeUnwindTypes.sol";
 import {SpokeVaultBase} from "./SpokeVaultBase.sol";
 import {SpokeVaultUnwind} from "./SpokeVaultUnwind.sol";
@@ -193,7 +194,7 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
         _topUpOperatingCash();
         uint256 spotOut;
         uint256 minOut;
-        (amountOut, spotOut, minOut) = SpokeUnwindLib.manualSwap(
+        (amountOut, spotOut, minOut) = SpokeCloseLib.manualSwap(
             _s, _config(), SpokeUnwindTypes.ManualSale(swapAdapter, tokenIn, tokenOut, amountIn, maxLossBps, route)
         );
         emit Swapped(swapAdapter, tokenIn, tokenOut, amountIn, amountOut, spotOut, maxLossBps, minOut);
@@ -262,9 +263,9 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
     function executeOrder(bytes calldata vaa) external payable onlyOnSpokeChain nonReentrant returns (uint64 sequence) {
         (OrderCodec.Order memory o, bytes32 orderId, uint64 orderSequence) =
             SpokeUnwindLib.acceptOrder(_s, wormholeCore, _hubWormholeChainId, coreVault, fundId, vaa);
-        // `OrderCodec.check` admits these three kinds only.
         if (o.kind == OrderCodec.UNWIND) _executeUnwindOrder(o);
         else if (o.kind == OrderCodec.CLOSE) _executeCloseOrder(o);
+        else if (o.kind == OrderCodec.ACKNOWLEDGE) SpokeUnwindLib.acknowledge(_s, _config(), o);
         else _executeCollectOrder(o);
         emit OrderExecuted(o.kind, orderId, orderSequence);
         (sequence,) = _publishReport();

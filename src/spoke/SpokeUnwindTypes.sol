@@ -17,6 +17,35 @@ library SpokeUnwindTypes {
     }
     /// @notice DEC-120: bounded post-unwind history carried by report v4.
     uint256 internal constant REPORTED_RESULTS = 16;
+    uint256 internal constant ENCODED_RESULT_SIZE = 13 * 32;
+
+    function encodeResults(OrderResult[] memory results) internal pure returns (bytes memory blob) {
+        blob = abi.encode(results);
+        assert(blob.length == 64 + results.length * ENCODED_RESULT_SIZE);
+    }
+
+    function validResults(bytes memory blob) internal pure returns (bool) {
+        if (blob.length < 64) return false;
+        uint256 offset;
+        uint256 count;
+        uint256 stride = ENCODED_RESULT_SIZE;
+        assembly ("memory-safe") {
+            offset := mload(add(blob, 32))
+            count := mload(add(blob, 64))
+        }
+        if (offset != 32 || count > REPORTED_RESULTS || blob.length != 64 + count * stride) return false;
+        for (uint256 index; index < count; ++index) {
+            uint256 attempt;
+            uint256 refunded;
+            assembly ("memory-safe") {
+                let entry := add(add(blob, 96), mul(index, stride))
+                attempt := mload(add(entry, 64))
+                refunded := mload(add(entry, 352))
+            }
+            if (attempt > type(uint32).max || refunded > 1) return false;
+        }
+        return true;
+    }
 
     /// @notice DEC-105/139: Principal send and Market Costs for one attempt, in spoke base-token units.
     struct OrderResult {
@@ -35,17 +64,14 @@ library SpokeUnwindTypes {
         uint256 closureExcessCost;
     }
 
-    /// @notice DEC-151/156: sales retained across bridge refusal, plus costs restored if the send is refunded.
+    /// @notice DEC-151/156: unsent proceeds and cumulative sale costs retained across refusals and refunds.
     struct Pending {
-        uint256 sentSpotOut;
-        uint256 sentMarketCost;
-        uint256 sentLeaverCost;
         uint256 proceeds;
         uint256 spotOut;
         uint256 marketCost;
         uint256 leaverCost;
         bytes32 transitId;
-        uint32 attempt;
+        uint256 bridgeCost;
     }
 
     /// @notice The unwind's state inside `SpokeVaultTypes.State`.
@@ -66,6 +92,12 @@ library SpokeUnwindTypes {
         uint64 closureStartedAt;
         uint64[] saleTimes;
         uint256[] saleCosts;
+        mapping(bytes32 orderId => bool) executed;
+        mapping(bytes32 requestId => bytes32[]) transits;
+        mapping(bytes32 transitId => bool) refundRecovered;
+        mapping(bytes32 transitId => bytes32) transitRequest;
+        mapping(bytes32 transitId => bool) feeRefunded;
+        mapping(bytes32 transitId => bool) retired;
     }
 
     /// @notice One atomic step of an automatic unwind (`ISpokeVaultUnwind.unwindStep`).
@@ -96,6 +128,9 @@ library SpokeUnwindTypes {
     error UnwindStepNotSelf(address caller);
     error SpokeClosed();
     error UnwindProceedsReserved();
+    error OrderAlreadyExecuted(bytes32 orderId);
+    error OrderResultCapacity();
+    error InvalidTransitOutcome();
 
     /// @notice The name of a step in `Book.delivered`: a position by its adapter and key, a non-base Unallocated
     ///         Balance by a zero adapter and the token.

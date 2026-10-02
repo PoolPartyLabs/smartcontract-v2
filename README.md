@@ -5,14 +5,16 @@ withdraw USDC on one chain (the Hub Chain) while the fund's capital works on sev
 
 This repository holds the Solidity implementation. **Everything here is in English.** The product definition,
 decision register and research live in the separate specification repository (`PoolParty_SCs_v2`, in
-Portuguese); its decisions (DEC-001 to DEC-110, later decisions override earlier ones) are the business rules
+Portuguese); its decisions (DEC-001 to DEC-187, later decisions override earlier ones) are the business rules
 this code must follow. `docs/DECISIONS.md` is the English digest of that register and `docs/OPEN-QUESTIONS.md`
-lists what is still undecided and how the code leaves room for it.
+lists answered questions, remaining gaps and implementation divergences. DEC-186/187 are Slack-only decisions
+recorded in the handoff; management cap is 500 bps (5%), manager pays own gas in the MVP.
 
 ## Status
 
-Buildathon MVP, in progress. Nothing is deployed to production. See `docs/ARCHITECTURE.md` for the target
-design and the current scope.
+Buildathon MVP, **internal-alpha baseline `main` at `1db9a9d` (2026-10-02), through PR #15**. This snapshot does
+not attest to a production deployment or public readiness. `docs/ARCHITECTURE.md` describes merged code only.
+WP-09 proportional unwind, WP-10 income dollar index, WP-12 spoke orders and WP-13 closure are **in progress**.
 
 ## Scope of the buildathon MVP
 
@@ -21,12 +23,17 @@ design and the current scope.
 | Arbitrum One as Hub Chain, Robinhood Chain as Spoke Chain | More spokes (Base, Ethereum) with CCTP as primary bridge | Borrowing, leverage, perps |
 | Uniswap V4 position adapter on both chains; Aave V3 supply-only adapter on Arbitrum | Collectors for reward campaigns (Merkl) | Share transfers between owners |
 | Across bridge adapter (USDC on Arbitrum, USDG on Robinhood) | Collectors for reward campaigns (Merkl) | Auto-compounding inside the contract |
-| Wormhole value reports, finalized consistency, permissionless relay | Multi-spoke report scheduling | ZK proofs of value, Uniswap V3 |
+| Wormhole report v4, finalized consistency; authenticated order channel/executeOrder foundation only | Multi-spoke report scheduling | ZK proofs of value |
+| UniswapV3SwapAdapter: direct tier discovery or API-signed V3 split/multihop route | V4/mixed API swap routes | V3 position adapter |
 | Deposit, allocate, report, Instant and Standard Payouts, Income Withdrawal | Autonomous-manager guardrails, emergency runbook | CCTP on Robinhood Chain, Solana |
 
 The specification's MVP names Uniswap V4 plus Aave V3 without borrowing (DEC-018, DEC-028); the founder confirmed
-that scope on 2026-09-29, so the Uniswap V3 proof-of-concept adapter is not built. Every protocol sits behind the
-same adapter interface.
+that position scope on 2026-09-29. **V3 swaps are implemented**, separately from fund position pools, through
+Mandate v2's per-fund swap adapter. Core Vault links four libraries, Spoke Vault three, all immutable (DEC-131).
+Performance is 10–90%; management 0–5%, accrual is live but closure payment unfinished; Payout Fee <=10% stays in
+Idle. Across fixes its own send terms (1% rate cap plus fixed fee); no signed bridge quote in MVP (DEC-176).
+All order executors currently revert `OrderKindNotSupported`; the channel is not a completed recovery path.
+Native Operating Cash, refunds and gas bridge top-up are deferred by ruling 2026-10-02; creation defaults are 0.
 
 ## Layout
 
@@ -56,7 +63,7 @@ docs/          DECISIONS.md, OPEN-QUESTIONS.md, ARCHITECTURE.md, INTEGRATIONS.md
 - OpenZeppelin Contracts 5.7 for ERC-20, access control, reentrancy guards, SafeERC20, math.
 - Uniswap `v4-core` and `v4-periphery` (interfaces, types and libraries; the pinned-pragma contracts are never
   compiled, the deployed ones are used on forks). `v3-core`/`v3-periphery` stay only for the toolchain smoke test.
-- `wormhole-solidity-sdk` v1.0.0 for Core Bridge interfaces, VAA parsing, replay protection and the
+- `wormhole-solidity-sdk` for Core Bridge interfaces, VAA parsing, replay protection and the
   `WormholeOverride` fork-test helper that signs VAAs with a guardian set the test controls.
 - Across and Aave V3: minimal interfaces vendored in `src/interfaces/external/` (both upstream repos are Hardhat
   monorepos).
@@ -66,13 +73,16 @@ docs/          DECISIONS.md, OPEN-QUESTIONS.md, ARCHITECTURE.md, INTEGRATIONS.md
 ```bash
 cp .env.example .env            # public RPCs work; a provider key is recommended for fork suites
 forge build
-forge test --no-match-path "test/fork/**"     # unit + invariant, no network
-forge test --match-path "test/fork/**" -vvv   # mainnet forks of Arbitrum One and Robinhood Chain
+forge build --sizes
+forge test --match-path test/size/ContractSizes.t.sol -vv
+forge test --no-match-path "test/{fork/**,review/**/*Fork*}"
+forge test --match-path "test/{fork/**,review/**/*Fork*}" -j 4
 forge fmt --check
 ```
 
-Fork tests read `ARBITRUM_RPC_URL` and `ROBINHOOD_RPC_URL`. Set `ARBITRUM_FORK_BLOCK` and
-`ROBINHOOD_FORK_BLOCK` to pin blocks for deterministic runs.
+Fork tests read `ARBITRUM_RPC_URL` and `ROBINHOOD_RPC_URL`. Use archive endpoints and pin
+`ARBITRUM_FORK_BLOCK` / `ROBINHOOD_FORK_BLOCK`; never log credentials. In the handoff environment source its
+`tools/rpc-env.sh` in the same shell before any fork command or harness startup.
 
 ## Local two-fork environment (`local-e2e/`)
 
@@ -98,6 +108,10 @@ troubleshooting (public RPCs serve fork state for minutes only; an archive RPC i
 lenses) ran on 2026-09-30: 44 findings, 16 fixed with regression tests, 3 waiting for a founder decision, 25
 acknowledged. An independent model-driven review and a verification plan (2026-09-30) were cross-checked against the
 code on 2026-10-01 (`docs/security/CROSS-CHECK-2026-10-01.md`; their proofs of concept run in `test/review/`). The
+Historical sweep counts are not current release certification: S-8 is accepted by DEC-129, S-5's native cap and
+S-15's attribution are answered but unfinished. Fresh baseline: **1,173 non-fork tests / 166 suites, 3/3 size tests**;
+SpokeVault **22,304 B, 2,272 B margin**, all runtime margins >1,000 B. Fork baseline: PR #15's 216 tests, not
+rerun for this docs-only sync. Full sizes/evidence: `docs/security/BASELINE-2026-10-02.md`. The
 Mandate fixes where a manager may trade and where tokens may go, not the price of a manager's trade
 (`docs/security/THREAT-MODEL.md`). Read `SECURITY.md` for the disclosure policy and `docs/security/` for the threat
 model, the register, the invariants, the tooling and the pre-mainnet checklist.
@@ -118,7 +132,7 @@ matter most:
 | Unallocated Balance, In-flight Value, Spoke Cap | Value in a Spoke Vault not yet in a position; value moving between chains; how much may be sent to a spoke |
 | Payout Request, Payout, Instant Payout, Standard Payout, Payout Fee | The exit flow and its two speeds |
 | Attributed Income, Income Withdrawal | Income that belongs to holders who held while it was earned; taking it out without burning shares |
-| Unwind | Turning positions into USDC on the hub, in Mandate order, only for what Idle cannot cover, with a 2% margin |
+| Unwind | Turning positions into USDC; live interim Hub path walks position registry order after Idle, with a 2% margin; proportional replacement in progress |
 | Adapter, Bridge Adapter, Collector, Transport Route | Integration code per protocol; the bridge as an adapter; receive-only code; the bridge route |
 | Operating Cash, Operating Expense, Network Costs, Market Costs | Per-chain gas budget; a fund expense with its funding source; gas and bridge fees; swap fees, impact, slippage |
 

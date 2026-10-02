@@ -22,17 +22,19 @@ interface ICoreVaultPayouts {
     /// @param termEndsAt Standard: `requestedAt + standardPayoutTerm` (DEC-060, DEC-154); Instant: `requestedAt`.
     /// @param usdcRequested Gross USDC amount requested (DEC-020, DEC-023).
     /// @param usdcOutstanding USDC still to pay after Partial Payouts (DEC-068).
-    /// @param reserved USDC held in the Payout Reserve: a Standard reservation, or the Idle and Hub proceeds earmarked
+    /// @param reserved USDC held in the Payout Reserve: a Standard reservation, or Idle, Hub and spoke proceeds earmarked
     ///        while a cross-chain claim awaits settlement (DEC-105, DEC-139).
     /// @param requestId The request's id: the requester's address in the high 160 bits and the Core Vault's request
     ///        counter in the low 96 (`OrderCodec.Order.requestId`). The hub Spoke Vault remembers per id which
     ///        positions already delivered (DEC-151).
     /// @param maxLossBps The requester's maximum loss per sale of the automatic unwind, in bps, as given at the
     ///        request or at the last claim; 0 or >= 10,000 for none (DEC-140, DEC-148, D-23, DEC-178 item 2).
-    /// @param attempt Automatic unwinds of positions run for this request so far (DEC-151).
+    /// @param attempt Automatic unwind attempts, advancing on every new spoke publication (DEC-151).
     /// @param fracNum Numerator of the share of every position the automatic unwind takes, the 2% margin included,
     ///        fixed at the first attempt that unwinds positions (DEC-137, DEC-151, D-11); 0 until then.
     /// @param fracDen Denominator of that share; 0 until the first attempt that unwinds positions.
+    /// @param pendingLeaverCost Requester Market Costs not yet deducted, retained across attempts (DEC-118, DEC-141,
+    ///        DEC-151). They never become costs absorbed by the fund.
     struct PayoutRequest {
         PayoutMode mode;
         bool open;
@@ -51,6 +53,7 @@ interface ICoreVaultPayouts {
         uint64 orderSequence;
         uint64 orderDeadline;
         bool awaitingSettlement;
+        uint256 pendingLeaverCost;
     }
 
     /// @notice How Share Assets were consolidated for a mint or burn (DEC-083). Carried by every mint and burn event.
@@ -71,7 +74,8 @@ interface ICoreVaultPayouts {
     /// @param mode Instant or Standard.
     /// @param usdcRequested Gross amount of the request (DEC-020).
     /// @param sharesBurned Whole shares burned, rounded down (DEC-077).
-    /// @param usdcGross `ShareMath.usdcFor(sharesBurned, sharePrice)`, never above the amount requested (DEC-077).
+    /// @param usdcGross `ShareMath.usdcFor(sharesBurned, sharePrice)`; retries may also burn to settle pending requester
+    ///        Market Costs after the requested gross amount has been served (DEC-118, DEC-141, DEC-151).
     /// @param payoutFee Payout Fee, Instant only (DEC-075, DEC-155); it stays in Idle, in USDC (DEC-144 items 4-5,
     ///        correcting DEC-102).
     /// @param flowFee Protocol flow fee on the gross amount (DEC-106, DEC-113).
@@ -95,9 +99,9 @@ interface ICoreVaultPayouts {
     /// @param marketCost What this claim's unwind sales lost against the mid value before each sale (DEC-118 item 2,
     ///        D-19).
     /// @param marketCostAbsorbed The part of `marketCost` the fund bore: in a Standard Payout up to 1% of the value of
-    ///        each sale (DEC-141), plus any `leaverCost` above what the payout could carry.
-    /// @param leaverCost The part of `marketCost` deducted from what the Shareholder receives: all of it in an Instant
-    ///        Payout (DEC-118), the excess over 1% per sale in a Standard one (DEC-141); never above
+    ///        each sale (DEC-141), never unpaid requester Market Costs.
+    /// @param leaverCost Market Costs deducted this attempt, including pending costs from previous attempts: all in
+    ///        an Instant Payout (DEC-118), the excess over 1% per sale in a Standard one (DEC-141); never above
     ///        `usdcGross - payoutFee - flowFee`.
     /// @param excludedPositions Positions and Unallocated Balance tokens this claim's unwind left out because their
     ///        exit or sale failed, a sale above the requester's maximum included (DEC-148); unwound at the next attempt
@@ -168,6 +172,9 @@ interface ICoreVaultPayouts {
     error SpokeUnwindNotReported(uint256 spokeIndex);
     error SpokeUnwindNotCredited(uint256 spokeIndex, bytes32 transitId);
     error PayoutMessageFeeNotUsed(uint256 amount);
+
+    /// @notice DEC-068/139: publish an authenticated acknowledgement of fully credited or refunded Principal.
+    function acknowledgeSpokeTransit(uint256 spokeIndex, bytes32 transitId) external payable returns (uint64 sequence);
 
     /// @notice A Payout Request below one share's price at the current Share Price, which could never burn a share
     ///         (DEC-035 spirit, DEC-077; final verification).

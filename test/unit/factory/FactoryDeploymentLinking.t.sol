@@ -3,12 +3,82 @@ pragma solidity 0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {FactoryDeployment} from "../../../script/FactoryDeployment.sol";
+import {DeployFactory} from "../../../script/DeployFactory.s.sol";
+import {IFundFactory} from "../../../src/interfaces/IFundFactory.sol";
 
 /// @notice The deployment's library linking (script/FactoryDeployment.sol): the Spoke Vault creation code the factory
 ///         stores and pins by hash is linked to every library step 2 deploys, and a library missing from a link list
 ///         fails by name (DEC-131: the vault's code is split into linked libraries; DEC-058: their addresses are part
 ///         of the pinned creation code).
 contract FactoryDeploymentLinkingTest is Test, FactoryDeployment {
+    function test_DEC131_fullHubFactoryThroughDeployScript() public {
+        _assertScriptDeployment(ARBITRUM);
+    }
+
+    function test_DEC131_fullSpokeFactoryThroughDeployScript() public {
+        _assertScriptDeployment(ROBINHOOD);
+    }
+
+    function _assertScriptDeployment(uint256 chainId) internal {
+        vm.chainId(chainId);
+        IFundFactory.ProtocolWiring memory wiring = _chainWiring(chainId);
+        vm.etch(wiring.baseToken, hex"00");
+        vm.etch(wiring.acrossSpokePool, hex"00");
+        vm.etch(wiring.wormholeCore, hex"00");
+        vm.etch(wiring.uniswapV4PoolManager, hex"00");
+        vm.etch(wiring.permit2, hex"00");
+        vm.etch(wiring.uniswapV3Factory, hex"00");
+        if (chainId == ARBITRUM) {
+            vm.etch(wiring.aaveV3Pool, hex"00");
+            vm.mockCall(ARB_ETH_USD_FEED, abi.encodeWithSignature("decimals()"), abi.encode(uint8(8)));
+        }
+        vm.mockCall(
+            wiring.uniswapV4PositionManager,
+            abi.encodeWithSignature("poolManager()"),
+            abi.encode(wiring.uniswapV4PoolManager)
+        );
+        vm.mockCall(
+            wiring.uniswapV4StateView, abi.encodeWithSignature("poolManager()"), abi.encode(wiring.uniswapV4PoolManager)
+        );
+        vm.mockCall(wiring.uniswapV4PositionManager, abi.encodeWithSignature("permit2()"), abi.encode(wiring.permit2));
+        vm.mockCall(
+            wiring.uniswapV3SwapRouter02, abi.encodeWithSignature("factory()"), abi.encode(wiring.uniswapV3Factory)
+        );
+        vm.mockCall(wiring.uniswapV3QuoterV2, abi.encodeWithSignature("factory()"), abi.encode(wiring.uniswapV3Factory));
+        vm.setEnv("PROTOCOL_RECIPIENT", vm.toString(address(100)));
+        vm.setEnv("ADAPTER_GUARDIAN", vm.toString(address(101)));
+        vm.setEnv("API_SIGNER", vm.toString(address(102)));
+        vm.setEnv("REGISTRY_OWNER", vm.toString(address(102)));
+        DeployFactory script = new DeployFactory();
+        Deployment memory deployed = script.run();
+        Deployment memory predicted = _libraryAddresses(chainId == ARBITRUM);
+        assertGt(address(deployed.factory).code.length, 0, "factory deployed through run()");
+        assertGt(deployed.factory.transitEscrowImplementation().code.length, 0, "escrow deployed");
+        assertEq(deployed.spokeUnwindLib, predicted.spokeUnwindLib, "nested linking is deterministic");
+        assertTrue(
+            vm.contains(vm.toString(deployed.spokeUnwindLib.code), _bareHex(deployed.spokeCrossChainLib)),
+            "unwind -> cross-chain runtime link"
+        );
+        string memory spokeCode = vm.toString(_spokeVaultCreationCode(deployed));
+        assertFalse(vm.contains(spokeCode, "__$"), "no unlinked Spoke Vault placeholder");
+        assertEq(
+            deployed.factory.creationCodeHash(deployed.factory.ROLE_SPOKE_VAULT()),
+            keccak256(_spokeVaultCreationCode(deployed)),
+            "factory pins linked Spoke Vault code"
+        );
+        if (chainId == ARBITRUM) {
+            string memory coreCode = vm.toString(_coreVaultCreationCode(deployed));
+            assertFalse(vm.contains(coreCode, "__$"), "no unlinked Core Vault placeholder");
+            assertEq(
+                deployed.factory.creationCodeHash(deployed.factory.ROLE_CORE_VAULT()),
+                keccak256(_coreVaultCreationCode(deployed)),
+                "factory pins linked Core Vault code"
+            );
+            assertEq(deployed.coreVaultTransitLogic, predicted.coreVaultTransitLogic);
+            assertGt(deployed.coreVaultClosureLogic.code.length, 0);
+        }
+    }
+
     function test_DEC131_spokeVaultCodeLinksEveryDeployedLibrary() public {
         Deployment memory d;
         _deployLibraries(false, d);
@@ -17,6 +87,9 @@ contract FactoryDeploymentLinkingTest is Test, FactoryDeployment {
         assertTrue(vm.contains(code, _bareHex(d.spokeCrossChainLib)), "SpokeCrossChainLib linked");
         assertTrue(d.spokeUnwindLib.code.length != 0, "SpokeUnwindLib deployed");
         assertTrue(vm.contains(code, _bareHex(d.spokeUnwindLib)), "SpokeUnwindLib linked");
+        assertTrue(d.spokeCloseLib.code.length != 0, "SpokeCloseLib deployed");
+        assertTrue(vm.contains(code, _bareHex(d.spokeCloseLib)), "SpokeCloseLib linked");
+        assertTrue(vm.contains(vm.toString(d.spokeCloseLib.code), _bareHex(d.spokeUnwindLib)), "close -> unwind");
         assertTrue(d.spokeIncomeLib.code.length != 0, "SpokeIncomeLib deployed");
         assertTrue(vm.contains(code, _bareHex(d.spokeIncomeLib)), "SpokeIncomeLib linked");
         assertFalse(vm.contains(code, "__$"), "no placeholder left");
@@ -87,6 +160,16 @@ contract FactoryDeploymentLinkingTest is Test, FactoryDeployment {
     function test_DEC131_aLibraryMissingFromTheLinkListRevertsByName() public {
         vm.expectRevert(abi.encodeWithSelector(UnlinkedLibrary.selector, SPOKE_VAULT_ARTIFACT));
         this.linkSpokeVaultWithoutLibraries();
+    }
+
+    function test_DEC131_nestedSpokeLibraryRequiresItsDependency() public {
+        vm.expectRevert(abi.encodeWithSelector(UnlinkedLibrary.selector, "out/SpokeUnwindLib.sol/SpokeUnwindLib.json"));
+        this.linkSpokeUnwindWithoutLibraries();
+    }
+
+    function linkSpokeUnwindWithoutLibraries() external view returns (bytes memory) {
+        Deployment memory none;
+        return _linkedToSpokeVaultLibraries("out/SpokeUnwindLib.sol/SpokeUnwindLib.json", none);
     }
 
     function linkSpokeVaultWithoutLibraries() external view returns (bytes memory) {

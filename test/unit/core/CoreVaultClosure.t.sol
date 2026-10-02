@@ -12,6 +12,25 @@ import {MockHubSpokeVault} from "../../mocks/core/MockHubSpokeVault.sol";
 import {CoreVaultFixture} from "./CoreVaultFixture.sol";
 
 contract CoreVaultClosureTest is CoreVaultFixture {
+    function test_REGRESSION_multipleResultsFinalizeClosureAfterRefundedAttempt() public {
+        _ready();
+        (ReportCodec.Report memory report,,) = receiver.latestReport(0);
+        SpokeUnwindTypes.OrderResult[] memory results = new SpokeUnwindTypes.OrderResult[](3);
+        results[0].requestId = keccak256("older payout");
+        results[0].attempt = 1;
+        results[1] = abi.decode(_result(0), (SpokeUnwindTypes.OrderResult[]))[0];
+        results[1].transitId = keccak256("refunded closure send");
+        results[1].amountSent = 100e6;
+        results[1].amountToArrive = 99e6;
+        results[1].refunded = true;
+        results[2] = abi.decode(_result(0), (SpokeUnwindTypes.OrderResult[]))[0];
+        report.sequence = ++reportSequence;
+        report.unwindResults = SpokeUnwindTypes.encodeResults(results);
+        receiver.deliver(0, report);
+        vault.finalizeClosure();
+        assertEq(uint8(vault.fundState()), uint8(ICoreVaultLifecycle.FundState.Closed));
+    }
+
     function test_REGRESSION_realOrderResultFinalizesClosure() public {
         _ready();
         (ReportCodec.Report memory report,,) = receiver.latestReport(0);

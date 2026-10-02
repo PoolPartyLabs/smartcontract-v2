@@ -15,7 +15,7 @@ import {ShareMath} from "../libraries/ShareMath.sol";
 import {ReportCodec} from "../libraries/ReportCodec.sol";
 import {OrderCodec} from "../libraries/OrderCodec.sol";
 import {SpokeUnwindTypes} from "../spoke/SpokeUnwindTypes.sol";
-import {TransferKind} from "../interfaces/FundTypes.sol";
+import {TransferKind, TransitState} from "../interfaces/FundTypes.sol";
 import {IPriceSource} from "../interfaces/IPriceSource.sol";
 import {ShareToken} from "./ShareToken.sol";
 import {CoreVaultState, CoreVaultWiring, CORE_VAULT_UNWINDING_SLOT, STANDARD_PAYOUT_TERM} from "./CoreVaultTypes.sol";
@@ -60,6 +60,7 @@ library CoreVaultPayoutLogic {
         uint256 excluded;
         uint256 served;
         address holder;
+        uint256 marketCostAbsorbed;
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -179,6 +180,13 @@ library CoreVaultPayoutLogic {
         if (balance == 0) revert ICoreVaultPayouts.NoShares(msg.sender);
         // DEC-140 item 2, DEC-148: each attempt may come with its own maximum.
         req.maxLossBps = maxLossBps;
+        if (req.awaitingSettlement && req.reportedSpokes == req.expectedSpokes) {
+            return settlePayout(s, w, msg.sender, messageFee);
+        }
+        if (req.awaitingSettlement) {
+            Claim memory pendingClaim;
+            _settlementTransits(s, w, req, pendingClaim, false);
+        }
         receipt = _claim(s, w, req, balance, messageFee);
     }
 
@@ -196,13 +204,15 @@ library CoreVaultPayoutLogic {
         c.holder = msg.sender;
         c.balance = balance;
         c.burnable = msg.sender == w.manager ? _managerBurnable(s, c.balance) : c.balance;
+        c.leaverCost = req.pendingLeaverCost;
 
         ICoreVaultPayouts.NavConsolidation memory consolidation = _priceClaim(s, w, c, req);
         // DEC-067, DEC-095, DEC-151 item 3: Idle first (Instant: Free Idle only; Standard: its reserve, then Free Idle).
-        if (c.wanted > c.available || req.awaitingSettlement) {
-            c.served = _sharesFor(c, req.usdcOutstanding);
+        if (_cashRequired(c.wanted, c.leaverCost, req.mode, w) > c.available || req.awaitingSettlement) {
+            c.served = _sharesFor(c, Math.max(req.usdcOutstanding, c.leaverCost));
             uint256 previousMask = req.awaitingSettlement ? req.expectedSpokes : 0;
             uint256 previousReported = req.reportedSpokes;
+            uint32 previousAttempt = req.attempt;
             _unwindForPayout(s, w, c, req);
             if (req.awaitingSettlement) {
                 c.marketCost += s.payouts.marketCost[req.requestId];
@@ -211,7 +221,9 @@ library CoreVaultPayoutLogic {
             }
             uint256 mask = _spokesToUnwind(s, w, req);
             mask |= previousMask & ~previousReported;
+            if (req.fracDen == 0 && !req.awaitingSettlement) mask = 0;
             if (mask != 0) {
+                if (req.attempt == previousAttempt) ++req.attempt;
                 _publishUnwind(s, w, req, c, mask, messageFee);
                 return receipt;
             }
@@ -222,21 +234,49 @@ library CoreVaultPayoutLogic {
         if (messageFee != 0) revert ICoreVaultPayouts.PayoutMessageFeeNotUsed(messageFee);
         // DEC-077: an outstanding amount below one share's price (after a Partial Payout, or a Share Price that rose
         // since the request) closes the request with nothing burned; the receipt says so (`closedBelowOneShare`).
-        c.shares = _sharesFor(c, req.usdcOutstanding);
+        c.shares = _sharesFor(c, Math.max(req.usdcOutstanding, c.leaverCost));
         c.complete = true;
         // DEC-146, DEC-183 item 1: the manager's burn stopped at the base; the request still closes.
         if (c.burnable < c.balance && c.price != 0) {
             c.cappedByManagerBase = ShareMath.sharesToBurn(req.usdcOutstanding, c.price) > c.burnable;
         }
-        if (c.wanted > c.available) {
+        if (_cashRequired(c.wanted, c.leaverCost, req.mode, w) > c.available) {
             // DEC-068: Partial Payout, burn only what Idle can pay and keep the rest of the request open.
-            c.shares = _sharesFor(c, c.available);
+            c.shares = _cashSizedShares(c, req.mode, w);
             c.complete = false;
             c.cappedByManagerBase = false;
         }
         receipt = _executePayout(s, w, c, req);
         if (c.complete) emit ICoreVaultPayouts.PayoutExecuted(msg.sender, receipt, consolidation);
         else emit ICoreVaultPayouts.PartialPayoutExecuted(msg.sender, receipt, consolidation);
+    }
+
+    /// @notice DEC-033, DEC-118, DEC-141: Idle funds net cash plus the flow fee, not retained requester deductions.
+    function _cashRequired(uint256 gross, uint256 cost, ICoreVaultPayouts.PayoutMode mode, CoreVaultWiring memory w)
+        private
+        pure
+        returns (uint256)
+    {
+        uint256 afterFee = gross;
+        if (mode == ICoreVaultPayouts.PayoutMode.Instant) afterFee -= ShareMath.bpsOf(gross, w.payoutFeeBps);
+        return Math.max(afterFee - Math.min(cost, afterFee), ShareMath.flowFee(gross, w.flowFeeBps));
+    }
+
+    /// @notice Largest whole-share burn whose cash outflow fits Idle, retaining the served and manager caps.
+    function _cashSizedShares(Claim memory c, ICoreVaultPayouts.PayoutMode mode, CoreVaultWiring memory w)
+        private
+        pure
+        returns (uint256)
+    {
+        uint256 lower;
+        uint256 upper = c.shares / ShareMath.WHOLE_SHARE;
+        while (lower < upper) {
+            uint256 middle = lower + (upper - lower + 1) / 2;
+            uint256 gross = ShareMath.usdcFor(middle * ShareMath.WHOLE_SHARE, c.price);
+            if (_cashRequired(gross, c.leaverCost, mode, w) <= c.available) lower = middle;
+            else upper = middle - 1;
+        }
+        return lower * ShareMath.WHOLE_SHARE;
     }
 
     /// @notice DEC-160: every spoke with an accepted report must have a fresh one (within its lifetime, DEC-099) before
@@ -265,7 +305,7 @@ library CoreVaultPayoutLogic {
         // requester pays it once, from the gross (0 before an unwind).
         c.price = ShareMath.sharePrice(c.shareAssets + c.leaverCost, c.totalShares);
         // DEC-077, DEC-020: floor(outstanding / price) whole shares, capped at the balance (the manager: at the base).
-        c.wanted = ShareMath.usdcFor(_sharesFor(c, req.usdcOutstanding), c.price);
+        c.wanted = ShareMath.usdcFor(_sharesFor(c, Math.max(req.usdcOutstanding, c.leaverCost)), c.price);
         c.available = s.idle - s.payoutReserve;
         c.available += req.reserved;
     }
@@ -279,6 +319,7 @@ library CoreVaultPayoutLogic {
     function _sharesFor(Claim memory c, uint256 usdcAmount) private pure returns (uint256 shares) {
         if (c.price == 0) return 0;
         shares = ShareMath.sharesToBurn(usdcAmount, c.price);
+        if (shares == 0 && c.leaverCost != 0) shares = ShareMath.WHOLE_SHARE;
         if (shares > c.burnable) shares = c.burnable;
         if (c.served != 0 && shares > c.served) shares = c.served;
     }
@@ -312,7 +353,7 @@ library CoreVaultPayoutLogic {
         uint256 available = c.available + ISpokeVault(w.hubSpokeVault).unallocatedBalance(w.usdc);
         bool positions = available < c.wanted;
         if (positions && req.fracDen == 0) {
-            (req.fracNum, req.fracDen) = _fraction(c, available, req.usdcOutstanding);
+            (req.fracNum, req.fracDen) = _fraction(c, available, Math.max(req.usdcOutstanding, c.leaverCost));
         }
         ISpokeVaultUnwind.UnwindRequest memory u;
         u.requestId = req.requestId;
@@ -325,7 +366,10 @@ library CoreVaultPayoutLogic {
         uint256 idleBefore = s.idle;
         CORE_VAULT_UNWINDING_SLOT.asBoolean().tstore(true);
         try ISpokeVault(w.hubSpokeVault).unwindForPayout(u) returns (ISpokeVaultUnwind.UnwindResult memory r) {
-            (c.marketCost, c.leaverCost, c.excluded) = (r.marketCost, r.leaverCost, r.excluded);
+            c.marketCost = r.marketCost;
+            c.marketCostAbsorbed = r.marketCost - r.leaverCost;
+            c.leaverCost += r.leaverCost;
+            c.excluded = r.excluded;
         } catch (bytes memory reason) {
             emit ICoreVaultPayouts.UnwindForPayoutFailed(req.requestId, reason);
         }
@@ -353,7 +397,7 @@ library CoreVaultPayoutLogic {
     // ---------------------------------------------------------------------------------------------------------------
 
     /// @notice Called after the Core Vault applied a newly accepted report of spoke `spokeIndex`
-    ///         (`CoreVaultTransitLogic.applyReport`). Nothing to do yet.
+    ///         (`CoreVaultTransitLogic.applyReport`). Records costs and retains every Principal identity.
     /// @dev The payout work reads the report's `unwindResults` here: DEC-105 and DEC-120 item 3, the settlement waits
     ///      for every reached spoke's post-unwind report. It runs inside the report delivery, so it must not revert (a
     ///      revert would refuse the report) and must stay bounded in gas.
@@ -363,7 +407,7 @@ library CoreVaultPayoutLogic {
         uint256 spokeIndex,
         ReportCodec.Report memory report
     ) public {
-        if (!_validResults(report.unwindResults)) return;
+        if (!SpokeUnwindTypes.validResults(report.unwindResults)) return;
         SpokeUnwindTypes.OrderResult[] memory results =
             abi.decode(report.unwindResults, (SpokeUnwindTypes.OrderResult[]));
         if (results.length > SpokeUnwindTypes.REPORTED_RESULTS) return;
@@ -372,8 +416,8 @@ library CoreVaultPayoutLogic {
             address holder = address(uint160(uint256(result.requestId) >> 96));
             ICoreVaultPayouts.PayoutRequest storage req = s.payouts.requests[holder];
             if (
-                !req.open || !req.awaitingSettlement || req.requestId != result.requestId
-                    || req.attempt != result.attempt || req.expectedSpokes & (uint256(1) << spokeIndex) == 0
+                !req.open || !req.awaitingSettlement || req.requestId != result.requestId || result.attempt == 0
+                    || result.attempt > req.attempt || req.expectedSpokes & (uint256(1) << spokeIndex) == 0
             ) continue;
             OrderCodec.Order memory order;
             order.kind = OrderCodec.UNWIND;
@@ -381,31 +425,45 @@ library CoreVaultPayoutLogic {
             order.requestId = result.requestId;
             order.attempt = result.attempt;
             if (result.orderId != OrderCodec.orderId(order)) continue;
-            s.payouts.legs[result.requestId][spokeIndex] = result;
-            req.reportedSpokes |= uint256(1) << spokeIndex;
+            SpokeUnwindTypes.OrderResult storage latest = s.payouts.legs[result.requestId][spokeIndex];
+            if (result.attempt >= latest.attempt) {
+                if (
+                    latest.attempt == result.attempt && latest.transitId != bytes32(0)
+                        && latest.transitId != result.transitId
+                ) continue;
+                s.payouts.legs[result.requestId][spokeIndex] = result;
+            }
+            if (result.transitId != bytes32(0)) {
+                bytes32 key = CoreVaultLogic.hubBoundKey(s.mandate.spokes[spokeIndex].chainId, result.transitId);
+                SpokeUnwindTypes.OrderResult storage retained = s.payouts.transitResults[key];
+                if (retained.transitId == bytes32(0)) {
+                    s.payouts.transits[result.requestId][spokeIndex].push(result.transitId);
+                    s.payouts.transitResults[key] = result;
+                    s.payouts.transitHolder[key] = holder;
+                } else if (retained.requestId == result.requestId && result.refunded) {
+                    retained.refunded = true;
+                }
+                onPrincipalCredit(s, s.mandate.spokes[spokeIndex].chainId, result.transitId);
+            }
+            if (result.attempt == req.attempt) req.reportedSpokes |= uint256(1) << spokeIndex;
         }
     }
 
-    function _validResults(bytes memory blob) private pure returns (bool) {
-        if (blob.length < 64) return false;
-        uint256 offset;
-        uint256 count;
-        assembly ("memory-safe") {
-            offset := mload(add(blob, 32))
-            count := mload(add(blob, 64))
-        }
-        if (offset != 32 || count > SpokeUnwindTypes.REPORTED_RESULTS || blob.length != 64 + count * 416) return false;
-        for (uint256 index; index < count; ++index) {
-            uint256 attempt;
-            uint256 refunded;
-            assembly ("memory-safe") {
-                let entry := add(add(blob, 96), mul(index, 384))
-                attempt := mload(add(entry, 64))
-                refunded := mload(add(entry, 352))
-            }
-            if (attempt > type(uint32).max || refunded > 1) return false;
-        }
-        return true;
+    /// @notice DEC-105/120: newly credited payout Principal enters Payout Reserve, never Free Idle.
+    function onPrincipalCredit(CoreVaultState storage s, uint256 chainId, bytes32 transitId) public {
+        bytes32 key = CoreVaultLogic.hubBoundKey(chainId, transitId);
+        ICoreVaultPayouts.PayoutRequest storage req = s.payouts.requests[s.payouts.transitHolder[key]];
+        SpokeUnwindTypes.OrderResult storage leg = s.payouts.transitResults[key];
+        if (
+            !req.open || req.requestId != leg.requestId || leg.refunded
+                || s.hubBound[key].kind != TransferKind.Principal
+        ) return;
+        uint256 credited = Math.min(s.hubBound[key].credited, leg.amountToArrive);
+        uint256 reserved = s.payouts.reservedCredit[key];
+        if (credited <= reserved) return;
+        s.payouts.reservedCredit[key] = credited;
+        req.reserved += credited - reserved;
+        s.payoutReserve += credited - reserved;
     }
 
     function _spokesToUnwind(
@@ -417,6 +475,7 @@ library CoreVaultPayoutLogic {
         for (uint256 index; index < s.mandate.spokes.length; ++index) {
             if (
                 req.attempt > 1 && !s.payouts.legs[req.requestId][index].refunded
+                    && s.payouts.legs[req.requestId][index].transitId != bytes32(0)
                     && (req.awaitingSettlement || s.payouts.legs[req.requestId][index].excluded == 0)
                     && req.reportedSpokes & (uint256(1) << index) != 0
             ) continue;
@@ -492,6 +551,9 @@ library CoreVaultPayoutLogic {
         claim.cappedByManagerBase = claim.price != 0 && claim.burnable < claim.balance
             && ShareMath.sharesToBurn(req.usdcOutstanding, claim.price) > claim.burnable;
         req.awaitingSettlement = false;
+        delete s.payouts.marketCost[req.requestId];
+        delete s.payouts.leaverCost[req.requestId];
+        delete s.payouts.proceeds[req.requestId];
         receipt = _executePayout(s, w, claim, req);
         if (claim.complete) emit ICoreVaultPayouts.PayoutExecuted(holder, receipt, consolidation);
         else emit ICoreVaultPayouts.PartialPayoutExecuted(holder, receipt, consolidation);
@@ -502,19 +564,12 @@ library CoreVaultPayoutLogic {
         CoreVaultWiring memory w,
         ICoreVaultPayouts.PayoutRequest storage req,
         Claim memory claim
-    ) private view {
+    ) private {
         for (uint256 index; index < s.mandate.spokes.length; ++index) {
             uint256 bit = uint256(1) << index;
             if (req.expectedSpokes & bit == 0) continue;
             if (req.reportedSpokes & bit == 0) revert ICoreVaultPayouts.SpokeUnwindNotReported(index);
             SpokeUnwindTypes.OrderResult storage leg = s.payouts.legs[req.requestId][index];
-            if (leg.transitId != bytes32(0) && !leg.refunded) {
-                bytes32 key = CoreVaultLogic.hubBoundKey(s.mandate.spokes[index].chainId, leg.transitId);
-                if (s.hubBound[key].kind != TransferKind.Principal || s.hubBound[key].credited < leg.amountToArrive) {
-                    revert ICoreVaultPayouts.SpokeUnwindNotCredited(index, leg.transitId);
-                }
-            }
-            if (leg.refunded || leg.transitId == bytes32(0)) continue;
             uint256 rate;
             try IPriceSource(w.priceSource).priceInUsdc(s.mandate.spokes[index].spokeToken) returns (
                 uint256 price, uint256
@@ -523,10 +578,99 @@ library CoreVaultPayoutLogic {
             } catch {
                 rate = s.lastPrice[s.mandate.spokes[index].spokeToken];
             }
-            claim.marketCost += Math.mulDiv(leg.marketCost, rate, 1e18);
-            claim.leaverCost += Math.mulDiv(leg.leaverCost, rate, 1e18);
-            claim.proceeds += Math.mulDiv(leg.amountToArrive, rate, 1e18);
+            bytes32 costKey = keccak256(abi.encode(req.requestId, index));
+            uint256 marketCost = Math.mulDiv(leg.marketCost, rate, 1e18);
+            uint256 leaverCostBase = leg.leaverCost;
+            if (req.mode == ICoreVaultPayouts.PayoutMode.Instant) {
+                leaverCostBase = leg.marketCost;
+                bytes32[] storage transits = s.payouts.transits[req.requestId][index];
+                for (uint256 transitIndex; transitIndex < transits.length; ++transitIndex) {
+                    bytes32 key = CoreVaultLogic.hubBoundKey(s.mandate.spokes[index].chainId, transits[transitIndex]);
+                    SpokeUnwindTypes.OrderResult storage send = s.payouts.transitResults[key];
+                    if (!send.refunded && send.amountSent > send.amountToArrive) {
+                        leaverCostBase += send.amountSent - send.amountToArrive;
+                    }
+                }
+            }
+            uint256 leaverCost = Math.mulDiv(leaverCostBase, rate, 1e18);
+            claim.marketCost += marketCost > s.payouts.paidMarketCost[costKey]
+                ? marketCost - s.payouts.paidMarketCost[costKey]
+                : 0;
+            claim.leaverCost += leaverCost > s.payouts.paidLeaverCost[costKey]
+                ? leaverCost - s.payouts.paidLeaverCost[costKey]
+                : 0;
+            s.payouts.paidMarketCost[costKey] = Math.max(marketCost, s.payouts.paidMarketCost[costKey]);
+            s.payouts.paidLeaverCost[costKey] = Math.max(leaverCost, s.payouts.paidLeaverCost[costKey]);
             claim.excluded += leg.excluded;
+        }
+        _settlementTransits(s, w, req, claim, true);
+    }
+
+    /// @notice DEC-068/139: publish retirement only after Principal credit or accepted refund proof.
+    function acknowledgeSpokeTransit(
+        CoreVaultState storage s,
+        CoreVaultWiring memory w,
+        uint256 spokeIndex,
+        bytes32 transitId,
+        uint256 messageFee
+    ) external returns (uint64 sequence) {
+        bytes32 key = CoreVaultLogic.hubBoundKey(s.mandate.spokes[spokeIndex].chainId, transitId);
+        bool refunded = s.payouts.transitResults[key].refunded;
+        (ReportCodec.Report memory report,,) = IValueReportReceiver(w.reportReceiver).latestReport(spokeIndex);
+        if (SpokeUnwindTypes.validResults(report.unwindResults)) {
+            SpokeUnwindTypes.OrderResult[] memory results =
+                abi.decode(report.unwindResults, (SpokeUnwindTypes.OrderResult[]));
+            for (uint256 index; index < results.length; ++index) {
+                if (results[index].transitId == transitId && results[index].refunded) refunded = true;
+            }
+        }
+        if (
+            !refunded
+                && (s.hubBound[key].kind != TransferKind.Principal
+                    || s.hubBound[key].credited == 0
+                    || s.hubBound[key].credited < s.hubBound[key].listed)
+        ) {
+            revert ICoreVaultPayouts.SpokeUnwindNotCredited(spokeIndex, transitId);
+        }
+        OrderCodec.Order memory order;
+        order.kind = OrderCodec.ACKNOWLEDGE;
+        order.fundId = w.fundId;
+        order.requestId = transitId;
+        order.fracNum = s.mandate.spokes[spokeIndex].chainId;
+        order.fracDen = uint256(refunded ? TransitState.RefundRecognized : TransitState.ArrivalConfirmed);
+        sequence = OrderCodec.publish(w.wormholeCore, order, messageFee);
+        emit ICoreVault.OrderPublished(order.kind, OrderCodec.orderId(order), transitId, 0, sequence);
+    }
+
+    function _settlementTransits(
+        CoreVaultState storage s,
+        CoreVaultWiring memory w,
+        ICoreVaultPayouts.PayoutRequest storage req,
+        Claim memory claim,
+        bool consume
+    ) private {
+        for (uint256 index; index < s.mandate.spokes.length; ++index) {
+            bytes32[] storage transits = s.payouts.transits[req.requestId][index];
+            for (uint256 transitIndex; transitIndex < transits.length; ++transitIndex) {
+                bytes32 key = CoreVaultLogic.hubBoundKey(s.mandate.spokes[index].chainId, transits[transitIndex]);
+                SpokeUnwindTypes.OrderResult storage leg = s.payouts.transitResults[key];
+                if (leg.refunded) continue;
+                if (s.hubBound[key].kind != TransferKind.Principal || s.hubBound[key].credited < leg.amountToArrive) {
+                    revert ICoreVaultPayouts.SpokeUnwindNotCredited(index, leg.transitId);
+                }
+                if (consume && !s.payouts.proceedsConsumed[key]) {
+                    uint256 rate;
+                    try IPriceSource(w.priceSource).priceInUsdc(s.mandate.spokes[index].spokeToken) returns (
+                        uint256 price, uint256
+                    ) {
+                        rate = price;
+                    } catch {
+                        rate = s.lastPrice[s.mandate.spokes[index].spokeToken];
+                    }
+                    claim.proceeds += Math.mulDiv(leg.amountToArrive, rate, 1e18);
+                    s.payouts.proceedsConsumed[key] = true;
+                }
+            }
         }
     }
 
@@ -548,11 +692,17 @@ library CoreVaultPayoutLogic {
         }
         // DEC-106, DEC-113: flow fee on the amount paid out, deducted from what the shareholder receives.
         r.flowFee = ShareMath.flowFee(r.usdcGross, w.flowFeeBps);
-        // DEC-118, DEC-141, D-17: the requester's Market Cost is deducted once and stays in Idle for those who stay;
-        // what the payout cannot carry is the fund's.
         r.leaverCost = Math.min(c.leaverCost, r.usdcGross - r.payoutFee - r.flowFee);
+        req.pendingLeaverCost = c.leaverCost - r.leaverCost;
+        if (
+            c.complete && c.shares == ShareMath.WHOLE_SHARE && req.usdcOutstanding < r.usdcGross && c.leaverCost != 0
+                && req.pendingLeaverCost == 0
+        ) {
+            r.leaverCost = r.usdcGross - r.payoutFee - r.flowFee;
+        }
+        if (req.pendingLeaverCost != 0) c.complete = false;
         r.marketCost = c.marketCost;
-        r.marketCostAbsorbed = c.marketCost > r.leaverCost ? c.marketCost - r.leaverCost : 0;
+        r.marketCostAbsorbed = c.marketCostAbsorbed;
         r.usdcPaid = r.usdcGross - r.payoutFee - r.flowFee - r.leaverCost;
         r.excludedPositions = c.excluded;
         r.fracNum = req.fracNum;
@@ -584,10 +734,14 @@ library CoreVaultPayoutLogic {
             req.reserved = 0;
             s.payoutReserve -= used + reserved;
         } else {
-            req.usdcOutstanding -= r.usdcGross;
+            req.usdcOutstanding -= Math.min(req.usdcOutstanding, r.usdcGross);
             r.usdcOutstanding = req.usdcOutstanding;
             req.reserved = reserved;
             s.payoutReserve -= used;
+            if (req.mode == ICoreVaultPayouts.PayoutMode.Instant && !req.awaitingSettlement) {
+                req.reserved = 0;
+                s.payoutReserve -= reserved;
+            }
         }
 
         // Interactions.

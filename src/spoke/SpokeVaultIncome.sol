@@ -15,6 +15,10 @@ import {SpokeVaultBase} from "./SpokeVaultBase.sol";
 ///      item 4): the conversion happens at the collection, so the manager's income swap and the forward of collected
 ///      income in kind are gone.
 abstract contract SpokeVaultIncome is SpokeVaultBase {
+    function refreshIncomeResults(uint64[] calldata resultIds) external nonReentrant {
+        SpokeIncomeLib.refreshResults(_s.income, resultIds);
+    }
+
     /// @inheritdoc ISpokeVaultIncome
     /// @dev DEC-172: the Hub positions' income is sold in the same collection as the spokes'; the Core Vault recognizes
     ///      it first (DEC-138) and converts it with what this returns.
