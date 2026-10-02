@@ -114,9 +114,7 @@ contract M01_UnreportableSpokeLocksItsCapital is FactoryReviewFixture {
         uint256 value = vault.shareAssets();
         assertEq(value, SEED_IDLE + 997_500e6);
         vm.prank(alice);
-        vault.requestPayout(value, ICoreVaultPayouts.PayoutMode.Instant);
-        vm.prank(alice);
-        ICoreVault.PayoutReceipt memory r = vault.claimPayout("");
+        ICoreVault.PayoutReceipt memory r = vault.requestPayout(value, ICoreVaultPayouts.PayoutMode.Instant, 0);
         console2.log("Share Assets / paid gross / outstanding", value, r.usdcGross, r.usdcOutstanding);
         // Everything but the manager's seed share (DEC-127) is alice's.
         assertEq(r.usdcGross, value - SEED_IDLE, "a full exit is paid in full");

@@ -19,11 +19,10 @@ contract L03_FailingStepRollsBackTheUnwind is SpokeAHubFixture {
         _unwindSwapsAtOracle();
         // Free Idle ~46,747; Mallory asks 290,000 Instant: the shortfall (~248,000 with the margin) takes the whole
         // V4 step (~99,000) and ~149,000 more from the exact-value step.
-        _request(mallory, 290_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         exact.setRevertOnExit(true); // the exact-value reserve cannot pay right now
 
         uint256 freeIdle = vault.freeIdle();
-        ICoreVault.PayoutReceipt memory r = _claim(mallory);
+        ICoreVault.PayoutReceipt memory r = _request(mallory, 290_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         console2.log("free idle", freeIdle);
         console2.log("unwind proceeds", r.unwindProceeds);
         console2.log("paid gross", r.usdcGross);

@@ -212,8 +212,7 @@ contract CoreVaultSetupTest is CoreVaultFixture {
         _deposit(alice, 1000e6);
         vm.prank(manager);
         vault.setOperatingCashParameters(1e6, 3e6);
-        _request(alice, 100e6, ICoreVaultPayouts.PayoutMode.Instant);
-        ICoreVault.PayoutReceipt memory r = _claim(alice);
+        ICoreVault.PayoutReceipt memory r = _request(alice, 100e6, ICoreVaultPayouts.PayoutMode.Instant);
         // Topped up 3 first (below floor); the 2% Payout Fee of the amount paid out stays in Idle.
         assertEq(r.payoutFee, r.usdcGross * 200 / 10_000);
         assertEq(vault.operatingCash(), 3e6);
@@ -267,7 +266,6 @@ contract CoreVaultSetupTest is CoreVaultFixture {
         vm.prank(manager);
         vault.setOperatingCashParameters(1e6, 2e6);
         _request(alice, 10e6, ICoreVaultPayouts.PayoutMode.Instant);
-        _claim(alice);
         assertEq(vault.grossAssets(), vault.shareAssets() + vault.operatingCash() + 80e6 + 7e6);
     }
 }

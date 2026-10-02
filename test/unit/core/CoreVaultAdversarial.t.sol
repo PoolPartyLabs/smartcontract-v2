@@ -226,11 +226,10 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         vm.prank(alice);
         usdc.approve(address(vault), 1000e6);
         mal.arm(address(vault), abi.encodeCall(ICoreVault.deposit, (1000e6, 0)));
-        _request(alice, 20_000e6, ICoreVaultPayouts.PayoutMode.Instant); // more than the balance: full burn (DEC-020)
         uint256 owed = vault.attributedIncome(alice, address(mal));
         assertGt(owed, 0);
-        vm.prank(alice);
-        ICoreVault.PayoutReceipt memory r = vault.claimPayout("");
+        // More than the balance: full burn (DEC-020), in the Instant request's own transaction (DEC-120 item 1).
+        ICoreVault.PayoutReceipt memory r = _request(alice, 20_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         assertEq(shares.balanceOf(alice), 0, "the exit completed");
         assertEq(usdc.balanceOf(alice), 1000e6 + r.usdcPaid, "the re-entering deposit never ran");
         assertEq(vault.owedFees(address(mal), alice), owed, "the refused income is owed to alice");
@@ -261,9 +260,10 @@ contract CoreVaultAdversarialTest is CoreVaultFixture {
         hubVault.setPosition(address(usdc), bound(positionPrincipal, 0, 20_000e6));
         hubVault.setUnwindMode(MockHubSpokeVault.UnwindMode.Reverts); // Idle only, DEC-068 partial if short
         aliceRequest = bound(aliceRequest, 2e6, 20_000e6); // at least one share up to 1.75 (DEC-035 spirit)
-        _request(alice, aliceRequest, ICoreVaultPayouts.PayoutMode.Instant);
         vm.prank(alice);
-        try vault.claimPayout("") returns (ICoreVault.PayoutReceipt memory r) {
+        try vault.requestPayout(aliceRequest, ICoreVaultPayouts.PayoutMode.Instant, 0) returns (
+            ICoreVault.PayoutReceipt memory r
+        ) {
             assertLe(r.usdcGross, 14_950e6 + SEED_IDLE - reserve, "Instant paid from Free Idle only");
             assertLe(r.usdcGross, r.usdcRequested);
             assertEq(r.payoutFee, r.usdcGross * 200 / 10_000);

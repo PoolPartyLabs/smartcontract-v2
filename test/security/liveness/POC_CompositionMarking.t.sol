@@ -26,8 +26,7 @@ contract POC_CompositionMarking is HubStackFixture {
 
         // Counterfactual: bob exits at the true price.
         uint256 snapshot = vm.snapshotState();
-        _request(bob, 100_000e6, ICoreVaultPayouts.PayoutMode.Instant);
-        ICoreVault.PayoutReceipt memory honest = _claim(bob);
+        ICoreVault.PayoutReceipt memory honest = _request(bob, 100_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         uint256 aliceAssetsHonest = vault.shareAssets();
         vm.revertToState(snapshot);
 
@@ -36,8 +35,7 @@ contract POC_CompositionMarking is HubStackFixture {
         assertGt(_markedPositionValue(positionKey), trueValue, "the adapter still reports the pushed spot split");
         assertEq(vault.shareAssets(), trueAssets, "S-1: Share Assets do not follow it");
 
-        _request(bob, 100_000e6, ICoreVaultPayouts.PayoutMode.Instant);
-        ICoreVault.PayoutReceipt memory attack = _claim(bob);
+        ICoreVault.PayoutReceipt memory attack = _request(bob, 100_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         v4.setTick(poolId, TRUE_TICK);
 
         assertEq(attack.sharesBurned, honest.sharesBurned);

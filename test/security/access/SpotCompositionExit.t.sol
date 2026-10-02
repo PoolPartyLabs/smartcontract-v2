@@ -61,8 +61,7 @@ contract SpotCompositionExitPoC is AccessFundFixture {
     /// @dev An Instant Payout of `amount` by the attacker; returns the shares burned.
     function _exit(CoreVault core, uint256 amount) internal returns (uint256 burned) {
         vm.startPrank(stranger);
-        core.requestPayout(amount, ICoreVaultPayouts.PayoutMode.Instant);
-        burned = core.claimPayout("").sharesBurned;
+        burned = core.requestPayout(amount, ICoreVaultPayouts.PayoutMode.Instant, 0).sharesBurned;
         vm.stopPrank();
     }
 

@@ -64,11 +64,9 @@ contract DeprecatedAdapterFork is EndToEndScenario {
         // 1. Bruno's Instant claim above Free Idle, with NO hint (the harder case): the V4 step's WETH is swapped
         //    into USDC through the deprecated adapter and the claim completes.
         InstantPlan memory plan = _planInstant();
-        vm.prank(bruno);
-        core.requestPayout(plan.request, ICoreVaultPayouts.PayoutMode.Instant);
         vm.recordLogs();
         vm.prank(bruno);
-        ICoreVault.PayoutReceipt memory r = core.claimPayout("");
+        ICoreVault.PayoutReceipt memory r = core.requestPayout(plan.request, ICoreVaultPayouts.PayoutMode.Instant, 0);
         bool failed = _sawUnwindFailed(vm.getRecordedLogs());
         console2.log("===== hub V4 adapter deprecated");
         console2.log("Bruno asked / paid gross / outstanding", plan.request, r.usdcGross, r.usdcOutstanding);

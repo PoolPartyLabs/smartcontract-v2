@@ -87,8 +87,7 @@ contract ExpiredSendHomeMintPoC is AccessFundFixture {
 
         uint256 before = _balance(usdc, stranger);
         vm.startPrank(stranger);
-        core.requestPayout(attackerShares * price / 1e36, ICoreVaultPayouts.PayoutMode.Instant);
-        core.claimPayout("");
+        core.requestPayout(attackerShares * price / 1e36, ICoreVaultPayouts.PayoutMode.Instant, 0);
         vm.stopPrank();
         assertLt(_balance(usdc, stranger) - before, 1_000_000e6, "S-3: the entrant cashes out less than it put in");
     }

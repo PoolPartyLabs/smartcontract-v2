@@ -28,11 +28,11 @@ contract JitIncomeAttacker {
         hubVault.forwardIncomeToCoreVault(address(usdc));
         income = core.withdrawIncome(address(usdc));
         // DEC-077: nothing is locked at request; the Standard Payout carries no Payout Fee.
-        core.requestPayout(1_000_000_000e6, ICoreVaultPayouts.PayoutMode.Standard);
+        core.requestPayout(1_000_000_000e6, ICoreVaultPayouts.PayoutMode.Standard, 0);
     }
 
     function exit() external returns (uint256 usdcPaid) {
-        usdcPaid = core.claimPayout("").usdcPaid;
+        usdcPaid = core.claimPayout(0).usdcPaid;
     }
 }
 

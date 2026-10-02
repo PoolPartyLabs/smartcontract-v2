@@ -27,10 +27,13 @@ contract UnwindAttacker is PoolTrader {
         usdc = usdc_;
     }
 
+    /// @dev The Instant request is its own claim (DEC-120 item 1), so it is kept and sent inside `attack`.
+    uint256 internal pendingRequest;
+
     function depositAndRequest(uint256 amount, uint256 request) external {
         usdc.approve(address(core), amount);
         core.deposit(amount, 0);
-        core.requestPayout(request, ICoreVaultPayouts.PayoutMode.Instant);
+        pendingRequest = request;
     }
 
     /// @param crushTick Tick the WETH sale pushes the pool to.
@@ -43,7 +46,7 @@ contract UnwindAttacker is PoolTrader {
     {
         swapTo(true, crushTick);
         modify(jitLower, crushTick, int256(uint256(jitLiquidity)));
-        receipt = core.claimPayout("");
+        receipt = core.requestPayout(pendingRequest, ICoreVaultPayouts.PayoutMode.Instant, 0);
         modify(jitLower, crushTick, -int256(uint256(jitLiquidity)));
         swapTo(false, restoreTick);
     }

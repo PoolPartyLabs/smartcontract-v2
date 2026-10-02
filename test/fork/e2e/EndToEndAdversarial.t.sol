@@ -35,7 +35,7 @@ contract EndToEndAdversarialForkTest is EndToEndScenario {
 
         _onArbitrum();
         vm.prank(ana);
-        core.requestPayout(ANA_PAYOUT, ICoreVaultPayouts.PayoutMode.Standard);
+        core.requestPayout(ANA_PAYOUT, ICoreVaultPayouts.PayoutMode.Standard, 0);
         uint256 reserve = core.payoutReserve();
         assertEq(reserve, ANA_PAYOUT, "DEC-072: Ana's request reserved in full");
         uint256 idleBefore = core.idle();
@@ -44,13 +44,12 @@ contract EndToEndAdversarialForkTest is EndToEndScenario {
         // Bruno asks 1,000 above Free Idle: without the reserve rule Idle alone would cover 2,000 of it.
         InstantPlan memory plan = _planInstant();
         assertLt(plan.request, idleBefore, "the request is covered by Idle, not by Free Idle");
-        vm.prank(bruno);
-        core.requestPayout(plan.request, ICoreVaultPayouts.PayoutMode.Instant);
-
-        bytes memory hints = _unwindHints(plan.target);
+        // DEC-120 item 1: the Instant request is its own claim. DEC-160: after a fresh spoke report.
+        _deliverFreshSpokeReport();
         vm.recordLogs();
         vm.prank(bruno);
-        ICoreVault.PayoutReceipt memory receipt = core.claimPayout(hints);
+        ICoreVault.PayoutReceipt memory receipt =
+            core.requestPayout(plan.request, ICoreVaultPayouts.PayoutMode.Instant, 0);
         (uint256 target, uint256 proceeds) = _unwound(vm.getRecordedLogs());
 
         assertEq(target, plan.target, "DEC-095, DEC-081: the shortfall is measured against Free Idle, plus 2%");
@@ -68,9 +67,10 @@ contract EndToEndAdversarialForkTest is EndToEndScenario {
         assertEq(receipt.payoutFee, ShareMath.bpsOf(receipt.usdcGross, 200), "DEC-075: Payout Fee");
 
         _advance(72 hours);
+        _deliverFreshSpokeReport();
         uint256 anaBefore = IERC20(ARB_USDC).balanceOf(ana);
         vm.prank(ana);
-        ICoreVault.PayoutReceipt memory anaReceipt = core.claimPayout("");
+        ICoreVault.PayoutReceipt memory anaReceipt = core.claimPayout(0);
         assertEq(anaReceipt.unwindProceeds, 0, "DEC-067: the reserve paid, nothing unwound");
         assertEq(anaReceipt.usdcOutstanding, 0, "DEC-060: paid in full after the term");
         assertLe(anaReceipt.usdcGross, ANA_PAYOUT, "DEC-077: never above the request");
@@ -85,9 +85,9 @@ contract EndToEndAdversarialForkTest is EndToEndScenario {
     // -----------------------------------------------------------------------------------------------------------------
 
     /// @dev Ruling 2026-09-29, DEC-099: a mint is allowed at exactly `maxReportAge` and refused one second later with
-    ///      `StaleSpokeReport`. Q57 reading (docs/OPEN-QUESTIONS.md): an Idle-paid payout still uses the last accepted
-    ///      report and never reverts on its age; the spoke's value stays in Share Assets.
-    function test_ruling20260929_forkReportLifetimeGatesMintsNotIdlePayouts() public {
+    ///      `StaleSpokeReport`. DEC-160 (corrects the Q57 reading): a burn is refused the same way, even one Idle
+    ///      pays, until a fresh report arrives; the stale report keeps valuing the spoke in the meantime.
+    function test_DEC160_forkReportLifetimeGatesMintsAndBurns() public {
         _createForks();
         _phase1CreateFund();
         _phase2AnaDeposits();
@@ -119,26 +119,25 @@ contract EndToEndAdversarialForkTest is EndToEndScenario {
         core.deposit(BRUNO_DEPOSIT / 2, 0);
         vm.stopPrank();
 
-        // Q57 reading: the stale report still values the spoke for a payout paid from Free Idle.
+        // The stale report still values the spoke; DEC-160: no burn on it, not even one Free Idle pays.
         uint256 spokePrincipal = _principalValue(r);
         (uint256 spokeValue,,,) = core.spokeCapUsage(0);
         assertEq(spokeValue, spokePrincipal, "the last accepted report still values the spoke");
         assertEq(core.shareAssets(), _sumOfBuckets(), "DEC-104: nothing left the bases with the freshness");
         uint256 request = core.freeIdle() / 2;
         assertGt(request, 0);
-        vm.startPrank(ana);
-        core.requestPayout(request, ICoreVaultPayouts.PayoutMode.Instant);
-        ICoreVault.PayoutReceipt memory receipt = core.claimPayout("");
-        vm.stopPrank();
+        vm.prank(ana);
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.StaleSpokeReport.selector, 0));
+        core.requestPayout(request, ICoreVaultPayouts.PayoutMode.Instant, 0);
+
+        // Once a fresh report is delivered the same Idle-paid payout goes through.
+        _deliverFreshSpokeReport();
+        vm.prank(ana);
+        ICoreVault.PayoutReceipt memory receipt = core.requestPayout(request, ICoreVaultPayouts.PayoutMode.Instant, 0);
         assertEq(receipt.unwindProceeds, 0, "DEC-067: Free Idle paid");
-        assertEq(receipt.usdcOutstanding, 0, "the stale report never blocks an Idle-paid payout");
+        assertEq(receipt.usdcOutstanding, 0);
         assertGt(receipt.sharesBurned, 0);
-        assertApproxEqAbs(
-            receipt.shareAssets,
-            assetsAtLifetime + ShareMath.usdcFor(shares, receipt.sharePrice),
-            1e6,
-            "priced with the stale report"
-        );
+        assertGt(assetsAtLifetime, 0);
     }
 
     // -----------------------------------------------------------------------------------------------------------------

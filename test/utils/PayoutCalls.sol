@@ -18,24 +18,29 @@ library PayoutCalls {
     ///         asks for every share.
     uint256 internal constant EVERYTHING = type(uint128).max;
 
-    /// @notice `holder` opens a Payout Request of `usdcAmount` in `mode` (DEC-020, DEC-024).
-    function request(ICoreVault core, address holder, uint256 usdcAmount, ICoreVaultPayouts.PayoutMode mode) internal {
+    /// @notice `holder` opens a Payout Request of `usdcAmount` in `mode`, with no maximum loss (DEC-020, DEC-024,
+    ///         DEC-140). An Instant request is its own claim (DEC-120 item 1): it pays in the same call and its receipt
+    ///         is returned; a Standard one returns an empty receipt.
+    function request(ICoreVault core, address holder, uint256 usdcAmount, ICoreVaultPayouts.PayoutMode mode)
+        internal
+        returns (ICoreVaultPayouts.PayoutReceipt memory)
+    {
         VM.prank(holder);
-        core.requestPayout(usdcAmount, mode);
+        return core.requestPayout(usdcAmount, mode, 0);
     }
 
-    /// @notice `holder` claims its open Payout Request, without unwind hints (a Standard one only after its term).
+    /// @notice `holder` claims its open Payout Request with no maximum loss: a Standard one after its term, or the next
+    ///         attempt of a partial one (DEC-068, DEC-151).
     function claim(ICoreVault core, address holder) internal returns (ICoreVaultPayouts.PayoutReceipt memory) {
         VM.prank(holder);
-        return core.claimPayout("");
+        return core.claimPayout(0);
     }
 
-    /// @notice `holder` leaves with every share: an Instant request for `EVERYTHING`, claimed at once. When Free Idle
-    ///         (and the hub unwind) covers it the whole balance burns and its Attributed Income is paid in the same
-    ///         transaction (DEC-045, DEC-047); otherwise the payout is partial (DEC-068). Not for the manager, whose
-    ///         requests stop at the base (DEC-146).
+    /// @notice `holder` leaves with every share: an Instant request for `EVERYTHING`, paid in the same call. When Free
+    ///         Idle (and the hub unwind) covers it the whole balance burns and its Attributed Income is paid in the
+    ///         same transaction (DEC-045, DEC-047); otherwise the payout is partial (DEC-068). Not for the manager,
+    ///         whose requests stop at the base (DEC-146).
     function fullExit(ICoreVault core, address holder) internal returns (ICoreVaultPayouts.PayoutReceipt memory) {
-        request(core, holder, EVERYTHING, ICoreVaultPayouts.PayoutMode.Instant);
-        return claim(core, holder);
+        return request(core, holder, EVERYTHING, ICoreVaultPayouts.PayoutMode.Instant);
     }
 }

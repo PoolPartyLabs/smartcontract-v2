@@ -445,10 +445,14 @@ contract UnwindAttackFork is IntegrationPriceBase {
         _deposit(bruno, STAKE);
         _allocate(core.freeIdle() - BUFFER);
         _parkMoreInAave();
-        vm.prank(bruno);
-        core.requestPayout(STAKE * 99 / 100, ICoreVaultPayouts.PayoutMode.Instant);
+        // Bruno's Instant request is his claim (DEC-120 item 1): `_brunoClaims` sends it inside the sandwich.
         _fund(FLASH_WETH, FLASH_USDC);
         legs = _one(_crushLeg(hubKey, ARB_V4_STATE_VIEW, CRUSH));
+    }
+
+    function _brunoClaims() internal returns (ICoreVault.PayoutReceipt memory) {
+        vm.prank(bruno);
+        return core.requestPayout(STAKE * 99 / 100, ICoreVaultPayouts.PayoutMode.Instant, 0);
     }
 
     function _parkMoreInAave() internal {
@@ -464,8 +468,7 @@ contract UnwindAttackFork is IntegrationPriceBase {
         uint256 brunoBefore = _wealth(bruno);
         attacker.push(legs);
         vm.recordLogs();
-        vm.prank(bruno);
-        ICoreVault.PayoutReceipt memory r = core.claimPayout("");
+        ICoreVault.PayoutReceipt memory r = _brunoClaims();
         _readUnwindEvents(vm.getRecordedLogs());
         attacker.restore(legs);
         post = _book();
@@ -485,8 +488,7 @@ contract UnwindAttackFork is IntegrationPriceBase {
         pre = _book();
         attacker.push(legs);
         vm.recordLogs();
-        vm.prank(bruno);
-        ICoreVault.PayoutReceipt memory r = core.claimPayout(hints);
+        ICoreVault.PayoutReceipt memory r = _brunoClaims();
         _readUnwindEvents(vm.getRecordedLogs());
         attacker.restore(legs);
         post = _book();
@@ -536,12 +538,17 @@ contract UnwindAttackFork is IntegrationPriceBase {
     ///      the unwind fails and the claim is paid from Free Idle only; the position survives.
     function test_REVIEW_C01_refute_flashAccountingCannotWrapTheUnwind() public {
         _setUpFund(100_000, 100_000, V4_VALUE, BUFFER, STAKE);
-        attacker.requestPayout(core, _holderValue(address(attacker)), ICoreVaultPayouts.PayoutMode.Instant);
+        uint256 claim = _holderValue(address(attacker));
         _fund(FLASH_WETH, FLASH_USDC);
         PoolActor.Leg memory leg = _crushLeg(hubKey, ARB_V4_STATE_VIEW, CRUSH);
         vm.recordLogs();
+        // The attacker's Instant request is its claim (DEC-120 item 1), sent inside its own unlock.
         bytes memory ret = attacker.around(
-            hubKey, true, leg.pushTo, address(core), abi.encodeCall(ICoreVaultPayouts.claimPayout, (""))
+            hubKey,
+            true,
+            leg.pushTo,
+            address(core),
+            abi.encodeCall(ICoreVaultPayouts.requestPayout, (claim, ICoreVaultPayouts.PayoutMode.Instant, uint16(0)))
         );
         bool failed = _sawUnwindFailed(vm.getRecordedLogs());
         ICoreVault.PayoutReceipt memory r = abi.decode(ret, (ICoreVaultPayouts.PayoutReceipt));

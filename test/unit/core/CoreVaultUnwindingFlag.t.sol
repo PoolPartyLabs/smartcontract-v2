@@ -46,9 +46,8 @@ contract CoreVaultUnwindingFlagTest is CoreVaultFixture {
         _deployAtMinimumFees();
         _deposit(alice, 1000e6);
         _allocateToPosition(600e6 + SEED_IDLE); // Idle 400 left
-        _request(alice, 800e6, INSTANT);
         _expectCallbackRefused();
-        ICoreVault.PayoutReceipt memory r = _claim(alice);
+        ICoreVault.PayoutReceipt memory r = _request(alice, 800e6, INSTANT);
         assertEq(r.unwindProceeds, 408e6, "the unwind's returnToIdle callback was accepted");
         _expectCallbackRefused();
     }
@@ -58,10 +57,9 @@ contract CoreVaultUnwindingFlagTest is CoreVaultFixture {
         hubVault.setUnwindMode(MockHubSpokeVault.UnwindMode.Reverts);
         _deposit(alice, 1000e6);
         _allocateToPosition(600e6 + SEED_IDLE); // Idle 400 left
-        _request(alice, 800e6, INSTANT);
         vm.expectEmit(address(vault));
-        emit ICoreVaultPayouts.UnwindForPayoutFailed(408e6);
-        ICoreVault.PayoutReceipt memory r = _claim(alice);
+        emit ICoreVaultPayouts.UnwindForPayoutFailed(_requestId(alice, 1), _revertReason("unwind failed"));
+        ICoreVault.PayoutReceipt memory r = _request(alice, 800e6, INSTANT);
         assertEq(r.unwindProceeds, 0, "DEC-056: the claim went on with Idle");
         _expectCallbackRefused();
     }

@@ -38,18 +38,18 @@ contract BoundedSandwicher {
     }
 
     function request(uint256 amount, ICoreVault.PayoutMode mode) external {
-        core.requestPayout(amount, mode);
+        core.requestPayout(amount, mode, 0);
     }
 
     function claim() external returns (ICoreVault.PayoutReceipt memory) {
-        return core.claimPayout("");
+        return core.claimPayout(0);
     }
 
     /// @param pushTo sqrtPriceX96 the WETH dump stops at (the exact-input swap stops at its price limit).
     /// @param restoreTo sqrtPriceX96 to buy the price back up to after the claim.
     function sandwichClaim(uint160 pushTo, uint160 restoreTo) external returns (ICoreVault.PayoutReceipt memory r) {
         router.swap(key, true, -int256(weth.balanceOf(address(this))), pushTo);
-        r = core.claimPayout("");
+        r = core.claimPayout(0);
         router.swap(key, false, -int256(usdc.balanceOf(address(this))), restoreTo);
     }
 }

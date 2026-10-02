@@ -189,12 +189,17 @@ contract FundSystemHandler is Test {
         uint256 oneShare = (price + 1e18 - 1) / 1e18;
         uint256 worth = ShareMath.usdcFor(balance, price);
         amount = bound(amount, oneShare, worth * 2 > oneShare ? worth * 2 : oneShare);
+        Before memory b = _before(who);
         vm.prank(who);
         try s.core
             .requestPayout(
-                amount, standard ? ICoreVaultPayouts.PayoutMode.Standard : ICoreVaultPayouts.PayoutMode.Instant
-            ) {
+                amount, standard ? ICoreVaultPayouts.PayoutMode.Standard : ICoreVaultPayouts.PayoutMode.Instant, 0
+            ) returns (
+            ICoreVault.PayoutReceipt memory r
+        ) {
             ++done["requestPayout"];
+            // An Instant request is its own claim (DEC-120 item 1).
+            if (!standard) _bookClaim(who, b, r, amount);
         } catch {}
         _observe();
     }
@@ -207,26 +212,40 @@ contract FundSystemHandler is Test {
             if (!waitForTerm) return;
             _warp(req.termEndsAt - block.timestamp);
         }
-        uint256 balanceBefore = s.usdc.balanceOf(who);
-        uint256 takenBefore = s.core.incomeState(address(s.usdc)).taken;
-        uint256 hubVaultBefore = _hubVaultPrincipal();
+        Before memory b = _before(who);
         vm.prank(who);
-        try s.core.claimPayout("") returns (ICoreVault.PayoutReceipt memory r) {
-            uint256 income = s.core.incomeState(address(s.usdc)).taken - takenBefore;
-            assertEq(
-                s.usdc.balanceOf(who) - balanceBefore, r.usdcPaid + income, "claimant receives exactly the receipt"
-            );
-            assertLe(r.usdcGross, req.usdcOutstanding, "DEC-077: never more than requested");
-            assertEq(r.usdcGross, r.usdcPaid + r.payoutFee + r.flowFee, "receipt adds up");
-            assertEq(r.sharesBurned % 1e18, 0, "DEC-091: whole shares");
-            paidOut[who] += r.usdcPaid;
-            principalOut += r.usdcGross - r.payoutFee;
-            _creditPayoutFee(r.payoutFee);
-            returnedFromHubVault += hubVaultBefore - _hubVaultPrincipal();
-            ++valueOps;
-            ++done["claimPayout"];
+        try s.core.claimPayout(0) returns (ICoreVault.PayoutReceipt memory r) {
+            _bookClaim(who, b, r, req.usdcOutstanding);
         } catch {}
         _observe();
+    }
+
+    /// @dev What a claim is checked against: the claimant's USDC, the USDC income taken and the hub principal.
+    struct Before {
+        uint256 balance;
+        uint256 taken;
+        uint256 hubVault;
+    }
+
+    function _before(address who) internal view returns (Before memory b) {
+        b.balance = s.usdc.balanceOf(who);
+        b.taken = s.core.incomeState(address(s.usdc)).taken;
+        b.hubVault = _hubVaultPrincipal();
+    }
+
+    /// @dev Checks and books a claim's receipt (an Instant request's or a claim's).
+    function _bookClaim(address who, Before memory b, ICoreVault.PayoutReceipt memory r, uint256 outstanding) internal {
+        uint256 income = s.core.incomeState(address(s.usdc)).taken - b.taken;
+        assertEq(s.usdc.balanceOf(who) - b.balance, r.usdcPaid + income, "claimant receives exactly the receipt");
+        assertLe(r.usdcGross, outstanding, "DEC-077: never more than requested");
+        assertEq(r.usdcGross, r.usdcPaid + r.payoutFee + r.flowFee, "receipt adds up");
+        assertEq(r.sharesBurned % 1e18, 0, "DEC-091: whole shares");
+        paidOut[who] += r.usdcPaid;
+        principalOut += r.usdcGross - r.payoutFee;
+        _creditPayoutFee(r.payoutFee);
+        returnedFromHubVault += b.hubVault - _hubVaultPrincipal();
+        ++valueOps;
+        ++done["claimPayout"];
     }
 
     /// @notice A whole exit in one step: the request (if none is open) and its claim, after the term for a Standard

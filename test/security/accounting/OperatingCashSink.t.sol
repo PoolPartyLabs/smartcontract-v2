@@ -48,8 +48,8 @@ contract OperatingCashSinkPoC is AccountingPocFixture {
 
         // (a) The Payout Fee of an Instant Payout lands in Operating Cash and nothing can ever move it.
         vm.startPrank(bob);
-        core.requestPayout(1_000_000e6, ICoreVaultPayouts.PayoutMode.Instant);
-        ICoreVault.PayoutReceipt memory bobReceipt = core.claimPayout("");
+        ICoreVault.PayoutReceipt memory bobReceipt =
+            core.requestPayout(1_000_000e6, ICoreVaultPayouts.PayoutMode.Instant, 0);
         vm.stopPrank();
         // DEC-144 fixed (a) for the Payout Fee: it stays in Idle and goes to those who stay.
         assertEq(core.operatingCash(), 0, "the 2 % Payout Fee stays in Idle");
@@ -68,8 +68,7 @@ contract OperatingCashSinkPoC is AccountingPocFixture {
 
         // Alice exits. The top-up runs first and takes 99,000 USDC of Free Idle out of Share Assets.
         vm.startPrank(alice);
-        core.requestPayout(1_000_000e6, ICoreVaultPayouts.PayoutMode.Instant);
-        ICoreVault.PayoutReceipt memory r = core.claimPayout("");
+        ICoreVault.PayoutReceipt memory r = core.requestPayout(1_000_000e6, ICoreVaultPayouts.PayoutMode.Instant, 0);
         vm.stopPrank();
 
         assertEq(core.operatingCash(), cashBefore + 99_000e6, "99,000 USDC moved to Operating Cash");

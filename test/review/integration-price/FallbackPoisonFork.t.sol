@@ -42,8 +42,6 @@ contract FallbackPoisonFork is IntegrationPriceBase {
         _allocate(core.freeIdle() - 100_000e6);
         _openAround(hubKey, 500_000, 500_000, 100_000e6);
         _parkRestInAave();
-        vm.prank(bruno);
-        core.requestPayout(40_000e6, ICoreVaultPayouts.PayoutMode.Instant);
 
         // A stranger deposits 2 USDC while the pool sits out of the fund's +-50% range, inside one unlock.
         PoolActor stranger = new PoolActor(IPoolManager(ARB_V4_POOL_MANAGER));
@@ -58,14 +56,14 @@ contract FallbackPoisonFork is IntegrationPriceBase {
         // Baseline: Bruno's Idle-paid claim with the hub read working.
         uint256 snap = vm.snapshotState();
         vm.prank(bruno);
-        ICoreVault.PayoutReceipt memory fair = core.claimPayout("");
+        ICoreVault.PayoutReceipt memory fair = core.requestPayout(40_000e6, ICoreVaultPayouts.PayoutMode.Instant, 0);
         vm.revertToState(snap);
 
         // The same claim when the hub read fails: it is priced with the value the stranger's deposit recorded.
         vm.mockCallRevert(address(hubSpoke), abi.encodeWithSelector(ISpokeVault.buildReport.selector), "");
         vm.recordLogs();
         vm.prank(bruno);
-        ICoreVault.PayoutReceipt memory fb = core.claimPayout("");
+        ICoreVault.PayoutReceipt memory fb = core.requestPayout(40_000e6, ICoreVaultPayouts.PayoutMode.Instant, 0);
         Vm.Log[] memory logs = vm.getRecordedLogs();
         vm.clearMockedCalls();
         uint256 lastHub;

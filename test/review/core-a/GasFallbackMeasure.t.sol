@@ -20,7 +20,12 @@ contract GasFallbackMeasure is CoreAHubFixture {
         _deposit(alice, 600_000e6);
         _deposit(mallory, 400_000e6);
         _managerOpensHubPosition(400_000e6);
-        _request(mallory, 100_000e6, ICoreVaultPayouts.PayoutMode.Instant);
+    }
+
+    /// @dev Mallory's Instant request of 100,000, which is its own claim (DEC-120 item 1).
+    function _mallorysClaim() internal {
+        vm.prank(mallory);
+        vault.requestPayout(100_000e6, ICoreVaultPayouts.PayoutMode.Instant, 0);
     }
 
     function test_measure_buildReportVersusClaim() public {
@@ -30,9 +35,8 @@ contract GasFallbackMeasure is CoreAHubFixture {
         g0 = gasleft();
         vault.shareAssets();
         uint256 valuationCost = g0 - gasleft();
-        vm.prank(mallory);
         g0 = gasleft();
-        vault.claimPayout("");
+        _mallorysClaim();
         uint256 claimCost = g0 - gasleft();
         console2.log("hub buildReport gas", buildCost);
         console2.log("full valuation gas ", valuationCost);
@@ -45,9 +49,8 @@ contract GasFallbackMeasure is CoreAHubFixture {
     /// @dev Same measurement with cold storage on both sides: the claim first, then the hub read with every contract
     ///      it touches cooled.
     function test_measure_coldClaimVersusColdHubRead() public {
-        vm.prank(mallory);
         uint256 g0 = gasleft();
-        vault.claimPayout("");
+        _mallorysClaim();
         uint256 claimCost = g0 - gasleft();
         vm.cool(address(vault));
         vm.cool(address(hubVault));

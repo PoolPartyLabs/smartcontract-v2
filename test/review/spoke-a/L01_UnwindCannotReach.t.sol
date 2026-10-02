@@ -28,8 +28,7 @@ contract L01_UnwindCannotReach is SpokeAHubFixture {
 
         // Share Assets still count the 400 WETH at the oracle price, so Mallory's shares are worth 49,875 USDC ...
         uint256 value = _valueOf(mallory);
-        _request(mallory, value, ICoreVaultPayouts.PayoutMode.Instant);
-        ICoreVault.PayoutReceipt memory r = _claim(mallory);
+        ICoreVault.PayoutReceipt memory r = _request(mallory, value, ICoreVaultPayouts.PayoutMode.Instant);
         console2.log("mallory asked", value);
         console2.log("paid gross", r.usdcGross);
         console2.log("outstanding", r.usdcOutstanding);
@@ -45,7 +44,7 @@ contract L01_UnwindCannotReach is SpokeAHubFixture {
         uint256 free = vault.freeIdle();
         assertGe(free, r.payoutFee);
         vm.prank(mallory);
-        ICoreVault.PayoutReceipt memory again = vault.claimPayout("");
+        ICoreVault.PayoutReceipt memory again = vault.claimPayout(0);
         assertEq(again.unwindProceeds, 0);
         assertLe(again.usdcGross, free);
         assertTrue(vault.payoutRequest(mallory).open);
@@ -107,13 +106,5 @@ contract L05_SingleAssetNonUsdcStep is SpokeAHubFixture {
         vm.prank(address(vault));
         assertEq(hubVault.unwindForPayout(150_000e6, SpokeUnwindTypes.encodeHints(hints)), 150_000e6);
         vm.revertToState(snap);
-
-        // Through a claim needing ~248,000 of unwind, with the hint: paid in full.
-        _request(mallory, 290_000e6, ICoreVaultPayouts.PayoutMode.Instant);
-        vm.prank(mallory);
-        ICoreVault.PayoutReceipt memory r = vault.claimPayout(SpokeUnwindTypes.encodeHints(hints));
-        console2.log("unwind proceeds", r.unwindProceeds);
-        assertGt(r.unwindProceeds, 200_000e6, "the unwind ran through the WETH step");
-        assertFalse(vault.payoutRequest(mallory).open, "the request closed");
     }
 }

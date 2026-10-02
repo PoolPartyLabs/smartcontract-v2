@@ -29,8 +29,9 @@ contract FlashExitAttacker {
         pool.setTick(poolId, movedTick);
         // 3. Exit at the inflated Share Price, paid from Idle. No term, no lock (Instant Payout). Asking for exactly
         //    Free Idle keeps the claim Idle-paid (no unwind), so the inflated value is never tested against a sale.
-        core.requestPayout(drainIdle ? core.freeIdle() : 1_000_000_000e6, ICoreVaultPayouts.PayoutMode.Instant);
-        usdcPaid = core.claimPayout("").usdcPaid;
+        usdcPaid =
+        core.requestPayout(drainIdle ? core.freeIdle() : 1_000_000_000e6, ICoreVaultPayouts.PayoutMode.Instant, 0)
+        .usdcPaid;
         // 4. Second leg: bring the pool back.
         pool.setTick(poolId, fairTick);
     }

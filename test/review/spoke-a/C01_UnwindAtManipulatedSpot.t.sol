@@ -20,7 +20,6 @@ contract C01_UnwindAtManipulatedSpot is SpokeAHubFixture {
         _deposit(alice, 1_000_000e6);
         _deposit(mallory, 20_000e6);
         _managerOpensHubPosition(1_000_000e6);
-        _request(mallory, 19_000e6, ICoreVaultPayouts.PayoutMode.Instant);
 
         uint256 assetsBefore = vault.shareAssets();
         uint256 aliceBefore = _valueOf(alice);
@@ -34,8 +33,8 @@ contract C01_UnwindAtManipulatedSpot is SpokeAHubFixture {
         v4.setSwap(adapter.spotQuote(poolId, address(weth), 1e18), 10_000);
 
         vm.expectEmit(false, false, false, false, address(vault));
-        emit ICoreVaultPayouts.UnwindForPayoutFailed(0);
-        ICoreVault.PayoutReceipt memory r = _claim(mallory);
+        emit ICoreVaultPayouts.UnwindForPayoutFailed(bytes32(0), "");
+        ICoreVault.PayoutReceipt memory r = _request(mallory, 19_000e6, ICoreVaultPayouts.PayoutMode.Instant);
         _restoreSpot();
 
         console2.log("unwind proceeds", r.unwindProceeds);

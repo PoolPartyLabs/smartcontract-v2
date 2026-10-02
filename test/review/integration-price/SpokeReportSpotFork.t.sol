@@ -265,9 +265,7 @@ contract SpokeReportSpotFork is IntegrationPriceBase {
     /// @notice 3. The claimant's Idle-paid claim at the inflated price, then a depositor within the report lifetime.
     function _claimAndDepositAtTheMovedPrice() internal {
         vm.prank(claimant);
-        core.requestPayout(CLAIM, ICoreVaultPayouts.PayoutMode.Instant);
-        vm.prank(claimant);
-        ICoreVault.PayoutReceipt memory r = core.claimPayout("");
+        ICoreVault.PayoutReceipt memory r = core.requestPayout(CLAIM, ICoreVaultPayouts.PayoutMode.Instant, 0);
         uint256 fairShares = ShareMath.sharesToBurn(CLAIM, priceFair);
         console2.log("claim of 50,000: shares burned fair / with the moved report");
         console2.log(fairShares / 1e18, r.sharesBurned / 1e18);

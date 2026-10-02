@@ -32,9 +32,9 @@ contract UnwindSandwichAttacker {
     ) external returns (ICoreVault.PayoutReceipt memory receipt) {
         pool.setTick(poolId, movedTick);
         pool.setSwap(movedRate, 10_000);
-        core.requestPayout(1_000_000_000e6, ICoreVaultPayouts.PayoutMode.Instant);
+        core.requestPayout(1_000_000_000e6, ICoreVaultPayouts.PayoutMode.Instant, 0);
         // No hints: the vault sizes the unwind and floors its swap by itself.
-        receipt = core.claimPayout("");
+        receipt = core.claimPayout(0);
         pool.setTick(poolId, fairTick);
         pool.setSwap(fairRate, 10_000);
     }

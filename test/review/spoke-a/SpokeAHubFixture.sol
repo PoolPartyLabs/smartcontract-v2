@@ -259,14 +259,20 @@ abstract contract SpokeAHubFixture is Test, FundSeed {
         (exactKey,,) = hubVault.openPosition(address(exact), EXACT_USDC, usdcAmount, 0, "");
     }
 
-    function _request(address who, uint256 amount, ICoreVault.PayoutMode mode) internal {
+    /// @dev `who` opens a Payout Request with no maximum loss; an Instant one is its own claim (DEC-120 item 1), so its
+    ///      receipt comes back here.
+    function _request(address who, uint256 amount, ICoreVault.PayoutMode mode)
+        internal
+        returns (ICoreVault.PayoutReceipt memory)
+    {
         vm.prank(who);
-        vault.requestPayout(amount, mode);
+        return vault.requestPayout(amount, mode, 0);
     }
 
+    /// @dev `who` claims its open request (a Standard one after its term, or the next attempt of a partial one).
     function _claim(address who) internal returns (ICoreVault.PayoutReceipt memory) {
         vm.prank(who);
-        return vault.claimPayout("");
+        return vault.claimPayout(0);
     }
 
     /// @dev The pool state a swap leaves: the WETH spot price is divided by `factor` (the Chainlink price does not

@@ -88,8 +88,13 @@ contract SharePriceSpotFork is IntegrationPriceBase {
         (o.baseShares, o.baseGross, o.baseWealth, o.aliceBase) =
         (r.sharesBurned, r.usdcGross, _wealth(address(attacker)), _holderValue(alice));
         vm.revertToState(snap);
-        bytes memory ret =
-            attacker.around(hubKey, true, pushTo, address(core), abi.encodeCall(ICoreVaultPayouts.claimPayout, ("")));
+        bytes memory ret = attacker.around(
+            hubKey,
+            true,
+            pushTo,
+            address(core),
+            abi.encodeCall(ICoreVaultPayouts.requestPayout, (CLAIM, ICoreVaultPayouts.PayoutMode.Instant, uint16(0)))
+        );
         r = abi.decode(ret, (ICoreVaultPayouts.PayoutReceipt));
         (o.atkShares, o.atkGross, o.atkWealth, o.aliceAtk) =
         (r.sharesBurned, r.usdcGross, _wealth(address(attacker)), _holderValue(alice));

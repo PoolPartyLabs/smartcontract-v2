@@ -13,7 +13,10 @@ import {ICoreVaultPayouts} from "../interfaces/ICoreVaultPayouts.sol";
 library CoreVaultPayoutTypes {
     /// @notice Payout state of the Core Vault.
     /// @param requests Payout Request per address (DEC-024, DEC-046).
+    /// @param requestCount Payout Requests ever opened; the low 96 bits of every request id
+    ///        (`ICoreVaultPayouts.PayoutRequest.requestId`), so no two requests share one.
     struct Book {
         mapping(address shareholder => ICoreVaultPayouts.PayoutRequest) requests;
+        uint96 requestCount;
     }
 }

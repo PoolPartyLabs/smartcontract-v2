@@ -64,8 +64,7 @@ contract ExpiredSendHomeDiscountedMintPoC is CrossChainFixture {
         // 5. The attacker exits with an Instant Payout, paying the 2% Payout Fee and the flow fee.
         uint256 attackerValue = attackerShares / 1e18 * core.sharePrice() / 1e18;
         vm.startPrank(attacker);
-        core.requestPayout(attackerValue, ICoreVaultPayouts.PayoutMode.Instant);
-        core.claimPayout("");
+        core.requestPayout(attackerValue, ICoreVaultPayouts.PayoutMode.Instant, 0);
         vm.stopPrank();
         assertLt(usdc.balanceOf(attacker), 600_000e6, "S-3: the round trip loses the fees, no profit");
 

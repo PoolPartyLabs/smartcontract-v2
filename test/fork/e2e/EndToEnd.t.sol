@@ -384,6 +384,22 @@ abstract contract EndToEndScenario is EndToEndBase {
         assertEq(reportSequence, 1, "S-14: the spoke's first report");
     }
 
+    /// @dev DEC-160: before a burn every spoke with a report needs a fresh one. The spoke publishes a report now and a
+    ///      keeper delivers it on Arbitrum (guardian override set up in phase 4); the scenario ends on Arbitrum.
+    function _deliverFreshSpokeReport() internal {
+        _onRobinhood();
+        vm.recordLogs();
+        spokeVault.report();
+        VaaBody[] memory published = ICoreBridge(RH_WORMHOLE_CORE).fetchPublishedMessages(vm.getRecordedLogs());
+        assertEq(published.length, 1);
+        _onArbitrum();
+        VaaEnvelope memory e = published[0].envelope;
+        e.timestamp = uint32(block.timestamp);
+        receiver.deliver(VaaLib.encode(ICoreBridge(ARB_WORMHOLE_CORE).sign(VaaBody(e, published[0].payload))));
+        assertTrue(receiver.isReportFresh(0), "DEC-160: a fresh report before the burn");
+        _refreshEthUsdFeed();
+    }
+
     /// @dev `report()` publishes to the real Robinhood Core; the message is read back from the logs.
     function _publishReport() internal {
         vm.recordLogs();
@@ -590,7 +606,7 @@ abstract contract EndToEndScenario is EndToEndBase {
         _onArbitrum();
         uint256 idleBefore = core.idle();
         vm.prank(ana);
-        core.requestPayout(ANA_PAYOUT, ICoreVaultPayouts.PayoutMode.Standard);
+        core.requestPayout(ANA_PAYOUT, ICoreVaultPayouts.PayoutMode.Standard, 0);
         ICoreVault.PayoutRequest memory req = core.payoutRequest(ana);
         assertEq(req.reserved, ANA_PAYOUT, "DEC-072: reserved as USDC");
         assertEq(core.payoutReserve(), ANA_PAYOUT);
@@ -598,16 +614,17 @@ abstract contract EndToEndScenario is EndToEndBase {
         assertEq(IERC20(shareToken).balanceOf(ana), 9975e18, "DEC-077: nothing burned at request");
         vm.prank(ana);
         vm.expectRevert(abi.encodeWithSelector(ICoreVaultPayouts.PayoutTermNotEnded.selector, req.termEndsAt));
-        core.claimPayout("");
+        core.claimPayout(0);
 
         _advance(72 hours);
+        _deliverFreshSpokeReport();
         uint256 price = core.sharePrice();
         uint256 shares = ShareMath.sharesToBurn(ANA_PAYOUT, price);
         uint256 gross = ShareMath.usdcFor(shares, price);
         uint256 recipientBefore = IERC20(ARB_USDC).balanceOf(recipient);
         uint256 anaBefore = IERC20(ARB_USDC).balanceOf(ana);
         vm.prank(ana);
-        ICoreVault.PayoutReceipt memory receipt = core.claimPayout("");
+        ICoreVault.PayoutReceipt memory receipt = core.claimPayout(0);
 
         assertEq(receipt.sharePrice, price, "DEC-105: one Share Price");
         assertEq(receipt.sharesBurned, shares, "DEC-077: whole shares rounded down");
@@ -652,15 +669,13 @@ abstract contract EndToEndScenario is EndToEndBase {
     function _phase9BrunoInstantPayoutWithUnwind() internal {
         _onArbitrum();
         InstantPlan memory plan = _planInstant();
-        vm.prank(bruno);
-        core.requestPayout(plan.request, ICoreVaultPayouts.PayoutMode.Instant);
-        assertEq(core.payoutRequest(bruno).reserved, 0, "DEC-095: no reserve for an Instant Payout");
-
-        bytes memory hints = _unwindHints(plan.target);
+        // DEC-120 item 1: the Instant request is its own claim.
         vm.recordLogs();
         vm.prank(bruno);
-        ICoreVault.PayoutReceipt memory receipt = core.claimPayout(hints);
+        ICoreVault.PayoutReceipt memory receipt =
+            core.requestPayout(plan.request, ICoreVaultPayouts.PayoutMode.Instant, 0);
         Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(core.payoutRequest(bruno).reserved, 0, "DEC-095: no reserve for an Instant Payout");
 
         (uint256 target, uint256 proceeds) = _unwound(logs);
         assertEq(target, plan.target, "DEC-081: the shortfall plus 2%");

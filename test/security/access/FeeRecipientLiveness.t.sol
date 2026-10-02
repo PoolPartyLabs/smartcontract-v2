@@ -145,9 +145,11 @@ contract FeeRecipientLivenessPoC is AccessFundFixture {
     function _exitAll(CoreVault core_, address who, ICoreVault.PayoutMode mode) internal returns (uint256 paid) {
         uint256 before = _balance(usdc, who);
         vm.startPrank(who);
-        core_.requestPayout(1_000_000e6, mode);
-        if (mode == ICoreVaultPayouts.PayoutMode.Standard) vm.warp(block.timestamp + core_.standardPayoutTerm());
-        core_.claimPayout("");
+        core_.requestPayout(1_000_000e6, mode, 0); // an Instant request is its own claim (DEC-120 item 1)
+        if (mode == ICoreVaultPayouts.PayoutMode.Standard) {
+            vm.warp(block.timestamp + core_.standardPayoutTerm());
+            core_.claimPayout(0);
+        }
         vm.stopPrank();
         paid = _balance(usdc, who) - before;
     }

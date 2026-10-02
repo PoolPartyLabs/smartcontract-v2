@@ -56,12 +56,10 @@ contract DeprecationTrapsNonBaseTokensPoC is AccessFundFixture {
 
     /// @dev With the flag the claim still unwinds the position and pays in full.
     function test_SEC_S10_deprecationNoLongerBreaksTheAutomaticUnwindOfAClaim() public {
-        vm.prank(alice);
-        core.requestPayout(400_000e6, ICoreVaultPayouts.PayoutMode.Instant);
-
+        // Alice's Instant request is its own claim (DEC-120 item 1).
         uint256 snapshot = vm.snapshotState();
         vm.prank(alice);
-        ICoreVault.PayoutReceipt memory healthy = core.claimPayout("");
+        ICoreVault.PayoutReceipt memory healthy = core.requestPayout(400_000e6, ICoreVaultPayouts.PayoutMode.Instant, 0);
         assertEq(healthy.usdcOutstanding, 0);
         vm.revertToState(snapshot);
 
@@ -69,7 +67,7 @@ contract DeprecationTrapsNonBaseTokensPoC is AccessFundFixture {
         UniswapV4Adapter(adapter).deprecate();
 
         vm.prank(alice);
-        ICoreVault.PayoutReceipt memory r = core.claimPayout("");
+        ICoreVault.PayoutReceipt memory r = core.requestPayout(400_000e6, ICoreVaultPayouts.PayoutMode.Instant, 0);
         assertEq(r.usdcOutstanding, 0, "S-10: paid in full");
         assertEq(r.unwindProceeds, healthy.unwindProceeds, "S-10: the same unwind as without the flag");
         assertFalse(core.payoutRequest(alice).open, "request closed");
@@ -99,12 +97,10 @@ contract DeprecationTrapsNonBaseTokensPoC is AccessFundFixture {
 
         // Alice and Bob, with the same shares, are paid the same.
         vm.startPrank(alice);
-        core.requestPayout(498_000e6, ICoreVaultPayouts.PayoutMode.Instant);
-        ICoreVault.PayoutReceipt memory first = core.claimPayout("");
+        ICoreVault.PayoutReceipt memory first = core.requestPayout(498_000e6, ICoreVaultPayouts.PayoutMode.Instant, 0);
         vm.stopPrank();
         vm.startPrank(bob);
-        core.requestPayout(498_000e6, ICoreVaultPayouts.PayoutMode.Instant);
-        ICoreVault.PayoutReceipt memory second = core.claimPayout("");
+        ICoreVault.PayoutReceipt memory second = core.requestPayout(498_000e6, ICoreVaultPayouts.PayoutMode.Instant, 0);
         vm.stopPrank();
         assertEq(first.usdcOutstanding, 0);
         assertEq(second.usdcOutstanding, 0, "S-10: Bob is paid in full too");

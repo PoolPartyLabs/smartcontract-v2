@@ -75,7 +75,6 @@ contract CoreVaultIncomeTest is CoreVaultFixture {
         _deliver(_spokeIncome(_spokeReport(0, 0), address(usdg), 300e6));
         _deposit(bob, 1000e6);
         _request(bob, 10e6, ICoreVaultPayouts.PayoutMode.Instant);
-        _claim(bob);
         assertEq(vault.incomeState(address(usdc)).index, 0);
         assertEq(vault.incomeState(address(usdc)).distributed, 0);
         assertEq(vault.attributedIncome(alice, address(usdc)), 0);

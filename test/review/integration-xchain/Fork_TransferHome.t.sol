@@ -134,7 +134,7 @@ contract Fork_TransferHome is XChainBase {
         uint256 brunoShares = _depositAs(bruno, 10_000e6);
         uint256 brunoRequest = ShareMath.usdcFor(brunoShares, core.sharePrice());
         vm.prank(bruno);
-        core.requestPayout(brunoRequest, ICoreVaultPayouts.PayoutMode.Standard);
+        core.requestPayout(brunoRequest, ICoreVaultPayouts.PayoutMode.Standard, 0);
 
         bytes32 predicted = _sendHomeId(1);
         LiveRelayData memory seed = _fabricatedFillOnArbitrum(predicted, 1, TransferKind.Principal, stranger);
@@ -163,7 +163,7 @@ contract Fork_TransferHome is XChainBase {
         );
         core.recoverUnlistedArrival(0, home);
         vm.prank(bruno);
-        ICoreVault.PayoutReceipt memory r = core.claimPayout("");
+        ICoreVault.PayoutReceipt memory r = core.claimPayout(0);
         _log("Share Assets the claim used", r.shareAssets);
         assertEq(r.shareAssets, fair, "the transfer counted once, on the spoke's last report");
 

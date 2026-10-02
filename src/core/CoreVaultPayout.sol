@@ -8,58 +8,48 @@ import {STANDARD_PAYOUT_TERM} from "./CoreVaultTypes.sol";
 
 /// @title CoreVaultPayout
 /// @notice Payout Requests and Payouts of the Core Vault. See ICoreVault.
-/// @dev The entries keep the reentrancy guard, the open-fund check (DEC-147, D-26), the request checks and the
-///      Operating Cash top-up, in their original order; the bodies run in the linked library `CoreVaultPayoutLogic`
-///      (DEC-131 pattern, D-43).
+/// @dev The entries keep the reentrancy guard, the open-fund check (DEC-147, D-26) and the Operating Cash top-up; the
+///      bodies, the request checks included, run in the linked library `CoreVaultPayoutLogic` (DEC-131 pattern, D-43).
 abstract contract CoreVaultPayout is CoreVaultTransit {
     /// @notice DEC-081: the unwind targets the shortfall plus 2%. Applied by the linked `CoreVaultPayoutLogic`, whose
     ///         constant this is.
     uint256 public constant UNWIND_MARGIN_BPS = CoreVaultPayoutLogic.UNWIND_MARGIN_BPS;
 
     // ---------------------------------------------------------------------------------------------------------------
-    // Payout Request (DEC-020, DEC-024, DEC-060, DEC-072, DEC-077, DEC-095)
+    // Payout Request (DEC-020, DEC-024, DEC-060, DEC-072, DEC-077, DEC-095, DEC-120 item 1)
     // ---------------------------------------------------------------------------------------------------------------
 
     /// @inheritdoc ICoreVaultPayouts
-    /// @dev Priced like a claim (payout liveness, DEC-021, DEC-056: a failing valuation dependency falls back to the
-    ///      last known value, never a revert on age, OQ-10), so the reserve bound and the one-share floor use the Share
-    ///      Price the holder would be paid at if the claim ran now.
-    /// @dev DEC-147: refused unless the fund is Open; the manager's request may not cross the base (DEC-146).
-    function requestPayout(uint256 usdcAmount, PayoutMode mode) external nonReentrant {
+    /// @dev DEC-147: refused unless the fund is Open; the manager's request may not cross the base (DEC-146). DEC-096:
+    ///      an Instant request is a claim, so Operating Cash is topped up first, as before every claim.
+    function requestPayout(uint256 usdcAmount, PayoutMode mode, uint16 maxLossBps)
+        external
+        nonReentrant
+        returns (PayoutReceipt memory receipt)
+    {
         if (usdcAmount == 0) revert ZeroAmount();
         _requireOpen();
-        CoreVaultPayoutLogic.requestPayout(_s, _wiring(), usdcAmount, mode);
+        if (mode == PayoutMode.Instant) _topUpOperatingCash();
+        receipt = CoreVaultPayoutLogic.requestPayout(_s, _wiring(), usdcAmount, mode, maxLossBps);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
     // Payout (DEC-020, DEC-045, DEC-047, DEC-065, DEC-067, DEC-068, DEC-069, DEC-077, DEC-081, DEC-095, DEC-097,
-    // DEC-102, DEC-105, DEC-106)
+    // DEC-105, DEC-106, DEC-160)
     // ---------------------------------------------------------------------------------------------------------------
 
     /// @inheritdoc ICoreVaultPayouts
-    /// @dev OQ-07: a Standard Payout is claimable only after its term. Feedback question 2 (OPEN): the automatic unwind
-    ///      reaches hub positions only (`ISpokeVault.unwindForPayout` on the hub Spoke Vault), so DEC-105 needs no new
-    ///      spoke report (erratum 11 reading). Q57 reading: an Idle-paid payout never reverts on a stale report or
-    ///      price. Payout liveness (DEC-021, DEC-056): nor when the hub report read or a price read fails; the last
-    ///      known value is used with an event (CoreVaultLogic.recordValuation). LC-45 / LC-141: the fund bears the
-    ///      market cost of the unwind (flagged). LC-45 / LC-47: no Network Costs are charged to the requester
-    ///      (flagged). DEC-147, D-26: refused unless the fund is Open; a request opened before closure is paid as a
-    ///      closed-fund exit (DEC-150 item 4).
-    /// @dev DEC-146, DEC-147, D-27: the manager's burn stops at `ceil(peak / 2)` whatever the Share Price did since the
-    ///      request. When that cap binds the request closes like one capped at the balance (DEC-024: it can never be
-    ///      cancelled, so leaving it open would block the manager's next request and keep a Standard reserve locked);
-    ///      the receipt shows the USDC paid below the amount requested.
-    function claimPayout(bytes calldata unwindHints) external nonReentrant returns (PayoutReceipt memory receipt) {
+    /// @dev OQ-07, DEC-154: a Standard Payout is claimable only after its term. DEC-147, D-26: refused unless the fund
+    ///      is Open; a request opened before closure is paid as a closed-fund exit (DEC-150 item 4). DEC-096: Operating
+    ///      Cash is topped up before the claim is priced. The request checks run in the library.
+    /// @dev DEC-146, DEC-147, D-27, DEC-183 item 1: the manager's burn stops at `ceil(peak / 2)` whatever the Share
+    ///      Price did since the request. When that cap binds the request closes like one capped at the balance
+    ///      (DEC-024: it can never be cancelled, so leaving it open would block the manager's next request and keep a
+    ///      Standard reserve locked); the receipt says so (`cappedByManagerBase`).
+    function claimPayout(uint16 maxLossBps) external nonReentrant returns (PayoutReceipt memory receipt) {
         _requireOpen();
-        PayoutRequest storage req = _s.payouts.requests[msg.sender];
-        if (!req.open) revert NoOpenPayoutRequest(msg.sender);
-        if (req.mode == PayoutMode.Standard && block.timestamp < req.termEndsAt) {
-            revert PayoutTermNotEnded(req.termEndsAt);
-        }
-        uint256 balance = _sharesOf(msg.sender);
-        if (balance == 0) revert NoShares(msg.sender);
         _topUpOperatingCash();
-        receipt = CoreVaultPayoutLogic.claimPayout(_s, _wiring(), balance, unwindHints);
+        receipt = CoreVaultPayoutLogic.claimPayout(_s, _wiring(), maxLossBps);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
