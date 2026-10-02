@@ -578,7 +578,16 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
       executeIn: `${options.orderDelaySeconds}s`,
     });
     inSequence(fund.coreVault, options.orderDelaySeconds, async () => {
-      if (await executeOrder(fund, message, Number(block.timestamp))) handledOrders.add(orderKey(fund.coreVault, sequence));
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          if (await executeOrder(fund, message, Number(block.timestamp))) handledOrders.add(orderKey(fund.coreVault, sequence));
+          return;
+        } catch (err) {
+          if (attempt === 2) throw err;
+          wormholeLog.warn("order delivery will retry", { sequence, attempt: attempt + 1, error: explain(err) });
+          await later(attempt + 1, async () => {});
+        }
+      }
     });
   }
 

@@ -21,6 +21,7 @@ export interface Order {
   fracDen: bigint;
   maxLossBps: number;
   payoutMode: number;
+  closingStartedAt: bigint;
 }
 
 const ORDER_TUPLE = {
@@ -35,6 +36,7 @@ const ORDER_TUPLE = {
     { name: "fracDen", type: "uint256" },
     { name: "maxLossBps", type: "uint16" },
     { name: "payoutMode", type: "uint8" },
+    { name: "closingStartedAt", type: "uint64" },
   ],
 } as const;
 

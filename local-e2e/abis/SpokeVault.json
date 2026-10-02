@@ -674,6 +674,19 @@
   },
   {
     "type": "function",
+    "name": "closureCost",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "collectIncome",
     "inputs": [
       {
@@ -1497,6 +1510,19 @@
   },
   {
     "type": "function",
+    "name": "spokeClosed",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "swap",
     "inputs": [
       {
@@ -1706,6 +1732,25 @@
             "internalType": "uint256"
           }
         ]
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "unwindSend",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "transitId",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ],
     "stateMutability": "nonpayable"
@@ -2459,6 +2504,37 @@
   },
   {
     "type": "event",
+    "name": "UnwindBridgeExcluded",
+    "inputs": [
+      {
+        "name": "requestId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "amountToArrive",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "maxLossBps",
+        "type": "uint16",
+        "indexed": false,
+        "internalType": "uint16"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "UnwindStepExcluded",
     "inputs": [
       {
@@ -3091,42 +3167,15 @@
   },
   {
     "type": "error",
+    "name": "SpokeClosed",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "SpokeIsHubChain",
     "inputs": [
       {
         "name": "chainId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "SwapDebitMismatch",
-    "inputs": [
-      {
-        "name": "expected",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "debited",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "SwapOutputNotReceived",
-    "inputs": [
-      {
-        "name": "amountOut",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "received",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -3251,6 +3300,11 @@
         "internalType": "uint256"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "UnwindProceedsReserved",
+    "inputs": []
   },
   {
     "type": "error",
@@ -3569,6 +3623,49 @@
   },
   {
     "type": "error",
+    "name": "ReportPayloadTooShort",
+    "inputs": [
+      {
+        "name": "length",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SwapDebitMismatch",
+    "inputs": [
+      {
+        "name": "expected",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "debited",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SwapOutputNotReceived",
+    "inputs": [
+      {
+        "name": "amountOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "received",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "UnknownBridgeRank",
     "inputs": [
       {
@@ -3592,6 +3689,17 @@
   {
     "type": "error",
     "name": "UnsupportedOrderVersion",
+    "inputs": [
+      {
+        "name": "version",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnsupportedReportVersion",
     "inputs": [
       {
         "name": "version",

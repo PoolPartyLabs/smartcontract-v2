@@ -9,6 +9,8 @@
   },
   "scripts": {
     "check:urls": "tsx scripts/check-url-redaction.ts",
+    "check:lifecycle": "tsx scripts/check-lifecycle.ts",
+    "typecheck": "tsc --noEmit",
     "up": "tsx src/up.ts",
     "down": "bash scripts/stop-forks.sh",
     "keeper": "tsx src/keeper.ts",
@@ -23,6 +25,7 @@
     "viem": "^2.57.0"
   },
   "devDependencies": {
+    "@types/node": "^26.6.3",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   }
