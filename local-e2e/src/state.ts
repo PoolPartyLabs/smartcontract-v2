@@ -43,28 +43,28 @@ export interface FundRecord {
   poolIds: { hub: Hex[]; spoke: Hex[]; aave: Hex };
 }
 
+/** What script/DeployFactory.s.sol deployed on one chain: each field of `run()`'s return struct
+ *  (FactoryDeployment.Deployment: create3Deployer, the Core Vault libraries, spokeCrossChainLib, spokeUnwindLib,
+ *  managerRegistry, priceSource, ...) under its own name, `factory` as `fundFactory`, and the factory's TransitEscrow
+ *  implementation. A field that is the zero address on a chain (the Core Vault libraries, ManagerRegistry and price
+ *  source on Robinhood) is left out. */
+export interface DeployedContracts {
+  [field: string]: Address;
+  fundFactory: Address;
+  transitEscrowImplementation: Address;
+}
+
 export interface ProtocolState {
-  arbitrum: {
-    fundFactory: Address;
-    create3Deployer: Address;
-    coreVaultLogic: Address;
-    spokeCrossChainLib: Address;
-    spokeUnwindLib: Address;
+  arbitrum: DeployedContracts & {
     managerRegistry: Address;
     priceSource: Address;
-    transitEscrowImplementation: Address;
     protocolRecipient: Address;
     adapterGuardian: Address;
     registryOwner: Address;
     /** The API's key: route and quote signer (reading D-01 of DEC-112). */
     apiSigner: Address;
   };
-  robinhood: {
-    fundFactory: Address;
-    create3Deployer: Address;
-    spokeCrossChainLib: Address;
-    spokeUnwindLib: Address;
-    transitEscrowImplementation: Address;
+  robinhood: DeployedContracts & {
     apiSigner: Address;
   };
 }
