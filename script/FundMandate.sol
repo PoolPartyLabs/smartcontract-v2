@@ -43,6 +43,7 @@ abstract contract FundMandate {
     /// @param spokeOperatingCashTopUp Spoke Operating Cash top-up (DEC-096).
     /// @param minFirstDeposit Minimum first deposit, which the seed must reach (DEC-061, DEC-095, DEC-127).
     /// @param performanceFeeBps Performance fee (DEC-107, DEC-110).
+    /// @param managementFeeBps Management fee, bps a year, 0..500 (DEC-108, DEC-114, DEC-115); 0 by default.
     /// @param seedAmount The manager's seed at creation, in hub USDC base units (DEC-127); 0 seeds `minFirstDeposit`.
     struct FundPlan {
         address manager;
@@ -61,6 +62,7 @@ abstract contract FundMandate {
         uint256 spokeOperatingCashTopUp;
         uint256 minFirstDeposit;
         uint16 performanceFeeBps;
+        uint16 managementFeeBps;
         uint256 seedAmount;
     }
 
@@ -103,6 +105,7 @@ abstract contract FundMandate {
         m.payoutFeeBps = MandateLib.DEFAULT_PAYOUT_FEE_BPS;
         m.minFirstDeposit = plan.minFirstDeposit;
         m.performanceFeeBps = plan.performanceFeeBps;
+        m.managementFeeBps = plan.managementFeeBps;
     }
 
     function _addSpoke(IFundFactory factory, bytes32 fundId, FundPlan memory plan, Mandate memory m, uint256 index)
