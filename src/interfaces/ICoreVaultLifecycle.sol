@@ -2,12 +2,16 @@
 pragma solidity 0.8.28;
 
 /// @title ICoreVaultLifecycle
-/// @notice Lifecycle of a fund on its Hub Chain: the manager's seed at creation and the manager's peak balance.
+/// @notice Lifecycle of a fund on its Hub Chain: the manager's seed at creation and the manager base.
 /// @dev DEC-127, DEC-135, DEC-061: the manager seeds the fund with their own capital in the creation transaction
 ///      (`FundFactory.createFund`), so a fund is born with shares and its first shares are the manager's; the seed is
 ///      at least the Mandate's `minFirstDeposit`, pays the flow fee (DEC-113, D-34) and mints at the initial Share Price
 ///      (1.00). DEC-121, DEC-127: zero shares only exist after closure, so no deposit is taken at supply 0 and a fund
 ///      never re-opens at 1.00.
+/// @dev DEC-146, DEC-147 item 1: the manager base is half of the highest share balance the manager address ever held
+///      (`managerPeakShares`, updated on every mint to the manager); a manager Payout Request that would leave the
+///      balance below it reverts `ManagerMustCloseFund` at the request's Share Price (D-27); nothing closes the fund
+///      automatically. Capital in another wallet is not the manager's (DEC-046).
 interface ICoreVaultLifecycle {
     /// @notice The fund was seeded by its manager at creation (DEC-127).
     /// @param usdcAmount USDC that bought the shares (credited to Idle), the flow fee excluded.
@@ -21,6 +25,10 @@ interface ICoreVaultLifecycle {
 
     /// @notice The caller is not the factory that created this Core Vault.
     error NotFactory(address caller);
+
+    /// @notice A manager Payout Request would leave the manager's balance below half of the peak (DEC-146, DEC-147):
+    ///         the manager must close the fund instead.
+    error ManagerMustCloseFund(uint256 peakShares, uint256 balanceAfter);
 
     /// @notice Seeds the fund: pulls `usdcAmount` less the sub-share remainder from the caller and mints the first
     ///         shares to the manager at the initial Share Price.

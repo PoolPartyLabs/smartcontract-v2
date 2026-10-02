@@ -92,6 +92,8 @@ contract CoreVault is CoreVaultTransit {
         // fails it is owed, never a reason to refuse the deposit.
         CoreVaultLogic.payFee(_s, usdc, protocolRecipient, fee);
         ShareToken(shareToken).mint(msg.sender, shares);
+        // DEC-146: the peak moves on every mint to the manager address.
+        if (msg.sender == manager) _recordManagerPeak();
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -129,6 +131,24 @@ contract CoreVault is CoreVaultTransit {
         return _s.managerPeakShares;
     }
 
+    function _recordManagerPeak() private {
+        uint256 balance = _sharesOf(manager);
+        if (balance > _s.managerPeakShares) _s.managerPeakShares = balance;
+    }
+
+    /// @notice DEC-146, DEC-147 item 1, D-27: a manager request that would leave the manager's balance below half of
+    ///         the peak reverts, telling the manager to close the fund. Sized at the request's Share Price, rounding the
+    ///         shares the request would burn up and the base up, so the check never lets the balance fall below half.
+    /// @dev Example (DEC-146): peak 200,000 shares at 1.00; a request of 120,000 leaves 80,000 and reverts, 90,000 leaves
+    ///      110,000 and passes.
+    function _requireManagerBase(uint256 balance, uint256 usdcAmount, uint256 price) private view {
+        uint256 peak = _s.managerPeakShares;
+        uint256 burned =
+            Math.mulDiv(usdcAmount, ShareMath.PRICE_SCALE, price, Math.Rounding.Ceil) * ShareMath.WHOLE_SHARE;
+        uint256 balanceAfter = balance > burned ? balance - burned : 0;
+        if (balanceAfter < peak - peak / 2) revert ManagerMustCloseFund(peak, balanceAfter);
+    }
+
     // ---------------------------------------------------------------------------------------------------------------
     // Payout Request (DEC-020, DEC-024, DEC-060, DEC-072, DEC-077, DEC-095)
     // ---------------------------------------------------------------------------------------------------------------
@@ -137,6 +157,7 @@ contract CoreVault is CoreVaultTransit {
     /// @dev Priced like a claim (payout liveness, DEC-021, DEC-056: a failing valuation dependency falls back to the
     ///      last known value, never a revert on age, OQ-10), so the reserve bound and the one-share floor use the Share
     ///      Price the holder would be paid at if the claim ran now.
+    /// @dev DEC-146, DEC-147 item 1: the manager's request may not cross the manager base.
     function requestPayout(uint256 usdcAmount, PayoutMode mode) external nonReentrant {
         if (usdcAmount == 0) revert ZeroAmount();
         PayoutRequest storage req = _s.requests[msg.sender];
@@ -148,6 +169,7 @@ contract CoreVault is CoreVaultTransit {
         uint256 price = ShareMath.sharePrice(assets, _totalShares());
         // DEC-035 spirit, DEC-077 (final verification): a request below one share's price could never burn a share.
         if (ShareMath.sharesToBurn(usdcAmount, price) == 0) revert PayoutBelowOneShare(usdcAmount, price);
+        if (msg.sender == manager) _requireManagerBase(balance, usdcAmount, price);
         uint256 reserved;
         uint64 termEndsAt = uint64(block.timestamp);
         if (mode == PayoutMode.Standard) {
