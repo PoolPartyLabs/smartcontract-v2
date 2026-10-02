@@ -170,10 +170,11 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
     ///      token0 worth a tenth of a token1) with dust over the full range and L = 2e22 in ticks [-23100, -23040],
     ///      about 19 token1 below its price. It holds no token0 to sell, so it offers no arbitrage and can wait in
     ///      place. Selling 100 token0, the honest tier pays about 90.9 token1, 9% below its mid, and the trap about
-    ///      9.97, 0.3% below its own mid of 10. With a 1% maximum, which no honest tier meets, the sale is refused
-    ///      (DEC-148); ranked by the maximum against each tier's own mid (review round 2), the trap won and bought the
-    ///      input at a tenth of its value.
-    function test_arbitrum_noApi_aThirdPartyTierBelowTheMarketNeverBuysABoundedSale() public {
+    ///      9.97, 0.3% below its own mid of 10. Its 90% discount is larger than the honest tier's 9% loss, so it does not
+    ///      outbid it (a discount smaller than the honest loss does: see the contract's open note). With a 1% maximum,
+    ///      which no honest tier meets, the sale is refused (DEC-148); ranked by the maximum against each tier's own mid
+    ///      (review round 2), the trap won and bought the input at a tenth of its value.
+    function test_arbitrum_noApi_aTierBelowTheMarketByMoreThanTheHonestLossNeverBuysABoundedSale() public {
         V3Chain memory c = _arbitrum();
         (address t0, address t1) = _pairWithATierBelowTheMarket(c);
         uint256 amountIn = 100e18;

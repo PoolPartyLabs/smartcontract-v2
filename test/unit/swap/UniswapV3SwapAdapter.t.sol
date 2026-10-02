@@ -221,11 +221,12 @@ contract UniswapV3SwapAdapterTest is SwapAdapterTestBase {
     }
 
     /// @dev Review round 3: a third party's tier at a quarter of the market's mid loses only its 0.01% fee against
-    ///      that mid. With a 4 bps maximum, which no honest tier meets (the 0.05% tier's fee alone is 5 bps), the sale
-    ///      is refused (DEC-148) instead of selling to that tier at a quarter of its value, which is what ranking the
-    ///      tiers by the maximum against each tier's own mid did (review round 2). A maximum an honest tier meets sells
-    ///      in the honest tier.
-    function test_DEC153_aThirdPartyTierBelowTheMarketNeverBuysABoundedSale() public {
+    ///      that mid. Its 75% discount is larger than the honest tier's loss (5 bps), so it does not outbid it (a
+    ///      discount smaller than the honest loss does: see the contract's open note). With a 4 bps maximum, which no
+    ///      honest tier meets (the 0.05% tier's fee alone is 5 bps), the sale is refused (DEC-148) instead of selling to
+    ///      that tier at a quarter of its value, which is what ranking the tiers by the maximum against each tier's own
+    ///      mid did (review round 2). A maximum an honest tier meets sells in the honest tier.
+    function test_DEC153_aTierBelowTheMarketByMoreThanTheHonestLossNeverBuysABoundedSale() public {
         uint256 trapOut = _tierBelowTheMarket().out(address(weth), AMOUNT);
         assertEq(adapter.spotValue(address(weth), address(base), AMOUNT, 100), AMOUNT / 4, "a quarter of the market");
         assertGe(trapOut, AMOUNT / 4 * 9996 / 10_000, "within 4 bps of its own mid");
