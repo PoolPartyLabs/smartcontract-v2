@@ -32,6 +32,8 @@ interface ICoreVaultPayouts {
     /// @param fracNum Numerator of the share of every position the automatic unwind takes, the 2% margin included,
     ///        fixed at the first attempt that unwinds positions (DEC-137, DEC-151, D-11); 0 until then.
     /// @param fracDen Denominator of that share; 0 until the first attempt that unwinds positions.
+    /// @param pendingLeaverCost Requester Market Costs not yet deducted, retained across attempts (DEC-118, DEC-141,
+    ///        DEC-151). They never become costs absorbed by the fund.
     struct PayoutRequest {
         PayoutMode mode;
         bool open;
@@ -45,6 +47,7 @@ interface ICoreVaultPayouts {
         uint32 attempt;
         uint256 fracNum;
         uint256 fracDen;
+        uint256 pendingLeaverCost;
     }
 
     /// @notice How Share Assets were consolidated for a mint or burn (DEC-083). Carried by every mint and burn event.
@@ -65,7 +68,8 @@ interface ICoreVaultPayouts {
     /// @param mode Instant or Standard.
     /// @param usdcRequested Gross amount of the request (DEC-020).
     /// @param sharesBurned Whole shares burned, rounded down (DEC-077).
-    /// @param usdcGross `ShareMath.usdcFor(sharesBurned, sharePrice)`, never above the amount requested (DEC-077).
+    /// @param usdcGross `ShareMath.usdcFor(sharesBurned, sharePrice)`; retries may also burn to settle pending requester
+    ///        Market Costs after the requested gross amount has been served (DEC-118, DEC-141, DEC-151).
     /// @param payoutFee Payout Fee, Instant only (DEC-075, DEC-155); it stays in Idle, in USDC (DEC-144 items 4-5,
     ///        correcting DEC-102).
     /// @param flowFee Protocol flow fee on the gross amount (DEC-106, DEC-113).
@@ -89,9 +93,9 @@ interface ICoreVaultPayouts {
     /// @param marketCost What this claim's unwind sales lost against the mid value before each sale (DEC-118 item 2,
     ///        D-19).
     /// @param marketCostAbsorbed The part of `marketCost` the fund bore: in a Standard Payout up to 1% of the value of
-    ///        each sale (DEC-141), plus any `leaverCost` above what the payout could carry.
-    /// @param leaverCost The part of `marketCost` deducted from what the Shareholder receives: all of it in an Instant
-    ///        Payout (DEC-118), the excess over 1% per sale in a Standard one (DEC-141); never above
+    ///        each sale (DEC-141), never unpaid requester Market Costs.
+    /// @param leaverCost Market Costs deducted this attempt, including pending costs from previous attempts: all in
+    ///        an Instant Payout (DEC-118), the excess over 1% per sale in a Standard one (DEC-141); never above
     ///        `usdcGross - payoutFee - flowFee`.
     /// @param excludedPositions Positions and Unallocated Balance tokens this claim's unwind left out because their
     ///        exit or sale failed, a sale above the requester's maximum included (DEC-148); unwound at the next attempt

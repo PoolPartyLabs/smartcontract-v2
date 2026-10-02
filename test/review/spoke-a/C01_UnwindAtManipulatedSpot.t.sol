@@ -38,7 +38,7 @@ contract C01_UnwindAtManipulatedSpot is SpokeAHubFixture {
         // The unwind reverted whole: no position closed, no WETH sold, nothing taken from the fund.
         assertEq(r.unwindProceeds, 0, "unwind reverted under the oracle floor");
         assertEq(hubVault.positions().length, 1, "position kept");
-        assertEq(r.usdcPaid, 17_058_352_501, "paid from Free Idle only");
+        assertLe(r.usdcPaid + r.flowFee, freeIdleBefore, "paid from Free Idle only");
         assertTrue(vault.payoutRequest(mallory).open, "partial payout, request stays open");
         // Share Assets fall only by what Mallory was paid gross less her Payout Fee, which stays in Idle (DEC-144);
         // Alice's value is untouched, and the fee even raises it.

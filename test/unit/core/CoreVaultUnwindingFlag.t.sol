@@ -27,7 +27,7 @@ contract CoreVaultUnwindingFlagTest is CoreVaultFixture {
         hubVault.setReturnOnReceive(true);
         vm.prank(manager);
         vm.expectRevert(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector);
-        vault.allocateToHubSpokeVault(1e6);
+        vault.allocateToHubSpokeVault(1);
         hubVault.setReturnOnReceive(false);
     }
 
