@@ -20,6 +20,7 @@ import {
 } from "viem";
 import { allErrorsAbi } from "./abis.ts";
 import { ACTOR_NAMES, actors, arbitrumFork, robinhoodFork, type ActorName } from "./config.ts";
+import { redactUrls } from "./log.ts";
 
 export type Side = "arbitrum" | "robinhood";
 export const SIDES: Side[] = ["arbitrum", "robinhood"];
@@ -154,7 +155,7 @@ function findRevertData(err: BaseError): Hex | undefined {
   return found;
 }
 
-/** A one-line explanation of a failure, with the pruned-state hint when it applies. */
+/** A one-line explanation of a failure, with the pruned-state hint when it applies; URLs keep their host only. */
 export function explain(err: unknown): string {
   const revert = revertOf(err);
   const text = err instanceof BaseError ? err.shortMessage + "\n" + err.message : String(err);
@@ -165,7 +166,7 @@ export function explain(err: unknown): string {
     lines.push(err instanceof BaseError ? err.shortMessage : String(err));
   }
   if (PRUNED_STATE.test(text) && !lines.join("\n").includes(PRUNED_STATE_HINT)) lines.push(PRUNED_STATE_HINT);
-  return lines.join("\n");
+  return redactUrls(lines.join("\n"));
 }
 
 /** Runs a script's entry point: any failure prints its explanation (with the pruned-state hint) and exits 1. */

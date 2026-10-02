@@ -18,8 +18,10 @@ actors are simulated.
 - Network access to an Arbitrum One and a Robinhood Chain RPC. An archive endpoint is best: one Alchemy key serves both
   chains (Alchemy supports Robinhood Chain mainnet as well as Arbitrum One). Export `ARBITRUM_RPC_URL` and
   `ROBINHOOD_RPC_URL` (and, for reproducible runs, `ARBITRUM_FORK_BLOCK` and `ROBINHOOD_FORK_BLOCK`) in the shell that
-  runs `pnpm run up`, for instance by sourcing a local env file; the harness prints the upstream host only, never the
-  URL. The public endpoints work for short sessions (see [Troubleshooting](#troubleshooting)).
+  runs `pnpm run up`, for instance by sourcing a local env file. The harness prints the upstream host only, never the
+  URL, its error output included (anvil's and forge's errors repeat the URL; the harness cuts every URL to its host).
+  anvil's own logs, `.state/arbitrum.log` and `.state/robinhood.log`, hold the full URL with its key: they are
+  gitignored, never share them. The public endpoints work for short sessions (see [Troubleshooting](#troubleshooting)).
 
 ## Quick start
 
@@ -361,7 +363,9 @@ back to the deployment); after a warp they run ahead. Deadlines must use the cha
 account's activity (MetaMask: Settings, Advanced, Clear activity tab data).
 
 **Logs.** `local-e2e/.state/arbitrum.log`, `robinhood.log` (anvil), the keeper logs to its terminal, forge broadcast
-files in `.state/broadcast/`.
+files in `.state/broadcast/`. anvil writes its upstream URL, API key included, into its log (`Endpoint: ...`, and again
+in its errors): read those files locally, never paste or share them. Everything the harness itself prints or writes to
+a run report keeps the host of a URL only.
 
 ## How it differs from production
 

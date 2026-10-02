@@ -22,7 +22,7 @@ import {
   actors,
 } from "./config.ts";
 import { TARGETS, layoutOf, topUpToken } from "./fund-accounts.ts";
-import type { Logger } from "./log.ts";
+import { redactUrls, type Logger } from "./log.ts";
 import type { DeploymentState, FundRecord } from "./state.ts";
 
 const BROADCAST_DIR = join(STATE_DIR, "broadcast");
@@ -45,7 +45,8 @@ interface ForgeRun {
   };
 }
 
-/** Runs a command in the repository root and returns its combined output; rejects with the tail of it. */
+/** Runs a command in the repository root and returns its combined output; rejects with the tail of it, its URLs cut
+ *  to their host (forge repeats the upstream URL, key included, of an error anvil forwards). */
 function run(command: string, args: string[], env: Record<string, string>, log: Logger): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd: REPO_DIR, env: { ...process.env, ...env } });
@@ -55,7 +56,7 @@ function run(command: string, args: string[], env: Record<string, string>, log: 
     child.on("error", reject);
     child.on("close", (code) => {
       if (code === 0) return resolve(output);
-      const tail = output.trim().split("\n").slice(-40).join("\n");
+      const tail = redactUrls(output.trim().split("\n").slice(-40).join("\n"));
       log.error(`${command} ${args.slice(0, 2).join(" ")} failed (exit ${code})`);
       const hint = isPrunedStateError(tail) ? `\n${PRUNED_STATE_HINT}` : "";
       reject(new Error(`${command} ${args.slice(0, 2).join(" ")} failed:\n${tail}${hint}`));

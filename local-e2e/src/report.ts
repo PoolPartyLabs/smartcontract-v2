@@ -10,7 +10,7 @@ import { coreVaultAbi, erc20Abi, shareTokenAbi } from "./abis.ts";
 import { nodes, read, transactionLog, type TxRecord } from "./chain.ts";
 import { ACTOR_NAMES, ARBITRUM, HARNESS_DIR, REPO_DIR, REPORTS_DIR, ROBINHOOD, actors } from "./config.ts";
 import { feeLedger, sharePriceHistory, type FeeLedger, type SharePricePoint } from "./history.ts";
-import { units } from "./log.ts";
+import { redactUrls, units } from "./log.ts";
 import type { DeploymentState, FundRecord } from "./state.ts";
 
 export interface ReportStep {
@@ -194,7 +194,7 @@ export class RunReport {
       try {
         return await task();
       } catch (err) {
-        return { error: (err as Error).message.split("\n")[0] };
+        return { error: redactUrls((err as Error).message.split("\n")[0]) };
       }
     };
     await safely(() => this.mark("end of run"));

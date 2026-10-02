@@ -38,6 +38,7 @@ import { latestTimestamp, nodes, nodesUp, read, type Side } from "./chain.ts";
 import { ARBITRUM, HUB_POOL_ID, ROBINHOOD, SWAP_ADAPTER_TOKENS, actors, isMain } from "./config.ts";
 import { sharePriceHistory } from "./history.ts";
 import { runningKeeperPid } from "./keeper.ts";
+import { redactUrls } from "./log.ts";
 import { readState, type DeploymentState, type FundRecord } from "./state.ts";
 import { encodeRoute, legsHash, quotePaths, signRoute } from "./swap-route.ts";
 import { deliverDirectly, publishReport, waitForDelivery, type SpokeRef } from "./warp.ts";
@@ -616,7 +617,7 @@ export function startApi(port = API_PORT, options: ApiOptions = {}) {
       json(res, 200, await route.handler(state, url.pathname.match(route.pattern)!, url, body, options));
     } catch (err) {
       if (err instanceof HttpError) return json(res, err.status, { error: err.message, detail: err.detail });
-      json(res, 500, { error: (err as Error).message, revert: decodeRevert(err) });
+      json(res, 500, { error: redactUrls((err as Error).message), revert: decodeRevert(err) });
     }
   });
   return new Promise<typeof server>((resolve) => server.listen(port, "127.0.0.1", () => resolve(server)));
