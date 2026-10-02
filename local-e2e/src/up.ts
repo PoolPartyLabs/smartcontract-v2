@@ -206,7 +206,7 @@ async function warmUpCaches(log: Logger): Promise<void> {
   const snapshots = { arbitrum: await anvil.snapshot("arbitrum"), robinhood: await anvil.snapshot("robinhood") };
   let failure: unknown;
   try {
-    const result = await runScenario({ keeper: "inprocess", newFund: false, quiet: true }, logger("warm-up", true));
+    const result = await runScenario({ keeper: "inprocess", newFund: false, quiet: true, report: false }, logger("warm-up", true));
     log.info("warm-up scenario passed", {
       steps: result.steps,
       assertions: result.assertions,

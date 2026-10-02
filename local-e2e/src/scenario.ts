@@ -61,6 +61,7 @@ import { DEFAULT_KEEPER_OPTIONS, runningKeeperPid, startKeeper, type Keeper } fr
 import { bold, dim, green, logger, red, units, type Logger } from "./log.ts";
 import { ORDER_CONSISTENCY, ORDER_KIND, ORDER_LIFETIME, encodeOrder, hasExecuteOrder, orderId, type Order } from "./orders.ts";
 import { ensureFeedFresh } from "./price-feed.ts";
+import { RunReport } from "./report.ts";
 import { readState, type DeploymentState, type FundRecord } from "./state.ts";
 import { centerTick, currentTick, generateFees, openParams, oracleAmounts, swapParams } from "./uniswap.ts";
 import { waitForDelivery, warp, type SpokeRef } from "./warp.ts";
@@ -113,14 +114,20 @@ const reported = new WeakSet<object>();
 class Run {
   step = 0;
   assertions = 0;
+  /** The run report, when this run writes one; every phase start is a point of its Share Price timeline. */
+  report?: RunReport;
   constructor(readonly log: Logger, readonly quiet: boolean) {}
 
-  phase(title: string) {
+  async phase(title: string) {
     if (!this.quiet) console.log(`\n${bold(`== ${title}`)}`);
+    if (!this.report) return;
+    this.report.phase(title);
+    if (!title.startsWith("Phase 0")) await this.report.mark(`start of ${title.split(":")[0]}`);
   }
 
   ok(message: string) {
     this.step++;
+    this.report?.step(message);
     if (!this.quiet) console.log(`${dim(`#${String(this.step).padStart(2, "0")}`)} ${green("ok")}  ${message}`);
   }
 
@@ -238,6 +245,8 @@ export interface ScenarioOptions {
   keeper: "auto" | "inprocess" | "external";
   newFund: boolean;
   quiet: boolean;
+  /** Write a run report to local-e2e/reports/ (the warm-up of `up` does not). */
+  report: boolean;
 }
 
 export interface ScenarioResult {
@@ -246,12 +255,15 @@ export interface ScenarioResult {
   fund: FundRecord;
   keeper: "inprocess" | "external";
   fills: { real: number; simulated: number };
+  /** The run report's files, relative to local-e2e/. */
+  report?: { json: string; md: string };
 }
 
 export async function runScenario(options: ScenarioOptions, parentLog?: Logger): Promise<ScenarioResult> {
   const log = parentLog ?? logger("scenario", options.quiet);
   const run = new Run(log, options.quiet);
   const state = readState();
+  if (options.report) run.report = new RunReport("scenario", state, state.fund);
   const up = await nodesUp();
   if (!up.arbitrum || !up.robinhood) throw new Error("both forks must be running: `pnpm run up` first");
 
@@ -270,6 +282,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
   } else {
     run.ok(`the deployed fund ${fund.shareSymbol} is unused (Core Vault ${fund.hub.coreVault})`);
   }
+  if (run.report) run.report.fund = fund;
   const external = options.keeper === "external" || (options.keeper === "auto" && runningKeeperPid() !== undefined);
   let keeper: Keeper | undefined;
   if (external) {
@@ -1220,17 +1233,27 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
       keeper: external ? "external" : "inprocess",
       fills: { real: realFills, simulated: simulatedFills },
     };
+    if (run.report) {
+      run.report.assertions = run.assertions;
+      result.report = await run.report.write({ passed: true, extra: { keeper: result.keeper, fills: result.fills, keeperStats: keeper?.stats } });
+    }
     if (!options.quiet) {
       console.log(
         `\n${green(bold("PASS"))} ${run.step} steps, ${run.assertions} assertions; Across fills: ${realFills} through SpokePool.fillRelay, ` +
           `${simulatedFills} simulated; keeper ${result.keeper}; fund ${fund.shareSymbol} ${fund.hub.coreVault}`,
       );
+      if (result.report) console.log(`run report: local-e2e/${result.report.md} (and .json)`);
     }
     return result;
   } catch (err) {
     const message = err instanceof AssertionFailed ? err.message : explain(err);
     console.error(`\n${red(bold("FAIL"))} after step #${String(run.step).padStart(2, "0")}: ${message}`);
     if (err && typeof err === "object") reported.add(err);
+    if (run.report) {
+      run.report.assertions = run.assertions;
+      const files = await run.report.write({ passed: false, error: message, extra: { keeperStats: keeper?.stats } });
+      console.error(`run report: local-e2e/${files.md} (and .json)`);
+    }
     throw err;
   } finally {
     if (keeper) await keeper.stop();
@@ -1246,7 +1269,7 @@ if (isMain(import.meta.url)) {
     process.exit(1);
   }
   try {
-    await runScenario({ keeper: keeperMode, newFund: args.includes("--new-fund"), quiet: false });
+    await runScenario({ keeper: keeperMode, newFund: args.includes("--new-fund"), quiet: false, report: true });
     process.exit(0);
   } catch (err) {
     if (!(err && typeof err === "object" && reported.has(err))) console.error(`\n${red(bold("FAIL"))}: ${explain(err)}`);
