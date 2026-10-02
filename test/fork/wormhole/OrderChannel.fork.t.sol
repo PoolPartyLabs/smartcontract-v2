@@ -151,13 +151,13 @@ contract OrderChannelForkTest is Test {
         console2.log("order VAA bytes (live-size guardian quorum):", vaa.length);
 
         uint256 gasBefore = gasleft();
-        verifier.verify(RH_WORMHOLE_CORE, vaa, WH_ARBITRUM, address(coreVault), 0, FUND);
-        console2.log("OrderVerifier.verify gas, cold (live Robinhood Core, quorum signatures):", gasBefore - gasleft());
+        verifier.accept(RH_WORMHOLE_CORE, vaa, WH_ARBITRUM, address(coreVault), FUND);
+        console2.log("OrderVerifier.accept gas, cold (live Robinhood Core, quorum signatures):", gasBefore - gasleft());
 
         vm.prank(makeAddr("anyone")); // DEC-120 item 2: permissionless delivery
         gasBefore = gasleft();
         (OrderCodec.Order memory d, uint64 sequence) = spokeVault.execute(vaa);
-        console2.log("execute gas, Core warm (verify + three first-time stores):", gasBefore - gasleft());
+        console2.log("execute gas, Core warm (accept + three first-time stores):", gasBefore - gasleft());
 
         assertEq(keccak256(abi.encode(d)), keccak256(abi.encode(o)), "the order arrives as published");
         assertEq(sequence, expected);

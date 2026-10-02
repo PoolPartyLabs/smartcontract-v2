@@ -150,6 +150,28 @@ contract OrderVerifierTest is Test {
         assertEq(spokeVault.executedCount(), 1);
     }
 
+    /// @dev The replay guard lives in the library: the bare harness stores nothing itself, and the same VAA is still
+    ///      refused the second time. (Review PoC: a caller that stored `sequence` instead of `sequence + 1` accepted
+    ///      every order twice.)
+    function test_DEC093_theLibraryMovesTheCursorSoNoCallerCanReplay() public {
+        (bytes memory vaa, uint64 published) = _publish(_unwind(1));
+        assertEq(verifier.minSequence(), 0);
+        verifier.accept(address(core), vaa, WH_ARBITRUM, address(coreVault), FUND);
+        assertEq(verifier.minSequence(), published + 1, "the cursor moved inside the library");
+        vm.expectRevert(abi.encodeWithSelector(OrderVerifier.OrderSequenceTooLow.selector, published + 1, published));
+        verifier.accept(address(core), vaa, WH_ARBITRUM, address(coreVault), FUND);
+    }
+
+    /// @dev A refused order leaves the cursor where it was.
+    function test_DEC093_aRefusedOrderDoesNotMoveTheCursor() public {
+        OrderCodec.Order memory o = _unwind(1);
+        o.fundId = keccak256("pool-party/fund/2");
+        (bytes memory vaa,) = _publish(o);
+        vm.expectRevert(abi.encodeWithSelector(OrderVerifier.OrderFundMismatch.selector, o.fundId));
+        verifier.accept(address(core), vaa, WH_ARBITRUM, address(coreVault), FUND);
+        assertEq(verifier.minSequence(), 0);
+    }
+
     /// @dev The register's rule (DEC-093) drops an older order delivered after a newer one; the request's retry
     ///      (DEC-151) republishes it.
     function test_DEC093_rejectsAnOlderOrderDeliveredAfterANewerOne() public {
@@ -304,15 +326,24 @@ contract OrderVerifierTest is Test {
     // Fuzz
     // -----------------------------------------------------------------------------------------------------------------
 
-    function testFuzz_DEC093_acceptsASequenceIffAtLeastTheMinimum(uint64 minSequence, uint64 sequence) public {
+    /// @dev A Wormhole sequence never reaches `type(uint64).max` (one per message from 0), where the cursor would
+    ///      overflow and revert.
+    function testFuzz_DEC093_acceptsASequenceIffAtLeastTheMinimumAndMovesPastIt(uint64 minSequence, uint64 sequence)
+        public
+    {
+        sequence = uint64(bound(sequence, 0, type(uint64).max - 1));
         bytes memory vaa = core.craft(WH_ARBITRUM, _coreVaultEmitter(), sequence, 200, OrderCodec.encode(_unwind(1)));
+        verifier.setMinSequence(minSequence);
         if (sequence < minSequence) {
             vm.expectRevert(abi.encodeWithSelector(OrderVerifier.OrderSequenceTooLow.selector, minSequence, sequence));
-            verifier.verify(address(core), vaa, WH_ARBITRUM, address(coreVault), minSequence, FUND);
+            verifier.accept(address(core), vaa, WH_ARBITRUM, address(coreVault), FUND);
+            assertEq(verifier.minSequence(), minSequence);
         } else {
-            (, uint64 accepted) =
-                verifier.verify(address(core), vaa, WH_ARBITRUM, address(coreVault), minSequence, FUND);
+            (, uint64 accepted) = verifier.accept(address(core), vaa, WH_ARBITRUM, address(coreVault), FUND);
             assertEq(accepted, sequence);
+            assertEq(verifier.minSequence(), sequence + 1);
+            vm.expectRevert(abi.encodeWithSelector(OrderVerifier.OrderSequenceTooLow.selector, sequence + 1, sequence));
+            verifier.accept(address(core), vaa, WH_ARBITRUM, address(coreVault), FUND);
         }
     }
 
@@ -323,9 +354,9 @@ contract OrderVerifierTest is Test {
         vm.warp(nowTs);
         if (nowTs > deadline) {
             vm.expectRevert(abi.encodeWithSelector(OrderVerifier.OrderExpired.selector, deadline));
-            verifier.verify(address(core), vaa, WH_ARBITRUM, address(coreVault), 0, FUND);
+            verifier.accept(address(core), vaa, WH_ARBITRUM, address(coreVault), FUND);
         } else {
-            (OrderCodec.Order memory d,) = verifier.verify(address(core), vaa, WH_ARBITRUM, address(coreVault), 0, FUND);
+            (OrderCodec.Order memory d,) = verifier.accept(address(core), vaa, WH_ARBITRUM, address(coreVault), FUND);
             assertEq(d.deadline, deadline);
         }
     }
@@ -334,6 +365,6 @@ contract OrderVerifierTest is Test {
         vm.assume(chain != WH_ARBITRUM || emitter != _coreVaultEmitter());
         bytes memory vaa = core.craft(chain, emitter, 0, 200, OrderCodec.encode(_unwind(1)));
         vm.expectRevert();
-        verifier.verify(address(core), vaa, WH_ARBITRUM, address(coreVault), 0, FUND);
+        verifier.accept(address(core), vaa, WH_ARBITRUM, address(coreVault), FUND);
     }
 }
