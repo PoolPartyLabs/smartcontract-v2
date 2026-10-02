@@ -5,9 +5,9 @@ pragma solidity 0.8.28;
 /// @notice Lifecycle of a fund on its Hub Chain: the manager's seed at creation, the fund states and the manager base.
 /// @dev DEC-127, DEC-135, DEC-061: the manager seeds the fund with their own capital in the creation transaction
 ///      (`FundFactory.createFund`), so a fund is born with shares and its first shares are the manager's; the seed is
-///      at least the Mandate's `minFirstDeposit`, pays the flow fee (DEC-113, D-34) and mints at the initial Share Price
-///      (1.00). DEC-121, DEC-127: zero shares only exist after closure, so no deposit is taken at supply 0 and a fund
-///      never re-opens at 1.00.
+///      at least the Mandate's `minFirstDeposit`, pays the flow fee (DEC-113, D-34) and mints at the initial Share
+///      Price (1.00). DEC-121, DEC-127: zero shares only exist after closure, so no deposit is taken at supply 0 and a
+///      fund never re-opens at 1.00.
 /// @dev DEC-146, DEC-147 item 1: the manager base is half of the highest share balance the manager address ever held
 ///      (`managerPeakShares`, updated on every mint to the manager); a manager Payout Request that would leave the
 ///      balance below it reverts `ManagerMustCloseFund` at the request's Share Price (D-27); nothing closes the fund

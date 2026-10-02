@@ -15,10 +15,12 @@ import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 /// @param managerRegistry Per-manager registry holding the protocol slice (DEC-106, DEC-110).
 /// @param priceSource Prices non-USDC quantities into hub USDC (docs/ARCHITECTURE.md §5, OPEN).
 /// @param acrossSpokePool Across SpokePool on the Hub Chain, the only caller of `handleV3AcrossMessage`.
-/// @param protocolRecipient Recipient of the flow fee and the protocol slice (DEC-106; LC-132 OPEN).
-/// @param excessRecipient Recipient of swept excess balances (DEC-096, DEC-101; LC-132 OPEN).
+/// @param protocolRecipient Recipient of the flow fee and the protocol slice: the fee wallet (DEC-106, DEC-116).
+/// @param excessRecipient Recipient of swept excess balances: the fee wallet too (DEC-096, DEC-101, DEC-116,
+///        DEC-121).
 /// @param escrowImplementation TransitEscrow implementation cloned once per send (DEC-066, QA6 OPEN).
-/// @param flowFeeBps Protocol flow fee in bps, capped at 100 (DEC-106, DEC-110; LC-143 OPEN as to storage).
+/// @param flowFeeBps Protocol flow fee in bps, capped at 100; a fixed value of each factory deploy, immutable per fund
+///        (DEC-106, DEC-110, DEC-125 item 1).
 /// @param factory The only caller of `seed` (DEC-127). A field, not `msg.sender`: the factory deploys through CREATE3,
 ///        so the constructor's `msg.sender` is the one-use proxy.
 /// @param minPerformanceFeeBps The ManagerRegistry's minimum manager fee when the fund was created; floor of
@@ -84,7 +86,8 @@ struct SpokeBook {
 /// @param pending Arrived before any report listed it; held apart (DEC-080, OQ-01).
 /// @param kind Kind the report listed (CV-OQ-1): an arrival is credited by it, never by the Across message's claim.
 /// @param pendingSince When the last arrival held apart without a listing, at least as large as what was already held,
-///        reached the hub; `recoverUnlistedArrival` needs a spoke report built after it (security review S-4, S-45, S-64).
+///        reached the hub; `recoverUnlistedArrival` needs a spoke report built after it (security review S-4, S-45,
+///        S-64).
 struct HubBoundTransfer {
     uint256 listed;
     uint256 credited;

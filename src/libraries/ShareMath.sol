@@ -97,18 +97,18 @@ library ShareMath {
     }
 
     /// @notice Protocol flow fee on a flow amount, rounded down.
-    /// @dev DEC-106, DEC-110: charged on entry and exit, capped at 1% as a core constant. On a deposit it is deducted
-    ///      before shares are computed; on a payout it is deducted from the amount paid (LC-143 reading, OPEN). It is
-    ///      never charged on Income Withdrawal. Rounding direction is not decided; the MVP rounds the fee down, which
-    ///      never overcharges the shareholder.
+    /// @dev DEC-106, DEC-110: charged on entry and exit, capped at 1% as a core constant. DEC-113: on a deposit (the
+    ///      manager's seed included) it is deducted before shares are computed; on both payout modes it is deducted
+    ///      from the amount paid; it is never charged on Income Withdrawal. DEC-125 item 1: fixed per factory deploy.
+    ///      Rounding direction is not decided; the MVP rounds the fee down, which never overcharges the shareholder.
     function flowFee(uint256 amount, uint256 bps) internal pure returns (uint256) {
         if (bps > MAX_FLOW_FEE_BPS) revert FlowFeeAboveCap(bps);
         return Math.mulDiv(amount, bps, BPS);
     }
 
     /// @notice Arithmetic of a deposit of `usdcAmount` at `price` with a flow fee of `flowFeeBps`.
-    /// @dev DEC-106: the flow fee is taken from the deposited amount before pricing (the MVP reading stated in
-    ///      docs/ARCHITECTURE.md §4.1; whether the fee is taken from the amount or on top is OPEN). DEC-035: shares are
+    /// @dev DEC-106, DEC-113: the flow fee is taken from the deposited amount before pricing; 100,000 pays 250 and buys
+    ///      99,750 shares at 1.00. DEC-035: shares are
     ///      whole and rounded down; the depositor pays `fee + usdcForShares`, and the remainder
     ///      `usdcAmount - fee - usdcForShares` never leaves the wallet (DEC-061).
     /// @return shares Whole shares to mint, in base units; 0 when the net amount buys less than one share.

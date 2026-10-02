@@ -440,7 +440,7 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
     }
 
     /// @dev DEC-054: one Spoke Vault per fund chain, the Hub Chain included. `wormholeCore` is zero on the hub.
-    ///      DEC-096, DEC-101: swept excess goes to the Protocol Recipient (fee wallet; LC-132 OPEN).
+    ///      DEC-096, DEC-101, DEC-116: swept excess goes to the Protocol Recipient, the fee wallet.
     function _deploySpokeVault(
         Mandate memory m,
         bytes32 fundId,
@@ -466,9 +466,9 @@ contract FundFactory is IFundFactory, ReentrancyGuardTransient {
         );
     }
 
-    /// @dev Q59 stance: name `Pool Party Fund {n}`, symbol `PP-{n}`, never manager text. CV-OQ-3: the hub income
-    ///      tokens are read from the hub adapters' `poolTokens`, because a Mandate pool key is a hash and the Core Vault
-    ///      never calls an adapter (DEC-054). DEC-106: flow fee and Protocol Recipient are protocol wiring. DEC-127: this
+    /// @dev Q59 stance: name `Pool Party Fund {n}`, symbol `PP-{n}`, never manager text. CV-OQ-3: the hub income tokens
+    ///      are read from the hub adapters' `poolTokens`, because a Mandate pool key is a hash and the Core Vault never
+    ///      calls an adapter (DEC-054). DEC-106: flow fee and Protocol Recipient are protocol wiring. DEC-127: this
     ///      factory is the Core Vault's only seeder. DEC-125 item 3: the minimum manager fee read at creation.
     function _deployCoreVault(
         Mandate memory m,

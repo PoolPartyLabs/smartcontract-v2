@@ -29,8 +29,9 @@ import {FundSeed} from "../../utils/FundSeed.sol";
 
 /// @notice Shared deployment of a Core Vault against mocks: Arbitrum as hub (42161), Robinhood as the one spoke (4663).
 /// @dev The test contract plays the factory (`CoreVaultConfig.factory`): `_deploy` seeds every fund at creation, as
-///      `FundFactory.createFund` does (DEC-127), with the smallest seed that buys one whole share at 1.00 after the flow
-///      fee, so the manager holds `SEED_SHARES` and Idle starts at `SEED_IDLE` (the Mandate minimum is 1 USDC here).
+///      `FundFactory.createFund` does (DEC-127), with the smallest seed that buys one whole share at 1.00 after the
+///      flow fee, so the manager holds `SEED_SHARES` and Idle starts at `SEED_IDLE` (the Mandate minimum is 1 USDC
+///      here).
 abstract contract CoreVaultFixture is Test, FundSeed {
     uint256 internal constant HUB = 42_161;
     uint256 internal constant SPOKE = 4663;

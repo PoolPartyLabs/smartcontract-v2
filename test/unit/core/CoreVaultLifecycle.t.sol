@@ -6,7 +6,8 @@ import {ICoreVaultLifecycle} from "../../../src/interfaces/ICoreVaultLifecycle.s
 import {CoreVaultFixture} from "./CoreVaultFixture.sol";
 
 /// @notice DEC-147 items 2-3 and DEC-149 (reading: irreversible): `closeFund` is a manager call; Closing takes no
-///         deposit, no Payout Request and no claim (D-26); Income Withdrawal stays open in every state (DEC-117 item 4).
+///         deposit, no Payout Request and no claim (D-26); Income Withdrawal stays open in every state (DEC-117 item
+///         4).
 contract CoreVaultLifecycleTest is CoreVaultFixture {
     ICoreVaultLifecycle.FundState internal constant OPEN = ICoreVaultLifecycle.FundState.Open;
     ICoreVaultLifecycle.FundState internal constant CLOSING = ICoreVaultLifecycle.FundState.Closing;

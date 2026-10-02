@@ -5,8 +5,8 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {CoreVaultFixture} from "./CoreVaultFixture.sol";
 
-/// @notice DEC-144 items 4-5 (corrects DEC-102 items 2-4, DEC-130 closure item 3): the Instant Payout's Payout Fee stays
-///         in Idle, in USDC, and raises the Share Price of those who stay; it never enters Operating Cash.
+/// @notice DEC-144 items 4-5 (corrects DEC-102 items 2-4, DEC-130 closure item 3): the Instant Payout's Payout Fee
+///         stays in Idle, in USDC, and raises the Share Price of those who stay; it never enters Operating Cash.
 contract CoreVaultPayoutFeeIdleTest is CoreVaultFixture {
     /// @dev DEC-144 example: a fund of 1,000,000 with 1,000,000 shares; Ana exits 30,000 Instant and receives
     ///      30,000 - 600 - 75 = 29,325; the fund keeps 970,600 for 970,000 shares and the Share Price goes from

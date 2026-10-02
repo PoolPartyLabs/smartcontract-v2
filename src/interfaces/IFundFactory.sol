@@ -35,7 +35,7 @@ interface IFundFactory {
     /// @param managerRegistry Per-manager protocol slice registry; hub only (DEC-106, DEC-110).
     /// @param priceSource Prices non-USDC quantities into USDC; hub only (docs/ARCHITECTURE.md §5, OPEN).
     /// @param protocolRecipient Recipient of the flow fee and the protocol slice (DEC-106) and of swept excess
-    ///        (DEC-096, DEC-101; LC-132 OPEN).
+    ///        (DEC-096, DEC-101): the fee wallet (DEC-116).
     /// @param guardian Immutable guardian of every adapter's pause and deprecation flags (ruling 2026-09-29, Q17-2b).
     /// @param flowFeeBps Protocol flow fee handed to every Core Vault (DEC-106: 25 bps default; DEC-110: at most 100).
     /// @param coreVaultLogic The CoreVaultLogic library linked into the Core Vault creation code; hub only.
@@ -178,7 +178,8 @@ interface IFundFactory {
     /// @notice A Mandate bridge adapter is not the fund's predicted Across adapter on its chain (DEC-087, DEC-088).
     error UnexpectedBridgeAdapter(uint256 chainId, address adapter);
 
-    /// @notice A Mandate spoke lists a Spoke Vault other than the fund's predicted one on that chain (DEC-054, DEC-086).
+    /// @notice A Mandate spoke lists a Spoke Vault other than the fund's predicted one on that chain (DEC-054,
+    ///         DEC-086).
     error SpokeVaultMismatch(uint256 chainId, bytes32 predicted, bytes32 listed);
 
     /// @notice The number of `PoolKey`s differs from the Mandate's Uniswap V4 pools on this chain (DEC-030).
@@ -206,8 +207,8 @@ interface IFundFactory {
     ///         order, each at its predicted address; then seeds the fund with the manager's own capital.
     /// @dev DEC-127, DEC-061, DEC-113: in the same transaction the factory pulls the seed's cost (`p.seedAmount` less
     ///      the sub-share remainder) from the manager, approves the Core Vault for exactly that amount and calls
-    ///      `ICoreVaultLifecycle.seed`, which pays the flow fee and mints the first shares to the manager at 1.00. A seed
-    ///      below `m.minFirstDeposit` reverts (`BelowMinFirstDeposit`), so no fund exists without its seed.
+    ///      `ICoreVaultLifecycle.seed`, which pays the flow fee and mints the first shares to the manager at 1.00. A
+    ///      seed below `m.minFirstDeposit` reverts (`BelowMinFirstDeposit`), so no fund exists without its seed.
     /// @dev Reverts unless `msg.sender == m.manager` (DEC-001), `m.hubChainId == block.chainid`, `m.usdc` is this
     ///      chain's base token, `m.performanceFeeBps` is at least the ManagerRegistry's `minManagerFeeBps` (DEC-115,
     ///      DEC-125 item 3; the Core Vault keeps that minimum as the floor of `decreaseManagerFee`), `p.creationNumber`

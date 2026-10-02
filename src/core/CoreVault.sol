@@ -16,16 +16,16 @@ import {CoreVaultTransit} from "./CoreVaultTransit.sol";
 import {CoreVaultLogic} from "./CoreVaultLogic.sol";
 
 /// @title CoreVault
-/// @notice Hub Chain contract of a fund: custody of Idle USDC, the Share ledger, the manager's seed and the fund states,
-///         Payout Requests and Payouts, the Attributed Income bucket and Income Withdrawal, sends to spokes and the
-///         transit state machine.
-/// @dev See ICoreVault and ICoreVaultLifecycle for the rules of every verb. DEC-022, DEC-058: no proxy, no upgrade path, no selfdestruct.
-///      The value bases, report application, sends and transit outcomes live in the linked external library
-///      `CoreVaultLogic`, called by DELEGATECALL over this vault's storage: its address is part of the creation code
-///      and trust surface; the factory deploys it once per chain and pins it. It is the only DELEGATECALL the vault
-///      makes; the Core Vault never calls an adapter.
-///      DEC-054: never calls an adapter; reads the hub Spoke Vault and the ValueReportReceiver. Every value-moving
-///      external entry is `nonReentrant` (the two hub Spoke Vault callbacks are guarded as described in the base).
+/// @notice Hub Chain contract of a fund: custody of Idle USDC, the Share ledger, the manager's seed and the fund
+///         states, Payout Requests and Payouts, the Attributed Income bucket and Income Withdrawal, sends to spokes and
+///         the transit state machine.
+/// @dev See ICoreVault and ICoreVaultLifecycle for the rules of every verb. DEC-022, DEC-058: no proxy, no upgrade
+///      path, no selfdestruct. The value bases, report application, sends and transit outcomes live in the linked
+///      external library `CoreVaultLogic`, called by DELEGATECALL over this vault's storage: its address is part of the
+///      creation code and trust surface; the factory deploys it once per chain and pins it. It is the only DELEGATECALL
+///      the vault makes; the Core Vault never calls an adapter. DEC-054: never calls an adapter; reads the hub Spoke
+///      Vault and the ValueReportReceiver. Every value-moving external entry is `nonReentrant` (the two hub Spoke Vault
+///      callbacks are guarded as described in the base).
 contract CoreVault is CoreVaultTransit {
     using SafeERC20 for IERC20;
     using IncomeAccumulator for IncomeAccumulator.State;
@@ -105,8 +105,9 @@ contract CoreVault is CoreVaultTransit {
 
     /// @inheritdoc ICoreVaultLifecycle
     /// @dev Called by `FundFactory.createFund` in the creation transaction, so no fund exists without the seed. The
-    ///      price is the initial Share Price by definition (DEC-061): nothing else is in the fund yet. D-34: the seed is a
-    ///      deposit and pays the flow fee (DEC-113). The remainder below one share never leaves the caller (DEC-035).
+    ///      price is the initial Share Price by definition (DEC-061): nothing else is in the fund yet. D-34: the seed
+    ///      is a deposit and pays the flow fee (DEC-113). The remainder below one share never leaves the caller
+    ///      (DEC-035).
     function seed(uint256 usdcAmount) external nonReentrant returns (uint256 shares) {
         if (msg.sender != factory) revert NotFactory(msg.sender);
         // The peak is non-zero once seeded; a supply-0 fund is either new or closed, and a closed one never re-opens.
@@ -165,10 +166,11 @@ contract CoreVault is CoreVaultTransit {
     }
 
     /// @notice DEC-146, DEC-147 item 1, D-27: a manager request that would leave the manager's balance below half of
-    ///         the peak reverts, telling the manager to close the fund. Sized at the request's Share Price, rounding the
-    ///         shares the request would burn up and the base up, so the check never lets the balance fall below half.
-    /// @dev Example (DEC-146): peak 200,000 shares at 1.00; a request of 120,000 leaves 80,000 and reverts, 90,000 leaves
-    ///      110,000 and passes.
+    ///         the peak reverts, telling the manager to close the fund. Sized at the request's Share Price, rounding
+    ///         the shares the request would burn up and the base up, so the check never lets the balance fall below
+    ///         half.
+    /// @dev Example (DEC-146): peak 200,000 shares at 1.00; a request of 120,000 leaves 80,000 and reverts, 90,000
+    ///      leaves 110,000 and passes.
     function _requireManagerBase(uint256 balance, uint256 usdcAmount, uint256 price) private view {
         uint256 peak = _s.managerPeakShares;
         uint256 burned =
@@ -232,9 +234,10 @@ contract CoreVault is CoreVaultTransit {
     ///      reaches hub positions only (`ISpokeVault.unwindForPayout` on the hub Spoke Vault), so DEC-105 needs no new
     ///      spoke report (erratum 11 reading). Q57 reading: an Idle-paid payout never reverts on a stale report or
     ///      price. Payout liveness (DEC-021, DEC-056): nor when the hub report read or a price read fails; the last
-    ///      known value is used with an event (CoreVaultLogic.recordValuation). LC-45 / LC-141: the fund bears the market cost of the unwind (flagged). LC-45 / LC-47: no Network
-    ///      Costs are charged to the requester (flagged). DEC-147, D-26: refused unless the fund is Open; a request opened
-    ///      before closure is paid as a closed-fund exit (DEC-150 item 4).
+    ///      known value is used with an event (CoreVaultLogic.recordValuation). LC-45 / LC-141: the fund bears the
+    ///      market cost of the unwind (flagged). LC-45 / LC-47: no Network Costs are charged to the requester
+    ///      (flagged). DEC-147, D-26: refused unless the fund is Open; a request opened before closure is paid as a
+    ///      closed-fund exit (DEC-150 item 4).
     function claimPayout(bytes calldata unwindHints) external nonReentrant returns (PayoutReceipt memory receipt) {
         _requireOpen();
         PayoutRequest storage req = _s.requests[msg.sender];
@@ -319,7 +322,8 @@ contract CoreVault is CoreVaultTransit {
         r.usdcRequested = req.usdcRequested;
         r.sharesBurned = c.shares;
         r.usdcGross = ShareMath.usdcFor(c.shares, c.price);
-        // DEC-075: Payout Fee on Instant only. DEC-144 items 4-5 (corrects DEC-102 items 2-4): it stays in Idle, in USDC.
+        // DEC-075: Payout Fee on Instant only. DEC-144 items 4-5 (corrects DEC-102 items 2-4): it stays in Idle, in
+        // USDC.
         if (req.mode == PayoutMode.Instant) r.payoutFee = ShareMath.bpsOf(r.usdcGross, payoutFeeBps);
         // DEC-106, DEC-113: flow fee on the amount paid out, deducted from what the shareholder receives.
         r.flowFee = ShareMath.flowFee(r.usdcGross, flowFeeBps);
