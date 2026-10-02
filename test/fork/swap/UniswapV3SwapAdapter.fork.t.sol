@@ -20,6 +20,8 @@ import {SwapForkBase} from "./SwapForkBase.sol";
 ///      whose in-range liquidity was about 7x the 0.3% tier's on 2026-10-02).
 contract UniswapV3SwapAdapterForkTest is SwapForkBase {
     uint16 internal constant NO_MAX = 0;
+    /// @dev V3 TickMath.MIN_SQRT_RATIO; QuoterV2 swaps token0 for token1 down to one above it when given no limit.
+    uint160 internal constant MIN_SQRT_RATIO = 4_295_128_739;
     /// @dev V3 TickMath.MAX_SQRT_RATIO; QuoterV2 swaps token1 for token0 up to one below it when given no limit.
     uint160 internal constant MAX_SQRT_RATIO = 1_461_446_703_485_210_103_287_273_052_203_988_822_378_723_970_342;
     /// @dev floor(2^96 / sqrt(10)): price 0.1 (token1 per token0).
@@ -121,6 +123,7 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
         uint256 fullOut = _assertTheDrainedTierQuotesMore(c, t1, t0, amountIn);
 
         _setUpWithBase(c, t0, _tokens2(t0, t1));
+        assertEq(uint256(_assertBestTier(t1, t0, amountIn)), 500, "the live best-tier oracle skips it too");
         (uint24 fee, uint256 quoted) = adapter.bestDirectFee(t1, t0, amountIn, NO_MAX);
         assertEq(uint256(fee), 500, "the best tier that fills");
         assertEq(quoted, fullOut);
@@ -471,9 +474,12 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
         assertEq(IERC20(tokenIn).allowance(address(this), address(adapter)), 0, "vault approval consumed");
     }
 
-    /// @dev The adapter's tier equals the highest of QuoterV2's capped quotes of the direct pair's live pools with
-    ///      in-range liquidity, taken here independently in the same state (DEC-153).
+    /// @dev The adapter's tier without a maximum equals the highest of QuoterV2's capped quotes that fill the whole input
+    ///      among the direct pair's live pools with in-range liquidity, taken here independently in the same state
+    ///      (DEC-153). A quote whose price ends at QuoterV2's default limit is a partial fill (a drained tier) and is
+    ///      skipped, as the adapter does; the first fill wins even at a zero quote.
     function _assertBestTier(address tokenIn, address tokenOut, uint256 amountIn) internal returns (uint24 fee) {
+        uint160 limit = tokenIn < tokenOut ? MIN_SQRT_RATIO + 1 : MAX_SQRT_RATIO - 1;
         uint256 best;
         uint24 bestFee;
         for (uint256 i; i < 4; ++i) {
@@ -482,10 +488,14 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
             try chain.quoter.quoteExactInputSingle{gas: 1_000_000}(
                 IQuoterV2.QuoteExactInputSingleParams(tokenIn, tokenOut, amountIn, FEE_TIERS[i], 0)
             ) returns (
-                uint256 out, uint160, uint32, uint256
+                uint256 out, uint160 sqrtPriceX96After, uint32, uint256
             ) {
+                if (sqrtPriceX96After == limit) {
+                    console2.log("  tier", uint256(FEE_TIERS[i]), "partial fill skipped, quote", out);
+                    continue;
+                }
                 console2.log("  tier", uint256(FEE_TIERS[i]), "quote", out);
-                if (out > best) (best, bestFee) = (out, FEE_TIERS[i]);
+                if (bestFee == 0 || out > best) (best, bestFee) = (out, FEE_TIERS[i]);
             } catch {
                 console2.log("  tier", uint256(FEE_TIERS[i]), "quote failed or hit the cap");
             }
@@ -493,7 +503,7 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
         uint256 quoted;
         (fee, quoted) = adapter.bestDirectFee(tokenIn, tokenOut, amountIn, NO_MAX);
         console2.log("adapter's tier", uint256(fee));
-        assertEq(fee, bestFee, "the tier with the highest quote");
+        assertEq(fee, bestFee, "the tier with the highest quote that fills");
         assertEq(quoted, best);
     }
 
