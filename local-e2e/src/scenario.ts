@@ -91,7 +91,6 @@ const SWAP_TOLERANCE_BPS = 300n;
 /** The manager's maximum loss against the pool mid on his swaps (DEC-142 item 3; 0 would mean none, D-23). */
 const MANAGER_MAX_LOSS_BPS = 100;
 const FLOW_FEE_BPS = 25n;
-const SPOKE_OPERATING_CASH_TOP_UP = BigInt(FUND_PLAN.SPOKE_OPERATING_CASH_TOP_UP);
 const INITIAL_SHARE_PRICE = 10n ** 24n;
 const WAD = 10n ** 18n;
 const WAIT_SECONDS = 120;
@@ -397,12 +396,18 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     run.eq(Number(mandate.performanceFeeBps), 2000, "DEC-107, DEC-184: performance fee 20%, within 10% to 90%");
     run.eq(Number(mandate.managementFeeBps), 0, "DEC-108, DEC-186: management fee 0");
     run.eq(mandate.operatingCash.length, 1, "DEC-096: the spoke's Operating Cash entry only");
-    run.eq(BigInt(mandate.operatingCash[0].floor) + BigInt(mandate.operatingCash[0].topUp), 0n, "ruling 2026-10-02: Operating Cash floor and top-up 0");
+    // Ruling 2026-10-02: nothing spends Operating Cash in the MVP, so the harness fund plans floor and top-up 0 (the
+    // environment may set others; every later check reads the vault's own parameters).
+    run.eq(BigInt(mandate.operatingCash[0].floor), BigInt(FUND_PLAN.SPOKE_OPERATING_CASH_FLOOR), "DEC-096: the planned spoke Operating Cash floor");
+    run.eq(BigInt(mandate.operatingCash[0].topUp), BigInt(FUND_PLAN.SPOKE_OPERATING_CASH_TOP_UP), "DEC-096: the planned spoke top-up");
+    run.eq(await view("robinhood", spokeVault, spokeVaultAbi, "operatingCashFloor"), BigInt(mandate.operatingCash[0].floor), "the Spoke Vault starts at the Mandate's floor");
+    run.eq(await view("robinhood", spokeVault, spokeVaultAbi, "operatingCashTopUp"), BigInt(mandate.operatingCash[0].topUp), "the Spoke Vault starts at the Mandate's top-up");
     run.eq(BigInt(await view<number>("arbitrum", core, coreVaultAbi, "flowFeeBps")), FLOW_FEE_BPS, "DEC-106: flow fee 25 bps");
     run.ok(
       `Mandate: hub V4 WETH/USDC + Aave USDC, spoke V4 WETH/USDG, Across both ways (the adapter's fee rule, DEC-162), ` +
         `Spoke Cap ${units(BigInt(spokeCfg.spokeCap), 6, 0)} USDC, Payout Fee 2%, 72 h term, performance fee 20%, maxReportAge 1588 s; ` +
-        `Mandate v2: tokens USDC/WETH and USDG/WETH, a V3 swap adapter per chain, Hub Wormhole chain 23, Operating Cash 0`,
+        `Mandate v2: tokens USDC/WETH and USDG/WETH, a V3 swap adapter per chain, Hub Wormhole chain 23; spoke Operating Cash floor ` +
+        `${units(BigInt(mandate.operatingCash[0].floor))} and top-up ${units(BigInt(mandate.operatingCash[0].topUp))} USDG (ruling 2026-10-02: 0)`,
     );
 
     const [seeded] = await coreEvents(core, "FundSeeded", BigInt(fund.hub.createdInBlock));
@@ -592,6 +597,12 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
 
     const assetsBeforeSend = await shareAssets();
     const idleBeforeSend = await idle();
+    // DEC-096: the arrival tops Operating Cash up only while it is below its floor (SpokeCrossChainLib
+    // `topUpOperatingCash`), so the spoke's cash and Unallocated Balance are read before the fill can land.
+    const spokeCashBefore = await view<bigint>("robinhood", spokeVault, spokeVaultAbi, "operatingCash");
+    const spokeFloor = await view<bigint>("robinhood", spokeVault, spokeVaultAbi, "operatingCashFloor");
+    const spokeTopUp = await view<bigint>("robinhood", spokeVault, spokeVaultAbi, "operatingCashTopUp");
+    const spokeUnallocatedBefore = await view<bigint>("robinhood", spokeVault, spokeVaultAbi, "unallocatedBalance", [ROBINHOOD.usdg]);
     const depositIdBefore = await view<number>("arbitrum", ARBITRUM.acrossSpokePool, acrossSpokePoolAbi, "numberOfDeposits");
     const sendTx = await tx<Hex>("arbitrum", "manager", core, coreVaultAbi, "sendToSpoke", [0n, BRIDGE_AMOUNT, 0n, "0x"]);
     const transitId = sendTx.result;
@@ -665,13 +676,16 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     }
     run.eq(await view("robinhood", spokeVault, spokeVaultAbi, "arrivals", [transitId]), amountToArrive, "OQ-09: credited total per transit id");
     run.eq(await view("robinhood", spokeVault, spokeVaultAbi, "cumulativeReceived"), amountToArrive, "cumulative received");
-    run.eq(await view("robinhood", spokeVault, spokeVaultAbi, "operatingCash"), SPOKE_OPERATING_CASH_TOP_UP, "DEC-096: the arrival tops up Operating Cash");
-    run.eq(
-      await view("robinhood", spokeVault, spokeVaultAbi, "unallocatedBalance", [ROBINHOOD.usdg]),
-      amountToArrive - SPOKE_OPERATING_CASH_TOP_UP,
-      "Unallocated Balance on the spoke",
+    const arrivedUsdg = spokeUnallocatedBefore + amountToArrive;
+    const topUp = spokeCashBefore < spokeFloor ? (spokeTopUp < arrivedUsdg ? spokeTopUp : arrivedUsdg) : 0n;
+    run.eq(await view("robinhood", spokeVault, spokeVaultAbi, "operatingCash"), spokeCashBefore + topUp, "DEC-096: a top-up only below the floor");
+    run.eq(await view("robinhood", spokeVault, spokeVaultAbi, "unallocatedBalance", [ROBINHOOD.usdg]), arrivedUsdg - topUp, "Unallocated Balance on the spoke");
+    run.ok(
+      `the Spoke Vault credited ${units(amountToArrive)} USDG to Unallocated Balance` +
+        (topUp > 0n
+          ? `, ${units(topUp)} of it to Operating Cash (below its ${units(spokeFloor)} floor)`
+          : `; Operating Cash ${units(spokeCashBefore)} is not below its floor ${units(spokeFloor)}, so no top-up (ruling 2026-10-02: floor 0)`),
     );
-    run.ok(`the Spoke Vault credited ${units(amountToArrive)} USDG: ${units(SPOKE_OPERATING_CASH_TOP_UP)} to Operating Cash, the rest to Unallocated Balance`);
 
     // Founder chat 1 of 2026-10-02, DEC-143, D-01: on the spoke the manager swaps on a route the API signed for the
     // fund's Robinhood swap adapter (the best V3 path QuoterV2 finds, its minimum the stricter of the quote and the
@@ -757,7 +771,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
       "DEC-090, OQ-09: the arrival is listed by transit id at its credited total",
     );
     run.eq(latest.cumulativeReceived, amountToArrive, "cumulative received in the report");
-    run.eq(latest.operatingCash, SPOKE_OPERATING_CASH_TOP_UP, "DEC-096: Operating Cash on its own line");
+    run.eq(latest.operatingCash, await view("robinhood", spokeVault, spokeVaultAbi, "operatingCash"), "DEC-096: Operating Cash on its own line");
     run.eq(latest.positions.length, 1, "one position in the report");
     run.true(latest.positions[0].income0 + latest.positions[0].income1 > 0n, "DEC-079: income apart from principal");
     run.eq(await view("arbitrum", receiver, valueReportReceiverAbi, "isReportFresh", [0n]), true, "DEC-099: within the report lifetime");
@@ -776,7 +790,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     const spokePrincipal = await principalValue(latest);
     run.eq(spokeValue, spokePrincipal, "the hub's spoke value is the report's principal");
     run.approx(await shareAssets(), assetsBeforeReport - inFlightBeforeReport + spokePrincipal, AAVE_ROUNDING, "DEC-083: the spoke value entered Share Assets");
-    run.true(spokePrincipal < amountToArrive, "DEC-096: Operating Cash and the swap's Market Costs left");
+    run.true(spokePrincipal < amountToArrive, "the swap's Market Costs (and any Operating Cash, DEC-096) left the principal");
     run.true(spokePrincipal > (amountToArrive * 99n) / 100n, "within 1% of the amount that arrived");
     await bucketsMatch("DEC-104: Share Assets is the sum of its buckets");
     run.true((await view<bigint>("arbitrum", core, coreVaultAbi, "grossAssets")) > (await shareAssets()), "DEC-098: Gross Assets add income and Operating Cash");
