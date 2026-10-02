@@ -2,8 +2,8 @@
 // on, on a fund whose spoke never reported (the deployed one if unused, else a fresh one): quotes are exact, the API's
 // transactions do what they say, a report follows each deposit and only one (DEC-159), freshness gates mints and not
 // payouts, the bridge quote is what the adapter fixes (DEC-162), the API signs routes only within its limits, a signed
-// swap route executes on the live V3 pools and a tampered one is refused, every operation ends with an event a server
-// can index, and the Share Price history follows the mints. Each run writes a run report.
+// swap route executes on the live V3 pools, direct and in two hops, and a tampered one is refused, every operation ends
+// with an event a server can index, and the Share Price history follows the mints. Each run writes a run report.
 // Run: `pnpm run up && pnpm api:probe; pnpm run down`.
 import { zeroAddress, type Address, type Hex, type TransactionReceipt } from "viem";
 import { coreVaultAbi, erc20Abi, spokeVaultAbi, uniswapV3SwapAdapterAbi } from "./abis.ts";
@@ -70,9 +70,18 @@ async function waitFor(what: string, probe: () => Promise<boolean>, seconds = 12
 }
 
 /** Executes a signed route through the chain's swap adapter as its vault (the manager's wallet stands in for the Spoke
- *  Vault until the factory deploys the fund's own adapter, WP-07), and checks that a tampered copy is refused. */
-async function signedRoute(side: Side, tokenIn: Address, tokenOut: Address, amountIn: bigint, label: string, twoHopCandidates = false) {
-  const quote = await get(`/quote/swap-route?chain=${side}&tokenIn=${tokenIn}&tokenOut=${tokenOut}&amountIn=${amountIn}`);
+ *  Vault until the factory deploys the fund's own adapter, WP-07), and checks that a tampered copy is refused. `hops`
+ *  asks the API for a path of that many hops; `twoHopCandidates` requires two-hop paths among those quoted. */
+async function signedRoute(
+  side: Side,
+  tokenIn: Address,
+  tokenOut: Address,
+  amountIn: bigint,
+  label: string,
+  expect: { hops?: 1 | 2; twoHopCandidates?: boolean } = {},
+) {
+  const hopsQuery = expect.hops ? `&hops=${expect.hops}` : "";
+  const quote = await get(`/quote/swap-route?chain=${side}&tokenIn=${tokenIn}&tokenOut=${tokenOut}&amountIn=${amountIn}${hopsQuery}`);
   const adapter = quote.adapter as Address;
   await send(side, "manager", { address: tokenIn, abi: erc20Abi, functionName: "approve", args: [adapter, amountIn] });
   const swapped = await send<readonly [bigint, bigint]>(side, "manager", {
@@ -107,7 +116,8 @@ async function signedRoute(side: Side, tokenIn: Address, tokenOut: Address, amou
     amountOut >= BigInt(route.minAmountOut) &&
       amountOut === BigInt(quote.quotedAmountOut) &&
       refused === "InvalidRouteSignature" &&
-      (!twoHopCandidates || twoHops > 0),
+      (!expect.twoHopCandidates || twoHops > 0) &&
+      (!expect.hops || hops === expect.hops),
     `best of ${quote.candidates.length} quoted paths (${twoHops} through another Mandate token): ${hops} hop(s), fees ` +
       `${quote.path.fees.join("/")}; executed ${amountOut} for a quote of ${quote.quotedAmountOut} (minimum ${route.minAmountOut}); ` +
       `a tampered minimum reverts ${refused ?? "nothing"}`,
@@ -266,7 +276,9 @@ export async function probe() {
     );
     await signedRoute("arbitrum", ARBITRUM.usdc, ARBITRUM.weth, 1_000_000_000n, "Arbitrum USDC -> WETH");
     await signedRoute("robinhood", ROBINHOOD.usdg, ROBINHOOD.weth, 1_000_000_000n, "Robinhood USDG -> WETH");
-    await signedRoute("robinhood", ROBINHOOD.usdg, ROBINHOOD.nvda, 1_000_000_000n, "Robinhood USDG -> NVDA, direct or through WETH", true);
+    await signedRoute("robinhood", ROBINHOOD.usdg, ROBINHOOD.nvda, 1_000_000_000n, "Robinhood USDG -> NVDA, direct or through WETH", { twoHopCandidates: true });
+    // Two hops through WETH, a Mandate token: the packed path with two fees and the adapter's check of every hop.
+    await signedRoute("robinhood", ROBINHOOD.usdg, ROBINHOOD.nvda, 1_000_000_000n, "Robinhood USDG -> WETH -> NVDA, two hops", { hops: 2 });
 
     // 9. Indexer: every operation above ended with an event the API can serve.
     report.phase("indexer, Share Price history and holders");
