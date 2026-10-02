@@ -1215,7 +1215,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     } else {
       // Until the Core Vault publishes orders itself (WP-09 on), the call OrderCodec.publish makes in its context is
       // sent from its address, so the keeper's relay and the guardian on the Robinhood Core are exercised now.
-      const relayedBefore = keeper ? keeper.stats.orders + keeper.stats.ordersSkipped : 0;
+      const relayedBefore = keeper ? keeper.stats.orders + keeper.stats.ordersUnsupported : 0;
       const hubNow = await latestTimestamp("arbitrum");
       const order: Order = {
         kind: ORDER_KIND.UNWIND,
@@ -1241,7 +1241,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
       run.eq(Number(message.consistencyLevel), ORDER_CONSISTENCY, "DEC-120 item 1: instant consistency");
       run.ok(`an UNWIND order (1/10) published from the Core Vault on the live Arbitrum Core: sequence ${message.sequence}, message fee ${messageFee} wei`);
       if (keeper) {
-        await waitFor("the keeper's relay of the order", async () => keeper!.stats.orders + keeper!.stats.ordersSkipped > relayedBefore);
+        await waitFor("the keeper's relay of the order", async () => keeper!.stats.orders + keeper!.stats.ordersUnsupported > relayedBefore);
         run.ok("the keeper picked the order up; the Spoke Vault has no executeOrder yet (WP-07), so it logged it and skipped it");
         // A restart: a second keeper started after the publication rescans both chains from the fork block, discovers
         // the fund from the factories' events (as it does every fund) and still relays the order. It runs in the same

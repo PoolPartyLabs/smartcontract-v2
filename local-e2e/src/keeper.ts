@@ -13,8 +13,9 @@
 //         3; production is 15 to 20 minutes of finality) to `ValueReportReceiver.deliver(vaa)` on the hub (DEC-086);
 //       - a Hub order (emitter: a known Core Vault on Arbitrum, instant consistency) after KEEPER_ORDER_DELAY_SECONDS
 //         (default 1) to the fund's Robinhood `SpokeVault.executeOrder(vaa)`, paying the Robinhood Core's message fee
-//         for the report it publishes in the same transaction (DEC-120, DEC-139). Until the Spoke Vault has
-//         `executeOrder` (WP-07) the order is logged and skipped.
+//         for the report it publishes in the same transaction (DEC-120, DEC-139). An order whose kind the Spoke Vault
+//         does not execute yet (its executor reverts `OrderKindNotSupported` until the unwind, closure and collection
+//         orders land) is logged as not yet supported and counted, never retried or treated as a failure.
 //   (c) optional `--auto-report <seconds>`: calls `SpokeVault.report()` on every known spoke on a cadence, as the
 //       production keeper would (the hub refuses mints once the last report is older than maxReportAge, 1588 s).
 //   plus: re-stamps the Chainlink ETH / USD round when it gets old (see price-feed.ts).
@@ -69,7 +70,7 @@ import {
 import { mappingSlot, setTokenBalance } from "./fund-accounts.ts";
 import { guardianSetIndexOf, signVaa, universal } from "./guardian.ts";
 import { logger, units, type Logger } from "./log.ts";
-import { ORDER_KIND_NAME, decodeOrder, hasExecuteOrder, orderId } from "./orders.ts";
+import { ORDER_KIND_NAME, decodeOrder, orderId } from "./orders.ts";
 import { ensureFeedFresh } from "./price-feed.ts";
 import { readState, type BalanceLayout, type DeploymentState } from "./state.ts";
 
@@ -118,8 +119,9 @@ export interface KeeperStats {
   deliveries: number;
   /** Hub orders executed on a Spoke Vault. */
   orders: number;
-  /** Hub orders relayed while the Spoke Vault had no `executeOrder` yet (WP-07), so skipped. */
-  ordersSkipped: number;
+  /** Hub orders the Spoke Vault refused with `OrderKindNotSupported`: their kind's executor is still a stub. The order
+   *  checks passed (they run first), and the refusal reverted the whole call, so the order cursor did not move. */
+  ordersUnsupported: number;
   reports: number;
   errors: number;
 }
@@ -127,7 +129,7 @@ export interface KeeperStats {
 export interface Keeper {
   stats: KeeperStats;
   /** Whether the Hub order `sequence` of the Core Vault `emitter` reached its Spoke Vault: executed, already executed,
-   *  expired, or skipped because the vault has no `executeOrder` yet. */
+   *  expired, or refused as a kind the vault does not execute yet. */
   handledOrder(emitter: Address, sequence: bigint): boolean;
   /** Stops polling, cancels scheduled work that has not started, and waits for what is running. */
   stop(): Promise<void>;
@@ -188,7 +190,7 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
   const acrossLog = log.child("across");
   const wormholeLog = log.child("wormhole");
   const keeper = actors.keeper;
-  const stats: KeeperStats = { fills: 0, simulatedFills: 0, deliveries: 0, orders: 0, ordersSkipped: 0, reports: 0, errors: 0 };
+  const stats: KeeperStats = { fills: 0, simulatedFills: 0, deliveries: 0, orders: 0, ordersUnsupported: 0, reports: 0, errors: 0 };
 
   const funds = new Map<Hex, FundEntry>();
   const byVault = new Map<string, FundEntry>(); // lowercased Core Vault or Robinhood Spoke Vault -> fund
@@ -498,15 +500,6 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
     inSequence(fund.spokeVault!, options.vaaDelaySeconds, () => deliver(fund, message, Number(block.timestamp)));
   }
 
-  /** Spoke Vaults whose code has `executeOrder` (code never changes at an address; a missing one is re-checked). */
-  const executors = new Set<string>();
-  async function canExecuteOrders(spokeVault: Address): Promise<boolean> {
-    if (executors.has(spokeVault.toLowerCase())) return true;
-    if (!hasExecuteOrder(await nodes.robinhood.client.getCode({ address: spokeVault }))) return false;
-    executors.add(spokeVault.toLowerCase());
-    return true;
-  }
-
   /** DEC-120 items 1-2, DEC-139: the order VAA, signed for the Robinhood Core, executed on the fund's Spoke Vault by
    *  the keeper (any address may), paying the message fee of the report `executeOrder` publishes. Returns whether the
    *  order reached the Spoke Vault. */
@@ -525,11 +518,6 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
     if (!fund.spokeVault) {
       wormholeLog.warn("Hub order for a fund with no Robinhood Spoke Vault; not relayed", fields);
       return false;
-    }
-    if (!(await canExecuteOrders(fund.spokeVault))) {
-      stats.ordersSkipped++;
-      wormholeLog.warn("Hub order seen, but the Spoke Vault has no executeOrder yet (WP-07): skipped", fields);
-      return true;
     }
     const vaa = await signVaa(
       {
@@ -562,6 +550,14 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
       }
       if (revert === "OrderExpired") {
         wormholeLog.warn("order expired before delivery; the request's retry republishes it (DEC-151)", fields);
+        return true;
+      }
+      if (revert === "OrderKindNotSupported") {
+        // The order checks passed and the kind's executor is still a stub (the spoke unwind, closure and collection
+        // orders land with WP-12, WP-13 and WP-10). Not a failure: logged, counted and not retried, since the same
+        // code refuses the same VAA the same way; the whole call reverted, so the order cursor did not move.
+        stats.ordersUnsupported++;
+        wormholeLog.warn("Hub order not yet supported by the Spoke Vault (OrderKindNotSupported): not executed", fields);
         return true;
       }
       throw err;
