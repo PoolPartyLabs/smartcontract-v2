@@ -1,5 +1,5 @@
 import {type Abi, type Address, type Hex} from "viem";
-import {spokeVaultAbi, valueReportReceiverAbi, wormholeCoreAbi} from "./abis.ts";
+import {orderChannelAbi, valueReportReceiverAbi, wormholeCoreAbi} from "./abis.ts";
 
 type Side = "hub" | "spoke";
 export interface AlphaMessage {side: Side; sequence: string; payload: Hex}
@@ -36,7 +36,7 @@ export function createAlphaDelivery({sides, bridges, receiver, spoke, vaaBase, r
     } else {
       const fee = await read("spoke", bridges.spoke, "messageFee", [], wormholeCoreAbi);
       try {
-        await send("spoke", spoke, spokeVaultAbi, "executeOrder", [vaa], fee);
+        await send("spoke", spoke, orderChannelAbi, "executeOrder", [vaa], fee);
       } catch (error: any) {
         if (error?.walk?.((entry: any) => entry?.data?.errorName === "OrderSequenceTooLow")) return true;
         throw error;
