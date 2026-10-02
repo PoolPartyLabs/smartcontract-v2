@@ -342,9 +342,19 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
     }
 
     /// @inheritdoc ISpokeVault
-    /// @dev Position and bridge adapters alike (DEC-087: a bridge is an Adapter).
+    /// @dev Position, bridge and swap adapters alike (DEC-087: a bridge is an Adapter; DEC-136).
     function adapterCodehash(address adapter) external view returns (bytes32) {
         return _s.codehash[adapter];
+    }
+
+    /// @inheritdoc ISpokeVault
+    function swapAdapters() external view returns (address[] memory) {
+        return _s.swapAdapters;
+    }
+
+    /// @inheritdoc ISpokeVault
+    function isMandateToken(address token) external view returns (bool) {
+        return _s.isLedgerToken[token];
     }
 
     /// @notice Tokens of a Mandate pool on this chain, as the adapter reported them at creation.
@@ -359,7 +369,7 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
     }
 
     /// @inheritdoc ISpokeVault
-    /// @dev The closed list: the base token and every token of a Mandate pool on this chain.
+    /// @dev The closed list: this chain's Mandate tokens, base token first (DEC-136).
     function ledgerTokens() external view returns (address[] memory) {
         return _s.tokens;
     }

@@ -16,6 +16,8 @@ import {ReentrantPositionAdapter} from "../../mocks/spoke/ReentrantPositionAdapt
 ///         adapter, the bridge fee bound at its exact boundary, and the ordering attacks the OQ-09 arrival window and
 ///         the unwind hint list are exposed to.
 contract SpokeVaultAdversarialSpokeTest is SpokeVaultTestBase {
+    using MandateFixture for Mandate;
+
     bytes32 internal constant GENUINE = keccak256("hub transit genuine");
 
     ReentrantSpokeToken internal rtk;
@@ -27,6 +29,12 @@ contract SpokeVaultAdversarialSpokeTest is SpokeVaultTestBase {
         spokeUni.addPool(SPOKE_POOL, address(rtk), address(usdg));
         _deploySpoke();
         _disableOperatingCash();
+    }
+
+    /// @dev WP-07 B1: a pool token must be a Mandate token of its chain, so the Mandate lists the reentrant token.
+    function _mandate() internal view override returns (Mandate memory m) {
+        m = super._mandate();
+        m.addToken(SPOKE, address(rtk));
     }
 
     // ---------------------------------------------------------------------------------------------------------------

@@ -14,7 +14,8 @@ import {SpokeCrossChainLib} from "./SpokeCrossChainLib.sol";
 /// @notice Identity, wiring, storage, modifiers and construction of the Spoke Vault. See ISpokeVault and SpokeVault.
 /// @dev Split out of SpokeVault like the Core Vault's layers (WP-07 A3, DEC-131 pattern): the abstract layers
 ///      (`SpokeVaultBase`, `SpokeVaultUnwind`, `SpokeVaultIncome`) compile into the one `SpokeVault` contract, whose
-///      ABI is unchanged. The constructor pins the Mandate's adapters, pools and bridge adapters of this chain; the layers read the ledger through the internal library `SpokeLedger`.
+///      ABI is unchanged. The constructor pins the Mandate's tokens, adapters, swap adapters, pools and bridge
+///      adapters of this chain; the layers read the ledger through the internal library `SpokeLedger`.
 abstract contract SpokeVaultBase is ISpokeVault, ReentrancyGuard {
     using MandateLib for Mandate;
 
@@ -90,9 +91,11 @@ abstract contract SpokeVaultBase is ISpokeVault, ReentrancyGuard {
     /// @param wormholeCore_ Wormhole Core Bridge on a spoke; address(0) on the hub (no report is published there).
     /// @param transitEscrowImplementation_ TransitEscrow cloned per send home (DEC-066, QA6); unused on the hub.
     /// @param excessRecipient_ Destination of swept excess (DEC-096, DEC-101; LC-132 OPEN).
-    /// @dev Q17-4 (OPEN, stance: pin in the vault, OQ-13): the codehash of every Mandate adapter on this chain is pinned
-    ///      here and revalidated on every later call. OQ-12: `poolTokens` is called for every Mandate pool on this
-    ///      chain, which rejects hooked Uniswap V4 pools (DEC-079 open) and fixes the token list of the ledger.
+    /// @dev Q17-4 (OPEN, stance: pin in the vault, OQ-13): the codehash of every Mandate adapter on this chain, swap
+    ///      adapters included (DEC-136), is pinned here and revalidated on every later call. The ledger's closed token
+    ///      list is this chain's Mandate tokens, base token first (DEC-123, DEC-136). OQ-12: `poolTokens` is called for
+    ///      every Mandate pool on this chain, which rejects hooked Uniswap V4 pools (DEC-079 open), and each pool token
+    ///      must be a Mandate token of this chain (`PoolTokenNotInMandate`, WP-07 B1).
     ///      DEC-087, DEC-088: on a spoke, every spoke-side bridge adapter's `target()` is pinned in Mandate order.
     constructor(
         Mandate memory mandate_,
@@ -142,7 +145,12 @@ abstract contract SpokeVaultBase is ISpokeVault, ReentrancyGuard {
         excessRecipient = excessRecipient_;
 
         _registerToken(baseToken_);
+        address[] memory tokens = mandate_.tokensOf(chainId_);
+        for (uint256 i; i < tokens.length; ++i) {
+            _registerToken(tokens[i]);
+        }
         _pinAdapters(mandate_, chainId_);
+        _pinSwapAdapters(mandate_, chainId_);
         _pinPools(mandate_, chainId_);
         if (!hub) _pinBridgeAdapters(mandate_, chainId_);
     }
@@ -158,15 +166,35 @@ abstract contract SpokeVaultBase is ISpokeVault, ReentrancyGuard {
         }
     }
 
-    /// @dev DEC-030 (closed pool list), OQ-12 (hooked pools rejected by `poolTokens`).
+    /// @dev DEC-136 (closing note item 1): the Mandate's swap adapters of this chain, each with its pinned codehash
+    ///      (Q17-4), in Mandate order.
+    function _pinSwapAdapters(Mandate memory m, uint256 chainId_) private {
+        for (uint256 i; i < m.swapAdapters.length; ++i) {
+            if (m.swapAdapters[i].chainId != chainId_) continue;
+            address adapter = m.swapAdapters[i].adapter;
+            _s.codehash[adapter] = _requireCode(adapter);
+            _s.isSwapAdapter[adapter] = true;
+            _s.swapAdapters.push(adapter);
+        }
+    }
+
+    /// @dev DEC-030 (closed pool list), OQ-12 (hooked pools rejected by `poolTokens`), WP-07 B1 (every pool token is a
+    ///      Mandate token of this chain, so the ledger, the report and the swap adapter know every token a position
+    ///      can return).
     function _pinPools(Mandate memory m, uint256 chainId_) private {
         for (uint256 i; i < m.pools.length; ++i) {
             PoolConfig memory p = m.pools[i];
             if (p.chainId != chainId_) continue;
             (address token0, address token1) = IAdapter(p.adapter).poolTokens(p.poolKey);
             _s.pools[p.adapter][p.poolKey] = SpokeVaultTypes.PoolTokens(token0, token1, true);
-            _registerToken(token0);
-            _registerToken(token1);
+            _requireMandateToken(p, token0);
+            _requireMandateToken(p, token1);
+        }
+    }
+
+    function _requireMandateToken(PoolConfig memory p, address token) private view {
+        if (token != address(0) && !_s.isLedgerToken[token]) {
+            revert SpokeVaultTypes.PoolTokenNotInMandate(p.adapter, p.poolKey, token);
         }
     }
 

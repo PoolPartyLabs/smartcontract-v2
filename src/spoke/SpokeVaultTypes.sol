@@ -106,13 +106,15 @@ library SpokeVaultTypes {
     }
 
     /// @notice Every mutable and pinned value of a Spoke Vault.
-    /// @dev Chain-local Mandate copy pinned at creation (DEC-030, DEC-053, DEC-087, DEC-088, Q17-4), the
+    /// @dev Chain-local Mandate copy pinned at creation (DEC-030, DEC-053, DEC-087, DEC-088, DEC-136, Q17-4), the
     ///      internal ledger (DEC-080), Operating Cash (DEC-096) and the cross-chain books (DEC-066, DEC-090, OQ-09).
     struct State {
         // Pinned at creation.
         address[] adapters;
         address[] bridgeAdapters;
+        address[] swapAdapters;
         mapping(address => bool) isPositionAdapter;
+        mapping(address => bool) isSwapAdapter;
         mapping(address => bytes32) codehash;
         mapping(address => address) bridgeTarget;
         mapping(address => mapping(bytes32 => PoolTokens)) pools;
@@ -149,6 +151,8 @@ library SpokeVaultTypes {
     error BaseTokenMismatch(address baseToken, address expected);
     error UnexpectedWormholeCore(address wormholeCore);
     error AdapterHasNoCode(address adapter);
+    /// @notice A Mandate pool of this chain holds a token that is not a Mandate token of this chain (WP-07 B1, DEC-136).
+    error PoolTokenNotInMandate(address adapter, bytes32 poolKey, address token);
     error ZeroBridgeTarget(address bridgeAdapter);
     error UnknownBridgeRank(uint256 bridgeRank);
     error BridgeTargetMismatch(address bridgeAdapter, address pinned, address built);

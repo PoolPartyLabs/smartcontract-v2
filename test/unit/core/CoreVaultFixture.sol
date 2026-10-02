@@ -28,6 +28,7 @@ import {MockHubSpokeVault} from "../../mocks/core/MockHubSpokeVault.sol";
 import {MockReportReceiver} from "../../mocks/core/MockReportReceiver.sol";
 import {FundSeed} from "../../utils/FundSeed.sol";
 import {MandateFixture} from "../../utils/MandateFixture.sol";
+import {MockSwapAdapter} from "../../mocks/swap/MockSwapAdapter.sol";
 
 /// @notice Shared deployment of a Core Vault against mocks: Arbitrum as hub (42161), Robinhood as the one spoke (4663).
 /// @dev The test contract plays the factory (`CoreVaultConfig.factory`): `_deploy` seeds every fund at creation, as
@@ -68,8 +69,10 @@ abstract contract CoreVaultFixture is Test, FundSeed {
     address internal spokeVaultAddress = makeAddr("robinhoodSpokeVault");
     address internal hubAdapter = makeAddr("hubUniswapV4Adapter");
     address internal spokeAdapter = makeAddr("spokeUniswapV4Adapter");
-    address internal hubSwapAdapter = makeAddr("hubUniswapV3SwapAdapter");
-    address internal spokeSwapAdapter = makeAddr("spokeUniswapV3SwapAdapter");
+    /// @dev Code-only swap adapters (DEC-136): a derived test may build a real Spoke Vault from this Mandate, which
+    ///      pins them.
+    address internal hubSwapAdapter;
+    address internal spokeSwapAdapter;
     address internal spokeBridge = makeAddr("spokeAcrossAdapter");
     address internal alice = makeAddr("alice");
     address internal bob = makeAddr("bob");
@@ -85,6 +88,8 @@ abstract contract CoreVaultFixture is Test, FundSeed {
         weth = new CoreMockToken("Wrapped Ether", "WETH", 18);
         usdg = new CoreMockToken("Global Dollar", "USDG", 6);
         spokeWeth = new CoreMockToken("Robinhood WETH", "WETH", 18);
+        hubSwapAdapter = address(new MockSwapAdapter());
+        spokeSwapAdapter = address(new MockSwapAdapter());
         prices = new MockPriceSource();
         prices.setPrice(address(weth), 2.5e9); // 2,500 USDC per WETH
         prices.setPrice(address(spokeWeth), 2.5e9);

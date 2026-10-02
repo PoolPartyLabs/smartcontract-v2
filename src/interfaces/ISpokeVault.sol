@@ -157,6 +157,12 @@ interface ISpokeVault is IAcrossMessageHandler, ISpokeVaultUnwind, ISpokeVaultIn
     /// @notice Codehash pinned for `adapter` at creation (Q17-4); zero for an address that is not an adapter here.
     function adapterCodehash(address adapter) external view returns (bytes32);
 
+    /// @notice The Mandate swap adapters of this chain, in Mandate order, each pinned with its codehash (DEC-136).
+    function swapAdapters() external view returns (address[] memory);
+
+    /// @notice Whether `token` is a Mandate token of this chain (DEC-136): the closed list of the ledger.
+    function isMandateToken(address token) external view returns (bool);
+
     /// @notice Address that receives swept excess balances. OPEN (LC-132): whether it is the Protocol Recipient.
     function excessRecipient() external view returns (address);
 
@@ -279,7 +285,7 @@ interface ISpokeVault is IAcrossMessageHandler, ISpokeVaultUnwind, ISpokeVaultIn
     /// @notice Unallocated Balance of `token` (DEC-055).
     function unallocatedBalance(address token) external view returns (uint256);
 
-    /// @notice Tokens that ever had an Unallocated Balance entry.
+    /// @notice The closed list of tokens the ledger tracks: this chain's Mandate tokens, base token first (DEC-136).
     function ledgerTokens() external view returns (address[] memory);
 
     /// @notice Collected income of `token` held here, outside Share Assets (DEC-092).

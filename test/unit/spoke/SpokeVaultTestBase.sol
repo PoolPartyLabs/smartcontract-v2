@@ -88,7 +88,7 @@ abstract contract SpokeVaultTestBase is Test {
         escrowImplementation = new TransitEscrow();
     }
 
-    function _mandate() internal view returns (Mandate memory m) {
+    function _mandate() internal view virtual returns (Mandate memory m) {
         m.manager = manager;
         m.hubChainId = HUB;
         m.hubWormholeChainId = MandateFixture.ARBITRUM_WORMHOLE_CHAIN_ID;
