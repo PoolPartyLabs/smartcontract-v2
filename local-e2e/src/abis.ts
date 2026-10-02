@@ -65,6 +65,7 @@ export const wormholeCoreAbi = parseAbi([
   "function nextSequence(address emitter) view returns (uint64)",
   "function chainId() view returns (uint16)",
   "function messageFee() view returns (uint256)",
+  "function publishMessage(uint32 nonce, bytes payload, uint8 consistencyLevel) payable returns (uint64 sequence)",
 ]);
 
 /** The order channel's consumer (`SpokeVault.executeOrder`, WP-07 plan D4) and the errors of
@@ -111,8 +112,13 @@ export const v4SwapRouterAbi = parseAbi([
 
 /** Creation code of the V4SwapRouter test helper, from the forge build output. */
 export function v4SwapRouterBytecode(): `0x${string}` {
-  const artifact = JSON.parse(readFileSync(join(REPO_DIR, "out/V4SwapRouter.sol/V4SwapRouter.json"), "utf8"));
-  return artifact.bytecode.object as `0x${string}`;
+  return forgeArtifact("V4SwapRouter.sol", "V4SwapRouter").bytecode;
+}
+
+/** A contract's ABI and creation code from the forge build output (`out/<file>/<contract>.json`). */
+export function forgeArtifact(file: string, contract: string): { abi: Abi; bytecode: `0x${string}` } {
+  const artifact = JSON.parse(readFileSync(join(REPO_DIR, "out", file, `${contract}.json`), "utf8"));
+  return { abi: artifact.abi as Abi, bytecode: artifact.bytecode.object as `0x${string}` };
 }
 
 /** Every error the protocol and the external contracts can revert with, for decoding reverts that bubble up through

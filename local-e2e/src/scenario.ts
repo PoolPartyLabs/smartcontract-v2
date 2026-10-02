@@ -1,8 +1,8 @@
 // The end-to-end scenario over JSON-RPC: the phases of test/fork/e2e/EndToEnd.t.sol with real signed transactions from
 // the actors on the two local forks, the keeper filling Across deposits and delivering VAAs, an extra phase that
-// brings Principal home through Across so the hub-side fill is exercised too, the Hub-to-spoke order channel and the
-// fund's closure. Every step asserts; the first failed assertion stops the run with a non-zero exit code. Each run
-// writes a run report to local-e2e/reports/ (src/report.ts).
+// brings Principal home through Across so the hub-side fill is exercised too, and the Hub-to-spoke order channel.
+// Every step asserts; the first failed assertion stops the run with a non-zero exit code. Each run writes a run report
+// to local-e2e/reports/ (src/report.ts).
 //
 // Usage: pnpm scenario [--keeper auto|inprocess|external] [--new-fund]
 //   --keeper auto (default): use a running `pnpm keeper` if there is one, else start the keeper in-process.
@@ -11,6 +11,9 @@ import {
   decodeAbiParameters,
   decodeEventLog,
   encodeAbiParameters,
+  encodeDeployData,
+  encodePacked,
+  keccak256,
   zeroAddress,
   type Abi,
   type Address,
@@ -25,6 +28,7 @@ import {
   chainlinkPriceSourceAbi,
   coreVaultAbi,
   erc20Abi,
+  forgeArtifact,
   managerRegistryAbi,
   shareTokenAbi,
   spokeVaultAbi,
@@ -32,7 +36,7 @@ import {
   valueReportReceiverAbi,
   wormholeCoreAbi,
 } from "./abis.ts";
-import { explain, latestTimestamp, nodes, nodesUp, read, send, simulateRevert, type Side } from "./chain.ts";
+import { deploy, explain, latestTimestamp, nodes, nodesUp, read, send, sendAs, simulateRevert, type Side } from "./chain.ts";
 import {
   AAVE_USDC_POOL_KEY,
   ARBITRUM,
@@ -44,6 +48,7 @@ import {
   ROBINHOOD_CHAIN_ID,
   SPOKE_POOL_ID,
   SPOKE_POOL_KEY,
+  WORMHOLE_ARBITRUM,
   WORMHOLE_ROBINHOOD,
   actors,
   isMain,
@@ -51,9 +56,10 @@ import {
 } from "./config.ts";
 import { createFund } from "./deploy.ts";
 import { TARGETS, layoutOf, topUpToken } from "./fund-accounts.ts";
-import { universal } from "./guardian.ts";
+import { guardianSetIndexOf, signVaa, universal } from "./guardian.ts";
 import { DEFAULT_KEEPER_OPTIONS, runningKeeperPid, startKeeper, type Keeper } from "./keeper.ts";
 import { bold, dim, green, logger, red, units, type Logger } from "./log.ts";
+import { ORDER_CONSISTENCY, ORDER_KIND, ORDER_LIFETIME, encodeOrder, hasExecuteOrder, orderId, type Order } from "./orders.ts";
 import { ensureFeedFresh } from "./price-feed.ts";
 import { readState, type DeploymentState, type FundRecord } from "./state.ts";
 import { centerTick, currentTick, generateFees, openParams, oracleAmounts, swapParams } from "./uniswap.ts";
@@ -1070,6 +1076,81 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     run.eq(await sharePrice(), priceBeforeDonation, "Share Price unchanged");
     await bucketsMatch("DEC-104 after the sweep");
     run.ok(`a stranger donates 1,234 USDC to the Core Vault: Share Price stays ${price(priceBeforeDonation)}, the donation is swept to the Protocol Recipient`);
+
+    // ------------------------------------------------------------------------------------------------------------
+    // Phase 14: the Hub-to-spoke order channel (DEC-111, DEC-120, DEC-139; OrderCodec and OrderVerifier)
+    // ------------------------------------------------------------------------------------------------------------
+    await run.phase("Phase 14: the Hub-to-spoke order channel (DEC-093, DEC-111, DEC-120, DEC-139)");
+    if (hasExecuteOrder(await nodes.robinhood.client.getCode({ address: spokeVault }))) {
+      run.note("the Spoke Vault executes orders: the channel is the Core Vault's own, exercised by the payouts that reach the spoke");
+    } else {
+      // Until the Core Vault publishes orders itself (WP-09 on), the call OrderCodec.publish makes in its context is
+      // sent from its address, so the keeper's relay and the guardian on the Robinhood Core are exercised now.
+      const relayedBefore = keeper ? keeper.stats.orders + keeper.stats.ordersSkipped : 0;
+      const hubNow = await latestTimestamp("arbitrum");
+      const order: Order = {
+        kind: ORDER_KIND.UNWIND,
+        fundId: fund.fundId,
+        requestId: keccak256(encodePacked(["string", "uint256"], ["local-e2e order channel", hubNow])),
+        attempt: 0,
+        deadline: hubNow + ORDER_LIFETIME,
+        fracNum: 1n,
+        fracDen: 10n,
+        maxLossBps: 0,
+        payoutMode: INSTANT,
+      };
+      const messageFee = await view<bigint>("arbitrum", ARBITRUM.wormholeCore, wormholeCoreAbi, "messageFee");
+      const published = await sendAs("arbitrum", core, {
+        address: ARBITRUM.wormholeCore,
+        abi: wormholeCoreAbi,
+        functionName: "publishMessage",
+        args: [0, encodeOrder(order), ORDER_CONSISTENCY],
+        value: messageFee,
+      });
+      const [message] = events(published.receipt, ARBITRUM.wormholeCore, wormholeCoreAbi, "LogMessagePublished");
+      run.eq(message.sender, core, "DEC-111: the Core Vault is the emitter");
+      run.eq(Number(message.consistencyLevel), ORDER_CONSISTENCY, "DEC-120 item 1: instant consistency");
+      run.ok(`an UNWIND order (1/10) published from the Core Vault on the live Arbitrum Core: sequence ${message.sequence}, message fee ${messageFee} wei`);
+      if (keeper) {
+        await waitFor("the keeper's relay of the order", async () => keeper!.stats.orders + keeper!.stats.ordersSkipped > relayedBefore);
+        run.ok("the keeper picked the order up; the Spoke Vault has no executeOrder yet (WP-07), so it logged it and skipped it");
+      } else {
+        run.note("external keeper: its log shows the order relayed and skipped until the Spoke Vault has executeOrder");
+      }
+      // The VAA the keeper builds, accepted by OrderVerifier against the live Robinhood Core through the test receiver
+      // that stands in for executeOrder (test/mocks/wormhole/OrderVerifierHarness.sol).
+      const published1 = await nodes.arbitrum.client.getBlock({ blockNumber: published.receipt.blockNumber });
+      const vaa = await signVaa(
+        {
+          timestamp: Number(published1.timestamp),
+          nonce: Number(message.nonce),
+          emitterChainId: WORMHOLE_ARBITRUM,
+          emitterAddress: universal(core),
+          sequence: message.sequence,
+          consistencyLevel: ORDER_CONSISTENCY,
+          payload: message.payload,
+        },
+        await guardianSetIndexOf("robinhood"),
+      );
+      const receiverArtifact = forgeArtifact("OrderVerifierHarness.sol", "OrderReceiverHarness");
+      const orderReceiver = await deploy(
+        "robinhood",
+        "stranger",
+        encodeDeployData({ abi: receiverArtifact.abi, bytecode: receiverArtifact.bytecode, args: [ROBINHOOD.wormholeCore, WORMHOLE_ARBITRUM, core, fund.fundId] }),
+        "deploy OrderReceiverHarness",
+      );
+      const executed = await tx("robinhood", "keeper", orderReceiver, receiverArtifact.abi, "execute", [vaa]);
+      const [done] = events(executed.receipt, orderReceiver, receiverArtifact.abi, "OrderExecuted");
+      run.eq(Number(done.kind), ORDER_KIND.UNWIND, "the order kind");
+      run.eq(done.orderId, orderId(order), "OrderCodec: one id per (kind, fund, request, attempt)");
+      run.eq(done.wormholeSequence, message.sequence, "the Hub's sequence");
+      run.eq(
+        await simulateRevert("robinhood", "keeper", { address: orderReceiver, abi: receiverArtifact.abi, functionName: "execute", args: [vaa] }),
+        "OrderSequenceTooLow",
+        "DEC-093: an order executes once",
+      );
+      run.ok(`the VAA signed for the Robinhood Core passes OrderVerifier (emitter chain 23, the Core Vault, the fund, the sequence); a replay reverts`);
+    }
 
     const result: ScenarioResult = {
       steps: run.step,

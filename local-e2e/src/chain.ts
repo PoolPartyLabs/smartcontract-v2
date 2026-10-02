@@ -7,6 +7,7 @@ import {
   createPublicClient,
   createWalletClient,
   decodeErrorResult,
+  encodeFunctionData,
   http,
   type Abi,
   type Account,
@@ -315,6 +316,37 @@ export async function simulateRevert(side: Side, who: ActorName | Account, call:
     if (!revert) throw err;
     return revert.name;
   }
+}
+
+/** Sends `call` from `from`, an address the harness holds no key for (a contract, for instance), by impersonating it;
+ *  its native balance is topped up for gas and put back afterwards, so its books never see the gas money. */
+export async function sendAs(side: Side, from: Address, call: Call): Promise<Sent<undefined>> {
+  return serialize(`${side}:${from}`, async () => {
+    const node = nodes[side];
+    const balance = await node.client.getBalance({ address: from });
+    await anvil.setBalance(side, from, balance + (call.value ?? 0n) + 10n ** 18n);
+    await anvil.impersonate(side, from);
+    try {
+      const hash = (await node.client.request({
+        method: "eth_sendTransaction",
+        params: [
+          {
+            from,
+            to: call.address,
+            data: encodeFunctionData({ abi: call.abi, functionName: call.functionName, args: call.args ?? [] } as never),
+            value: `0x${(call.value ?? 0n).toString(16)}`,
+          },
+        ],
+      } as never)) as Hex;
+      const receipt = await node.client.waitForTransactionReceipt({ hash, pollingInterval: 100 });
+      if (receipt.status !== "success") throw new Error(`transaction ${hash} from ${from} reverted on ${node.label}`);
+      recordTransaction(side, call.functionName, receipt);
+      return { receipt, result: undefined, hash };
+    } finally {
+      await anvil.stopImpersonating(side, from);
+      await anvil.setBalance(side, from, balance);
+    }
+  });
 }
 
 /** Deploys `bytecode` (creation code with constructor arguments appended) from `who`; returns the address. */
