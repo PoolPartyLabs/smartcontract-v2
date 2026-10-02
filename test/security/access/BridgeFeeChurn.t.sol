@@ -1,53 +1,64 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
-import {BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
+import {AcrossBridgeAdapter} from "../../../src/adapters/AcrossBridgeAdapter.sol";
+import {IAcrossSpokePool} from "../../../src/interfaces/external/IAcrossSpokePool.sol";
+import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
+import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
+import {MockAcrossSpokePool as AcrossPoolStandIn} from "../../mocks/across/MockAcrossSpokePool.sol";
 import {CoreVaultFixture} from "../../unit/core/CoreVaultFixture.sol";
 
-/// @title Regression (security review S-9): the manager can no longer be its own exclusive Across relayer
+/// @title Regression (security review S-9, restated for DEC-158 / DEC-162): the manager cannot be its own exclusive
+///        Across relayer, nor choose what a relayer keeps
 /// @notice Was PoC `test_POC_managerSelfRelaysAtTheMaximumFeeRoundAfterRound` (high, access lens): the vaults passed
 ///         the quote's `exclusiveRelayer` and exclusivity window to Across untouched, so the manager named itself
 ///         exclusive relayer, filled its own deposits and kept the whole `maxBridgeFeeBps` bound on every leg (9.5% of
 ///         the fund in ten round trips).
-/// @notice FIX (S-9): both vaults reject a quote with a non-zero `exclusiveRelayer` or `exclusivityDeadline`
-///         (`ExclusiveRelayerNotAllowed`), so relayers compete for every fill. The test asserts the self-relay quote
-///         now FAILS. Residual (docs/security/KNOWN-LIMITATIONS.md): a manager who over-quotes up to the Mandate bound
-///         still hands the difference to whichever relayer fills first; a per-period bridge-fee budget is a founder
-///         decision.
-/// @dev Real Core Vault on the repository's unit fixture.
+/// @notice FIX (S-9, then DEC-158 / DEC-162): the manager passes no bridge parameter at all. The Across adapter fixes
+///         every term of the deposit: no exclusive relayer, no exclusivity, the quote time, the deadline and the amount
+///         to arrive by its fee rule (0.08% plus 0.03 on a first send). A quote in `bridgeData` is refused, so the
+///         self-relay quote FAILS; whoever fills first keeps the rule's fee, never a gap the manager chose. The S-9
+///         residual (an over-quote up to the Mandate bound handed to the first relayer) is gone.
+/// @dev Real Core Vault on the repository's unit fixture, with the real Across adapter over the SpokePool stand-in.
 contract BridgeFeeChurnPoC is CoreVaultFixture {
-    uint256 internal constant MAX_FEE_BPS = 50;
-
     function test_SEC_S9_managerCanNoLongerSelfRelayExclusively() public {
-        _deposit(alice, 100_000e6);
-        _ensureSpokeReport(); // S-14: the spoke has reported once before the hub funds it
+        (, AcrossPoolStandIn acrossPool) = _deployWithAcross(100_000e6);
         uint256 sent = vault.freeIdle();
-        uint256 arrives = sent - sent * MAX_FEE_BPS / 10_000;
+        uint256 ruleFee = (sent * 8e14 + 1e18 - 1) / 1e18 + 30_000;
 
+        // The self-relay quote (the manager exclusive for the whole window, half a percent kept) is refused.
         vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.ExclusiveRelayerNotAllowed.selector, manager));
-        vault.sendToSpoke(0, sent, 0, _selfRelayQuote(arrives));
+        vm.expectRevert(AcrossBridgeAdapter.QuotesNotSupported.selector);
+        vault.sendToSpoke(0, sent, 0, abi.encode(sent - sent * 50 / 10_000, uint32(21_600), manager));
 
-        // An exclusivity window without a named relayer is refused too.
-        BridgeQuote memory windowOnly = _selfRelayQuote(arrives);
-        windowOnly.exclusiveRelayer = address(0);
+        // The only send there is carries the adapter's terms: no relayer, no exclusivity, the rule's amount.
+        vm.expectCall(address(acrossPool), _expectedDeposit(sent, sent - ruleFee));
         vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.ExclusiveRelayerNotAllowed.selector, address(0)));
-        vault.sendToSpoke(0, sent, 0, windowOnly);
-
-        // The open quote goes through.
-        vm.prank(manager);
-        vault.sendToSpoke(0, sent, 0, _quote(arrives));
+        vault.sendToSpoke(0, sent, 0, "");
         assertEq(vault.freeIdle(), 0);
+        assertEq(vault.inFlightValue(), sent - ruleFee);
     }
 
-    function _selfRelayQuote(uint256 outputAmount) internal view returns (BridgeQuote memory) {
-        return BridgeQuote({
-            outputAmount: outputAmount,
-            quoteTimestamp: uint32(block.timestamp),
-            exclusivityDeadline: 21_600,
-            exclusiveRelayer: manager
-        });
+    /// @dev The exact `depositV3` call the vault's first send makes: transit id and escrow clone are predictable.
+    function _expectedDeposit(uint256 sent, uint256 arrives) internal view returns (bytes memory) {
+        bytes32 id = keccak256(abi.encode(block.chainid, address(vault), uint256(1)));
+        address escrow = vm.computeCreateAddress(address(vault), vm.getNonce(address(vault)));
+        return abi.encodeCall(
+            IAcrossSpokePool.depositV3,
+            (
+                escrow,
+                spokeVaultAddress,
+                address(usdc),
+                address(usdg),
+                sent,
+                arrives,
+                SPOKE,
+                address(0),
+                uint32(block.timestamp),
+                uint32(block.timestamp) + 21_600,
+                0,
+                TransitMessage.encode(FUND_ID, HUB, id, TransferKind.Principal)
+            )
+        );
     }
 }

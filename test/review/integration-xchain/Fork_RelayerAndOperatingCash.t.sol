@@ -6,10 +6,10 @@ import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
 import {IFundFactory} from "../../../src/interfaces/IFundFactory.sol";
 import {IAcrossSpokePool} from "../../../src/interfaces/external/IAcrossSpokePool.sol";
-import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
+import {TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
+import {AcrossBridgeAdapter} from "../../../src/adapters/AcrossBridgeAdapter.sol";
 import {FundFactory} from "../../../src/factory/FundFactory.sol";
 import {Mandate, MandateLib} from "../../../src/mandate/Mandate.sol";
-import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
 import {ShareMath} from "../../../src/libraries/ShareMath.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {XChainBase, LiveRelayData} from "./XChainBase.sol";
@@ -19,7 +19,8 @@ import {XChainBase, LiveRelayData} from "./XChainBase.sol";
 ///         Mandate the factory accepted) against the live SpokePools in both directions, and H-08 (reports 02 H-01, 04
 ///         H-02, 05 H-02, register S-5: Operating Cash with no bound and no outflow) on the factory-created fund.
 /// @dev Adaptation to the fix branch, interface only: the spoke's first report is delivered before the first send
-///      (S-14); a quote carries no exclusivity (S-9).
+///      (S-14); since DEC-158 / DEC-162 the Across adapter fixes every term of a send (no exclusivity, the amount to
+///      arrive by its fee rule), so neither the manager's quote nor the Mandate's bound sets what a relayer keeps.
 contract Fork_RelayerAndOperatingCash is XChainBase {
     uint256 internal constant ARRIVES = BRIDGE_AMOUNT - BRIDGE_FEE;
 
@@ -29,10 +30,11 @@ contract Fork_RelayerAndOperatingCash is XChainBase {
     // M-01 (report 03 M-01; S-9)
     // -----------------------------------------------------------------------------------------------------------------
 
-    /// @notice PARTIAL. Exclusivity is refused on both vaults, so the live pools would take a stranger's fill; but no
-    ///         rule keeps the manager's relayer from filling the fund's own sends when it is first, and Across then
-    ///         repays it the input. At the scripts' 4 bps bound the round trip still hands it 3.19536 USDC, as on
-    ///         e5c778a (3.195); what changed is that the fill is contested.
+    /// @notice PARTIAL, bounded by DEC-162. The manager can name no relayer and no amount (a quote to the hub's Across
+    ///         adapter is refused; the Spoke Vault ignores its quote argument), so the live pools take a stranger's
+    ///         fill; no rule keeps the manager's relayer from filling the fund's own sends when it is first, and Across
+    ///         then repays it the input. What it keeps is the adapter's rule fee (0.08% plus 0.03 per send), never a
+    ///         gap the manager chose.
     function test_POC_REVIEW_M01_managerRelayerStillKeepsTheFeeWhenItFillsFirst() public {
         _createForks();
         _phase1CreateFund();
@@ -42,9 +44,10 @@ contract Fork_RelayerAndOperatingCash is XChainBase {
 
         _onArbitrum();
         vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.ExclusiveRelayerNotAllowed.selector, managerRelayer));
-        core.sendToSpoke(0, BRIDGE_AMOUNT, 0, _exclusiveQuote(ARRIVES, managerRelayer));
-        (, LiveRelayData memory out) = _sendToSpoke(BRIDGE_AMOUNT, _quote(ARRIVES));
+        vm.expectRevert(AcrossBridgeAdapter.QuotesNotSupported.selector);
+        core.sendToSpoke(0, BRIDGE_AMOUNT, 0, abi.encode(ARRIVES, managerRelayer, uint32(21_600)));
+        (, LiveRelayData memory out) = _sendToSpoke(BRIDGE_AMOUNT);
+        assertEq(out.outputAmount, ARRIVES, "the adapter's amount to arrive");
         assertEq(out.exclusiveRelayer, bytes32(0));
         assertEq(out.exclusivityDeadline, 0);
         assertEq(assets - core.shareAssets(), BRIDGE_FEE, "Share Assets drop by the fee at once");
@@ -58,17 +61,23 @@ contract Fork_RelayerAndOperatingCash is XChainBase {
         // Across repays the filler the input amount on its repayment chain (relayer-refund leaf; LP fee not modelled).
         _onArbitrum();
         _acrossRefund(ARB_ACROSS_SPOKE_POOL, ARB_USDC, managerRelayer, out.inputAmount);
-        assertEq(IERC20(ARB_USDC).balanceOf(managerRelayer), BRIDGE_AMOUNT, "repaid 4,000 USDC for 3,998.40 USDG");
+        assertEq(IERC20(ARB_USDC).balanceOf(managerRelayer), BRIDGE_AMOUNT, "repaid 4,000 USDC for 3,996.77 USDG");
         _report();
 
-        // Spoke to hub: the same on the way home.
+        // Spoke to hub: the same on the way home. The manager's quote (one unit out, its own relayer exclusive) is
+        // ignored: the deposit carries the adapter's terms.
         _onRobinhood();
         uint256 all = spokeVault.unallocatedBalance(RH_USDG);
-        uint256 maxFee = all * MAX_BRIDGE_FEE_BPS / 10_000;
+        vm.recordLogs();
         vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.ExclusiveRelayerNotAllowed.selector, managerRelayer));
-        spokeVault.sendToHub(all, TransferKind.Principal, 0, _exclusiveQuote(all - maxFee, managerRelayer));
-        (, LiveRelayData memory home) = _sendToHub(all, TransferKind.Principal, _quote(all - maxFee));
+        spokeVault.sendToHub(
+            all, TransferKind.Principal, 0, BridgeQuote(1, uint32(block.timestamp), 21_600, managerRelayer)
+        );
+        LiveRelayData memory home = _one(_relaysFrom(vm.getRecordedLogs(), RH_ACROSS_SPOKE_POOL, ROBINHOOD));
+        assertEq(home.exclusiveRelayer, bytes32(0), "no exclusive relayer");
+        assertEq(home.exclusivityDeadline, 0);
+        uint256 homeFee = _ruleFee(all);
+        assertEq(home.outputAmount, all - homeFee, "the adapter's amount, not the quote's");
         _onArbitrum();
         _advance(2 minutes);
         _fillOnArbitrum(home, managerRelayer);
@@ -78,17 +87,18 @@ contract Fork_RelayerAndOperatingCash is XChainBase {
         _acrossRefund(RH_ACROSS_SPOKE_POOL, RH_USDG, managerRelayer, home.inputAmount);
 
         _onArbitrum();
-        uint256 captured = BRIDGE_FEE + maxFee;
+        uint256 captured = BRIDGE_FEE + homeFee;
         _log("fees the manager's relayer kept over the round trip", captured);
         _log("Share Assets lost over the round trip", assets - core.shareAssets());
         // The other 10 USDG are the spoke's Operating Cash top-up at the first arrival (DEC-096), not a relayer gain.
         assertApproxEqAbs(assets - core.shareAssets(), captured + SPOKE_OPERATING_CASH_TOP_UP, 1);
-        assertEq(captured, 3_195_360);
+        assertEq(captured, _ruleFee(BRIDGE_AMOUNT) + _ruleFee(all), "the rule's fee each way, nothing more");
     }
 
     /// @notice FIXED. The 10,000 bps Mandate the real factory created on e5c778a (one send moved 3,999.999999 out of
-    ///         Share Assets to the manager's relayer) now reverts `BpsAboveMax(10000, 100)`; at the 100 bps cap one
-    ///         4,000 send can give a relayer at most 40.
+    ///         Share Assets to the manager's relayer) now reverts `BpsAboveMax(10000, 100)` while the field exists; and
+    ///         since DEC-162 the bound no longer prices anything: at the 100 bps Mandate bound a 4,000 send gives a
+    ///         relayer the adapter's 3.23, not 40.
     function test_REVIEW_M01_bridgeFeeBoundCappedAtOnePercent() public {
         _createForks();
         FundPlan memory plan = _plan();
@@ -105,11 +115,8 @@ contract Fork_RelayerAndOperatingCash is XChainBase {
         _phase2AnaDeposits();
         _report(); // S-14
         uint256 assets = core.shareAssets();
-        vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.BridgeFeeAboveMax.selector, 40e6 + 1, 40e6));
-        core.sendToSpoke(0, BRIDGE_AMOUNT, 0, _quote(BRIDGE_AMOUNT - 40e6 - 1));
-        _sendToSpoke(BRIDGE_AMOUNT, _quote(BRIDGE_AMOUNT - 40e6));
-        assertEq(assets - core.shareAssets(), 40e6, "at most 1% of the send leaves Share Assets");
+        _sendToSpoke(BRIDGE_AMOUNT);
+        assertEq(assets - core.shareAssets(), BRIDGE_FEE, "the adapter's fee leaves Share Assets, not the bound");
     }
 
     // -----------------------------------------------------------------------------------------------------------------
@@ -167,7 +174,7 @@ contract Fork_RelayerAndOperatingCash is XChainBase {
         _phase2AnaDeposits();
         _depositAs(bruno, 10_000e6);
         _report(); // S-14
-        (, LiveRelayData memory out) = _sendToSpoke(BRIDGE_AMOUNT, _quote(ARRIVES));
+        (, LiveRelayData memory out) = _sendToSpoke(BRIDGE_AMOUNT);
         _fillOnRobinhood(out, relayer);
         _report();
         uint256 assets = core.shareAssets();
@@ -181,7 +188,7 @@ contract Fork_RelayerAndOperatingCash is XChainBase {
         assertEq(spokeVault.operatingCash(), SPOKE_OPERATING_CASH_TOP_UP + principal + 1e6);
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(ISpokeVault.InsufficientUnallocatedBalance.selector, RH_USDG, 0, 1e6));
-        spokeVault.sendToHub(1e6, TransferKind.Principal, 0, _quote(1e6));
+        spokeVault.sendToHub(1e6, TransferKind.Principal, 0, BridgeQuote(0, 0, 0, address(0)));
         assertEq(spokeVault.sweepExcess(RH_USDG), 0, "ledger, never swept");
 
         _report();
@@ -191,7 +198,7 @@ contract Fork_RelayerAndOperatingCash is XChainBase {
         assertEq(_capUsed(), 0, "and the Spoke Cap reads empty");
 
         // The manager sends the next full tranche; its own arrival sinks it too.
-        (, LiveRelayData memory again) = _sendToSpoke(BRIDGE_AMOUNT, _quote(ARRIVES));
+        (, LiveRelayData memory again) = _sendToSpoke(BRIDGE_AMOUNT);
         _fillOnRobinhood(again, relayer);
         _report();
         _onRobinhood();
@@ -248,7 +255,7 @@ contract Fork_RelayerAndOperatingCash is XChainBase {
         vm.prank(manager);
         spokeVault.setOperatingCashParameters(type(uint256).max, type(uint256).max);
         _onArbitrum();
-        (, LiveRelayData memory out) = _sendToSpoke(SPOKE_CAP, _quote(SPOKE_CAP - BRIDGE_FEE));
+        (, LiveRelayData memory out) = _sendToSpoke(SPOKE_CAP);
         _fillOnRobinhood(out, relayer);
         _report();
         _onRobinhood();

@@ -26,7 +26,6 @@ import {FactoryReviewFixture} from "./FactoryReviewFixture.sol";
 contract M01_UnreportableSpokeLocksItsCapital is FactoryReviewFixture {
     uint256 internal constant DEPOSIT = 1_000_000e6;
     uint256 internal constant SEND = 100_000e6;
-    uint256 internal constant ARRIVES = 99_950e6;
 
     struct Ctx {
         IFundFactory.FundAddresses a;
@@ -94,7 +93,7 @@ contract M01_UnreportableSpokeLocksItsCapital is FactoryReviewFixture {
         assertFalse(ValueReportReceiver(c.a.valueReportReceiver).hasReport(0), "no report was ever accepted");
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(ICoreVault.SpokeNotReporting.selector, 0));
-        vault.sendToSpoke(0, SEND, 0, _quote(ARRIVES));
+        vault.sendToSpoke(0, SEND, 0, "");
 
         uint256 value = vault.shareAssets();
         assertEq(value, 997_500e6);

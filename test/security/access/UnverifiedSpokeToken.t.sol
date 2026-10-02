@@ -45,10 +45,9 @@ contract UnverifiedSpokeTokenPoC is AccessFundFixture {
         _deposit(core, alice, 600_000e6);
         _deposit(core, bob, 400_000e6);
         uint256 idle = core.idle();
-        uint256 output = idle - idle * 50 / 10_000;
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(ICoreVault.SpokeNotReporting.selector, 0));
-        core.sendToSpoke(0, idle, 0, _quote(output, address(0)));
+        core.sendToSpoke(0, idle, 0, "");
         assertEq(core.idle(), idle, "S-7: Idle stays in the Core Vault");
         assertEq(core.inFlightValue(), 0);
     }

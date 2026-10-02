@@ -3,7 +3,7 @@ pragma solidity 0.8.28;
 
 import {IAcrossMessageHandler} from "./external/IAcrossMessageHandler.sol";
 import {Mandate} from "../mandate/Mandate.sol";
-import {Transit, TransferKind, ExpensePayer, BridgeQuote} from "./FundTypes.sol";
+import {Transit, TransferKind, ExpensePayer} from "./FundTypes.sol";
 import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
 
 /// @title ICoreVault
@@ -255,7 +255,6 @@ interface ICoreVault is IAcrossMessageHandler {
     error PayoutBelowOneShare(uint256 usdcAmount, uint256 sharePrice);
     error UnknownSpoke(uint256 spokeIndex);
     error SpokeCapExceeded(uint256 spokeIndex, uint256 used, uint256 amount, uint256 spokeCap);
-    error BridgeFeeAboveMax(uint256 fee, uint256 maxFee);
     error BridgeAdapterUnavailable(address bridgeAdapter);
     error UnknownTransit(bytes32 transitId);
     error InvalidTransitState(bytes32 transitId, uint8 state);
@@ -264,8 +263,6 @@ interface ICoreVault is IAcrossMessageHandler {
     error NoRefund(bytes32 transitId);
     /// @notice The hub has accepted no report from that spoke yet, so it may not fund it (security review S-14).
     error SpokeNotReporting(uint256 spokeIndex);
-    /// @notice A quote named an exclusive relayer or an exclusivity period (security review S-9).
-    error ExclusiveRelayerNotAllowed(address exclusiveRelayer);
     /// @notice No arrival of that transit is held apart without a listing (security review S-4).
     error NothingToRecover(bytes32 transitId);
     /// @notice No accepted report of the spoke was built after `builtAfter` (the last unlisted arrival plus one report
@@ -288,7 +285,8 @@ interface ICoreVault is IAcrossMessageHandler {
     /// @notice DEC-080: a credit call is not backed by tokens above the ledger.
     error UnbackedCredit(address token, uint256 amount, uint256 unledgered);
 
-    /// @notice The adapter's call does not match what the vault fixed (target, amount to arrive or fill deadline).
+    /// @notice The adapter's call does not match what the vault requires: the pinned target, an amount to arrive above
+    ///         zero and not above the amount sent, and a fill deadline in the future.
     error BridgeCallMismatch(address bridgeAdapter);
 
     /// @notice A token movement did not match the expected amount (IBridgeAdapter custody rule 3, escrow release).
@@ -401,13 +399,17 @@ interface ICoreVault is IAcrossMessageHandler {
 
     /// @notice Sends Free Idle to a spoke through the Mandate bridge adapter of priority `bridgeRank`. Manager only.
     /// @dev DEC-037, DEC-095: reverts unless `spoke value + in flight to the spoke (amount sent) + usdcAmount <=
-    ///      spokeCap`. DEC-087: the vault fixes the recipient (the Mandate Spoke Vault) and the token pair (USDC to the
-    ///      spoke token). QA19: rejects a fee above `maxBridgeFeeBps`. DEC-021, DEC-056, DEC-058: reverts with
-    ///      `BridgeAdapterUnavailable` when the bridge adapter is paused or deprecated. DEC-066: a per-send
-    ///      TransitEscrow is the depositor. DEC-085: counted in Share Assets at `quote.outputAmount`.
-    ///      Custody: the vault executes the call `IBridgeAdapter.buildSend` returns against the pinned target, with an
-    ///      exact approval reset to zero; the adapter never holds USDC (DEC-087).
-    function sendToSpoke(uint256 spokeIndex, uint256 usdcAmount, uint256 bridgeRank, BridgeQuote calldata quote)
+    ///      spokeCap`. DEC-087: the vault fixes the recipient (the Mandate Spoke Vault), the token pair (USDC to the
+    ///      spoke token) and the amount sent. DEC-158, DEC-162: the manager passes no bridge parameter; the bridge
+    ///      adapter fixes the amount to arrive and every other term with its own fee rule, and no bridge fee cap lives
+    ///      in the fund (DEC-156). DEC-021, DEC-056, DEC-058: reverts with `BridgeAdapterUnavailable` when the bridge
+    ///      adapter is paused or deprecated. DEC-066: a per-send TransitEscrow is the depositor. DEC-085: counted in
+    ///      Share Assets at the adapter's amount to arrive. Custody: the vault executes the call
+    ///      `IBridgeAdapter.buildSend` returns against the pinned target, with an exact approval reset to zero; the
+    ///      adapter never holds USDC (DEC-087).
+    /// @param bridgeData Opaque input the bridge adapter verifies itself (reserved for a signed API quote, R-162-B);
+    ///        empty for the Across adapter, which refuses anything else.
+    function sendToSpoke(uint256 spokeIndex, uint256 usdcAmount, uint256 bridgeRank, bytes calldata bridgeData)
         external
         returns (bytes32 transitId);
 

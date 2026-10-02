@@ -11,7 +11,7 @@ import {CoreVaultFixture} from "./CoreVaultFixture.sol";
 
 contract CoreVaultTransitTest is CoreVaultFixture {
     uint256 internal constant SENT = 1000e6;
-    uint256 internal constant ARRIVES = 999.4e6; // 6 bps route fee, within the 50 bps Mandate maximum
+    uint256 internal constant ARRIVES = 999.4e6; // 6 bps route fee, fixed by the (mock) bridge adapter, DEC-162
 
     function setUp() public override {
         super.setUp();
@@ -110,10 +110,33 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         vault.sendToSpoke(0, SENT, 1, _quote(ARRIVES));
     }
 
-    function test_QA19_quoteFeeAboveMaxRefused() public {
+    /// DEC-156, DEC-162: no bridge fee cap lives in the Core Vault (the Mandate's dead `maxBridgeFeeBps` is 50 bps);
+    /// the adapter's fee rule fixes the amount to arrive, and the vault takes it as given.
+    function test_DEC156_vaultKeepsNoBridgeFeeCap() public {
         vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.BridgeFeeAboveMax.selector, 6e6, 5e6));
-        vault.sendToSpoke(0, SENT, 0, _quote(994e6));
+        bytes32 id = vault.sendToSpoke(0, SENT, 0, _quote(994e6));
+        assertEq(vault.transit(id).amountToArrive, 994e6, "60 bps, above the old Mandate bound");
+        assertEq(vault.inFlightValue(), 994e6);
+    }
+
+    /// DEC-085, DEC-162: the vault requires the adapter's amount to arrive above zero and not above the amount sent.
+    function test_DEC085_amountToArriveZeroOrAboveSentRefused() public {
+        vm.startPrank(manager);
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.BridgeCallMismatch.selector, address(bridge)));
+        vault.sendToSpoke(0, SENT, 0, _quote(0));
+        vm.expectRevert(abi.encodeWithSelector(ICoreVault.BridgeCallMismatch.selector, address(bridge)));
+        vault.sendToSpoke(0, SENT, 0, _quote(SENT + 1));
+        vault.sendToSpoke(0, SENT, 0, _quote(SENT)); // a send that pays no fee is a valid one
+        vm.stopPrank();
+    }
+
+    /// DEC-158, DEC-162: the vault passes `bridgeData` to the adapter untouched and never reads it; without it the
+    /// adapter's own rule applies (the mock's flat fee here).
+    function test_DEC162_withoutBridgeDataTheAdapterPrices() public {
+        bridge.setFee(0.83e6);
+        vm.prank(manager);
+        bytes32 id = vault.sendToSpoke(0, SENT, 0, "");
+        assertEq(vault.transit(id).amountToArrive, SENT - 0.83e6);
     }
 
     function test_DEC087_bridgeCallWithOtherTargetRefused() public {
@@ -123,11 +146,12 @@ contract CoreVaultTransitTest is CoreVaultFixture {
         vault.sendToSpoke(0, SENT, 0, _quote(ARRIVES));
     }
 
-    function test_DEC085_bridgeCallWithOtherAmountToArriveRefused() public {
+    /// DEC-085: an adapter that reports more than was sent is refused.
+    function test_DEC085_bridgeCallWithAmountToArriveAboveSentRefused() public {
         bridge.setArriveDelta(1);
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(ICoreVault.BridgeCallMismatch.selector, address(bridge)));
-        vault.sendToSpoke(0, SENT, 0, _quote(ARRIVES));
+        vault.sendToSpoke(0, SENT, 0, _quote(SENT));
     }
 
     function test_DEC087_inexactDebitRefused() public {

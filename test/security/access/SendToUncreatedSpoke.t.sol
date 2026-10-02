@@ -29,14 +29,14 @@ contract SendToUncreatedSpokePoC is AccessFundFixture {
 
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(ICoreVault.SpokeNotReporting.selector, 0));
-        core.sendToSpoke(0, 300_000e6, 0, _quote(299_700e6, address(0)));
+        core.sendToSpoke(0, 300_000e6, 0, "");
         assertEq(core.idle(), 498_750e6, "S-14: nothing left the Core Vault");
         assertEq(core.inFlightValue(), 0, "S-14: nothing in flight to a spoke that does not exist");
 
         // Once the spoke has reported, the same send goes through.
         _deliverFirstReport(a);
         vm.prank(manager);
-        core.sendToSpoke(0, 300_000e6, 0, _quote(299_700e6, address(0)));
+        core.sendToSpoke(0, 300_000e6, 0, "");
         assertEq(core.idle(), 198_750e6);
     }
 

@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
-import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
+import {TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
 import {CrossChainFixture} from "./helpers/CrossChainFixture.sol";
 
 /// @title PoC: unbounded Operating Cash parameters move every bridged transfer and all Free Idle out of Share Assets for good
@@ -36,10 +36,11 @@ contract OperatingCashSweepPoC is CrossChainFixture {
     function test_POC_operatingCashParametersSweepBridgedPrincipal() public {
         // A fund with half of its capital on Robinhood, confirmed by a report.
         _deposit(alice, 100_000e6);
-        (, uint256 depositId) = _sendToSpoke(50_000e6, 49_975e6);
+        (, uint256 depositId) = _sendToSpoke(50_000e6);
         _fillOnSpoke(depositId);
         _reportAndDeliver(900);
-        assertEq(core.shareAssets(), 99_725e6);
+        uint256 arrived = 50_000e6 - _ruleFee(50_000e6); // DEC-162: 49,959.97
+        assertEq(core.shareAssets(), 99_750e6 - _ruleFee(50_000e6));
 
         // 1. The manager lifts the spoke's floor and top-up to the maximum.
         vm.chainId(SPOKE);
@@ -50,18 +51,18 @@ contract OperatingCashSweepPoC is CrossChainFixture {
         _strangerFillOnSpoke(attacker, keccak256("any id"), 1e6, TransferKind.Principal);
         vm.chainId(SPOKE);
         assertEq(spoke.unallocatedBalance(address(usdg)), 0, "nothing left to allocate or send home");
-        assertEq(spoke.operatingCash(), 49_976e6, "all of it is Operating Cash now");
+        assertEq(spoke.operatingCash(), arrived + 1e6, "all of it is Operating Cash now");
 
         // The manager cannot undo it: lowering the parameters does not move Operating Cash back, nothing spends it, the
         // garbage collector does not touch it and a transfer home has nothing to send.
         vm.startPrank(manager);
         spoke.setOperatingCashParameters(0, 0);
         vm.expectPartialRevert(ISpokeVault.InsufficientUnallocatedBalance.selector);
-        spoke.sendToHub(1e6, TransferKind.Principal, 0, _quote(1e6));
+        spoke.sendToHub(1e6, TransferKind.Principal, 0, BridgeQuote(0, 0, 0, address(0)));
         vm.stopPrank();
         assertEq(spoke.sweepExcess(address(usdg)), 0);
-        assertEq(spoke.operatingCash(), 49_976e6);
-        assertEq(usdg.balanceOf(address(spoke)), 49_976e6, "the USDG never left the vault");
+        assertEq(spoke.operatingCash(), arrived + 1e6);
+        assertEq(usdg.balanceOf(address(spoke)), arrived + 1e6, "the USDG never left the vault");
         vm.chainId(HUB);
 
         // The next report takes the spoke's principal out of Share Assets.

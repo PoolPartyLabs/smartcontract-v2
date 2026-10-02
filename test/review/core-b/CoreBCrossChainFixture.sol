@@ -13,6 +13,7 @@ import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {ValueReportReceiver} from "../../../src/report/ValueReportReceiver.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {BridgeQuote, TransferKind} from "../../../src/interfaces/FundTypes.sol";
+import {MockBridgeNextArrive} from "../../mocks/across/MockBridgeNextArrive.sol";
 import {
     Mandate,
     AdapterConfig,
@@ -206,13 +207,17 @@ abstract contract CoreBCrossChainFixture is Test {
         vm.stopPrank();
     }
 
-    function _quote(uint256 outputAmount) internal view returns (BridgeQuote memory) {
-        return BridgeQuote({
-            outputAmount: outputAmount,
-            quoteTimestamp: uint32(block.timestamp),
-            exclusivityDeadline: 0,
-            exclusiveRelayer: address(0)
-        });
+    /// @dev `bridgeData` the hub's mock bridge adapter reads as its amount to arrive (a stand-in for a quote an
+    ///      adapter verifies itself). DEC-158, DEC-162: the Core Vault never reads it; the adapter fixes the amount.
+    function _quote(uint256 outputAmount) internal pure returns (bytes memory) {
+        return abi.encode(outputAmount);
+    }
+
+    /// @dev The spoke's mock bridge adapter delivers `outputAmount` on the next send home; the returned quote is the
+    ///      Spoke Vault's vestigial argument, which it ignores (DEC-158, DEC-162).
+    function _homeQuote(uint256 outputAmount) internal returns (BridgeQuote memory q) {
+        MockBridgeNextArrive.set(address(spokeBridge), outputAmount);
+        q.outputAmount = outputAmount;
     }
 
     /// @dev Manager: hub -> spoke send of `amount` USDC, `output` USDG to arrive.

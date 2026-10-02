@@ -23,7 +23,8 @@ import {FactoryReviewFixture} from "./FactoryReviewFixture.sol";
 contract H01_SendToASpokeThatDoesNotExist is FactoryReviewFixture {
     uint256 internal constant DEPOSIT = 100_000e6;
     uint256 internal constant SEND = 50_000e6;
-    uint256 internal constant ARRIVES = 49_975e6; // 5 bps route fee, inside the 50 bps Mandate maximum
+    /// @dev DEC-162: the Across adapter's first send on the route pays 0.08% plus 0.03 (40.03 on 50,000).
+    uint256 internal constant ARRIVES = SEND - 40e6 - 30_000;
 
     struct Ctx {
         IFundFactory.FundAddresses a;
@@ -51,7 +52,7 @@ contract H01_SendToASpokeThatDoesNotExist is FactoryReviewFixture {
         assertEq(c.named.code.length, 0, "createSpoke has not run");
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(ICoreVault.SpokeNotReporting.selector, 0));
-        vault.sendToSpoke(0, SEND, 0, _quote(ARRIVES));
+        vault.sendToSpoke(0, SEND, 0, "");
         assertEq(vault.idle(), 99_750e6);
         assertEq(vault.inFlightValue(), 0);
         assertEq(vault.shareAssets(), 99_750e6);
@@ -81,7 +82,7 @@ contract H01_SendToASpokeThatDoesNotExist is FactoryReviewFixture {
         assertFalse(receiver.hasReport(0));
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(ICoreVault.SpokeNotReporting.selector, 0));
-        vault.sendToSpoke(0, SEND, 0, _quote(ARRIVES));
+        vault.sendToSpoke(0, SEND, 0, "");
     }
 
     /// @dev The runbook order: `createSpoke`, `report()`, delivery on the hub, then the first send. The send goes to a
@@ -101,7 +102,7 @@ contract H01_SendToASpokeThatDoesNotExist is FactoryReviewFixture {
         _enterHub(c.hubState, c.reportAt + FINALITY);
         _deliver(ValueReportReceiver(c.a.valueReportReceiver), _vaa(c.named, c.payload, c.seq));
         vm.prank(manager);
-        bytes32 id = vault.sendToSpoke(0, SEND, 0, _quote(ARRIVES));
+        bytes32 id = vault.sendToSpoke(0, SEND, 0, "");
         assertEq(uint8(vault.transit(id).state), uint8(TransitState.Sent));
         assertEq(vault.inFlightValue(), ARRIVES);
         assertEq(vault.shareAssets(), 99_750e6 - (SEND - ARRIVES));

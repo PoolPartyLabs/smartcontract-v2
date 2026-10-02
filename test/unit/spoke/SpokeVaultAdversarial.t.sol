@@ -80,29 +80,23 @@ contract SpokeVaultAdversarialSpokeTest is SpokeVaultTestBase {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // Bridge fee bound (QA19), fuzzed to the exact boundary
+    // No bridge fee bound in the vault (DEC-156, DEC-162), fuzzed
     // ---------------------------------------------------------------------------------------------------------------
 
-    function testFuzz_QA19_bridgeFeeBoundIsExactAtTheBoundary(uint256 amount, uint256 fee) public {
+    /// DEC-156, DEC-162: the Spoke Vault keeps no bridge fee bound; whatever amount to arrive the bridge adapter fixes
+    /// within (0, amount] is booked as is, with the exact debit.
+    function testFuzz_DEC162_adapterAmountToArriveIsBookedAsIs(uint256 amount, uint256 fee) public {
         amount = bound(amount, 1, 1e30);
         fee = bound(fee, 0, amount - 1);
         _arrive(amount, GENUINE, TransferKind.Principal);
-        uint256 maxFee = amount * MAX_BRIDGE_FEE_BPS / 10_000;
 
         vm.prank(manager);
-        if (fee > maxFee) {
-            vm.expectRevert(abi.encodeWithSelector(ISpokeVault.BridgeFeeAboveMax.selector, fee, maxFee));
-            vault.sendToHub(amount, TransferKind.Principal, 0, _quote(amount - fee));
-            assertEq(vault.unallocatedBalance(address(usdg)), amount, "nothing left the ledger");
-            assertEq(vault.cumulativeSentHome(), 0);
-        } else {
-            bytes32 id = vault.sendToHub(amount, TransferKind.Principal, 0, _quote(amount - fee));
-            assertEq(vault.hubBoundTransit(id).amountSent, amount);
-            assertEq(vault.hubBoundTransit(id).amountToArrive, amount - fee);
-            assertEq(vault.unallocatedBalance(address(usdg)), 0);
-            assertEq(vault.cumulativeSentHome(), amount);
-            assertEq(usdg.balanceOf(address(vault)), 0, "exact debit");
-        }
+        bytes32 id = vault.sendToHub(amount, TransferKind.Principal, 0, _quote(amount - fee));
+        assertEq(vault.hubBoundTransit(id).amountSent, amount);
+        assertEq(vault.hubBoundTransit(id).amountToArrive, amount - fee);
+        assertEq(vault.unallocatedBalance(address(usdg)), 0);
+        assertEq(vault.cumulativeSentHome(), amount);
+        assertEq(usdg.balanceOf(address(vault)), 0, "exact debit");
     }
 
     // ---------------------------------------------------------------------------------------------------------------

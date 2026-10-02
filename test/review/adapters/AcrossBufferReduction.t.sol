@@ -37,12 +37,8 @@ contract AcrossBufferReductionTest is Test {
             inputToken: address(usdg),
             outputToken: makeAddr("hub USDC"),
             inputAmount: 1000e6,
-            outputAmount: 999_400_000,
             destinationChainId: 42_161,
             recipient: bytes32(uint256(uint160(makeAddr("core vault")))),
-            quoteTimestamp: uint32(block.timestamp),
-            exclusivityDeadline: 0,
-            exclusiveRelayer: address(0),
             message: TransitMessage.encode(keccak256("fund"), 4663, bytes32(uint256(1)), TransferKind.Principal)
         });
     }

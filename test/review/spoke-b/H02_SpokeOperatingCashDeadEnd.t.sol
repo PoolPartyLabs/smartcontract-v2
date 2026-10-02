@@ -52,9 +52,7 @@ contract H02_SpokeOperatingCashDeadEnd is SpokeBFixture {
         vm.expectRevert(
             abi.encodeWithSelector(ISpokeVault.InsufficientUnallocatedBalance.selector, address(usdg), 0, 50_000e6)
         );
-        spoke.sendToHub(
-            50_000e6, TransferKind.Principal, 0, BridgeQuote(49_975e6, uint32(block.timestamp), 0, address(0))
-        );
+        spoke.sendToHub(50_000e6, TransferKind.Principal, 0, _homeQuote(49_975e6));
         spoke.setOperatingCashParameters(0, 0);
         vm.stopPrank();
         assertEq(spoke.sweepExcess(address(usdg)), 0, "ledger, never swept");

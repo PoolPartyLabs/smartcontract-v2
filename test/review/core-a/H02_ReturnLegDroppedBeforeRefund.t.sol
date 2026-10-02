@@ -9,6 +9,7 @@ import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {MockPositionAdapter} from "../../mocks/spoke/MockPositionAdapter.sol";
 import {MockBridgeAdapter as SpokeBridgeMock} from "../../mocks/spoke/MockBridgeAdapter.sol";
+import {MockBridgeNextArrive} from "../../mocks/across/MockBridgeNextArrive.sol";
 import {MockAcrossSpokePool as SpokeAcrossMock} from "../../mocks/spoke/MockAcrossSpokePool.sol";
 import {MockWormholeCore} from "../../mocks/spoke/MockWormholeCore.sol";
 import {CoreVaultFixture} from "../../unit/core/CoreVaultFixture.sol";
@@ -97,10 +98,11 @@ contract H02_ReturnLegDroppedBeforeRefund is CoreVaultFixture {
         assetsBefore = vault.shareAssets();
         assertEq(assetsBefore, 199_440e6);
 
+        // DEC-162: the spoke's (mock) bridge adapter fixes the amount to arrive; the quote argument is ignored.
+        MockBridgeNextArrive.set(address(spokeBridgeReal), homeOutput);
+        BridgeQuote memory none;
         vm.prank(manager);
-        home = spoke.sendToHub(
-            ARRIVED, TransferKind.Principal, 0, BridgeQuote(homeOutput, uint32(block.timestamp), 0, address(0))
-        );
+        home = spoke.sendToHub(ARRIVED, TransferKind.Principal, 0, none);
         _publishAndDeliver();
         assertEq(vault.shareAssets(), assetsBefore - (ARRIVED - homeOutput), "in flight home: counted");
     }

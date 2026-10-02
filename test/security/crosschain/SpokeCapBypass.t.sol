@@ -31,7 +31,7 @@ contract SpokeCapBypassPoC is CrossChainFixture {
         }
 
         // 2. The send of the whole cap is filled; the real fill lists the id again and the report confirms it.
-        (bytes32 id, uint256 depositId) = _sendToSpoke(CAP, 99_950e6);
+        (bytes32 id, uint256 depositId) = _sendToSpoke(CAP);
         assertEq(id, first, "the transit id was predictable");
         _fillOnSpoke(depositId);
         _reportAndDeliver(900);
@@ -40,9 +40,11 @@ contract SpokeCapBypassPoC is CrossChainFixture {
         // 3. The cap holds: another send of the cap is refused.
         vm.prank(manager);
         vm.expectPartialRevert(ICoreVault.SpokeCapExceeded.selector);
-        core.sendToSpoke(0, CAP, 0, _quote(99_950e6));
+        core.sendToSpoke(0, CAP, 0, "");
         assertEq(core.inFlightValue(), 0);
-        assertApproxEqAbs(core.shareAssets(), assetsBefore - 50e6, 1e6, "only the bridge fee left (the dust is a gift)");
+        assertApproxEqAbs(
+            core.shareAssets(), assetsBefore - _ruleFee(CAP), 1e6, "only the bridge fee left (the dust is a gift)"
+        );
     }
 
     function _hubTransitId(uint256 nonce) internal view returns (bytes32) {

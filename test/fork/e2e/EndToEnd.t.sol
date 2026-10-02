@@ -18,8 +18,9 @@ import {IManagerRegistry} from "../../../src/interfaces/IManagerRegistry.sol";
 import {IValueReportReceiver} from "../../../src/interfaces/IValueReportReceiver.sol";
 import {IAcrossSpokePool} from "../../../src/interfaces/external/IAcrossSpokePool.sol";
 import {IChainlinkAggregatorV3} from "../../../src/interfaces/external/IChainlinkAggregatorV3.sol";
-import {Transit, TransitState, TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
+import {Transit, TransitState, TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {FundFactory} from "../../../src/factory/FundFactory.sol";
+import {AcrossBridgeAdapter} from "../../../src/adapters/AcrossBridgeAdapter.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
 import {Mandate, MandateLib} from "../../../src/mandate/Mandate.sol";
@@ -119,7 +120,7 @@ abstract contract EndToEndScenario is EndToEndBase {
         assertEq(m.minFirstDeposit, 100e6, "DEC-061: 100 USDC minimum first deposit");
         assertEq(m.performanceFeeBps, 2000, "DEC-107: performance fee 20%");
         assertEq(m.managementFeeBps, 0, "DEC-108: management fee 0");
-        assertEq(m.maxBridgeFeeBps, BRIDGE_FEE * 10_000 / BRIDGE_AMOUNT, "QA19: from the quote used (1.60 on 4,000)");
+        assertEq(m.maxBridgeFeeBps, MAX_BRIDGE_FEE_BPS, "dead field until Mandate v2 (DEC-156, DEC-162)");
     }
 
     /// @dev DEC-054: same operator and salt give the same factory address on Robinhood; the Spoke Vault lands at the
@@ -242,27 +243,27 @@ abstract contract EndToEndScenario is EndToEndBase {
     // Phase 4: 4,000 USDC to Robinhood through the live Across SpokePool
     // -----------------------------------------------------------------------------------------------------------------
 
-    /// @dev DEC-037, DEC-095: the Spoke Cap bounds the send. QA19: the quote's fee within `maxBridgeFeeBps`. DEC-066: a
-    ///      per-send escrow is the depositor. DEC-085: Share Assets count the transit at the amount that will arrive.
-    ///      DEC-087: the vault fixes recipient, token pair and message.
+    /// @dev DEC-037, DEC-095: the Spoke Cap bounds the send. DEC-158, DEC-162: the manager passes no bridge parameter;
+    ///      the Across adapter fixes the amount to arrive. DEC-066: a per-send escrow is the depositor. DEC-085: Share
+    ///      Assets count the transit at the amount that will arrive. DEC-087: the vault fixes recipient, token pair and
+    ///      message.
     function _phase4SendToRobinhood() internal {
         _deliverFirstSpokeReport();
         _onArbitrum();
-        BridgeQuote memory quote = BridgeQuote(BRIDGE_AMOUNT - BRIDGE_FEE, uint32(block.timestamp), 0, address(0));
-        _assertSendRefusals(quote);
+        _assertSendRefusals();
 
         uint256 assetsBefore = core.shareAssets();
         uint256 idleBefore = core.idle();
         uint32 depositId = IAcrossSpokePool(ARB_ACROSS_SPOKE_POOL).numberOfDeposits();
         vm.recordLogs();
         vm.prank(manager);
-        transitId = core.sendToSpoke(0, BRIDGE_AMOUNT, 0, quote);
+        transitId = core.sendToSpoke(0, BRIDGE_AMOUNT, 0, "");
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         Transit memory t = core.transit(transitId);
         amountToArrive = t.amountToArrive;
         assertEq(uint8(t.state), uint8(TransitState.Sent), "DEC-066: state Sent");
-        assertEq(amountToArrive, BRIDGE_AMOUNT - BRIDGE_FEE, "DEC-085: the quote's outputAmount");
+        assertEq(amountToArrive, BRIDGE_AMOUNT - BRIDGE_FEE, "DEC-162: the adapter's amount to arrive");
         assertEq(t.bridgeRef, bytes32(uint256(depositId)), "Across deposit id");
         assertEq(t.fillDeadline, block.timestamp + 6 hours, "DEC-066: 6 h fill deadline");
         _assertFundsDeposited(logs, t, depositId);
@@ -279,16 +280,17 @@ abstract contract EndToEndScenario is EndToEndBase {
         spokeSwapMinWeth = _minWethFor(SPOKE_V4_USDG / 2);
     }
 
-    function _assertSendRefusals(BridgeQuote memory quote) internal {
+    /// @dev The Spoke Cap refuses a send above it; DEC-158: a manager who passes his own amount to arrive (a quote in
+    ///      `bridgeData`) is refused by the Across adapter, so he cannot widen the gap a relayer keeps.
+    function _assertSendRefusals() internal {
         uint256 above = BRIDGE_AMOUNT + 1e6;
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(ICoreVault.SpokeCapExceeded.selector, 0, 0, above, SPOKE_CAP));
-        core.sendToSpoke(0, above, 0, BridgeQuote(above - BRIDGE_FEE, quote.quoteTimestamp, 0, address(0)));
+        core.sendToSpoke(0, above, 0, "");
 
-        BridgeQuote memory greedy = BridgeQuote(quote.outputAmount - 1, quote.quoteTimestamp, 0, address(0));
         vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.BridgeFeeAboveMax.selector, BRIDGE_FEE + 1, BRIDGE_FEE));
-        core.sendToSpoke(0, BRIDGE_AMOUNT, 0, greedy);
+        vm.expectRevert(AcrossBridgeAdapter.QuotesNotSupported.selector);
+        core.sendToSpoke(0, BRIDGE_AMOUNT, 0, abi.encode(uint256(1)));
     }
 
     /// @dev The live SpokePool's `FundsDeposited`: destination, deposit id, the escrow as depositor, the vault-fixed

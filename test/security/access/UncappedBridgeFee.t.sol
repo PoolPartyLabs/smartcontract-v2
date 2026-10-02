@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 import {IFundFactory} from "../../../src/interfaces/IFundFactory.sol";
-import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
+import {AcrossBridgeAdapter} from "../../../src/adapters/AcrossBridgeAdapter.sol";
 import {Mandate, MandateLib} from "../../../src/mandate/Mandate.sol";
 import {CoreVault} from "../../../src/core/CoreVault.sol";
 import {AccessFundFixture} from "./AccessFundFixture.sol";
@@ -25,7 +25,9 @@ contract UncappedBridgeFeePoC is AccessFundFixture {
         vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsAboveMax.selector, 10_000, MandateLib.MAX_BRIDGE_FEE_BPS));
         factory.createFund(m, params);
 
-        // At the cap, one base unit for all Free Idle is refused, and so is the manager as exclusive relayer.
+        // At the cap, the manager can no longer price a send at all (DEC-158, DEC-162): a quote of one base unit, or
+        // with the manager as exclusive relayer, is refused by the Across adapter, and the send of all Free Idle
+        // delivers the adapter's amount (0.08% plus 0.03), whatever the Mandate's bound.
         plan.maxBridgeFeeBps = MandateLib.MAX_BRIDGE_FEE_BPS;
         (IFundFactory.FundAddresses memory a,) = _createFund(plan);
         CoreVault core = CoreVault(a.coreVault);
@@ -33,11 +35,11 @@ contract UncappedBridgeFeePoC is AccessFundFixture {
         _deliverFirstReport(a); // S-14: the spoke has reported once before the hub funds it
         uint256 idle = core.idle();
         vm.prank(manager);
-        vm.expectPartialRevert(ICoreVault.BridgeFeeAboveMax.selector);
-        core.sendToSpoke(0, idle, 0, _quote(1, address(0)));
+        vm.expectRevert(AcrossBridgeAdapter.QuotesNotSupported.selector);
+        core.sendToSpoke(0, idle, 0, abi.encode(uint256(1), manager, uint32(3600)));
+        assertEq(core.idle(), idle, "nothing left the Core Vault");
         vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.ExclusiveRelayerNotAllowed.selector, manager));
-        core.sendToSpoke(0, idle, 0, _quote(idle - idle / 100, manager));
-        assertEq(core.idle(), idle, "S-9: nothing left the Core Vault");
+        bytes32 id = core.sendToSpoke(0, idle, 0, "");
+        assertEq(core.transit(id).amountToArrive, idle - _ruleFee(idle), "the adapter's amount, never one base unit");
     }
 }

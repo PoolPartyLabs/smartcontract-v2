@@ -11,7 +11,6 @@ import {IAdapter} from "../interfaces/IAdapter.sol";
 import {IBridgeAdapter} from "../interfaces/IBridgeAdapter.sol";
 import {ITransitEscrow} from "../interfaces/ITransitEscrow.sol";
 import {Transit, TransitState, TransferKind, BridgeQuote, ExpensePayer} from "../interfaces/FundTypes.sol";
-import {MandateLib} from "../mandate/Mandate.sol";
 import {ReportCodec} from "../libraries/ReportCodec.sol";
 import {TransitMessage} from "../libraries/TransitMessage.sol";
 import {SpokeVaultTypes} from "./SpokeVaultTypes.sol";
@@ -30,29 +29,44 @@ library SpokeCrossChainLib {
     bytes32 internal constant OPERATING_CASH_TOP_UP = keccak256("OPERATING_CASH_TOP_UP");
 
     // ---------------------------------------------------------------------------------------------------------------
-    // Send home (DEC-056, DEC-066, DEC-085, DEC-087, DEC-088, QA6, QA19)
+    // Send home (DEC-056, DEC-066, DEC-085, DEC-087, DEC-088, DEC-158, DEC-162, QA6)
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @notice Debits the ledger, clones the per-send escrow, executes the bridge call and books the transit.
-    /// @dev The vault checks role and caller and tops up Operating Cash before calling. DEC-087: the vault fixes
-    ///      recipient (the Core Vault), token pair (base token to hub USDC) and message. QA19: the quote's fee
-    ///      `amount - outputAmount` is at most `maxBridgeFeeBps` of `amount`. DEC-056: the bridge adapter's pause and
-    ///      deprecation are never read on a send home. Custody per IBridgeAdapter: pinned target, exact approval,
-    ///      plain CALL without value, exact debit, approval reset.
+    /// @notice `ISpokeVault.sendToHub`: a send home through `sendHome`; the quote argument is vestigial and ignored.
+    /// @dev DEC-158, DEC-162: whoever triggers a send passes no bridge parameter; the bridge adapter fixes the amount
+    ///      to arrive. The vault's `sendToHub` keeps its `BridgeQuote` argument until the Spoke Vault entry is
+    ///      replaced (Mandate v2), so nothing in it is read: not the output amount, the relayer, the exclusivity nor
+    ///      the quote time.
     function sendToHub(
         SpokeVaultTypes.State storage s,
         SpokeVaultTypes.Config memory c,
         uint256 amount,
         TransferKind kind,
         uint256 bridgeRank,
-        BridgeQuote calldata quote
+        BridgeQuote calldata
     ) external returns (bytes32 transitId) {
-        _checkQuote(c.maxBridgeFeeBps, amount, quote.outputAmount);
-        // Security review S-9: no Across exclusivity (an exclusive relayer that never fills forces an expiry; one that
-        // fills keeps the whole fee bound on every send).
-        if (quote.exclusiveRelayer != address(0) || quote.exclusivityDeadline != 0) {
-            revert SpokeVaultTypes.ExclusiveRelayerNotAllowed(quote.exclusiveRelayer);
-        }
+        return sendHome(s, c, amount, kind, bridgeRank, "");
+    }
+
+    /// @notice Debits the ledger, clones the per-send escrow, executes the bridge call and books the transit: the
+    ///         single send path home (the manager's `sendToHub` now; order executors later).
+    /// @dev The caller checks role and caller and tops up Operating Cash before calling. DEC-087: the vault fixes the
+    ///      recipient (the Core Vault), the token pair (base token to hub USDC), the amount sent and the message.
+    ///      DEC-158, DEC-162: the bridge adapter fixes the amount to arrive and every other bridge term; the vault only
+    ///      requires `0 < amountToArrive <= amount`, and keeps no bridge fee cap (DEC-156). DEC-056: the bridge
+    ///      adapter's pause and deprecation are never read on a send home. Custody per IBridgeAdapter: pinned target,
+    ///      exact approval, plain CALL without value, exact debit, approval reset.
+    /// @param bridgeData Opaque input the bridge adapter verifies itself (reserved for a signed API quote, R-162-B);
+    ///        empty for the Across adapter, which refuses anything else.
+    function sendHome(
+        SpokeVaultTypes.State storage s,
+        SpokeVaultTypes.Config memory c,
+        uint256 amount,
+        TransferKind kind,
+        uint256 bridgeRank,
+        bytes memory bridgeData
+    ) public returns (bytes32 transitId) {
+        if (amount == 0) revert ISpokeVault.ZeroAmount();
         // Security review S-11: the list a report walks is bounded; landed refunds and expired entries leave it first.
         _sweepInFlight(s, c.baseToken);
         if (s.inFlightIds.length >= SpokeVaultTypes.MAX_HUB_BOUND_IN_FLIGHT) {
@@ -65,7 +79,7 @@ library SpokeCrossChainLib {
         address escrow = Clones.cloneDeterministic(c.transitEscrowImplementation, transitId);
         ITransitEscrow(escrow).initialize(address(this), c.baseToken);
 
-        IBridgeAdapter.BridgeCall memory call = _buildCall(s, c, bridge, escrow, amount, kind, transitId, quote);
+        IBridgeAdapter.BridgeCall memory call = _buildCall(s, c, bridge, escrow, amount, kind, transitId, bridgeData);
         Transit memory t = _book(s, c, transitId, bridge, escrow, amount, kind, call);
         _executeBridgeCall(c.baseToken, call.target, call.data, amount);
         emit ISpokeVault.SentToHub(transitId, t, c.hubChainId, c.chainId);
@@ -301,18 +315,6 @@ library SpokeCrossChainLib {
     // Private helpers
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @dev QA19: the fee `amount - outputAmount` is at most `maxBridgeFeeBps` of `amount` (rounded down, so the check
-    ///      is never looser than the Mandate); DEC-085: a zero or above-input output is not a quote.
-    function _checkQuote(uint16 maxBridgeFeeBps, uint256 amount, uint256 outputAmount) private pure {
-        if (amount == 0) revert ISpokeVault.ZeroAmount();
-        if (outputAmount == 0 || outputAmount > amount) {
-            revert SpokeVaultTypes.InvalidQuoteAmount(amount, outputAmount);
-        }
-        uint256 fee = amount - outputAmount;
-        uint256 maxFee = amount * maxBridgeFeeBps / MandateLib.BPS;
-        if (fee > maxFee) revert ISpokeVault.BridgeFeeAboveMax(fee, maxFee);
-    }
-
     /// @dev DEC-092: principal leaves Unallocated Balance, income leaves the collected income bucket.
     function _debit(SpokeVaultTypes.State storage s, address baseToken, uint256 amount, TransferKind kind) private {
         if (kind == TransferKind.Principal) {
@@ -326,8 +328,9 @@ library SpokeCrossChainLib {
         }
     }
 
-    /// @dev DEC-087: every field of the request is fixed here; the adapter only translates it. The built call must
-    ///      target the pinned bridge contract and carry the quoted output (DEC-085).
+    /// @dev DEC-087: the vault fixes destination, recipient, token pair, amount sent and message; DEC-158, DEC-162:
+    ///      the adapter fixes the amount to arrive and the other bridge terms. The built call must target the pinned
+    ///      bridge contract and deliver something, never more than was sent (DEC-085).
     function _buildCall(
         SpokeVaultTypes.State storage s,
         SpokeVaultTypes.Config memory c,
@@ -336,24 +339,20 @@ library SpokeCrossChainLib {
         uint256 amount,
         TransferKind kind,
         bytes32 transitId,
-        BridgeQuote calldata quote
-    ) private view returns (IBridgeAdapter.BridgeCall memory call) {
+        bytes memory bridgeData
+    ) private returns (IBridgeAdapter.BridgeCall memory call) {
         IBridgeAdapter.SendRequest memory req;
         req.inputToken = c.baseToken;
         req.outputToken = c.hubChainUsdc;
         req.inputAmount = amount;
-        req.outputAmount = quote.outputAmount;
         req.destinationChainId = c.hubChainId;
         req.recipient = bytes32(uint256(uint160(c.coreVault)));
-        req.quoteTimestamp = quote.quoteTimestamp;
-        req.exclusivityDeadline = quote.exclusivityDeadline;
-        req.exclusiveRelayer = quote.exclusiveRelayer;
         req.message = TransitMessage.encode(c.fundId, c.chainId, transitId, kind);
-        call = IBridgeAdapter(bridge).buildSend(req, escrow);
+        call = IBridgeAdapter(bridge).buildSend(req, escrow, bridgeData);
         address pinned = s.bridgeTarget[bridge];
         if (call.target != pinned) revert SpokeVaultTypes.BridgeTargetMismatch(bridge, pinned, call.target);
-        if (call.amountToArrive != quote.outputAmount) {
-            revert SpokeVaultTypes.BridgeAmountMismatch(quote.outputAmount, call.amountToArrive);
+        if (call.amountToArrive == 0 || call.amountToArrive > amount) {
+            revert SpokeVaultTypes.BridgeAmountMismatch(amount, call.amountToArrive);
         }
         // forge-lint: disable-next-line(block-timestamp)
         if (call.fillDeadline <= block.timestamp) revert SpokeVaultTypes.BridgeDeadlineNotInFuture(call.fillDeadline);

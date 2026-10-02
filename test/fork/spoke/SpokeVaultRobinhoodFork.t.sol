@@ -110,11 +110,11 @@ contract SpokeVaultRobinhoodForkTest is SpokeVaultForkBase {
         _arrive(1000e6);
 
         uint32 depositId = IAcrossSpokePool(RH_SPOKE_POOL).numberOfDeposits();
+        // DEC-162: the bridge adapter (a mock here) fixes the amount to arrive; the quote argument is ignored.
+        spokeBridge.setFee(1e6);
         vm.recordLogs();
         vm.prank(manager);
-        bytes32 id = vault.sendToHub(
-            500e6, TransferKind.Principal, 0, BridgeQuote(499e6, uint32(block.timestamp), 0, address(0))
-        );
+        bytes32 id = vault.sendToHub(500e6, TransferKind.Principal, 0, BridgeQuote(0, 0, 0, address(0)));
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         Transit memory t = vault.hubBoundTransit(id);

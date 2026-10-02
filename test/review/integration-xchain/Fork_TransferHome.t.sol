@@ -3,8 +3,7 @@ pragma solidity 0.8.28;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
-import {Transit, TransitState, TransferKind} from "../../../src/interfaces/FundTypes.sol";
-import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
+import {Transit, TransitState, TransferKind, BridgeQuote} from "../../../src/interfaces/FundTypes.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {ShareMath} from "../../../src/libraries/ShareMath.sol";
 import {XChainBase, LiveRelayData, ILiveSpokePool} from "./XChainBase.sol";
@@ -16,10 +15,12 @@ import {XChainBase, LiveRelayData, ILiveSpokePool} from "./XChainBase.sol";
 ///         reports through both real Wormhole Cores, and the Across refund through the live SpokePool's
 ///         `executeRelayerRefundLeaf`.
 /// @dev Adaptation to the fix branch, interface only: the spoke's first report is delivered before the first send
-///      (S-14), and a send home carries no exclusivity (S-9).
+///      (S-14), and a send home carries no exclusivity (S-9; since DEC-158 / DEC-162 the Across adapter fixes every
+///      term, the amount to arrive by its fee rule).
 contract Fork_TransferHome is XChainBase {
-    uint256 internal constant ARRIVES = BRIDGE_AMOUNT - BRIDGE_FEE; // 3,998.40 USDG
-    uint256 internal constant HOME_FEE = 1.5e6; // within 4 bps of 3,988.40
+    uint256 internal constant ARRIVES = BRIDGE_AMOUNT - BRIDGE_FEE; // 3,996.77 USDG (DEC-162: 0.08% plus 0.03)
+    /// @dev DEC-162: the Across adapter's fee on the 3,986.77 sent home: ceil(0.08%) plus 0.03.
+    uint256 internal constant HOME_FEE = 3_189_416 + 30_000;
 
     bytes4 internal constant EXPIRED_FILL_DEADLINE = bytes4(keccak256("ExpiredFillDeadline()"));
 
@@ -32,15 +33,16 @@ contract Fork_TransferHome is XChainBase {
         _phase1CreateFund();
         _phase2AnaDeposits();
         _report(); // S-14: the spoke's first report, before the first send
-        (bytes32 out, LiveRelayData memory relay) = _sendToSpoke(BRIDGE_AMOUNT, _quote(ARRIVES));
+        (bytes32 out, LiveRelayData memory relay) = _sendToSpoke(BRIDGE_AMOUNT);
         _fillOnRobinhood(relay, relayer);
         _report();
         assertEq(uint8(core.transit(out).state), uint8(TransitState.ArrivalConfirmed));
         _onRobinhood();
-        principal = spokeVault.unallocatedBalance(RH_USDG); // 3,988.40 after the 10 USDG Operating Cash top-up
+        principal = spokeVault.unallocatedBalance(RH_USDG); // 3,986.77 after the 10 USDG Operating Cash top-up
+        assertEq(HOME_FEE, _ruleFee(principal));
         _onArbitrum();
         assetsBefore = core.shareAssets();
-        assertEq(assetsBefore, 9963.4e6);
+        assertEq(assetsBefore, 9961.77e6);
     }
 
     /// @dev The manager sends the whole spoke principal home; a relayer fills it on Arbitrum two minutes later. Returns
@@ -49,7 +51,7 @@ contract Fork_TransferHome is XChainBase {
         internal
         returns (bytes32 home, LiveRelayData memory relay, uint256 filledAt)
     {
-        (home, relay) = _sendToHub(principal, TransferKind.Principal, _quote(principal - HOME_FEE));
+        (home, relay) = _sendToHub(principal, TransferKind.Principal);
         _onArbitrum();
         _advance(2 minutes);
         _fillOnArbitrum(relay, relayer); // live pool: USDC to the Core Vault, then handleV3AcrossMessage
@@ -143,8 +145,7 @@ contract Fork_TransferHome is XChainBase {
         _advance(6 hours + ReportCodec.HUB_BOUND_RETENTION + 2 * uint256(ROBINHOOD_MAX_REPORT_AGE));
         _report();
         _onRobinhood();
-        (bytes32 home, LiveRelayData memory relay) =
-            _sendToHub(principal, TransferKind.Principal, _quote(principal - HOME_FEE));
+        (bytes32 home, LiveRelayData memory relay) = _sendToHub(principal, TransferKind.Principal);
         assertEq(home, predicted, "the id the stranger seeded");
         _onArbitrum();
         _advance(2 minutes);
@@ -199,21 +200,22 @@ contract Fork_TransferHome is XChainBase {
     /// @notice FIXED. On e5c778a the manager named its own relayer exclusive and did not fill; from the first report
     ///         built after `fillDeadline + maxReportAge` until the refund was reported the transfer was in no base, and
     ///         a 10,000 deposit in that window was worth 12,468.77 (+24.7%) while Ana fell from 9,963.40 to 7,469.13. Now
-    ///         exclusivity is refused (S-9); the same unfilled send (nobody fills it) stays listed (S-3), the refund
+    ///         the manager cannot name a relayer (DEC-158, DEC-162: the quote argument is ignored, the deposit carries
+    ///         the Across adapter's terms); the same unfilled send (nobody fills it) stays listed (S-3), the refund
     ///         comes through the live pool's refund leaf at deadline + 55 min, and the next report recognizes it with
     ///         no `recognizeRefund` call: the Share Price never leaves the fee-only level.
     function test_REVIEW_H01_unfilledTransferHomeStaysInShareAssetsUntilItsRefund() public {
         uint256 principal = _setUpSpokeHoldsPrincipal();
         address managerRelayer = makeAddr("managerRelayer");
         _onRobinhood();
+        vm.recordLogs();
         vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.ExclusiveRelayerNotAllowed.selector, managerRelayer));
-        spokeVault.sendToHub(
-            principal, TransferKind.Principal, 0, _exclusiveQuote(principal - HOME_FEE, managerRelayer)
+        bytes32 home = spokeVault.sendToHub(
+            principal, TransferKind.Principal, 0, BridgeQuote(1, uint32(block.timestamp), 21_600, managerRelayer)
         );
-
-        (bytes32 home, LiveRelayData memory relay) =
-            _sendToHub(principal, TransferKind.Principal, _quote(principal - HOME_FEE));
+        LiveRelayData memory relay = _one(_relaysFrom(vm.getRecordedLogs(), RH_ACROSS_SPOKE_POOL, ROBINHOOD));
+        assertEq(relay.exclusiveRelayer, bytes32(0), "the manager's relayer is not exclusive");
+        assertEq(relay.outputAmount, principal - HOME_FEE, "the adapter's amount, not the quote's");
         _report();
         assertApproxEqAbs(core.shareAssets(), assetsBefore - HOME_FEE, 1, "in flight home: counted");
 

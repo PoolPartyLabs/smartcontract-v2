@@ -43,12 +43,8 @@ contract AcrossSendFlowTest is Test {
             inputToken: address(usdc),
             outputToken: usdgAddress,
             inputAmount: 1000e6,
-            outputAmount: 999_400_000,
             destinationChainId: 4663,
             recipient: bytes32(uint256(uint160(spokeVault))),
-            quoteTimestamp: uint32(block.timestamp),
-            exclusivityDeadline: 0,
-            exclusiveRelayer: address(0),
             message: TransitMessage.encode(keccak256("fund"), 42_161, bytes32(uint256(1)), TransferKind.Principal)
         });
     }
@@ -74,12 +70,19 @@ contract AcrossSendFlowTest is Test {
         assertEq(pool.lastRecipient(), spokeVault, "recipient");
     }
 
-    /// DEC-066: a quote older than the SpokePool's buffer is rejected by the pool and no value moves.
-    function test_DEC066_staleQuoteRevertsAndMovesNothing() public {
+    /// DEC-158, DEC-162: the vault passes no amount to arrive; the deposit carries the adapter's (1,000 at 0.08%
+    /// plus 0.03), quoted at the block time, so the pool's quote-age check always passes.
+    function test_DEC162_depositCarriesTheAdaptersAmountToArrive() public {
+        (IBridgeAdapter.BridgeCall memory call,) = harness.send(_request());
+        assertEq(call.amountToArrive, 1000e6 - 830_000);
+        assertEq(pool.lastDepositId(), uint256(call.transitRef));
+    }
+
+    /// DEC-158: a vault that passes `bridgeData` to the Across adapter is refused and no value moves.
+    function test_DEC158_bridgeDataRevertsAndMovesNothing() public {
         IBridgeAdapter.SendRequest memory req = _request();
-        req.quoteTimestamp = uint32(block.timestamp - pool.depositQuoteTimeBuffer() - 1);
-        vm.expectRevert(MockAcrossSpokePool.InvalidQuoteTimestamp.selector);
-        harness.send(req);
+        vm.expectRevert(AcrossBridgeAdapter.QuotesNotSupported.selector);
+        harness.send(req, abi.encode(uint256(999e6)));
         assertEq(usdc.balanceOf(address(harness)), 10_000e6);
     }
 

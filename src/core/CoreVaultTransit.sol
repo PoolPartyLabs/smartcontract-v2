@@ -5,7 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
-import {TransferKind, BridgeQuote} from "../interfaces/FundTypes.sol";
+import {TransferKind} from "../interfaces/FundTypes.sol";
 import {TransitMessage} from "../libraries/TransitMessage.sol";
 import {CoreVaultIncome} from "./CoreVaultIncome.sol";
 import {CoreVaultLogic} from "./CoreVaultLogic.sol";
@@ -50,12 +50,14 @@ abstract contract CoreVaultTransit is CoreVaultIncome {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // Send to a spoke (DEC-037, DEC-066, DEC-085, DEC-087, DEC-088, DEC-095, QA19)
+    // Send to a spoke (DEC-037, DEC-066, DEC-085, DEC-087, DEC-088, DEC-095, DEC-158, DEC-162)
     // ---------------------------------------------------------------------------------------------------------------
 
     /// @inheritdoc ICoreVault
     /// @dev Checks, escrow, call building, bookkeeping and the custody-checked call run in CoreVaultLogic.sendToSpoke.
-    function sendToSpoke(uint256 spokeIndex, uint256 usdcAmount, uint256 bridgeRank, BridgeQuote calldata quote)
+    ///      DEC-158 (registered reading: the rule holds for the manager too): the manager chooses the spoke, the amount
+    ///      and the bridge rank, never an amount to arrive.
+    function sendToSpoke(uint256 spokeIndex, uint256 usdcAmount, uint256 bridgeRank, bytes calldata bridgeData)
         external
         onlyManager
         nonReentrant
@@ -65,7 +67,7 @@ abstract contract CoreVaultTransit is CoreVaultIncome {
         if (spokeIndex >= _s.mandate.spokes.length) revert UnknownSpoke(spokeIndex);
         // DEC-096: Operating Cash top-up before Free Idle is measured.
         _topUpOperatingCash();
-        return CoreVaultLogic.sendToSpoke(_s, _wiring(), spokeIndex, usdcAmount, bridgeRank, quote);
+        return CoreVaultLogic.sendToSpoke(_s, _wiring(), spokeIndex, usdcAmount, bridgeRank, bridgeData);
     }
 
     // ---------------------------------------------------------------------------------------------------------------

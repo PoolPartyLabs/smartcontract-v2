@@ -14,7 +14,7 @@ import {IPriceSource} from "../interfaces/IPriceSource.sol";
 import {IManagerRegistry} from "../interfaces/IManagerRegistry.sol";
 import {IBridgeAdapter} from "../interfaces/IBridgeAdapter.sol";
 import {ITransitEscrow} from "../interfaces/ITransitEscrow.sol";
-import {Transit, TransitState, TransferKind, BridgeQuote} from "../interfaces/FundTypes.sol";
+import {Transit, TransitState, TransferKind} from "../interfaces/FundTypes.sol";
 import {SpokeConfig, BridgeAdapterConfig} from "../mandate/Mandate.sol";
 import {ReportCodec} from "../libraries/ReportCodec.sol";
 import {IncomeAccumulator} from "../libraries/IncomeAccumulator.sol";
@@ -697,37 +697,66 @@ library CoreVaultLogic {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // Send to a spoke (DEC-037, DEC-066, DEC-085, DEC-087, DEC-088, DEC-095, QA19)
+    // Send to a spoke (DEC-037, DEC-066, DEC-085, DEC-087, DEC-088, DEC-095, DEC-158, DEC-162)
     // ---------------------------------------------------------------------------------------------------------------
 
     /// @notice ICoreVault.sendToSpoke after access control, the guard and the Operating Cash top-up.
-    /// @dev DEC-087 and IBridgeAdapter custody: the vault fixes recipient, token pair, amounts and message; the adapter
-    ///      only builds the call; the vault requires the pinned target, approves exactly the amount, makes a plain CALL
-    ///      without value, requires the exact debit and resets the approval.
+    /// @dev DEC-087 and IBridgeAdapter custody: the vault fixes recipient, token pair, amount sent and message; the
+    ///      bridge adapter fixes the amount to arrive and every other bridge term (DEC-158, DEC-162: the manager passes
+    ///      no bridge parameter, and no bridge fee cap lives in the fund, DEC-156); the vault requires the pinned
+    ///      target, `0 < amountToArrive <= usdcAmount` and a future deadline, approves exactly the amount, makes a
+    ///      plain CALL without value, requires the exact debit and resets the approval.
     function sendToSpoke(
         CoreVaultState storage s,
         CoreVaultWiring memory w,
         uint256 spokeIndex,
         uint256 usdcAmount,
         uint256 bridgeRank,
-        BridgeQuote calldata quote
+        bytes calldata bridgeData
     ) public returns (bytes32 transitId) {
         SpokeConfig memory spoke = s.mandate.spokes[spokeIndex];
-        address adapter = _checkSend(s, w, spokeIndex, spoke.chainId, usdcAmount, bridgeRank, quote);
-
+        address adapter = _checkSend(s, w, spokeIndex, spoke.chainId, usdcAmount, bridgeRank);
         transitId = keccak256(abi.encode(block.chainid, address(this), ++s.transitNonce));
-        // DEC-066, QA6: a keyless per-send escrow is the depositor of record, so a refund is recognizable.
-        address escrow = Clones.clone(w.escrowImplementation);
-        ITransitEscrow(escrow).initialize(address(this), w.usdc);
+        (IBridgeAdapter.BridgeCall memory call, address escrow) =
+            _buildSend(s, w, spoke, adapter, usdcAmount, transitId, bridgeData);
+        _bookSend(s, w, spokeIndex, spoke, adapter, escrow, usdcAmount, transitId, call);
+        _executeBridgeCall(IERC20(w.usdc), call, usdcAmount);
+    }
 
-        IBridgeAdapter.BridgeCall memory call =
-            IBridgeAdapter(adapter).buildSend(_sendRequest(w, spoke, usdcAmount, quote, transitId), escrow);
+    /// @dev DEC-066, QA6: clones the keyless per-send escrow (the depositor of record, so a refund is recognizable),
+    ///      has the adapter build the call and checks it: pinned target, `0 < amountToArrive <= usdcAmount` (DEC-085,
+    ///      DEC-162) and a future fill deadline.
+    function _buildSend(
+        CoreVaultState storage s,
+        CoreVaultWiring memory w,
+        SpokeConfig memory spoke,
+        address adapter,
+        uint256 usdcAmount,
+        bytes32 transitId,
+        bytes calldata bridgeData
+    ) private returns (IBridgeAdapter.BridgeCall memory call, address escrow) {
+        escrow = Clones.clone(w.escrowImplementation);
+        ITransitEscrow(escrow).initialize(address(this), w.usdc);
+        call = IBridgeAdapter(adapter).buildSend(_sendRequest(w, spoke, usdcAmount, transitId), escrow, bridgeData);
         if (
-            call.target != s.bridgeTarget[adapter] || call.amountToArrive != quote.outputAmount
+            call.target != s.bridgeTarget[adapter] || call.amountToArrive == 0 || call.amountToArrive > usdcAmount
                 || call.fillDeadline <= block.timestamp
         ) revert ICoreVault.BridgeCallMismatch(adapter);
+    }
 
-        // Effects: DEC-066 state Sent; Spoke Cap at the amount sent (C1); Share Assets at the amount to arrive (DEC-085).
+    /// @dev Effects: DEC-066 state Sent; Spoke Cap at the amount sent (C1); Share Assets at the amount to arrive
+    ///      (DEC-085).
+    function _bookSend(
+        CoreVaultState storage s,
+        CoreVaultWiring memory w,
+        uint256 spokeIndex,
+        SpokeConfig memory spoke,
+        address adapter,
+        address escrow,
+        uint256 usdcAmount,
+        bytes32 transitId,
+        IBridgeAdapter.BridgeCall memory call
+    ) private {
         s.idle -= usdcAmount;
         SpokeBook storage book = s.spokeBooks[spokeIndex];
         book.inFlightSent += usdcAmount;
@@ -749,11 +778,13 @@ library CoreVaultLogic {
         s.transits[transitId] = t;
         s.transitSpoke[transitId] = spokeIndex;
         emit ICoreVault.SentToSpoke(transitId, spokeIndex, t, w.hubChainId);
+    }
 
-        // Interaction: IBridgeAdapter custody rule 3.
-        IERC20 token = IERC20(w.usdc);
+    /// @dev Interaction, IBridgeAdapter custody rule 3: approve exactly `amount`, plain CALL without value, exact
+    ///      debit, approval reset.
+    function _executeBridgeCall(IERC20 token, IBridgeAdapter.BridgeCall memory call, uint256 amount) private {
         uint256 before = token.balanceOf(address(this));
-        token.forceApprove(call.target, usdcAmount);
+        token.forceApprove(call.target, amount);
         (bool ok, bytes memory ret) = call.target.call(call.data);
         if (!ok) {
             assembly ("memory-safe") {
@@ -761,7 +792,7 @@ library CoreVaultLogic {
             }
         }
         uint256 debited = before - token.balanceOf(address(this));
-        if (debited != usdcAmount) revert ICoreVault.BalanceChangeMismatch(usdcAmount, debited);
+        if (debited != amount) revert ICoreVault.BalanceChangeMismatch(amount, debited);
         token.forceApprove(call.target, 0);
     }
 
@@ -772,8 +803,7 @@ library CoreVaultLogic {
         uint256 spokeIndex,
         uint256 spokeChainId,
         uint256 usdcAmount,
-        uint256 bridgeRank,
-        BridgeQuote calldata quote
+        uint256 bridgeRank
     ) private view returns (address adapter) {
         // Security review S-14 (DEC-066, DEC-104): a spoke is funded only once the hub accepted a report from it. The
         // Spoke Vault is created by a second transaction on another chain; an Across fill to an address without code
@@ -795,40 +825,24 @@ library CoreVaultLogic {
         }
         if (adapter.codehash != s.bridgeCodehash[adapter]) revert ICoreVault.BridgeAdapterCodehashMismatch(adapter);
 
-        // Security review S-9: no Across exclusivity. An exclusive relayer (the manager's own) that never fills forces
-        // an expiry, and one that fills keeps the whole bound on every send; without exclusivity relayers compete.
-        if (quote.exclusiveRelayer != address(0) || quote.exclusivityDeadline != 0) {
-            revert ICoreVault.ExclusiveRelayerNotAllowed(quote.exclusiveRelayer);
-        }
-
-        // QA19: the quote's fee is at most maxBridgeFeeBps of the amount sent.
-        uint256 maxFee = usdcAmount * w.maxBridgeFeeBps / BPS;
-        uint256 fee = quote.outputAmount < usdcAmount ? usdcAmount - quote.outputAmount : 0;
-        if (fee > maxFee) revert ICoreVault.BridgeFeeAboveMax(fee, maxFee);
-
         // DEC-037, DEC-095, DEC-066 B1/C1: spoke value + in flight (both legs) + amount <= Spoke Cap.
         (uint256 spokeValue, uint256 inFlightSent, uint256 inFlightToHub, uint256 cap) = spokeCapUsage(s, w, spokeIndex);
         uint256 used = spokeValue + inFlightSent + inFlightToHub;
         if (used + usdcAmount > cap) revert ICoreVault.SpokeCapExceeded(spokeIndex, used, usdcAmount, cap);
     }
 
-    function _sendRequest(
-        CoreVaultWiring memory w,
-        SpokeConfig memory spoke,
-        uint256 usdcAmount,
-        BridgeQuote calldata quote,
-        bytes32 transitId
-    ) private pure returns (IBridgeAdapter.SendRequest memory) {
+    /// @dev DEC-087: what the vault fixes; never an amount to arrive (DEC-158, DEC-162).
+    function _sendRequest(CoreVaultWiring memory w, SpokeConfig memory spoke, uint256 usdcAmount, bytes32 transitId)
+        private
+        pure
+        returns (IBridgeAdapter.SendRequest memory)
+    {
         return IBridgeAdapter.SendRequest({
             inputToken: w.usdc,
             outputToken: spoke.spokeToken,
             inputAmount: usdcAmount,
-            outputAmount: quote.outputAmount,
             destinationChainId: spoke.chainId,
             recipient: spoke.spokeVault,
-            quoteTimestamp: quote.quoteTimestamp,
-            exclusivityDeadline: quote.exclusivityDeadline,
-            exclusiveRelayer: quote.exclusiveRelayer,
             message: TransitMessage.encode(w.fundId, w.hubChainId, transitId, TransferKind.Principal)
         });
     }

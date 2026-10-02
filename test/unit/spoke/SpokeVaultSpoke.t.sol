@@ -595,7 +595,7 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // Send home (DEC-056, DEC-066, DEC-085, DEC-087, DEC-088, DEC-092, QA19)
+    // Send home (DEC-056, DEC-066, DEC-085, DEC-087, DEC-088, DEC-092, DEC-158, DEC-162)
     // ---------------------------------------------------------------------------------------------------------------
 
     function test_DEC087_sendHomeFixesRecipientTokenPairMessageAndEscrow() public {
@@ -647,26 +647,45 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         assertEq(r.cumulativeSentHome, 500e6);
     }
 
-    function test_QA19_feeAboveMaxBridgeFeeReverts() public {
+    /// DEC-156, DEC-162: no bridge fee cap lives in the Spoke Vault (the Mandate's dead `maxBridgeFeeBps` is 50 bps);
+    /// the bridge adapter's rule fixes the amount to arrive and the vault takes it as given.
+    function test_DEC156_spokeVaultKeepsNoBridgeFeeCap() public {
         _disableOperatingCash();
         _arrive(1000e6, ARRIVAL, TransferKind.Principal);
-        vm.startPrank(manager);
-        vm.expectRevert(abi.encodeWithSelector(ISpokeVault.BridgeFeeAboveMax.selector, 5.1e6, 5e6));
-        vault.sendToHub(1000e6, TransferKind.Principal, 0, _quote(994.9e6));
-        vault.sendToHub(1000e6, TransferKind.Principal, 0, _quote(995e6));
-        vm.stopPrank();
+        vm.prank(manager);
+        bytes32 id = vault.sendToHub(1000e6, TransferKind.Principal, 0, _quote(994.9e6));
+        assertEq(vault.hubBoundTransit(id).amountToArrive, 994.9e6, "51 bps, above the old Mandate bound");
     }
 
-    function test_DEC085_quoteOutputZeroOrAboveInputReverts() public {
+    /// DEC-158, DEC-162: the quote argument is vestigial: an output of one unit and an exclusive relayer are ignored;
+    /// the deposit carries the adapter's amount and no exclusivity.
+    function test_DEC158_quoteArgumentIsIgnored() public {
+        _disableOperatingCash();
+        _arrive(1000e6, ARRIVAL, TransferKind.Principal);
+        spokeBridge.setFee(0.83e6);
+        vm.prank(manager);
+        bytes32 id = vault.sendToHub(
+            1000e6, TransferKind.Principal, 0, BridgeQuote(1, uint32(block.timestamp), 21_600, stranger)
+        );
+        assertEq(vault.hubBoundTransit(id).amountToArrive, 1000e6 - 0.83e6, "the adapter's amount");
+        MockAcrossSpokePool.Deposit memory d = spokePool.deposit(0);
+        assertEq(d.outputAmount, 1000e6 - 0.83e6);
+        assertEq(d.exclusiveRelayer, address(0), "no exclusive relayer");
+        assertEq(d.exclusivityDeadline, 0, "no exclusivity");
+    }
+
+    /// DEC-085, DEC-162: the vault requires the adapter's amount to arrive above zero and not above the amount sent.
+    function test_DEC085_amountToArriveZeroOrAboveSentReverts() public {
         _disableOperatingCash();
         _arrive(100e6, ARRIVAL, TransferKind.Principal);
         vm.startPrank(manager);
-        vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.InvalidQuoteAmount.selector, 10e6, 0));
+        vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.BridgeAmountMismatch.selector, 10e6, 0));
         vault.sendToHub(10e6, TransferKind.Principal, 0, _quote(0));
-        vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.InvalidQuoteAmount.selector, 10e6, 11e6));
+        vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.BridgeAmountMismatch.selector, 10e6, 11e6));
         vault.sendToHub(10e6, TransferKind.Principal, 0, _quote(11e6));
         vm.expectRevert(ISpokeVault.ZeroAmount.selector);
         vault.sendToHub(0, TransferKind.Principal, 0, _quote(0));
+        vault.sendToHub(10e6, TransferKind.Principal, 0, _quote(10e6)); // a send that pays no fee is a valid one
         vm.stopPrank();
     }
 
@@ -706,13 +725,13 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         vault.sendToHub(10e6, TransferKind.Principal, 0, _quote(10e6));
     }
 
-    function test_DEC085_builtAmountToArriveMismatchReverts() public {
+    function test_DEC085_builtAmountToArriveAboveSentReverts() public {
         _disableOperatingCash();
         _arrive(100e6, ARRIVAL, TransferKind.Principal);
         spokeBridge.setAmountToArriveDelta(1);
         vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.BridgeAmountMismatch.selector, 9.99e6, 9.99e6 + 1));
-        vault.sendToHub(10e6, TransferKind.Principal, 0, _quote(9.99e6));
+        vm.expectRevert(abi.encodeWithSelector(SpokeVaultTypes.BridgeAmountMismatch.selector, 10e6, 10e6 + 1));
+        vault.sendToHub(10e6, TransferKind.Principal, 0, _quote(10e6));
     }
 
     /// Independent review L-09: the Spoke Vault refuses a built call whose fill deadline is not in the future, as the
