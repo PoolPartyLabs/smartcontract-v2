@@ -164,6 +164,37 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
         assertEq(spot, amountIn);
     }
 
+    /// @dev Review round 3, a third party's tier below the market: two new tokens, an honest 0.05% tier at price 1 with
+    ///      L = 1e21 over the full range (about 1,000 of each token), and a 0.01% tier someone created at price 0.1 (a
+    ///      token0 worth a tenth of a token1) with dust over the full range and L = 2e22 in ticks [-23100, -23040],
+    ///      about 19 token1 below its price. It holds no token0 to sell, so it offers no arbitrage and can wait in
+    ///      place. Selling 100 token0, the honest tier pays about 90.9 token1, 9% below its mid, and the trap about
+    ///      9.97, 0.3% below its own mid of 10. With a 1% maximum, which no honest tier meets, the sale is refused
+    ///      (DEC-148); ranked by the maximum against each tier's own mid (review round 2), the trap won and bought the
+    ///      input at a tenth of its value.
+    function test_arbitrum_noApi_aThirdPartyTierBelowTheMarketNeverBuysABoundedSale() public {
+        V3Chain memory c = _arbitrum();
+        (address t0, address t1) = _pairWithATierBelowTheMarket(c);
+        uint256 amountIn = 100e18;
+        (uint256 honestOut, uint256 trapOut) = _assertTheTierBelowTheMarket(c, t0, t1, amountIn);
+
+        _setUpWithBase(c, t1, _tokens2(t0, t1));
+        (uint24 fee, uint256 quoted) = adapter.bestDirectFee(t0, t1, amountIn);
+        assertEq(uint256(fee), 500, "the honest tier pays the most");
+        assertEq(quoted, honestOut);
+        _fund(t0, amountIn);
+        vm.expectRevert(
+            abi.encodeWithSelector(ISwapAdapter.InsufficientOutput.selector, honestOut, amountIn * 99 / 100)
+        );
+        adapter.swap(t0, t1, amountIn, 100, "");
+
+        // What the round-2 ranking did: the trap passes its own check at a tenth of the market.
+        (uint256 out, uint256 spot) = adapter.swapDirect(t0, t1, amountIn, 100, 100);
+        assertEq(out, trapOut);
+        assertLt(out, amountIn / 9, "a tenth of the market");
+        assertApproxEqRel(spot, amountIn / 10, 1e9, "measured against its own mid");
+    }
+
     /// @dev Open for the founder (review round 2): the same trap without a maximum. It wins on output (the fund gets
     ///      about 100.55 instead of 99.94), but `spotOut` is its own mid (1,000), so the sale reports a loss of about
     ///      899 it did not have. Until the founder rules, a vault must not charge a cost measured against it.
@@ -431,6 +462,41 @@ contract UniswapV3SwapAdapterForkTest is SwapForkBase {
         console2.log("trap 1% quote", trapOut, "honest 0.05% quote", honestOut);
         assertGt(trapOut, honestOut, "the trap quotes more");
         assertLt(trapAfter, MAX_SQRT_RATIO - 1, "and fills the whole input");
+    }
+
+    /// @dev Two new tokens: an honest 0.05% pool at price 1 with L = 1e21 over the full range, and a 0.01% pool at price
+    ///      0.1 with L = 1e9 over the full range and L = 2e22 in ticks [-23100, -23040], below its price (token1 only).
+    function _pairWithATierBelowTheMarket(V3Chain memory c) internal returns (address t0, address t1) {
+        (t0, t1) = _sorted(address(new ForkToken("AAA")), address(new ForkToken("BBB")));
+        DustMinter minter = new DustMinter();
+        IUniswapV3Pool honest = IUniswapV3Pool(c.factory.createPool(t0, t1, 500));
+        honest.initialize(2 ** 96);
+        minter.mint(honest, -887_270, 887_270, 1e21);
+        IUniswapV3Pool trap = IUniswapV3Pool(c.factory.createPool(t0, t1, 100));
+        trap.initialize(SQRT_PRICE_X96_OF_ONE_TENTH);
+        minter.mint(trap, -887_272, 887_272, 1e9);
+        minter.mint(trap, -23_100, -23_040, 2e22);
+    }
+
+    /// @dev QuoterV2 on its own, selling token0: the honest 0.05% tier fills more than 1% below its mid, the 0.01% tier
+    ///      below the market fills the whole input within 1% of its own mid, and one token1 sold into that tier buys
+    ///      only dust of token0 (no arbitrage).
+    function _assertTheTierBelowTheMarket(V3Chain memory c, address t0, address t1, uint256 amountIn)
+        internal
+        returns (uint256 honestOut, uint256 trapOut)
+    {
+        (honestOut,,,) = c.quoter.quoteExactInputSingle(IQuoterV2.QuoteExactInputSingleParams(t0, t1, amountIn, 500, 0));
+        uint160 trapAfter;
+        (trapOut, trapAfter,,) =
+            c.quoter.quoteExactInputSingle(IQuoterV2.QuoteExactInputSingleParams(t0, t1, amountIn, 100, 0));
+        (uint256 arbOut,,,) =
+            c.quoter.quoteExactInputSingle(IQuoterV2.QuoteExactInputSingleParams(t1, t0, 1e18, 100, 0));
+        console2.log("honest 0.05% quote", honestOut, "0.01% tier below the market", trapOut);
+        console2.log("one token1 sold into that tier buys token0", arbOut);
+        assertLt(honestOut, amountIn * 99 / 100, "the honest tier loses more than 1%");
+        assertGt(trapAfter, MIN_SQRT_RATIO + 1, "the tier below the market fills the whole input");
+        assertGe(trapOut, amountIn / 10 * 99 / 100, "within 1% of its own mid");
+        assertLt(arbOut, 1e12, "and offers no arbitrage");
     }
 
     /// @dev The vault side: holds exactly `amount` and approves the adapter for it.
