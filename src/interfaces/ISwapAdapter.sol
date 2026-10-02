@@ -14,9 +14,8 @@ import {IAdapterGuard} from "./IAdapterGuard.sol";
 /// @dev Who chooses the route (DEC-129, DEC-143, DEC-153; readings D-01, D-02, D-22):
 ///      - Empty `route`: the adapter chooses. It asks the Uniswap V3 factory which pools of the direct pair exist in the
 ///        four fee tiers (0.01%, 0.05%, 0.3%, 1%), quotes each with QuoterV2 and swaps in the one with the highest
-///        output among the quotes that fill the whole input and, when the caller set a maximum loss, meet it against
-///        their own tier's mid price (DEC-153 item 2, read as the best tier the sale can execute in). Nothing is
-///        stored; a pair without a direct V3 pool has no route without the API (DEC-153, accepted).
+///        output among the quotes that fill the whole input (DEC-153 item 2). Nothing is stored; a pair without a
+///        direct V3 pool has no route without the API (DEC-153, accepted).
 ///      - Non-empty `route`: an `ApiRoute` signed (EIP-712) by `routeSigner`, the Pool Party API. The signature is what
 ///        lets the contract tell an API route from a caller's choice, which DEC-143 forbids. Anyone may relay a signed
 ///        route; every swap still works without the API (DEC-052).
@@ -24,9 +23,10 @@ import {IAdapterGuard} from "./IAdapterGuard.sol";
 ///      measured against `spotOut`, the mid value of `amountIn` along the route's pools read before any leg trades
 ///      (pool fee plus price impact, DEC-118; the "value sold" of DEC-141). 0 or >= 10,000 means no maximum. With an
 ///      API route the stricter of that bound and the API's minimum applies (DEC-142). No oracle floor (DEC-129,
-///      DEC-132); no protocol cap on the maximum (DEC-140 item 3, DEC-142 item 2). Open (founder): without a maximum,
-///      the `spotOut` of an empty-route swap can be the mid of a tier a third party created in the same transaction;
-///      do not charge a cost against it until ruled (see `UniswapV3SwapAdapter`).
+///      DEC-132); no protocol cap on the maximum (DEC-140 item 3, DEC-142 item 2). Open (founder): the `spotOut` of an
+///      empty-route swap is the chosen tier's own mid, which a third party can set through a tier it creates or
+///      pushes, and which can stand in place without arbitrage; until ruled, do not charge any cost against the
+///      `spotOut` of an empty-route swap, with or without a maximum (see `UniswapV3SwapAdapter`).
 /// @dev Custody: the vault approves exactly `amountIn` of `tokenIn` before calling `swap` or `swapDirect`; the adapter
 ///      pulls it, approves the router for exactly that amount, has every leg pay the vault directly, clears the
 ///      approval and keeps nothing. A swap that does not spend the whole input reverts with `PartialFill`.
@@ -138,12 +138,9 @@ interface ISwapAdapter is IAdapterGuard {
 
     /// @notice The direct fee tier the adapter would choose for this swap (DEC-153) and its quoted output. Anyone.
     /// @dev State-changing only because QuoterV2 simulates each swap and reverts; meant for `eth_call` by the API and
-    ///      for the vault's own libraries, which choose a tier once per token and maximum per unwind or collection
-    ///      (D-21) and must pass the maximum the sale will use: the choice depends on it.
-    /// @param maxLossBps The maximum loss of the swap, as in `swap`. With one, only tiers whose quote meets it against
-    ///        their own mid price compete; when none does, the best overall is returned and a swap in it reverts
-    ///        `InsufficientOutput`.
-    function bestDirectFee(address tokenIn, address tokenOut, uint256 amountIn, uint16 maxLossBps)
+    ///      for the vault's own libraries, which choose a tier once per token per unwind or collection (D-21). The
+    ///      choice does not depend on the maximum loss: `swap` and `swapDirect` apply it to the chosen tier.
+    function bestDirectFee(address tokenIn, address tokenOut, uint256 amountIn)
         external
         returns (uint24 fee, uint256 quotedOut);
 
