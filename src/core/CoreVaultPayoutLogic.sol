@@ -569,9 +569,16 @@ library CoreVaultPayoutLogic {
             bytes32 costKey = keccak256(abi.encode(req.requestId, index));
             uint256 marketCost = Math.mulDiv(leg.marketCost, rate, 1e18);
             uint256 leaverCostBase = leg.leaverCost;
-            if (leg.refunded && req.mode == ICoreVaultPayouts.PayoutMode.Instant) {
-                uint256 bridgeCost = leg.amountSent > leg.amountToArrive ? leg.amountSent - leg.amountToArrive : 0;
-                leaverCostBase -= Math.min(leaverCostBase, bridgeCost);
+            if (req.mode == ICoreVaultPayouts.PayoutMode.Instant) {
+                leaverCostBase = leg.marketCost;
+                bytes32[] storage transits = s.payouts.transits[req.requestId][index];
+                for (uint256 transitIndex; transitIndex < transits.length; ++transitIndex) {
+                    bytes32 key = CoreVaultLogic.hubBoundKey(s.mandate.spokes[index].chainId, transits[transitIndex]);
+                    SpokeUnwindTypes.OrderResult storage send = s.payouts.transitResults[key];
+                    if (!send.refunded && send.amountSent > send.amountToArrive) {
+                        leaverCostBase += send.amountSent - send.amountToArrive;
+                    }
+                }
             }
             uint256 leaverCost = Math.mulDiv(leaverCostBase, rate, 1e18);
             claim.marketCost += marketCost > s.payouts.paidMarketCost[costKey]

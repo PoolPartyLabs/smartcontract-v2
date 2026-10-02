@@ -121,9 +121,6 @@ library SpokeUnwindLib {
                 s.unwind.refundRecovered[transitId] = true;
                 pending.proceeds += transit.amountSent;
                 s.unwind.reservedBase += transit.amountSent;
-                if (pending.bridgeCost >= transit.amountSent - transit.amountToArrive) {
-                    pending.bridgeCost -= transit.amountSent - transit.amountToArrive;
-                }
             }
         }
         if (s.hubBoundTransits[pending.transitId].state == TransitState.RefundRecognized) {
@@ -320,6 +317,25 @@ library SpokeUnwindLib {
                 || blob.length != 64 + count * 384
         ) return false;
         SpokeUnwindTypes.OrderResult[] memory records = abi.decode(blob, (SpokeUnwindTypes.OrderResult[]));
+        for (uint256 index; index < records.length; ++index) {
+            bytes32 id = records[index].transitId;
+            if (
+                id == bytes32(0) || s.unwind.feeRefunded[id]
+                    || s.hubBoundTransits[id].state != TransitState.RefundRecognized
+            ) continue;
+            s.unwind.feeRefunded[id] = true;
+            bytes32 requestId = records[index].requestId;
+            uint256 fee = records[index].amountSent - records[index].amountToArrive;
+            SpokeUnwindTypes.Pending storage pending = s.unwind.pending[requestId];
+            if (pending.bridgeCost < fee) continue;
+            pending.bridgeCost -= fee;
+            for (uint256 later; later < records.length; ++later) {
+                if (records[later].requestId == requestId && records[later].attempt >= records[index].attempt) {
+                    records[later].leaverCost -= Math.min(records[later].leaverCost, fee);
+                }
+            }
+            changed = true;
+        }
         for (uint256 index; index < records.length; ++index) {
             if (
                 !records[index].refunded
