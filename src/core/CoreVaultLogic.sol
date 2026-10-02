@@ -936,7 +936,9 @@ library CoreVaultLogic {
     ///      anything above it (a donation) reaches the Core Vault unledgered and only `sweepExcess` moves it. A dust
     ///      donation therefore can neither move the state nor Share Assets. DEC-162: after an attestation by time
     ///      alone, or by a report for a send below the listing minimum, the refund is the first proof of non-arrival,
-    ///      so the bridge adapter learns the expiry here.
+    ///      so the bridge adapter learns the expiry here. That proof is only the escrow balance: whoever pays
+    ///      `amountSent` into a filled send's escrow (the payment becomes the fund's) also steps one send's fee, once
+    ///      per send and within the cap (review round 1; a known limitation).
     function recognizeRefund(CoreVaultState storage s, CoreVaultWiring memory w, bytes32 transitId)
         public
         returns (uint256 amount)
