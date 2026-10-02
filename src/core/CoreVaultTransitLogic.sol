@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
+import {ICoreVaultLifecycle} from "../interfaces/ICoreVaultLifecycle.sol";
 import {IValueReportReceiver} from "../interfaces/IValueReportReceiver.sol";
 import {IBridgeAdapter} from "../interfaces/IBridgeAdapter.sol";
 import {ITransitEscrow} from "../interfaces/ITransitEscrow.sol";
@@ -44,6 +45,7 @@ library CoreVaultTransitLogic {
     /// @dev WP-07 D2: ends with the income and payout hooks (`onReportAccepted`, no-ops for now), which get the report
     ///      to read their own results from it (`collectionResults`, `unwindResults`, report version 4).
     function applyReport(CoreVaultState storage s, CoreVaultWiring memory w, uint256 spokeIndex) public {
+        if (s.fundState == ICoreVaultLifecycle.FundState.Closed) return;
         if (spokeIndex >= s.mandate.spokes.length) revert ICoreVault.UnknownSpoke(spokeIndex);
         (ReportCodec.Report memory r,,) = IValueReportReceiver(w.reportReceiver).latestReport(spokeIndex);
         if (r.fundId != w.fundId) revert ICoreVault.WrongFund(r.fundId);
@@ -131,6 +133,7 @@ library CoreVaultTransitLogic {
         TransferKind kind,
         uint256 amount
     ) public {
+        if (s.fundState == ICoreVaultLifecycle.FundState.Closed) return;
         HubBoundTransfer storage h = s.hubBound[CoreVaultLogic.hubBoundKey(originChainId, transitId)];
         if (h.listed == 0) {
             // Cross-check of the independent review (S-45, S-64): the recovery clock restarts at an arrival at least as
@@ -217,7 +220,7 @@ library CoreVaultTransitLogic {
         h.pending = 0;
         h.credited += amount;
         s.unmatchedArrivals -= amount;
-        s.idle += amount;
+        if (s.fundState != ICoreVaultLifecycle.FundState.Closed) s.idle += amount;
         emit ICoreVault.UnlistedArrivalRecovered(transitId, originChainId, amount);
     }
 
@@ -526,7 +529,7 @@ library CoreVaultTransitLogic {
         bool attestedByTime = _releaseHeldCap(s, book, transitId, amount);
         book.inFlightToArrive -= t.amountToArrive;
         t.state = TransitState.RefundRecognized;
-        s.idle += amount;
+        if (s.fundState != ICoreVaultLifecycle.FundState.Closed) s.idle += amount;
         emit ICoreVault.TransitRefundRecognized(transitId, spokeIndex, amount);
         if (attestedByTime || !_listable(t)) _noteExpiry(t, transitId);
         uint256 before = token.balanceOf(address(this));

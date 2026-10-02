@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
+import {ICoreVaultLifecycle} from "../interfaces/ICoreVaultLifecycle.sol";
 import {ICoreVaultIncome} from "../interfaces/ICoreVaultIncome.sol";
 import {IManagerRegistry} from "../interfaces/IManagerRegistry.sol";
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
@@ -57,6 +58,13 @@ library CoreVaultIncomeCollectionLogic {
         uint16 maxLossBps,
         uint256 messageFee
     ) public returns (uint64 round) {
+        if (s.fundState == ICoreVaultLifecycle.FundState.Closed) {
+            if (messageFee != 0) revert ICoreVaultIncome.MessageFeeNotUsed(messageFee);
+            round = s.incomeBook.round;
+            s.incomeBook.requests[holder] = CoreVaultIncomeTypes.Request(round, true);
+            emit ICoreVaultIncome.IncomeWithdrawalRequested(holder, round);
+            return round;
+        }
         _collectHub(s, w, maxLossBps);
         bool published = _collectSpokes(s, w, maxLossBps, messageFee);
         if (!published && messageFee != 0) revert ICoreVaultIncome.MessageFeeNotUsed(messageFee);
@@ -149,6 +157,7 @@ library CoreVaultIncomeCollectionLogic {
         uint256 source,
         ReportCodec.TokenAmount[] memory counters
     ) private {
+        if (s.fundState == ICoreVaultLifecycle.FundState.Closed) return;
         CoreVaultIncomeTypes.Source storage src = s.incomeBook.sources[source];
         uint16 feeBps = s.performanceFeeBps;
         uint256 supply = IERC20(w.shareToken).totalSupply();
