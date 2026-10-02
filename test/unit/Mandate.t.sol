@@ -585,11 +585,13 @@ contract MandateTest is Test {
         h.validate(m);
     }
 
-    /// @dev DEC-108, DEC-114: until the accrual exists only 0 is taken, even within the 500 bps cap (DEC-115).
-    function test_DEC108_managementFeeMustBeZeroInMvp() public {
+    /// @dev DEC-114, DEC-115: the management fee accrues (WP-07 B5), so 0..500 bps a year is accepted; 501 reverts.
+    function test_DEC115_managementFeeCapIsFivePercentAYear() public {
         Mandate memory m = _valid();
-        m.managementFeeBps = 1;
-        vm.expectRevert(abi.encodeWithSelector(MandateLib.ManagementFeeNotSupported.selector, 1));
+        m.managementFeeBps = 500;
+        h.validate(m);
+        m.managementFeeBps = 501;
+        vm.expectRevert(abi.encodeWithSelector(MandateLib.BpsAboveMax.selector, 501, 500));
         h.validate(m);
     }
 

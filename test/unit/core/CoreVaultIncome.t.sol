@@ -153,9 +153,10 @@ contract CoreVaultIncomeTest is CoreVaultFixture {
         vault.decreaseManagerFee(0, 0);
     }
 
-    function test_DEC108_managementFeeMustStayZero() public {
+    /// @dev DEC-110: a management fee of 0 can never rise (DEC-114 accepts 0..500 at creation only).
+    function test_DEC110_managementFeeNeverIncreases() public {
         vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVaultIncome.ManagementFeeNotSupported.selector, 10));
+        vm.expectRevert(ICoreVaultIncome.ManagerFeeNotDecreasing.selector);
         vault.decreaseManagerFee(1000, 10);
         assertEq(vault.managementFeeBps(), 0);
     }

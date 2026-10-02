@@ -123,8 +123,11 @@ contract CoreVault is CoreVaultPayout {
     /// @inheritdoc ICoreVaultLifecycle
     /// @dev DEC-147 items 2-3: from here the manager unwinds with the existing verbs; deposits, new Payout Requests and
     ///      claims are refused (D-26) and Income Withdrawal stays open (DEC-117 item 4). DEC-149 reading: irreversible.
+    ///      DEC-114 (D-33): the management fee accrues up to this call and no further; it is booked here (a payout-mode
+    ///      valuation, which never reverts on a failing dependency) and paid at the end of the closure (WP-13).
     function closeFund() external onlyManager nonReentrant {
         _requireOpen();
+        if (_s.managementFeeBps != 0) CoreVaultLogic.recordValuation(_s, _wiring(), false);
         _s.fundState = FundState.Closing;
         _s.closingStartedAt = uint64(block.timestamp);
         emit FundClosing(uint64(block.timestamp));

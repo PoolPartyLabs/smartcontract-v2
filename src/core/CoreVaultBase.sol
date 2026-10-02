@@ -116,6 +116,8 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
 
         _s.performanceFeeBps = m.performanceFeeBps;
         _s.managementFeeBps = m.managementFeeBps;
+        // DEC-114: the management fee accrues from creation (the seed is the fund's first capital, DEC-127).
+        _s.managementFeeLastAccrual = uint64(block.timestamp);
         (_s.operatingCashFloor, _s.operatingCashTopUp) = MandateLib.operatingCashFor(m, m.hubChainId);
         _copyMandate(m);
         _pinBridgeAdapters(m);

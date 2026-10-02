@@ -122,7 +122,7 @@ struct HubBoundTransfer {
 /// @param operatingCashFloor Live floor (DEC-096).
 /// @param operatingCashTopUp Live top-up (DEC-096).
 /// @param performanceFeeBps Live performance fee; only decreases (DEC-110).
-/// @param managementFeeBps Live management fee; always 0 in the MVP (DEC-108).
+/// @param managementFeeBps Live management fee, bps a year; only decreases (DEC-110, DEC-114).
 /// @param unmatchedArrivals Spoke-to-hub arrivals held apart: pending plus strays; outside every base, never swept
 ///        (DEC-080, DEC-104, OQ-01).
 /// @param transitNonce Counter behind transit ids.
@@ -150,6 +150,9 @@ struct HubBoundTransfer {
 /// @param managerPeakShares ICoreVaultLifecycle.managerPeakShares (DEC-146); non-zero once the fund is seeded.
 /// @param fundState ICoreVaultLifecycle.fundState (DEC-147).
 /// @param closingStartedAt ICoreVaultLifecycle.closingStartedAt (DEC-147, DEC-149).
+/// @param managementFeeAccrued Management fee booked so far, in USDC: a liability outside Share Assets, paid at fund
+///        closure (DEC-114, D-33; payment in WP-13).
+/// @param managementFeeLastAccrual When the management fee was last booked; the next accrual covers the time since.
 struct CoreVaultState {
     Mandate mandate;
     uint256 idle;
@@ -178,4 +181,6 @@ struct CoreVaultState {
     uint256 managerPeakShares;
     ICoreVaultLifecycle.FundState fundState;
     uint64 closingStartedAt;
+    uint256 managementFeeAccrued;
+    uint64 managementFeeLastAccrual;
 }
