@@ -28,8 +28,10 @@ import {ISwapRouter02} from "../interfaces/external/ISwapRouter02.sol";
 ///      whose honest quote needs more than the cap drops out and the next best tier is used, still bounded by the
 ///      caller's maximum loss. With more than the cap left, a quote gets exactly the cap, so the outcome does not depend
 ///      on the transaction's gas. With less, EIP-150 forwards 63/64 of what is left, and a quote that then runs out
-///      leaves 1/64 of it (under 16k gas), too little to finish the swap: a caller cannot starve a better tier by
-///      limiting gas and still complete the trade. A vault that wraps a swap in try/catch must guard its own catch.
+///      hands back up to about 2/64 of it: the adapter's own 1/64, plus most of the 1/64 QuoterV2 keeps, since QuoterV2
+///      runs the pool's swap in its own try/catch and reverts cheaply after the pool runs out. That is about 30k gas
+///      just under the cap, too little to finish the swap (over 100k): a caller cannot starve a better tier by limiting
+///      gas and still complete the trade. A vault that wraps a swap in try/catch must guard its own catch.
 /// @dev Known limit: SwapRouter02 does not require a hop of a multi-hop path to consume its whole input. The adapter
 ///      checks the first hop (the vault's input is spent exactly) and the output against the maximum loss; an
 ///      intermediate hop that stops at a price limit leaves its unspent intermediate token in the router. The API
