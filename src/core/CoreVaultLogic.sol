@@ -462,8 +462,8 @@ library CoreVaultLogic {
     /// @notice Books the management fee owed at `gross` (DEC-114) and returns Share Assets net of it.
     /// @dev The clock moves when something was booked, or when the liability already takes the whole fund (that time
     ///      is never charged later). A run of valuations too close together to book one base unit keeps the clock, so
-    ///      their time is not lost. A fee of 0 (it only decreases, DEC-110) or a fund no longer Open never accrues
-    ///      again, so its clock is never written.
+    ///      their time is not lost. A fee of 0 never accrues again (it only decreases, DEC-110), so its clock is never
+    ///      written.
     function _bookManagementFee(CoreVaultState storage s, uint256 gross) private returns (uint256 assets) {
         uint256 booked = s.managementFeeAccrued;
         uint256 owed = _managementFeeOwed(s, gross);
