@@ -8,10 +8,11 @@ import {DollarIncomeIndex} from "../../src/libraries/DollarIncomeIndex.sol";
 import {DollarIncomeIndexHarness} from "../mocks/income/DollarIncomeIndexHarness.sol";
 
 /// @dev Per-holder reference (doc 10 appendix, `Referencia`): keeps every holder's token claims of the open interval
-///      and converts everyone's claims at each collection, with no index at all. Claims are kept in Q128 so the
-///      reference is exact to far below one base unit. The collection rule is the library's: each claim converts at
-///      `obtained / max(sold, recognized)`; the `recognized - sold` unsold units are recognized again over the shares
-///      held at the collection; at zero supply they stay unattributed.
+///      and converts everyone's claims at each collection, with no index, no interval number and no stored rate.
+///      Claims are kept in Q128 so the reference is exact to far below one base unit. The collection rule is the
+///      register's (DEC-014: collecting later does not change the beneficiary; DEC-045), written holder by holder:
+///      with `R` the units claimed on a token, each claim converts at `obtained / max(sold, R)`, and when `sold < R`
+///      the holder keeps `claim x (R - sold) / R` of their own claim for the next collection.
 contract DollarIncomeReference {
     address[] internal tokenList;
     address[] internal holderList;
@@ -20,7 +21,6 @@ contract DollarIncomeReference {
     mapping(address holder => mapping(address token => uint256)) internal tokenClaimQ;
     mapping(address holder => uint256) internal dollarsQ;
     mapping(address token => uint256) public recognized;
-    mapping(address token => uint256) public unattributedTokens;
     uint256 public dollarsObtained;
 
     constructor(address[] memory tokens_, address[] memory holders_) {
@@ -52,26 +52,20 @@ contract DollarIncomeReference {
     }
 
     function collect(uint256[] memory sold, uint256[] memory obtained) external {
-        uint256[] memory carried = new uint256[](tokenList.length);
         for (uint256 k; k < tokenList.length; ++k) {
             address token = tokenList[k];
             uint256 r = recognized[token];
+            uint256 unsold = sold[k] < r ? r - sold[k] : 0;
             uint256 denominator = sold[k] > r ? sold[k] : r;
             for (uint256 i; i < holderList.length; ++i) {
                 address holder = holderList[i];
                 uint256 claim = tokenClaimQ[holder][token];
                 if (claim == 0) continue;
-                if (denominator != 0) dollarsQ[holder] += Math.mulDiv(claim, obtained[k], denominator);
-                tokenClaimQ[holder][token] = 0;
+                dollarsQ[holder] += Math.mulDiv(claim, obtained[k], denominator);
+                tokenClaimQ[holder][token] = Math.mulDiv(claim, unsold, r);
             }
-            if (sold[k] < r) carried[k] = r - sold[k];
-            recognized[token] = 0;
+            recognized[token] = unsold;
             dollarsObtained += obtained[k];
-        }
-        for (uint256 k; k < tokenList.length; ++k) {
-            if (carried[k] != 0 && !recognize(tokenList[k], carried[k])) {
-                unattributedTokens[tokenList[k]] += carried[k];
-            }
         }
     }
 
@@ -100,10 +94,13 @@ contract DollarIncomeModelHandler is Test {
 
     mapping(address holder => uint256) public takenBy;
     /// @dev Rounding budget per holder: one dollar unit per settlement, up to three per adjusted token (one token unit
-    ///      at a rate below two, plus the ceiling of the conversion), two per collection (index floors).
+    ///      at a rate below two, plus the ceiling of the conversion), two per collection (index floors), and per
+    ///      partial sale up to three per token whose adjustment it carries (the carried unit and its next conversion).
     mapping(address holder => uint256) public settlements;
     mapping(address holder => uint256) public adjustments;
     uint256 public collections;
+    /// @dev Collections that sold part, but not all, of some token's open interval.
+    uint256 public partialSales;
 
     constructor() {
         harness = new DollarIncomeIndexHarness(1);
@@ -149,11 +146,12 @@ contract DollarIncomeModelHandler is Test {
         assertEq(harness.recognize(tokenList[k], amount), ref.recognize(tokenList[k], amount), "same acceptance");
     }
 
-    /// @dev Per token, one of: sell exactly what was recognized (most often), sell part of it, sell nothing, sell
-    ///      more (fee units, income recognized at zero supply), at a random price.
+    /// @dev Per token, one of: sell exactly what was recognized (most often), sell part of it, sell nothing (a refused
+    ///      sale), sell more (fee units, income recognized at zero supply), at a random price.
     function collect(uint256 seed) public {
         uint256[] memory sold = new uint256[](3);
         uint256[] memory obtained = new uint256[](3);
+        bool partialSale;
         for (uint256 k; k < 3; ++k) {
             uint256 r = harness.incomeToken(tokenList[k]).recognized;
             uint256 draw = uint256(keccak256(abi.encode(seed, k)));
@@ -162,6 +160,7 @@ contract DollarIncomeModelHandler is Test {
             else if (mode == 4) sold[k] = (r * ((draw >> 8) % 10)) / 10;
             else if (mode == 5) sold[k] = 0;
             else sold[k] = r + (r * ((draw >> 8) % 5)) / 10 + ((draw >> 16) % 1e6);
+            if (sold[k] != 0 && sold[k] < r) partialSale = true;
             uint256 price = draw >> 32;
             if (k == 0) obtained[k] = (sold[k] * (990 + price % 21)) / 1000;
             else if (k == 1) obtained[k] = Math.mulDiv(sold[k], 1000 + price % 3001, 1e12);
@@ -170,6 +169,7 @@ contract DollarIncomeModelHandler is Test {
         harness.collect(sold, obtained);
         ref.collect(sold, obtained);
         collections += 1;
+        if (partialSale) partialSales += 1;
     }
 
     function settle(uint256 holderSeed) public {
@@ -194,20 +194,24 @@ contract DollarIncomeModelHandler is Test {
             address holder = holderList[i];
             uint256 lib = harness.owedDollars(holder) + takenBy[holder];
             uint256 expected = ref.dollars(holder);
-            uint256 budget = 4 + settlements[holder] + 3 * adjustments[holder] + 2 * collections;
+            uint256 budget = 4 + settlements[holder] + 3 * adjustments[holder] + 2 * collections + 9 * partialSales;
             assertLe(lib, expected + 1, "dollars: never above the reference");
             assertGe(lib + budget, expected, "dollars: within rounding of the reference");
             for (uint256 k; k < 3; ++k) {
                 uint256 libTokens = harness.tokenOwed(holder, tokenList[k]);
                 uint256 refTokens = ref.tokens(holder, tokenList[k]);
                 assertLe(libTokens, refTokens + 1, "tokens: never above the reference");
-                assertGe(libTokens + 2 + adjustments[holder], refTokens, "tokens: within rounding of the reference");
+                assertGe(
+                    libTokens + 2 + adjustments[holder] + 2 * partialSales,
+                    refTokens,
+                    "tokens: within rounding of the reference"
+                );
             }
         }
     }
 
     /// @dev Doc 10 section 2: the holders together are never owed more than was recognized (tokens) or obtained
-    ///      (dollars); the open-interval and unattributed books match the reference exactly.
+    ///      (dollars); the open-interval books match the reference exactly.
     function checkConservation() public view {
         uint256 owedSum;
         for (uint256 i; i < 5; ++i) {
@@ -226,7 +230,6 @@ contract DollarIncomeModelHandler is Test {
             address token = tokenList[k];
             DollarIncomeIndex.IncomeToken memory t = harness.incomeToken(token);
             assertEq(t.recognized, ref.recognized(token), "same open-interval recognition");
-            assertEq(t.unattributed, ref.unattributedTokens(token), "same unattributed units");
             uint256 tokenSum;
             for (uint256 i; i < 5; ++i) {
                 tokenSum += harness.tokenOwed(holderList[i], token);

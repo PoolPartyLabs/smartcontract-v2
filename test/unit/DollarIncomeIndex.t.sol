@@ -257,47 +257,189 @@ contract DollarIncomeIndexTest is Test {
 
     // ------------------------------------------------------------------ collection edge cases
 
-    /// Plan reading (doc 10 leaves it open): when a collection sells less than the interval recognized, every holder's
-    /// claim converts the same fraction at the sale price and the unsold units carry into the next interval as
-    /// recognized income over the shares held at the collection.
-    function test_DEC161_partialSaleConvertsAFractionAndCarriesTheRest() public {
+    /// DEC-014 (collecting later does not change the beneficiary): when a collection sells less than the interval
+    /// recognized, every claim converts the same fraction at the sale price and each holder keeps the rest of their
+    /// own claim in the next interval. The entrant, whose claim on the interval was zero, gets nothing of it.
+    function test_DEC014_partialSaleKeepsEachHoldersUnsoldClaim() public {
         h.mint(ana, 100 * SHARE);
         h.mint(bruno, 100 * SHARE);
         h.recognize(weth, (10 * WETH) / 100);
         h.mint(caio, 100 * SHARE); // adjustment -0.05 WETH
-        // Sells 0.06 of the 0.10 WETH at 2,800 for 168: each claim converts 60% at 2,800 (1,680 per recognized WETH).
+        // Sells 0.06 of the 0.10 WETH at 2,800 for 168: each claim converts 60% at 2,800 (1,680 per claimed WETH).
         assertLe(_collectWeth((6 * WETH) / 100, 168 * USD), 1);
         assertApproxEqAbs(h.owedDollars(ana), 84 * USD, 1);
         assertApproxEqAbs(h.owedDollars(bruno), 84 * USD, 1);
         assertLe(h.owedDollars(caio), 1, "the entrant's claim on the interval was zero");
         assertEq(h.rateAt(0, weth), Math.mulDiv(168 * USD, DollarIncomeIndex.Q128, (10 * WETH) / 100));
-        // The 0.04 WETH unsold enter the next interval over the 300 shares held at the collection.
+        assertEq(h.carryAt(0, weth), Math.mulDiv(4, DollarIncomeIndex.Q128, 10));
+        // 40% of each claim stays with its holder: 0.02 WETH for Ana and for Bruno, nothing for Caio.
         DollarIncomeIndex.IncomeToken memory t = h.incomeToken(weth);
+        assertEq(t.interval, 1);
         assertEq(t.recognized, (4 * WETH) / 100);
-        assertApproxEqAbs(h.tokenOwed(ana, weth), (4 * WETH) / 300, 1);
-        assertApproxEqAbs(h.tokenOwed(caio, weth), (4 * WETH) / 300, 1);
+        assertApproxEqAbs(h.tokenOwed(ana, weth), (2 * WETH) / 100, 1);
+        assertApproxEqAbs(h.tokenOwed(bruno, weth), (2 * WETH) / 100, 1);
+        assertLe(h.tokenOwed(caio, weth), 1, "nothing of the unsold part for the entrant");
         uint256 tokenSum = h.tokenOwed(ana, weth) + h.tokenOwed(bruno, weth) + h.tokenOwed(caio, weth);
         assertLe(tokenSum, (4 * WETH) / 100);
         assertApproxEqAbs(tokenSum, (4 * WETH) / 100, 3);
-        // The carried units are sold at the next collection.
+        // The carried units sell at the next collection at 3,000: 60 more for Ana and for Bruno, nothing for Caio.
         _collectWeth((4 * WETH) / 100, 120 * USD);
-        assertApproxEqAbs(h.owedDollars(ana), 124 * USD, 2);
-        assertApproxEqAbs(h.owedDollars(caio), 40 * USD, 2);
+        assertApproxEqAbs(h.owedDollars(ana), 144 * USD, 2);
+        assertApproxEqAbs(h.owedDollars(bruno), 144 * USD, 2);
+        assertLe(h.owedDollars(caio), 2);
+        h.settle(caio);
+        (,,, bool adjusted) = h.holderState(caio);
+        assertFalse(adjusted, "the carried adjustment converted at the full sale");
     }
 
-    /// A token not sold at a collection (`sold == 0`) carries whole; its rate is stored as zero.
-    function test_DEC161_unsoldTokenCarriesWhole() public {
+    /// Review M-1 regression (DEC-014, DEC-138, S-15): an entrant after the recognition takes nothing of the
+    /// interval's income when a collection leaves it unsold. Ana holds 100 shares; the fund earns 1 WETH; Mallory mints
+    /// 900; a collection does not sell the WETH; Mallory burns her 900; the next collection sells the WETH at 2,800.
+    /// Ana gets the 2,800 and Mallory nothing (re-spreading the unsold units over the shares gave Mallory 2,520).
+    function test_DEC014_entrantTakesNothingOfIncomeLeftUnsold() public {
+        address mallory = makeAddr("mallory");
+        h.mint(ana, 100 * SHARE);
+        h.recognize(weth, WETH);
+        h.mint(mallory, 900 * SHARE);
+        assertEq(h.tokenOwed(mallory, weth), 0);
+        _collectWeth(0, 0);
+        assertEq(h.tokenOwed(mallory, weth), 0, "the unsold interval stays open with the entrant's adjustment");
+        h.burn(mallory, 900 * SHARE);
+        _collectWeth(WETH, 2800 * USD);
+        assertLe(h.owedDollars(mallory), 1);
+        assertApproxEqAbs(h.owedDollars(ana), 2800 * USD, 1);
+    }
+
+    /// The same entrant through a partial sale: half the WETH sells at 2,800 before Mallory leaves. Her adjustment
+    /// carries its unsold half into the next interval, where it cancels her shares' part of the carried index.
+    function test_DEC014_entrantTakesNothingThroughAPartialSale() public {
+        address mallory = makeAddr("mallory");
+        h.mint(ana, 100 * SHARE);
+        h.recognize(weth, WETH);
+        h.mint(mallory, 900 * SHARE);
+        _collectWeth(WETH / 2, 1400 * USD);
+        assertLe(h.owedDollars(mallory), 1);
+        assertLe(h.tokenOwed(mallory, weth), 1);
+        assertApproxEqAbs(h.tokenOwed(ana, weth), WETH / 2, 1);
+        h.burn(mallory, 900 * SHARE);
+        _collectWeth(WETH / 2, 1400 * USD);
+        assertLe(h.owedDollars(mallory), 2);
+        assertApproxEqAbs(h.owedDollars(ana), 2800 * USD, 2);
+    }
+
+    /// Review M-1 regression (DEC-045): a holder who burns every share keeps what they earned in the interval when a
+    /// collection leaves it unsold. Ana and Bruno hold 100 shares each; the fund earns 0.10 WETH; Ana leaves; a
+    /// collection does not sell; the next one sells at 2,800: 140 each (re-spreading gave Ana 0 and Bruno 280).
+    function test_DEC045_fullExitKeepsIncomeLeftUnsold() public {
+        h.mint(ana, 100 * SHARE);
+        h.mint(bruno, 100 * SHARE);
+        h.recognize(weth, (10 * WETH) / 100);
+        h.burn(ana, 100 * SHARE);
+        _collectWeth(0, 0);
+        assertApproxEqAbs(h.tokenOwed(ana, weth), (5 * WETH) / 100, 1);
+        _collectWeth((10 * WETH) / 100, 280 * USD);
+        assertApproxEqAbs(h.owedDollars(ana), 140 * USD, 1);
+        assertApproxEqAbs(h.owedDollars(bruno), 140 * USD, 1);
+    }
+
+    /// DEC-045 at zero supply, through a partial sale: Ana burns every share, so no share is left when a collection
+    /// sells 0.04 of the 0.10 WETH at 2,800. She gets 112 and keeps 0.06 WETH, which sell at the next collection.
+    function test_DEC045_fullExitAtZeroSupplyKeepsTheUnsoldRest() public {
+        h.mint(ana, 100 * SHARE);
+        h.recognize(weth, (10 * WETH) / 100);
+        h.burn(ana, 100 * SHARE);
+        assertEq(h.totalShares(), 0);
+        _collectWeth((4 * WETH) / 100, 112 * USD);
+        assertApproxEqAbs(h.owedDollars(ana), 112 * USD, 1);
+        assertApproxEqAbs(h.tokenOwed(ana, weth), (6 * WETH) / 100, 1);
+        assertEq(h.incomeToken(weth).recognized, (6 * WETH) / 100);
+        _collectWeth((6 * WETH) / 100, 168 * USD);
+        assertApproxEqAbs(h.owedDollars(ana), 280 * USD, 2);
+        assertApproxEqAbs(h.take(ana, type(uint256).max), 280 * USD, 2);
+    }
+
+    /// A token the collection does not sell (`sold == 0`, a refused or failed sale) keeps its interval open: no rate
+    /// is stored, its index and recognized units stay, and the next sale converts the whole interval.
+    function test_DEC161_unsoldTokenStaysInItsOpenInterval() public {
         h.mint(ana, 100 * SHARE);
         h.recognize(weth, WETH / 10);
         h.recognize(usdc, 50 * USD);
+        uint256 index = h.incomeToken(weth).openIndex;
+        vm.expectEmit(true, true, true, true, address(h));
+        emit DollarIncomeIndex.IntervalIncomeUnsold(SOURCE, 0, weth, WETH / 10);
         assertEq(_collect(50 * USD, 0, 0), 0);
-        assertEq(h.interval(), 1);
+        assertEq(h.interval(), 1, "the collection interval closes");
+        DollarIncomeIndex.IncomeToken memory t = h.incomeToken(weth);
+        assertEq(t.interval, 0, "the WETH interval stays open");
+        assertEq(t.openIndex, index);
+        assertEq(t.recognized, WETH / 10);
+        assertEq(h.incomeToken(usdc).interval, 1);
         assertEq(h.rateAt(0, weth), 0);
         assertApproxEqAbs(h.owedDollars(ana), 50 * USD, 1);
-        assertEq(h.incomeToken(weth).recognized, WETH / 10);
         assertApproxEqAbs(h.tokenOwed(ana, weth), WETH / 10, 1);
         _collectWeth(WETH / 10, 266 * USD);
         assertApproxEqAbs(h.owedDollars(ana), 316 * USD, 2);
+    }
+
+    /// Refused or failed sales add no conversion step: after 100 collections that did not sell the WETH, an entrant's
+    /// settlement reads no stored rate, and the sale converts the whole interval at its own rate.
+    function test_DEC161_unsoldCollectionsAddNoConversionStep() public {
+        h.mint(ana, 100 * SHARE);
+        h.recognize(weth, WETH / 10);
+        h.mint(caio, 100 * SHARE);
+        _collect(0, 0, 0);
+        vm.record();
+        h.settle(caio);
+        (bytes32[] memory afterOne,) = vm.accesses(address(h));
+        for (uint256 i; i < 99; ++i) {
+            _collect(0, 0, 0);
+        }
+        vm.record();
+        h.settle(caio);
+        (bytes32[] memory reads,) = vm.accesses(address(h));
+        assertFalse(_contains(reads, _rateSlot(0, weth)), "no conversion while the WETH interval is open");
+        assertEq(reads.length, afterOne.length, "the settlement does not walk the collections");
+        assertEq(h.adjustmentInterval(caio, weth), 0);
+        assertEq(h.adjustment(caio, weth), -int256(WETH / 10));
+        _collectWeth(WETH / 10, 266 * USD);
+        assertApproxEqAbs(h.owedDollars(ana), 266 * USD, 1);
+        assertLe(h.owedDollars(caio), 1);
+    }
+
+    /// Bound: an adjustment carried across more partial sales than `MAX_SETTLE_STEPS` converts over several `settle`
+    /// calls. Until the last one, the hooks and `take` refuse the holder; progress is kept, and the result equals the
+    /// unbounded view.
+    function test_DEC161_settleStopsAtTheStepBoundAndResumes() public {
+        h.mint(ana, 100 * SHARE);
+        h.recognize(weth, WETH);
+        h.burn(ana, 50 * SHARE); // +0.5 WETH adjustment on WETH interval 0
+        uint256 sales = DollarIncomeIndex.MAX_SETTLE_STEPS + 6;
+        for (uint256 i; i < sales; ++i) {
+            // Each collection sells a tenth of the open interval at 2,000 per WETH.
+            uint256 part = h.incomeToken(weth).recognized / 10;
+            _collectWeth(part, Math.mulDiv(part, 2000 * USD, WETH));
+        }
+        uint256 owed = h.owedDollars(ana);
+        assertGt(owed, 0);
+
+        assertFalse(h.settleRaw(ana, 50 * SHARE), "the bound stops the first call");
+        assertEq(h.adjustmentInterval(ana, weth), DollarIncomeIndex.MAX_SETTLE_STEPS, "progress is kept");
+        (, uint256 mark, uint64 settledAt,) = h.holderState(ana);
+        assertEq(mark, h.dollarIndex());
+        assertEq(settledAt, 0, "not settled in the open interval");
+        vm.expectRevert(abi.encodeWithSelector(DollarIncomeIndex.HolderNotSettled.selector, ana));
+        h.onBurnRaw(ana, SHARE);
+        vm.expectRevert(abi.encodeWithSelector(DollarIncomeIndex.HolderNotSettled.selector, ana));
+        h.takeRaw(ana, 1);
+        assertEq(h.owedDollars(ana), owed, "the view is unchanged by the partial settlement");
+
+        assertTrue(h.settleRaw(ana, 50 * SHARE), "the second call completes");
+        (uint256 dollars,, uint64 settledNow, bool adjusted) = h.holderState(ana);
+        assertEq(settledNow, h.interval());
+        assertEq(dollars, owed, "the same dollars as the unbounded view");
+        assertTrue(adjusted, "the unsold rest stays as an adjustment of the open interval");
+        assertEq(h.adjustmentInterval(ana, weth), sales);
+        assertEq(h.takeRaw(ana, type(uint256).max), owed);
     }
 
     /// A sale above what holders were recognized (the fee's units, income recognized at zero supply) converts the
@@ -321,20 +463,6 @@ contract DollarIncomeIndexTest is Test {
         assertEq(h.dollarIndex(), 0);
         assertEq(h.rateAt(0, weth), 0, "no rate stored without an open index");
         assertEq(h.owedDollars(ana), 0);
-    }
-
-    /// Unsold units carried at zero supply stay unattributed in the token state, with an event (the caller decides).
-    function test_DEC161_carryAtZeroSupplyIsUnattributed() public {
-        h.mint(ana, 100 * SHARE);
-        h.recognize(weth, WETH / 10);
-        h.burn(ana, 100 * SHARE);
-        vm.expectEmit(true, true, false, true, address(h));
-        emit DollarIncomeIndex.UnattributedIncome(SOURCE, weth, WETH / 10);
-        _collectWeth(0, 0);
-        DollarIncomeIndex.IncomeToken memory t = h.incomeToken(weth);
-        assertEq(t.unattributed, WETH / 10);
-        assertEq(t.recognized, 0);
-        assertEq(t.openIndex, 0);
     }
 
     /// An empty collection still closes the interval (one collection, one interval) and changes no balance.

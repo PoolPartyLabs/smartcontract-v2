@@ -6,13 +6,15 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 /// @title DollarIncomeIndex
 /// @notice Attributed Income per share in two indices (DEC-161 item 1): per income token, a token index of the open
-///         interval (since the last collection) that advances at recognition; and one cumulative dollar index that
-///         advances only when a collection converts the interval's income, at that collection's rate per token.
+///         interval (since the last collection that sold the token) that advances at recognition; and one cumulative
+///         dollar index that advances only when a collection converts an interval's income, at that collection's rate
+///         per token.
 /// @dev Mechanism: `docs/engenharia/2026-10-01-checklist-pre-mainnet/10-INDICE-EM-DOLAR-NA-HUB.md` section 2 of the
 ///      spec repository.
-///      - DEC-014, DEC-138: income belongs to whoever held shares when it was recognized. Shares minted in the middle of
-///        an interval take nothing of what the interval earned before them (`onMint`); burned shares keep what they
-///        earned until the burn (`onBurn`).
+///      - DEC-014, DEC-138: income belongs to whoever held shares when it was recognized, and collecting it later does
+///        not change the beneficiary. Shares minted in the middle of an interval take nothing of what the interval
+///        earned before them (`onMint`); burned shares keep what they earned until the burn (`onBurn`); a sale that
+///        leaves part of an interval unsold keeps that part with the same holders (`collect`).
 ///      - DEC-117 item 2, DEC-152: one token index per income token, no price in the attribution. The caller
 ///        recognizes the income net of the performance fee (DEC-117 item 3); the fee is not this library's concern.
 ///      - DEC-124, DEC-161: the conversion to dollars happens at collection; Income Withdrawal pays dollars (`take`).
@@ -21,6 +23,9 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 ///        closed that interval, possibly several collections before the holder comes back (doc 10 section 3).
 ///        DEC-161 item 3: never paid by average.
 ///      - Holders who did not move shares during an interval are served by the dollar index alone and read no rate.
+///      Intervals are counted per token: a collection that does not sell a token (a refused or failed sale) leaves that
+///      token's interval open, so its income, index and adjustments wait for the next sale unchanged. `State.interval`
+///      counts collections; `IncomeToken.interval` counts the collections that converted the token.
 ///      Source-agnostic: the caller keeps one `State` per source class (Hub income, spoke income; doc 10 section 6)
 ///      and tags it with `source` for the events. DEC-145 (active shares for spoke income) is layered on top by the
 ///      caller (WP-14).
@@ -30,9 +35,11 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 ///      Usage per balance change of `holder` (mint, every form of burn): `settle(holder, sharesBefore)`, then
 ///      `onMint(holder, minted)` or `onBurn(holder, burned)`, then the balance change; `settle` again before `take`.
 ///      Bounds: amounts per recognition up to `MAX_STEP`; overflow is unreachable with share supplies of whole shares
-///      and real token amounts (the open index stays near `income per share x 2^128`).
+///      and real token amounts (the open index stays near `income per share x 2^128`); at most `MAX_SETTLE_STEPS`
+///      stored-rate conversions per `settle`.
 library DollarIncomeIndex {
     using SafeCast for uint256;
+    using SafeCast for int256;
 
     /// @notice Index scale: 2^128.
     uint256 internal constant Q128 = 1 << 128;
@@ -43,41 +50,70 @@ library DollarIncomeIndex {
     /// @notice Largest amount one recognition accepts (arithmetic bound, as `IncomeAccumulator.MAX_STEP`).
     uint256 internal constant MAX_STEP = type(uint128).max;
 
+    /// @notice Most closed-interval conversions one `settle` performs. Each reads one stored rate and one stored carry
+    ///         (two cold slots); after full sales a holder needs one per adjusted token (at most `MAX_TOKENS`).
+    uint256 internal constant MAX_SETTLE_STEPS = 64;
+
     /// @notice Open-interval state of one income token.
     /// @param registered Whether the token is in the closed list.
-    /// @param openIndex Token units per share recognized in the open interval, in Q128; reset at collection.
+    /// @param interval Number of the token's open interval: how many collections converted the token so far.
+    /// @param openIndex Token units per share in the open interval, in Q128: recognized since the interval opened,
+    ///        plus the unsold part carried from a partial sale.
     /// @param remainder Division remainder carried between recognitions of the open interval (numerator units).
-    /// @param recognized Token units that entered `openIndex` in the open interval (carried-in units included).
-    /// @param unattributed Token units that could not enter the index when carried at zero supply (caller decides).
+    /// @param recognized Token units the holders can claim in the open interval (carried-in units included).
     struct IncomeToken {
         bool registered;
+        uint64 interval;
         uint256 openIndex;
         uint256 remainder;
         uint256 recognized;
-        uint256 unattributed;
+    }
+
+    /// @notice Running totals of one `settle` (memory only).
+    /// @param credit Dollars converted from positive adjustments.
+    /// @param debit Dollars converted from negative adjustments.
+    /// @param budget Conversion steps left in the call.
+    /// @param remaining Whether any adjustment is left.
+    /// @param complete Whether every adjustment reached its token's open interval.
+    struct Settlement {
+        uint256 credit;
+        uint256 debit;
+        uint256 budget;
+        bool remaining;
+        bool complete;
+    }
+
+    /// @notice One holder's adjustment on one token.
+    /// @param amount Signed token units: minus what shares minted during the interval would have earned before the
+    ///        mint, plus what shares burned during it earned.
+    /// @param interval Token interval the amount belongs to.
+    struct Adjustment {
+        int192 amount;
+        uint64 interval;
     }
 
     /// @notice One holder's state.
     /// @param dollars Dollars settled and not yet taken.
     /// @param mark Value of the dollar index at the holder's last settlement.
-    /// @param interval Interval the adjustments belong to (the open one as of the last settlement).
-    /// @param adjusted Whether any adjustment may be non-zero (skips the rate reads otherwise).
-    /// @param adjustment Per-token signed adjustment, in token units, of the interval `interval`: minus what shares
-    ///        minted during it would have earned before the mint, plus what shares burned during it earned.
+    /// @param interval Collection count at the holder's last complete settlement (every adjustment then belongs to
+    ///        its token's open interval).
+    /// @param adjusted Whether any adjustment may be non-zero (skips the per-token reads otherwise).
+    /// @param adjustment Per-token adjustment.
     struct Holder {
         uint256 dollars;
         uint256 mark;
         uint64 interval;
         bool adjusted;
-        mapping(address token => int256) adjustment;
+        mapping(address token => Adjustment) adjustment;
     }
 
     /// @notice Index storage of one source class.
     /// @param source Caller-chosen tag carried by the events (e.g. 1 = Hub income, 2 = spoke income).
-    /// @param interval Number of the open interval; collection `n` closes interval `n`.
+    /// @param interval Number of collections so far; collection `n` closes collection interval `n`.
     /// @param dollarIndex Dollar units per share converted by every collection so far, in Q128; never decreases.
-    /// @param rate Per closed interval and token: dollar units per token unit, in Q128. Written only when the token's
-    ///        open index was non-zero at the collection (otherwise no adjustment can exist for it).
+    /// @param rate Per closed token interval and token: dollar units per claimed token unit, in Q128.
+    /// @param carry Per closed token interval and token: the fraction of every claim kept for the next interval after
+    ///        a partial sale, `(recognized - sold) / recognized` in Q128, rounded down; zero after a full sale.
     /// @param dollarsObtained Dollars credited by every collection.
     /// @param dollarsAttributed Dollars attributed to holders, rounded up per token and collection; at most
     ///        `dollarsObtained`. What holders can still take is at most `dollarsAttributed - dollarsTaken`; the gap is
@@ -90,6 +126,7 @@ library DollarIncomeIndex {
         address[] tokens;
         mapping(address token => IncomeToken) token;
         mapping(uint256 interval => mapping(address token => uint256)) rate;
+        mapping(uint256 interval => mapping(address token => uint256)) carry;
         mapping(address holder => Holder) holders;
         uint256 dollarsObtained;
         uint256 dollarsAttributed;
@@ -105,8 +142,8 @@ library DollarIncomeIndex {
     /// @notice A recognition was skipped (unknown token, amount above `MAX_STEP`, index overflow); never reverted.
     event IntervalIncomeSkipped(uint8 indexed source, address indexed token, uint256 amount);
 
-    /// @notice Collection `interval` converted `token`: `sold` units for `obtained` dollars, at `rate` (Q128 dollar
-    ///         units per recognized token unit); `carried` unsold units entered the next interval.
+    /// @notice Token interval `interval` of `token` closed: `sold` units for `obtained` dollars, at `rate` (Q128 dollar
+    ///         units per claimed token unit); `carried` unsold units stay with their holders in the next interval.
     event IntervalIncomeConverted(
         uint8 indexed source,
         uint256 indexed interval,
@@ -117,14 +154,16 @@ library DollarIncomeIndex {
         uint256 carried
     );
 
-    /// @notice Interval `interval` closed: the dollar index is now `dollarIndex`; of `obtained` dollars,
+    /// @notice The collection did not sell `token`: its interval `interval` stays open with `recognized` units.
+    event IntervalIncomeUnsold(
+        uint8 indexed source, uint256 indexed interval, address indexed token, uint256 recognized
+    );
+
+    /// @notice Collection `interval` closed: the dollar index is now `dollarIndex`; of `obtained` dollars,
     ///         `unattributed` belong to no holder (sold above what holders were recognized, or rounding).
     event IncomeIntervalClosed(
         uint8 indexed source, uint256 indexed interval, uint256 dollarIndex, uint256 obtained, uint256 unattributed
     );
-
-    /// @notice Unsold units could not be carried into the next interval because no share existed.
-    event UnattributedIncome(uint8 indexed source, address indexed token, uint256 amount);
 
     /// @notice Zero token address.
     error IncomeTokenZero();
@@ -138,7 +177,7 @@ library DollarIncomeIndex {
     /// @notice `sold` and `obtained` must have one entry per income token, in list order.
     error CollectionLengthMismatch();
 
-    /// @notice `onMint`/`onBurn` ran without a `settle` of the holder in the open interval.
+    /// @notice `onMint`/`onBurn`/`take` ran without a complete `settle` of the holder in the open interval.
     error HolderNotSettled(address holder);
 
     /// @notice Adds `token` to the closed list. Call at construction, from the Mandate's tokens.
@@ -189,60 +228,77 @@ library DollarIncomeIndex {
         return false;
     }
 
-    /// @notice Closes the open interval: converts every token's interval income at this collection's rate and
-    ///         opens the next interval.
-    /// @dev DEC-161, doc 10 section 2. Per token `k` (arrays in `incomeTokens` order), with `R` the units recognized in
-    ///      the interval: `rate = obtained / max(sold, R)`, stored for the interval; `dollarIndex += rate * openIndex`;
-    ///      the open index and remainder reset.
-    ///      - `sold >= R`: the holders' `R` units convert at `obtained / sold`; the dollars for the units above `R`
-    ///        (the fee's units, if the caller passes the whole sale; income recognized at zero supply) come back in
-    ///        `unattributed`.
-    ///      - `sold < R` (part of the interval's income unsold, e.g. a failed sale): every holder's interval claim
-    ///        converts the same fraction `sold / R` at the sale price, and the `R - sold` unsold units are carried
-    ///        into the next interval as recognized income over `totalShares` (doc 10 leaves this case open; this is
-    ///        the plan's reading). The carry follows the shares held at the collection, so holders who moved shares
-    ///        during the closed interval get the unsold part pro rata to their shares at the collection rather than to
-    ///        their interval claim; at zero supply the units stay in `IncomeToken.unattributed`.
+    /// @notice Closes the collection interval: converts the open interval of every token the collection sold, at this
+    ///         collection's rate per token.
+    /// @dev DEC-161, doc 10 section 2. Per token (arrays in `incomeTokens` order), with `R` the units the holders can
+    ///      claim in the token's open interval:
+    ///      - `sold == 0` (a refused or failed sale): the token's interval stays open, with its index, its holders'
+    ///        adjustments and its `R`; nothing is stored.
+    ///      - `sold >= R`: the interval closes at `rate = obtained / sold`, stored for it, `dollarIndex += rate x
+    ///        openIndex`, and the next interval opens empty. The dollars for the units above `R` (the fee's units if the
+    ///        caller passes the whole sale; income recognized at zero supply) come back in `unattributed`.
+    ///      - `0 < sold < R` (a partial sale): every claim on the interval converts the same fraction `sold / R` at the
+    ///        sale price (`rate = obtained / R`), and the rest of each claim stays with its holder in the next
+    ///        interval (DEC-014: collecting later does not change the beneficiary; DEC-045: a holder who burned every
+    ///        share keeps the unsold part of what they earned). The next interval opens with `R - sold` units at
+    ///        `openIndex x (R - sold) / R`; the fraction is stored as `carry` and carries the adjustments when their
+    ///        holders settle.
     /// @param sold Token units sold for the holders, per token.
     /// @param obtained Dollars credited for them, per token (for a dollar token not sold, `sold == obtained`).
-    /// @param totalShares Share supply at the collection, for the carry.
     /// @return unattributed Dollars of this collection attributed to no holder (at most `sum(obtained)`).
-    function collect(State storage s, uint256[] memory sold, uint256[] memory obtained, uint256 totalShares)
+    function collect(State storage s, uint256[] memory sold, uint256[] memory obtained)
         internal
         returns (uint256 unattributed)
     {
         uint256 length = s.tokens.length;
         if (sold.length != length || obtained.length != length) revert CollectionLengthMismatch();
-        uint256[] memory carried = new uint256[](length);
-        unattributed = _close(s, sold, obtained, carried);
+        uint256 indexIncrement;
+        uint256 attributed;
+        uint256 obtainedTotal;
         for (uint256 i; i < length; ++i) {
-            uint256 carry = carried[i];
-            if (carry == 0) continue;
-            address token = s.tokens[i];
-            if (!recognize(s, token, carry, totalShares)) {
-                s.token[token].unattributed += carry;
-                emit UnattributedIncome(s.source, token, carry);
-            }
+            (uint256 increment, uint256 share) = _convert(s, s.tokens[i], sold[i], obtained[i]);
+            indexIncrement += increment;
+            attributed += share;
+            obtainedTotal += obtained[i];
         }
+        uint64 closing = s.interval;
+        uint256 dollarIndex = s.dollarIndex + indexIncrement;
+        s.dollarIndex = dollarIndex;
+        s.interval = closing + 1;
+        s.dollarsObtained += obtainedTotal;
+        s.dollarsAttributed += attributed;
+        unattributed = obtainedTotal - attributed;
+        emit IncomeIntervalClosed(s.source, closing, dollarIndex, obtainedTotal, unattributed);
     }
 
-    /// @notice Brings `holder` to the open interval: converts the adjustments of a closed interval at that interval's
-    ///         stored rates, then adds `shares * (dollarIndex - mark)`.
+    /// @notice Brings `holder` to the open interval: converts every adjustment of a closed token interval at the rate
+    ///         stored for it, then adds `shares * (dollarIndex - mark)`.
     /// @dev DEC-014, DEC-161. Call before every change to the holder's balance, with the balance BEFORE the change,
     ///      and before `take`. A total below zero can only come from rounding (every holder's exact claim is
     ///      non-negative) and settles at zero.
-    function settle(State storage s, address holder, uint256 shares) internal {
+    ///      After a partial sale the unsold part of an adjustment is carried into the next token interval and
+    ///      converted there in turn, until a full sale or the open interval: one step per token interval crossed.
+    ///      At most `MAX_SETTLE_STEPS` steps run per call; when they run out, each unfinished adjustment keeps the
+    ///      interval it reached and the call returns false. The hooks and `take` revert until a later `settle`
+    ///      completes, so the caller must offer a way to call it again; progress is kept between calls.
+    /// @return settled Whether every adjustment reached its token's open interval (the hooks and `take` may run).
+    function settle(State storage s, address holder, uint256 shares) internal returns (bool settled) {
         Holder storage h = s.holders[holder];
-        (uint256 dollars, bool converted) = _settled(s, h, shares);
-        if (converted) {
+        uint256 dollars = h.dollars + _indexed(s, h, shares);
+        settled = true;
+        if (h.adjusted && h.interval != s.interval) {
+            Settlement memory run = Settlement(0, 0, MAX_SETTLE_STEPS, false, true);
             address[] storage tokens = s.tokens;
             uint256 length = tokens.length;
             for (uint256 i; i < length; ++i) {
-                delete h.adjustment[tokens[i]];
+                _settleAdjustment(s, h, tokens[i], run);
             }
-            h.adjusted = false;
+            h.adjusted = run.remaining;
+            settled = run.complete;
+            dollars += run.credit;
+            dollars = dollars > run.debit ? dollars - run.debit : 0;
         }
-        h.interval = s.interval;
+        if (settled) h.interval = s.interval;
         h.mark = s.dollarIndex;
         h.dollars = dollars;
     }
@@ -262,9 +318,11 @@ library DollarIncomeIndex {
     }
 
     /// @notice Removes up to `maxDollars` from `holder`'s settled dollars and returns the amount removed.
-    /// @dev Takes only settled dollars: call `settle` first. The caller transfers the amount.
+    /// @dev Takes only settled dollars: requires a complete `settle` in the open interval first (until then the
+    ///      settled dollars may still owe a debit). The caller transfers the amount.
     function take(State storage s, address holder, uint256 maxDollars) internal returns (uint256 dollars) {
         Holder storage h = s.holders[holder];
+        _requireSettled(s, h, holder);
         uint256 settled = h.dollars;
         dollars = settled < maxDollars ? settled : maxDollars;
         if (dollars == 0) return 0;
@@ -273,119 +331,170 @@ library DollarIncomeIndex {
     }
 
     /// @notice Dollars `holder` is owed now for a balance of `shares` (settled plus pending), without settling.
+    /// @dev Walks every carried adjustment to the open interval, with no step bound (a view for off-chain reads).
     function owedDollars(State storage s, address holder, uint256 shares) internal view returns (uint256 dollars) {
-        (dollars,) = _settled(s, s.holders[holder], shares);
+        Holder storage h = s.holders[holder];
+        dollars = h.dollars + _indexed(s, h, shares);
+        if (!h.adjusted || h.interval == s.interval) return dollars;
+        uint256 debit;
+        address[] storage tokens = s.tokens;
+        uint256 length = tokens.length;
+        for (uint256 i; i < length; ++i) {
+            address token = tokens[i];
+            Adjustment storage a = h.adjustment[token];
+            int256 amount = a.amount;
+            uint64 open = s.token[token].interval;
+            if (amount == 0 || a.interval == open) continue;
+            (uint256 converted,,) = _carryForward(s, token, amount, a.interval, open, type(uint256).max);
+            if (amount > 0) dollars += converted;
+            else debit += converted;
+        }
+        dollars = dollars > debit ? dollars - debit : 0;
     }
 
     /// @notice Units of `token` `holder` is owed in the open interval (not yet converted) for a balance of `shares`.
     function tokenOwed(State storage s, address holder, uint256 shares, address token) internal view returns (uint256) {
-        Holder storage h = s.holders[holder];
-        uint256 base = Math.mulDiv(shares, s.token[token].openIndex, Q128);
-        // Adjustments of a closed interval are already dollars (pending conversion in `owedDollars`).
-        if (h.interval != s.interval) return base;
-        int256 adjustment = h.adjustment[token];
-        uint256 magnitude = _abs(adjustment);
-        if (adjustment >= 0) return base + magnitude;
+        IncomeToken storage t = s.token[token];
+        uint256 base = Math.mulDiv(shares, t.openIndex, Q128);
+        Adjustment storage a = s.holders[holder].adjustment[token];
+        int256 amount = a.amount;
+        uint64 open = t.interval;
+        // An adjustment of a closed interval is already dollars (pending in `owedDollars`) but for its carried part.
+        if (amount != 0 && a.interval != open) {
+            (, amount,) = _carryForward(s, token, amount, a.interval, open, type(uint256).max);
+        }
+        uint256 magnitude = _abs(amount);
+        if (amount >= 0) return base + magnitude;
         return base > magnitude ? base - magnitude : 0;
     }
 
-    /// @dev Settled dollars of `h` for `shares`, and whether closed-interval adjustments were converted.
-    function _settled(State storage s, Holder storage h, uint256 shares)
-        private
-        view
-        returns (uint256 dollars, bool converted)
-    {
-        dollars = h.dollars;
-        uint256 debit;
-        uint64 tag = h.interval;
-        converted = h.adjusted && tag != s.interval;
-        if (converted) {
-            address[] storage tokens = s.tokens;
-            uint256 length = tokens.length;
-            for (uint256 i; i < length; ++i) {
-                address token = tokens[i];
-                int256 adjustment = h.adjustment[token];
-                if (adjustment == 0) continue;
-                uint256 rate = s.rate[tag][token];
-                if (adjustment > 0) dollars += Math.mulDiv(_abs(adjustment), rate, Q128);
-                else debit += Math.mulDiv(_abs(adjustment), rate, Q128, Math.Rounding.Ceil);
-            }
-        }
+    /// @dev Dollars of the dollar index since `h`'s mark for `shares`.
+    function _indexed(State storage s, Holder storage h, uint256 shares) private view returns (uint256) {
         uint256 mark = h.mark;
         uint256 index = s.dollarIndex;
-        if (shares != 0 && index != mark) dollars += Math.mulDiv(shares, index - mark, Q128);
-        dollars = dollars > debit ? dollars - debit : 0;
+        if (shares == 0 || index == mark) return 0;
+        return Math.mulDiv(shares, index - mark, Q128);
+    }
+
+    /// @dev Brings `h`'s adjustment on `token` toward the token's open interval within `run.budget` steps (see
+    ///      `settle`), adding the dollars converted to `run` and recording whether an adjustment is left and whether it
+    ///      is still short of the open interval.
+    function _settleAdjustment(State storage s, Holder storage h, address token, Settlement memory run) private {
+        Adjustment storage a = h.adjustment[token];
+        int256 amount = a.amount;
+        if (amount == 0) return;
+        uint64 from = a.interval;
+        uint64 open = s.token[token].interval;
+        if (from != open) {
+            (uint256 converted, int256 rest, uint64 reached) = _carryForward(s, token, amount, from, open, run.budget);
+            run.budget -= reached - from;
+            if (amount > 0) run.credit += converted;
+            else run.debit += converted;
+            if (rest == 0) {
+                delete h.adjustment[token];
+                return;
+            }
+            if (reached != from) {
+                a.amount = rest.toInt192();
+                a.interval = reached;
+            }
+            if (reached != open) run.complete = false;
+        }
+        run.remaining = true;
+    }
+
+    /// @dev Converts `amount` of `token`, an adjustment of the closed token interval `from`, at the rate stored for
+    ///      `from`, then carries its unsold part into the next interval and converts it there, until a full sale
+    ///      (`carry == 0`), the open interval `open`, or `budget` steps. Returns the dollars converted (a credit when
+    ///      `amount > 0`, a debit otherwise), the adjustment left and the interval it belongs to. Rounded against the
+    ///      holder: a credit and its carry floor; a debit and its carry ceil (the carry at `carry + 1`, as the stored
+    ///      fraction is rounded down).
+    function _carryForward(State storage s, address token, int256 amount, uint64 from, uint64 open, uint256 budget)
+        private
+        view
+        returns (uint256 dollars, int256 left, uint64 reached)
+    {
+        bool credit = amount > 0;
+        uint256 magnitude = _abs(amount);
+        reached = from;
+        while (magnitude != 0 && reached != open && budget != 0) {
+            uint256 rate = s.rate[reached][token];
+            uint256 carry = s.carry[reached][token];
+            if (credit) {
+                dollars += Math.mulDiv(magnitude, rate, Q128);
+                magnitude = carry == 0 ? 0 : Math.mulDiv(magnitude, carry, Q128);
+            } else {
+                dollars += Math.mulDiv(magnitude, rate, Q128, Math.Rounding.Ceil);
+                magnitude = carry == 0 ? 0 : Math.mulDiv(magnitude, carry + 1, Q128, Math.Rounding.Ceil);
+            }
+            ++reached;
+            --budget;
+        }
+        // casting to 'int256' is safe because the magnitude never grows past the input's
+        // forge-lint: disable-next-line(unsafe-typecast)
+        left = credit ? int256(magnitude) : -int256(magnitude);
     }
 
     /// @dev Applies the open-interval adjustment of a mint (`minted`) or a burn of `shares` to `holder`.
     function _adjust(State storage s, address holder, uint256 shares, bool minted) private {
         Holder storage h = s.holders[holder];
-        if (h.interval != s.interval || h.mark != s.dollarIndex) revert HolderNotSettled(holder);
+        _requireSettled(s, h, holder);
         if (shares == 0) return;
         address[] storage tokens = s.tokens;
         uint256 length = tokens.length;
         bool written;
         for (uint256 i; i < length; ++i) {
             address token = tokens[i];
-            uint256 index = s.token[token].openIndex;
+            IncomeToken storage t = s.token[token];
+            uint256 index = t.openIndex;
             if (index == 0) continue;
-            if (minted) h.adjustment[token] -= Math.mulDiv(shares, index, Q128, Math.Rounding.Ceil).toInt256();
-            else h.adjustment[token] += Math.mulDiv(shares, index, Q128).toInt256();
+            Adjustment storage a = h.adjustment[token];
+            int256 amount = a.amount;
+            if (minted) amount -= Math.mulDiv(shares, index, Q128, Math.Rounding.Ceil).toInt256();
+            else amount += Math.mulDiv(shares, index, Q128).toInt256();
+            a.amount = amount.toInt192();
+            a.interval = t.interval;
             written = true;
         }
         if (written && !h.adjusted) h.adjusted = true;
     }
 
-    /// @dev Converts every token of the open interval (writing the unsold units into `carried`) and opens the next
-    ///      interval; returns the dollars attributed to no holder. See `collect`.
-    function _close(State storage s, uint256[] memory sold, uint256[] memory obtained, uint256[] memory carried)
-        private
-        returns (uint256 unattributed)
-    {
-        uint64 closing = s.interval;
-        uint256 indexIncrement;
-        uint256 attributed;
-        uint256 obtainedTotal;
-        for (uint256 i; i < carried.length; ++i) {
-            uint256 increment;
-            uint256 share;
-            (increment, share, carried[i]) = _convert(s, closing, s.tokens[i], sold[i], obtained[i]);
-            indexIncrement += increment;
-            attributed += share;
-            obtainedTotal += obtained[i];
-        }
-        uint256 dollarIndex = s.dollarIndex + indexIncrement;
-        s.dollarIndex = dollarIndex;
-        s.interval = closing + 1;
-        s.dollarsObtained += obtainedTotal;
-        s.dollarsAttributed += attributed;
-        unattributed = obtainedTotal - attributed;
-        emit IncomeIntervalClosed(s.source, closing, dollarIndex, obtainedTotal, unattributed);
+    /// @dev Reverts unless `h` was completely settled in the open collection interval.
+    function _requireSettled(State storage s, Holder storage h, address holder) private view {
+        if (h.interval != s.interval || h.mark != s.dollarIndex) revert HolderNotSettled(holder);
     }
 
-    /// @dev Closes `token`'s open interval for collection `closing`: returns the dollar index increment, the dollars
-    ///      attributed to holders (rounded up, an upper bound) and the unsold units to carry. See `collect`.
-    function _convert(State storage s, uint64 closing, address token, uint256 sold, uint256 obtained)
+    /// @dev Converts `token`'s open interval for the collection (see `collect`): returns the dollar index increment
+    ///      and the dollars attributed to holders (rounded up, an upper bound).
+    function _convert(State storage s, address token, uint256 sold, uint256 obtained)
         private
-        returns (uint256 indexIncrement, uint256 attributed, uint256 carried)
+        returns (uint256 indexIncrement, uint256 attributed)
     {
         IncomeToken storage t = s.token[token];
         uint256 recognized = t.recognized;
-        if (recognized == 0 && sold == 0 && obtained == 0) return (0, 0, 0);
-        uint256 denominator = sold > recognized ? sold : recognized;
-        uint256 rate = denominator == 0 ? 0 : Math.mulDiv(obtained, Q128, denominator);
-        uint256 index = t.openIndex;
-        if (index != 0) {
-            indexIncrement = Math.mulDiv(index, rate, Q128);
-            s.rate[closing][token] = rate;
-            t.openIndex = 0;
+        uint64 closing = t.interval;
+        if (sold == 0) {
+            if (recognized != 0) emit IntervalIncomeUnsold(s.source, closing, token, recognized);
+            return (0, 0);
         }
+        uint256 rate = Math.mulDiv(obtained, Q128, sold > recognized ? sold : recognized);
+        uint256 carried;
         if (recognized != 0) {
+            uint256 index = t.openIndex;
+            indexIncrement = Math.mulDiv(index, rate, Q128);
             // ceil(R * rate) <= obtained * R / max(sold, R) <= obtained: the holders' share, rounded in their disfavor.
             attributed = Math.mulDiv(recognized, rate, Q128, Math.Rounding.Ceil);
-            t.recognized = 0;
+            s.rate[closing][token] = rate;
+            if (sold < recognized) {
+                carried = recognized - sold;
+                s.carry[closing][token] = Math.mulDiv(carried, Q128, recognized);
+                t.openIndex = Math.mulDiv(index, carried, recognized);
+            } else {
+                t.openIndex = 0;
+            }
+            t.recognized = carried;
             t.remainder = 0;
-            if (sold < recognized) carried = recognized - sold;
+            t.interval = closing + 1;
         }
         emit IntervalIncomeConverted(s.source, closing, token, sold, obtained, rate, carried);
     }
