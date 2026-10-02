@@ -92,7 +92,6 @@ abstract contract FundMandate {
         if (spoke) _addSpoke(factory, fundId, plan, m, adapterCount - 1);
 
         m.payoutFeeBps = MandateLib.DEFAULT_PAYOUT_FEE_BPS;
-        m.standardPayoutTerm = MandateLib.DEFAULT_STANDARD_PAYOUT_TERM;
         m.minFirstDeposit = plan.minFirstDeposit;
         m.performanceFeeBps = plan.performanceFeeBps;
         m.maxBridgeFeeBps = plan.maxBridgeFeeBps;

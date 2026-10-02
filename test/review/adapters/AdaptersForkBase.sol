@@ -164,7 +164,6 @@ abstract contract AdaptersForkBase is Test, FundSeed {
         // would take all of the seed's Idle before pricing and leave the Share Price at 0.
         m.operatingCash = new OperatingCashConfig[](0);
         m.payoutFeeBps = 200;
-        m.standardPayoutTerm = 72 hours;
         m.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
         m.performanceFeeBps = 2500; // MandateLib.MAX_PERFORMANCE_FEE_BPS
         m.managementFeeBps = 0;

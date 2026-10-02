@@ -117,7 +117,6 @@ abstract contract SpokeVaultTestBase is Test {
         m.operatingCash[1] = OperatingCashConfig(SPOKE, SPOKE_FLOOR, SPOKE_TOP_UP);
 
         m.payoutFeeBps = 200;
-        m.standardPayoutTerm = 72 hours;
         m.minFirstDeposit = 100e6;
         m.performanceFeeBps = 1000;
         m.managementFeeBps = 0;

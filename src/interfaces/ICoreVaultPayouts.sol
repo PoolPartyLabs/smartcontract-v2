@@ -19,7 +19,7 @@ interface ICoreVaultPayouts {
     /// @param mode Instant or Standard.
     /// @param open Whether the request is open.
     /// @param requestedAt Timestamp of the request.
-    /// @param termEndsAt Standard: `requestedAt + standardPayoutTerm` (DEC-060); Instant: `requestedAt`.
+    /// @param termEndsAt Standard: `requestedAt + standardPayoutTerm` (DEC-060, DEC-154); Instant: `requestedAt`.
     /// @param usdcRequested Gross USDC amount requested (DEC-020, DEC-023).
     /// @param usdcOutstanding USDC still to pay after Partial Payouts (DEC-068).
     /// @param reserved USDC held in the Payout Reserve for this request; Standard only (DEC-072, DEC-077, DEC-095).
@@ -155,6 +155,7 @@ interface ICoreVaultPayouts {
     /// @notice Payout Fee on Instant Payouts, bps; immutable (DEC-006, DEC-102, DEC-110).
     function payoutFeeBps() external view returns (uint16);
 
-    /// @notice Standard Payout term, seconds (DEC-060, DEC-095).
+    /// @notice Standard Payout term, seconds: 72 hours in every fund, a protocol constant (DEC-154; corrects DEC-060,
+    ///         DEC-095 item 5).
     function standardPayoutTerm() external view returns (uint32);
 }

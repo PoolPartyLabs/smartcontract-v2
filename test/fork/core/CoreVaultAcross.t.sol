@@ -73,7 +73,6 @@ contract CoreVaultAcrossForkTest is Test, FundSeed {
         m.bridgeAdapters[1] = BridgeAdapterConfig(SPOKE, SPOKE, makeAddr("spokeBridge"));
         m.operatingCash = new OperatingCashConfig[](0);
         m.payoutFeeBps = 200;
-        m.standardPayoutTerm = 72 hours;
         m.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
         m.maxBridgeFeeBps = 50;
 

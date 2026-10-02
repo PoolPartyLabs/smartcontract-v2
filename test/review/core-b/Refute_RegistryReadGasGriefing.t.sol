@@ -17,8 +17,9 @@ import {CoreVaultFixture} from "../../unit/core/CoreVaultFixture.sol";
 ///      148,250 gas (999 and 150,500 without the fee-vault reads, which warm that account); the review measured 859
 ///      successful limits on `e5c778a`. Refutation holds. WP-07 (DEC-131 pattern) moved the income split into its own
 ///      linked library, which this sweep reaches cold where `CoreVaultLogic` was warm from the deposit (2,500 gas),
-///      and added three fee terms to the wiring every library call carries: 996 successful limits, lowest 151,250;
-///      every successful one still read the registry.
+///      and added three fee terms to the wiring every library call carries: 996 successful limits, lowest 151,250.
+///      Mandate v2 (WP-07 B) reshaped the wiring: 997 successful limits, lowest 151,000; every successful one still
+///      read the registry.
 contract Refute_RegistryReadGasGriefing is CoreVaultFixture {
     function test_refute_noGasLimitForcesTheDefaultSlice() public {
         ManagerRegistry real = new ManagerRegistry(address(this));
@@ -52,7 +53,7 @@ contract Refute_RegistryReadGasGriefing is CoreVaultFixture {
         }
         console2.log("successful gas limits tried", successes);
         console2.log("lowest successful gas limit ", minGas);
-        assertEq(successes, 996);
-        assertEq(minGas, 151_250);
+        assertEq(successes, 997);
+        assertEq(minGas, 151_000);
     }
 }

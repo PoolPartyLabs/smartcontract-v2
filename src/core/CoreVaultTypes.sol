@@ -52,7 +52,6 @@ struct CoreVaultConfig {
 /// @notice Immutable addresses and terms the Core Vault hands to its external libraries on every call.
 /// @param flowFeeBps ICoreVault.flowFeeBps (DEC-106, DEC-113).
 /// @param payoutFeeBps ICoreVault.payoutFeeBps (DEC-075, DEC-144).
-/// @param standardPayoutTerm ICoreVault.standardPayoutTerm (DEC-060, DEC-095).
 struct CoreVaultWiring {
     bytes32 fundId;
     bytes32 mandateHash;
@@ -70,8 +69,12 @@ struct CoreVaultWiring {
     uint16 maxBridgeFeeBps;
     uint16 flowFeeBps;
     uint16 payoutFeeBps;
-    uint32 standardPayoutTerm;
 }
+
+/// @dev DEC-154 (corrects DEC-060 and DEC-095 item 5): the Standard Payout term is 72 hours in every fund, a protocol
+///      constant and no longer a Mandate field; DEC-149 gives the manager the same term to finish a closure. At file
+///      level so the Core Vault and its linked libraries read one value.
+uint32 constant STANDARD_PAYOUT_TERM = 72 hours;
 
 /// @dev Transient slot of the Core Vault's unwinding flag: set while the Core Vault waits on
 ///      `ISpokeVault.unwindForPayout`, so the hub Spoke Vault may call back `returnToIdle` from inside a payout

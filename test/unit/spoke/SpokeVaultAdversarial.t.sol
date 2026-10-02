@@ -218,7 +218,6 @@ contract SpokeVaultAdversarialAdapterTest is SpokeVaultTestBase {
         m.bridgeAdapters[0] = BridgeAdapterConfig(SPOKE, HUB, hubBridge);
         m.bridgeAdapters[1] = BridgeAdapterConfig(SPOKE, SPOKE, address(spokeBridge));
         m.payoutFeeBps = 200;
-        m.standardPayoutTerm = 72 hours;
         m.minFirstDeposit = 100e6;
         m.maxBridgeFeeBps = MAX_BRIDGE_FEE_BPS;
     }

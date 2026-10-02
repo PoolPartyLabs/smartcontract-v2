@@ -120,7 +120,6 @@ contract MandateTest is Test {
         m.operatingCash[1] = OperatingCashConfig(SPOKE, 5e6, 10e6);
 
         m.payoutFeeBps = MandateLib.DEFAULT_PAYOUT_FEE_BPS;
-        m.standardPayoutTerm = MandateLib.DEFAULT_STANDARD_PAYOUT_TERM;
         m.minFirstDeposit = 100e6;
         m.performanceFeeBps = 2000;
         m.managementFeeBps = 0;
@@ -129,9 +128,8 @@ contract MandateTest is Test {
 
     // ------------------------------------------------------------------ defaults and happy path
 
-    function test_DEC095_startingValuesPayoutFee2PercentTerm72h() public pure {
+    function test_DEC095_startingValuePayoutFee2Percent() public pure {
         assertEq(MandateLib.DEFAULT_PAYOUT_FEE_BPS, 200);
-        assertEq(MandateLib.DEFAULT_STANDARD_PAYOUT_TERM, 72 hours);
     }
 
     /// @dev DEC-115 (closes LC-57) and DEC-155: the fee caps are core constants.

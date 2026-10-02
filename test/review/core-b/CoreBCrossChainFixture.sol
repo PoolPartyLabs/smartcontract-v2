@@ -167,7 +167,6 @@ abstract contract CoreBCrossChainFixture is Test, FundSeed {
         m.bridgeAdapters[1] = BridgeAdapterConfig(SPOKE, SPOKE, address(spokeBridge));
         m.operatingCash = new OperatingCashConfig[](0);
         m.payoutFeeBps = 200;
-        m.standardPayoutTerm = 72 hours;
         m.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
         m.performanceFeeBps = 2000;
         m.managementFeeBps = 0;

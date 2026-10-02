@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {ICoreVaultPayouts} from "../interfaces/ICoreVaultPayouts.sol";
 import {CoreVaultTransit} from "./CoreVaultTransit.sol";
 import {CoreVaultPayoutLogic} from "./CoreVaultPayoutLogic.sol";
+import {STANDARD_PAYOUT_TERM} from "./CoreVaultTypes.sol";
 
 /// @title CoreVaultPayout
 /// @notice Payout Requests and Payouts of the Core Vault. See ICoreVault.
@@ -68,5 +69,10 @@ abstract contract CoreVaultPayout is CoreVaultTransit {
     /// @inheritdoc ICoreVaultPayouts
     function payoutRequest(address shareholder) external view returns (PayoutRequest memory) {
         return _s.requests[shareholder];
+    }
+
+    /// @inheritdoc ICoreVaultPayouts
+    function standardPayoutTerm() external pure returns (uint32) {
+        return STANDARD_PAYOUT_TERM;
     }
 }

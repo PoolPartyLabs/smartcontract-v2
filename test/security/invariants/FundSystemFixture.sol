@@ -199,7 +199,6 @@ abstract contract FundSystemFixture is Test, FundSeed {
         m.operatingCash[0] = OperatingCashConfig(HUB, 1e6, 3e6);
         m.operatingCash[1] = OperatingCashConfig(SPOKE, 5e6, 10e6);
         m.payoutFeeBps = 200;
-        m.standardPayoutTerm = 72 hours;
         m.minFirstDeposit = SYSTEM_SEED;
         m.performanceFeeBps = PERFORMANCE_FEE_BPS;
         m.managementFeeBps = 0;

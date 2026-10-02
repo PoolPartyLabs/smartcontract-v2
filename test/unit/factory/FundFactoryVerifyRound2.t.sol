@@ -160,7 +160,6 @@ contract FundFactoryVerifyRound2Test is Test, FactoryDeployment, FundMandate, Fu
         m.operatingCash = new OperatingCashConfig[](1);
         m.operatingCash[0] = OperatingCashConfig(HUB, 5e6, 10e6);
         m.payoutFeeBps = MandateLib.DEFAULT_PAYOUT_FEE_BPS;
-        m.standardPayoutTerm = MandateLib.DEFAULT_STANDARD_PAYOUT_TERM;
         m.minFirstDeposit = 1e6;
     }
 

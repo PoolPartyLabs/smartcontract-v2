@@ -241,7 +241,6 @@ abstract contract AccountingPocFixture is Test, FundSeed {
         // No Operating Cash floor: the proofs isolate the base arithmetic from top-ups (DEC-096).
         m.operatingCash = new OperatingCashConfig[](0);
         m.payoutFeeBps = 200;
-        m.standardPayoutTerm = 72 hours;
         m.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
         m.performanceFeeBps = performanceFeeBps;
         m.managementFeeBps = 0;

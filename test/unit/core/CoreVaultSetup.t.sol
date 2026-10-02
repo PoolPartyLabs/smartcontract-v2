@@ -50,7 +50,7 @@ contract CoreVaultSetupTest is CoreVaultFixture {
         assertEq(vault.excessRecipient(), excess);
         assertEq(vault.flowFeeBps(), 25);
         assertEq(vault.payoutFeeBps(), 200);
-        assertEq(vault.standardPayoutTerm(), 72 hours);
+        assertEq(vault.standardPayoutTerm(), 72 hours, "DEC-154: a protocol constant");
         assertEq(vault.performanceFeeBps(), 2000);
         assertEq(vault.managementFeeBps(), 0);
         address[] memory tokens = vault.incomeTokens();

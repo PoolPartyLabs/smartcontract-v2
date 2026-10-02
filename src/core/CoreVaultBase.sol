@@ -56,7 +56,6 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
     /// @inheritdoc ICoreVaultLifecycle
     uint16 public immutable minPerformanceFeeBps;
     uint16 public immutable payoutFeeBps;
-    uint32 public immutable standardPayoutTerm;
     /// @dev DEC-011: the Hub Chain of the Mandate; the constructor requires `block.chainid` to equal it.
     uint256 internal immutable _hubChainId;
     uint256 internal immutable _minFirstDeposit;
@@ -105,7 +104,6 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
         factory = c.factory;
         minPerformanceFeeBps = c.minPerformanceFeeBps;
         payoutFeeBps = m.payoutFeeBps;
-        standardPayoutTerm = m.standardPayoutTerm;
         _hubChainId = m.hubChainId;
         _minFirstDeposit = m.minFirstDeposit;
         _maxBridgeFeeBps = m.maxBridgeFeeBps;
@@ -159,7 +157,6 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
             stored.operatingCash.push(m.operatingCash[i]);
         }
         stored.payoutFeeBps = m.payoutFeeBps;
-        stored.standardPayoutTerm = m.standardPayoutTerm;
         stored.minFirstDeposit = m.minFirstDeposit;
         stored.performanceFeeBps = m.performanceFeeBps;
         stored.managementFeeBps = m.managementFeeBps;
@@ -351,8 +348,7 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
             hubChainId: _hubChainId,
             maxBridgeFeeBps: _maxBridgeFeeBps,
             flowFeeBps: flowFeeBps,
-            payoutFeeBps: payoutFeeBps,
-            standardPayoutTerm: standardPayoutTerm
+            payoutFeeBps: payoutFeeBps
         });
     }
 

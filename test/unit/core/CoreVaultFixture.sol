@@ -120,7 +120,6 @@ abstract contract CoreVaultFixture is Test, FundSeed {
         m.bridgeAdapters[1] = BridgeAdapterConfig(SPOKE, SPOKE, spokeBridge);
         m.operatingCash = new OperatingCashConfig[](0);
         m.payoutFeeBps = 200;
-        m.standardPayoutTerm = 72 hours;
         m.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
         m.performanceFeeBps = performanceFeeBps;
         m.managementFeeBps = 0;

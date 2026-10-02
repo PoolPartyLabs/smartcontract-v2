@@ -171,7 +171,6 @@ abstract contract SpokeAHubFixture is Test, FundSeed {
         // unwinds, not Operating Cash.
         m.operatingCash = new OperatingCashConfig[](0);
         m.payoutFeeBps = 200;
-        m.standardPayoutTerm = 72 hours;
         m.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
         m.performanceFeeBps = 2000;
         m.managementFeeBps = 0;

@@ -80,7 +80,6 @@ abstract contract SpokeVaultForkBase is Test {
         m.operatingCash[0] = OperatingCashConfig(ROBINHOOD, 5e6, 10e6);
 
         m.payoutFeeBps = 200;
-        m.standardPayoutTerm = 72 hours;
         m.minFirstDeposit = 100e6;
         m.performanceFeeBps = 1000;
         m.maxBridgeFeeBps = 50;

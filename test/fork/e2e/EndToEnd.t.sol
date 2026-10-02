@@ -125,7 +125,6 @@ abstract contract EndToEndScenario is EndToEndBase {
         assertEq(m.bridgeAdapters[0].adapter, predicted.chains[0].acrossBridgeAdapter);
         assertEq(m.bridgeAdapters[1].adapter, predicted.chains[1].acrossBridgeAdapter);
         assertEq(m.payoutFeeBps, 200, "DEC-102: Payout Fee 2%");
-        assertEq(m.standardPayoutTerm, 72 hours, "DEC-060: 72 h term");
         assertEq(m.minFirstDeposit, 100e6, "DEC-061: 100 USDC minimum first deposit");
         assertEq(m.performanceFeeBps, 2000, "DEC-107: performance fee 20%");
         assertEq(m.managementFeeBps, 0, "DEC-108: management fee 0");

@@ -94,7 +94,6 @@ contract AaveNonUsdcReserveUnwindTest is Test {
         m.operatingCash = new OperatingCashConfig[](1);
         m.operatingCash[0] = OperatingCashConfig(HUB, 1e6, 3e6);
         m.payoutFeeBps = 200;
-        m.standardPayoutTerm = 72 hours;
         m.minFirstDeposit = 100e6;
         m.performanceFeeBps = 1000;
         m.maxBridgeFeeBps = 50;

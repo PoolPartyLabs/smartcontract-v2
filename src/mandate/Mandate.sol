@@ -79,7 +79,6 @@ struct OperatingCashConfig {
 /// @param bridgeAdapters Bridge adapters per spoke, in priority order (DEC-087, DEC-088).
 /// @param operatingCash Initial Operating Cash floor and top-up per chain (DEC-096).
 /// @param payoutFeeBps Payout Fee on Instant Payouts, in bps; immutable (DEC-006, DEC-075, DEC-095, DEC-102, DEC-110).
-/// @param standardPayoutTerm Standard Payout term, in seconds (DEC-060, DEC-095).
 /// @param minFirstDeposit Minimum first deposit, in USDC base units; no protocol floor (DEC-061, DEC-095, erratum 22).
 /// @param performanceFeeBps Manager performance fee on collected income, in bps; may only decrease (DEC-107, DEC-110).
 /// @param managementFeeBps Manager management fee, in bps per year; the MVP accepts only 0 (DEC-108, LC-144 OPEN).
@@ -95,7 +94,6 @@ struct Mandate {
     BridgeAdapterConfig[] bridgeAdapters;
     OperatingCashConfig[] operatingCash;
     uint16 payoutFeeBps;
-    uint32 standardPayoutTerm;
     uint256 minFirstDeposit;
     uint16 performanceFeeBps;
     uint16 managementFeeBps;
@@ -110,9 +108,6 @@ library MandateLib {
 
     /// @notice Starting value of the Payout Fee (DEC-095): 2%.
     uint16 internal constant DEFAULT_PAYOUT_FEE_BPS = 200;
-
-    /// @notice Starting value of the Standard Payout term (DEC-095): 72 hours.
-    uint32 internal constant DEFAULT_STANDARD_PAYOUT_TERM = 72 hours;
 
     /// @notice Cap on the performance fee: 90% of income, a core constant (DEC-110, DEC-115). At the cap, 72,000 of an
     ///         income of 80,000 is fee.

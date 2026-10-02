@@ -22,7 +22,8 @@ contract MandateValidator {
 /// @notice Review port of factory L01, consolidated finding L-10 (no register entry). Still present on main: no list
 ///         bound was added, and the fixes made the Core Vault's creation code larger, so the init-code wall comes
 ///         earlier (50,602 bytes at 66 extra pools against 49,316 on `e5c778a`). WP-07 moved the payout path into a
-///         linked library (DEC-131 pattern): 49,854 bytes at 66, the wall back at 63 extra pools. Gas on main: 20.52M,
+///         linked library (DEC-131 pattern): 49,854 bytes at 66, the wall back at 63 extra pools. The Standard Payout
+///         term became a constant (DEC-154): 49,580 bytes at 66, the wall at 64. Gas on main: 20.52M,
 ///         23.76M, 27.17M, 31.49M and 36.42M for 0, 10, 20, 30 and 40 extra hub pools (review: 20.7M to 37.0M).
 ///         Original note: neither `MandateLib.validate` nor the factory bounds the Mandate's lists, while the cost of creating
 ///         a fund grows with them: every fund contract validates the Mandate (O(n^2) duplicate scans), the hub Spoke
@@ -126,7 +127,7 @@ contract L01_MandateSizeInitcodeCliff is FactoryReviewFixture {
         uint256 initCode = p.coreVaultCreationCode.length + abi.encode(m, c).length;
         console2.log("abi.encode(Mandate) bytes      ", abi.encode(m).length);
         console2.log("Core Vault init code bytes     ", initCode);
-        assertEq(abi.encode(m).length, 14_528);
+        assertEq(abi.encode(m).length, 14_496);
         assertGt(initCode, 49_152, "above EIP-3860: the Core Vault can never be created from this valid Mandate");
 
         // Where the wall now sits: each extra hub pool adds the same bytes, so solve from the 66-pool point.
@@ -135,7 +136,7 @@ contract L01_MandateSizeInitcodeCliff is FactoryReviewFixture {
         console2.log("bytes per extra hub pool", perPool);
         console2.log("first extra-pool count above EIP-3860", wall);
         assertEq(perPool, 192);
-        assertLe(wall, 63, "the wall moves earlier as the Core Vault grows");
+        assertLe(wall, 64, "the wall moves earlier as the Core Vault grows");
     }
 
     function _mandateOnly(Deployment memory d) internal view returns (Mandate memory m) {
