@@ -26,7 +26,6 @@ import {
     Mandate,
     AdapterConfig,
     PoolConfig,
-    UnwindStep,
     SpokeConfig,
     BridgeAdapterConfig,
     OperatingCashConfig
@@ -186,8 +185,6 @@ abstract contract SpokeAForkBase is Test, FundSeed {
         m.adapters[0] = AdapterConfig(HUB, adapter_);
         m.pools = new PoolConfig[](1);
         m.pools[0] = PoolConfig(HUB, adapter_, poolId);
-        m.unwindOrder = new UnwindStep[](1);
-        m.unwindOrder[0] = UnwindStep(HUB, adapter_, poolId);
         m.spokes = new SpokeConfig[](0);
         m.bridgeAdapters = new BridgeAdapterConfig[](0);
         // DEC-127: no hub Operating Cash here. With a one-share seed, the first deposit's top-up (floor 1, top-up 3)

@@ -3,7 +3,6 @@ pragma solidity 0.8.28;
 
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {Transit} from "../interfaces/FundTypes.sol";
-import {UnwindStep} from "../mandate/Mandate.sol";
 
 /// @title SpokeVaultTypes
 /// @notice Storage layout, wiring and caller-encoded types of the Spoke Vault, shared by `SpokeVault` and
@@ -85,7 +84,7 @@ library SpokeVaultTypes {
         bytes params;
     }
 
-    /// @notice The claimant's optional hint for one position the automatic unwind visits (DEC-069 order): only swap
+    /// @notice The claimant's optional hint for one position the automatic unwind visits (registry order): only swap
     ///         tightenings. The vault sizes every exit itself (`IAdapter.unwindExitParams`) and never takes exit
     ///         parameters from the claimant (final verification).
     /// @param swaps Tightenings of the swaps of the non-USDC principal this exit returns, matched by `tokenIn`.
@@ -107,7 +106,7 @@ library SpokeVaultTypes {
     }
 
     /// @notice Every mutable and pinned value of a Spoke Vault.
-    /// @dev Chain-local Mandate copy pinned at creation (DEC-030, DEC-053, DEC-069, DEC-087, DEC-088, Q17-4), the
+    /// @dev Chain-local Mandate copy pinned at creation (DEC-030, DEC-053, DEC-087, DEC-088, Q17-4), the
     ///      internal ledger (DEC-080), Operating Cash (DEC-096) and the cross-chain books (DEC-066, DEC-090, OQ-09).
     struct State {
         // Pinned at creation.
@@ -117,7 +116,6 @@ library SpokeVaultTypes {
         mapping(address => bytes32) codehash;
         mapping(address => address) bridgeTarget;
         mapping(address => mapping(bytes32 => PoolTokens)) pools;
-        UnwindStep[] unwindOrder;
         address[] tokens;
         mapping(address => bool) isLedgerToken;
         // Ledger.

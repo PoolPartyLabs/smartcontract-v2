@@ -14,8 +14,7 @@ import {SpokeCrossChainLib} from "./SpokeCrossChainLib.sol";
 /// @notice Identity, wiring, storage, modifiers and construction of the Spoke Vault. See ISpokeVault and SpokeVault.
 /// @dev Split out of SpokeVault like the Core Vault's layers (WP-07 A3, DEC-131 pattern): the abstract layers
 ///      (`SpokeVaultBase`, `SpokeVaultUnwind`, `SpokeVaultIncome`) compile into the one `SpokeVault` contract, whose
-///      ABI is unchanged. The constructor pins the Mandate's adapters, pools, unwind order and bridge adapters of this
-///      chain; the layers read the ledger through the internal library `SpokeLedger`.
+///      ABI is unchanged. The constructor pins the Mandate's adapters, pools and bridge adapters of this chain; the layers read the ledger through the internal library `SpokeLedger`.
 abstract contract SpokeVaultBase is ISpokeVault, ReentrancyGuard {
     using MandateLib for Mandate;
 
@@ -145,7 +144,6 @@ abstract contract SpokeVaultBase is ISpokeVault, ReentrancyGuard {
         _registerToken(baseToken_);
         _pinAdapters(mandate_, chainId_);
         _pinPools(mandate_, chainId_);
-        _copyUnwindOrder(mandate_, chainId_);
         if (!hub) _pinBridgeAdapters(mandate_, chainId_);
     }
 
@@ -169,13 +167,6 @@ abstract contract SpokeVaultBase is ISpokeVault, ReentrancyGuard {
             _s.pools[p.adapter][p.poolKey] = SpokeVaultTypes.PoolTokens(token0, token1, true);
             _registerToken(token0);
             _registerToken(token1);
-        }
-    }
-
-    /// @dev DEC-069: the Mandate unwind order restricted to this chain, in Mandate order.
-    function _copyUnwindOrder(Mandate memory m, uint256 chainId_) private {
-        for (uint256 i; i < m.unwindOrder.length; ++i) {
-            if (m.unwindOrder[i].chainId == chainId_) _s.unwindOrder.push(m.unwindOrder[i]);
         }
     }
 

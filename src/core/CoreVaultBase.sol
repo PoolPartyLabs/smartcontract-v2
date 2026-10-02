@@ -142,9 +142,6 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
         for (uint256 i; i < m.pools.length; ++i) {
             stored.pools.push(m.pools[i]);
         }
-        for (uint256 i; i < m.unwindOrder.length; ++i) {
-            stored.unwindOrder.push(m.unwindOrder[i]);
-        }
         for (uint256 i; i < m.spokes.length; ++i) {
             stored.spokes.push(m.spokes[i]);
         }

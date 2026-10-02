@@ -25,7 +25,6 @@ import {
     Mandate,
     AdapterConfig,
     PoolConfig,
-    UnwindStep,
     SpokeConfig,
     BridgeAdapterConfig,
     OperatingCashConfig
@@ -161,9 +160,6 @@ abstract contract SpokeAHubFixture is Test, FundSeed {
         m.pools[0] = PoolConfig(HUB, adapter_, poolId);
         m.pools[1] = PoolConfig(HUB, exact_, EXACT_USDC);
         // DEC-069: the V4 pool first, the exact-value USDC position second.
-        m.unwindOrder = new UnwindStep[](2);
-        m.unwindOrder[0] = UnwindStep(HUB, adapter_, poolId);
-        m.unwindOrder[1] = UnwindStep(HUB, exact_, EXACT_USDC);
         m.spokes = new SpokeConfig[](0);
         m.bridgeAdapters = new BridgeAdapterConfig[](0);
         // DEC-127: no hub Operating Cash here. With a one-share seed, the first deposit's top-up (floor 1, top-up 3)

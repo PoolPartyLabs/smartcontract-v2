@@ -6,7 +6,7 @@ import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
 import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
-import {Mandate, PoolConfig, UnwindStep} from "../../../src/mandate/Mandate.sol";
+import {Mandate, PoolConfig} from "../../../src/mandate/Mandate.sol";
 import {SpokeAHubFixture} from "./SpokeAHubFixture.sol";
 
 /// @notice [L-05] (spoke-a report L-01), ported to main, STILL_PRESENT: the automatic unwind only exits positions of
@@ -64,15 +64,13 @@ contract L05_SingleAssetNonUsdcStep is SpokeAHubFixture {
         exact.addPool(EXACT_WETH, address(weth), address(0));
     }
 
-    /// @dev Unwind order: V4 WETH/USDC, then the single-asset WETH reserve, then exact-value USDC.
+    /// @dev Pools: V4 WETH/USDC, exact-value USDC and the single-asset WETH reserve. The unwind walks the positions in
+    ///      registry order (DEC-137 interim): the test opens V4 first, then the WETH reserve.
     function _mandate(address adapter_, address exact_) internal view override returns (Mandate memory m) {
         m = super._mandate(adapter_, exact_);
         PoolConfig[] memory pools = new PoolConfig[](3);
         (pools[0], pools[1], pools[2]) = (m.pools[0], m.pools[1], PoolConfig(HUB, exact_, EXACT_WETH));
         m.pools = pools;
-        UnwindStep[] memory order = new UnwindStep[](3);
-        (order[0], order[1], order[2]) = (m.unwindOrder[0], UnwindStep(HUB, exact_, EXACT_WETH), m.unwindOrder[1]);
-        m.unwindOrder = order;
     }
 
     /// @dev Fixed on fix/pp-sc-fix-independent-review (plan T14): the single-asset WETH step used to revert

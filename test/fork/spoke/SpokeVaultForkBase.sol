@@ -6,7 +6,6 @@ import {
     Mandate,
     AdapterConfig,
     PoolConfig,
-    UnwindStep,
     SpokeConfig,
     BridgeAdapterConfig,
     OperatingCashConfig
@@ -61,11 +60,6 @@ abstract contract SpokeVaultForkBase is Test {
         m.pools[0] = PoolConfig(ARBITRUM, a.hubUni, HUB_POOL);
         m.pools[1] = PoolConfig(ARBITRUM, a.hubAave, AAVE_USDC);
         m.pools[2] = PoolConfig(ROBINHOOD, a.spokeUni, SPOKE_POOL);
-
-        m.unwindOrder = new UnwindStep[](3);
-        m.unwindOrder[0] = UnwindStep(ARBITRUM, a.hubUni, HUB_POOL);
-        m.unwindOrder[1] = UnwindStep(ARBITRUM, a.hubAave, AAVE_USDC);
-        m.unwindOrder[2] = UnwindStep(ROBINHOOD, a.spokeUni, SPOKE_POOL);
 
         m.spokes = new SpokeConfig[](1);
         m.spokes[0] = SpokeConfig(

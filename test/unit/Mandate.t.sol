@@ -8,7 +8,6 @@ import {
     MandateLib,
     AdapterConfig,
     PoolConfig,
-    UnwindStep,
     SpokeConfig,
     BridgeAdapterConfig,
     OperatingCashConfig
@@ -96,10 +95,6 @@ contract MandateTest is Test {
         m.pools[1] = PoolConfig(HUB, hubAave, AAVE_USDC);
         m.pools[2] = PoolConfig(SPOKE, spokeUniswap, SPOKE_POOL);
 
-        m.unwindOrder = new UnwindStep[](2);
-        m.unwindOrder[0] = UnwindStep(HUB, hubAave, AAVE_USDC);
-        m.unwindOrder[1] = UnwindStep(HUB, hubUniswap, HUB_POOL);
-
         m.spokes = new SpokeConfig[](1);
         m.spokes[0] = SpokeConfig({
             chainId: SPOKE,
@@ -150,8 +145,6 @@ contract MandateTest is Test {
         m.adapters[0] = AdapterConfig(HUB, hubUniswap);
         m.pools = new PoolConfig[](1);
         m.pools[0] = PoolConfig(HUB, hubUniswap, HUB_POOL);
-        m.unwindOrder = new UnwindStep[](1);
-        m.unwindOrder[0] = UnwindStep(HUB, hubUniswap, HUB_POOL);
         m.operatingCash = new OperatingCashConfig[](0);
         h.validate(m);
     }
@@ -200,13 +193,6 @@ contract MandateTest is Test {
         h.validate(m);
     }
 
-    function test_DEC069_emptyUnwindOrderReverts() public {
-        Mandate memory m = _valid();
-        m.unwindOrder = new UnwindStep[](0);
-        vm.expectRevert(MandateLib.EmptyUnwindOrder.selector);
-        h.validate(m);
-    }
-
     function test_DEC058_duplicateAdapterReverts() public {
         Mandate memory m = _valid();
         m.adapters[1] = AdapterConfig(HUB, hubUniswap);
@@ -239,20 +225,6 @@ contract MandateTest is Test {
         Mandate memory m = _valid();
         m.pools[1] = PoolConfig(HUB, hubUniswap, HUB_POOL);
         vm.expectRevert(abi.encodeWithSelector(MandateLib.DuplicatePool.selector, HUB, hubUniswap, HUB_POOL));
-        h.validate(m);
-    }
-
-    function test_DEC069_unwindStepOutsidePoolListReverts() public {
-        Mandate memory m = _valid();
-        m.unwindOrder[1] = UnwindStep(HUB, hubUniswap, SPOKE_POOL);
-        vm.expectRevert(abi.encodeWithSelector(MandateLib.UnwindStepNotInPools.selector, HUB, hubUniswap, SPOKE_POOL));
-        h.validate(m);
-    }
-
-    function test_DEC069_duplicateUnwindStepReverts() public {
-        Mandate memory m = _valid();
-        m.unwindOrder[1] = UnwindStep(HUB, hubAave, AAVE_USDC);
-        vm.expectRevert(abi.encodeWithSelector(MandateLib.DuplicateUnwindStep.selector, HUB, hubAave, AAVE_USDC));
         h.validate(m);
     }
 

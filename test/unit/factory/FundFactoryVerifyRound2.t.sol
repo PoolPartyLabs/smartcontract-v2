@@ -16,7 +16,6 @@ import {
     MandateLib,
     AdapterConfig,
     PoolConfig,
-    UnwindStep,
     SpokeConfig,
     BridgeAdapterConfig,
     OperatingCashConfig
@@ -147,8 +146,6 @@ contract FundFactoryVerifyRound2Test is Test, FactoryDeployment, FundMandate, Fu
         m.adapters[0] = AdapterConfig(HUB, uniswap);
         m.pools = new PoolConfig[](1);
         m.pools[0] = PoolConfig(HUB, uniswap, poolId);
-        m.unwindOrder = new UnwindStep[](1);
-        m.unwindOrder[0] = UnwindStep(HUB, uniswap, poolId);
         m.spokes = new SpokeConfig[](1);
         m.spokes[0] = SpokeConfig(
             HUB, 23, bytes32(uint256(uint160(factory.addressOf(fundId, "SpokeVault", HUB)))), address(usdc), 1e12, 1588

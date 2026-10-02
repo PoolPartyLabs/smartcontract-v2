@@ -9,7 +9,6 @@ import {
     MandateLib,
     AdapterConfig,
     PoolConfig,
-    UnwindStep,
     SpokeConfig,
     BridgeAdapterConfig,
     OperatingCashConfig
@@ -79,13 +78,9 @@ abstract contract FundMandate {
         m.pools = new PoolConfig[](adapterCount);
         m.adapters[0] = AdapterConfig(plan.hubChainId, hubUniswap);
         m.pools[0] = PoolConfig(plan.hubChainId, hubUniswap, hubPoolId);
-        // Automatic unwind reaches hub positions only in the MVP (feedback question 2, DEC-069).
-        m.unwindOrder = new UnwindStep[](aave ? 2 : 1);
-        m.unwindOrder[0] = UnwindStep(plan.hubChainId, hubUniswap, hubPoolId);
         if (aave) {
             m.adapters[1] = AdapterConfig(plan.hubChainId, hubAave);
             m.pools[1] = PoolConfig(plan.hubChainId, hubAave, aaveKey);
-            m.unwindOrder[1] = UnwindStep(plan.hubChainId, hubAave, aaveKey);
         }
         if (spoke) _addSpoke(factory, fundId, plan, m, adapterCount - 1);
 

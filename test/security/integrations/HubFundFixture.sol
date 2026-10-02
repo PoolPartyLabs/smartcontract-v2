@@ -28,7 +28,6 @@ import {
     Mandate,
     AdapterConfig,
     PoolConfig,
-    UnwindStep,
     SpokeConfig,
     BridgeAdapterConfig,
     OperatingCashConfig
@@ -156,8 +155,6 @@ abstract contract HubFundFixture is Test, FundSeed {
         m.adapters[0] = AdapterConfig(HUB, hubAdapter);
         m.pools = new PoolConfig[](1);
         m.pools[0] = PoolConfig(HUB, hubAdapter, poolId);
-        m.unwindOrder = new UnwindStep[](1);
-        m.unwindOrder[0] = UnwindStep(HUB, hubAdapter, poolId);
         m.spokes = new SpokeConfig[](0);
         m.bridgeAdapters = new BridgeAdapterConfig[](0);
         m.operatingCash = new OperatingCashConfig[](0);

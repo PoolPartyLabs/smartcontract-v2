@@ -16,14 +16,6 @@ struct PoolConfig {
     bytes32 poolKey;
 }
 
-/// @notice One step of the automatic unwind order.
-/// @dev DEC-069: fixed at creation, used only for automatic unwind on the payout claim path.
-struct UnwindStep {
-    uint256 chainId;
-    address adapter;
-    bytes32 poolKey;
-}
-
 /// @notice A Spoke Chain of the fund.
 /// @param chainId EVM chain id of the spoke (Robinhood Chain: 4663).
 /// @param wormholeChainId Wormhole chain id of the spoke (Robinhood Chain: 72), the report emitter chain (DEC-086).
@@ -74,7 +66,6 @@ struct OperatingCashConfig {
 /// @param usdc USDC on the Hub Chain, the only deposit and payout asset (DEC-011).
 /// @param adapters Closed list of position adapters per chain, hub included (DEC-053, DEC-054, DEC-058).
 /// @param pools Closed list of pools per adapter (DEC-030).
-/// @param unwindOrder Ordered steps for automatic unwind (DEC-069).
 /// @param spokes Spoke Chains (DEC-031, DEC-037, DEC-095).
 /// @param bridgeAdapters Bridge adapters per spoke, in priority order (DEC-087, DEC-088).
 /// @param operatingCash Initial Operating Cash floor and top-up per chain (DEC-096).
@@ -82,7 +73,8 @@ struct OperatingCashConfig {
 /// @param minFirstDeposit Minimum first deposit, in USDC base units; no protocol floor (DEC-061, DEC-095, erratum 22).
 /// @param performanceFeeBps Manager performance fee on collected income, in bps; may only decrease (DEC-107, DEC-110).
 /// @param managementFeeBps Manager management fee, in bps per year; the MVP accepts only 0 (DEC-108, LC-144 OPEN).
-/// @dev No bridge fee bound: DEC-156 (no protocol cap on the bridge fee) and DEC-162 (the bridge adapter fixes the send
+/// @dev No unwind order: the automatic unwind is proportional (DEC-137, DEC-139; corrects DEC-069 item 1), so the
+///      Mandate no longer orders it. No bridge fee bound: DEC-156 (no protocol cap on the bridge fee) and DEC-162 (the bridge adapter fixes the send
 ///      terms and holds the fee rule) removed `maxBridgeFeeBps`.
 struct Mandate {
     address manager;
@@ -90,7 +82,6 @@ struct Mandate {
     address usdc;
     AdapterConfig[] adapters;
     PoolConfig[] pools;
-    UnwindStep[] unwindOrder;
     SpokeConfig[] spokes;
     BridgeAdapterConfig[] bridgeAdapters;
     OperatingCashConfig[] operatingCash;
@@ -136,14 +127,11 @@ library MandateLib {
     error ZeroHubChainId();
     error EmptyAdapters();
     error EmptyPools();
-    error EmptyUnwindOrder();
     error ZeroAdapter();
     error UnknownChain(uint256 chainId);
     error DuplicateAdapter(uint256 chainId, address adapter);
     error DuplicatePool(uint256 chainId, address adapter, bytes32 poolKey);
     error PoolAdapterNotListed(uint256 chainId, address adapter);
-    error UnwindStepNotInPools(uint256 chainId, address adapter, bytes32 poolKey);
-    error DuplicateUnwindStep(uint256 chainId, address adapter, bytes32 poolKey);
     error SpokeIsHubChain(uint256 chainId);
     error DuplicateSpoke(uint256 chainId, uint16 wormholeChainId);
     error InvalidSpoke(uint256 chainId);
@@ -158,10 +146,9 @@ library MandateLib {
     /// @notice Reverts unless the Mandate is well formed.
     /// @dev Checks, with the decision behind each:
     ///      - manager, USDC and hub chain id set (DEC-002, DEC-011);
-    ///      - position adapters, pools and unwind order non-empty, no zero or duplicate adapter, every adapter on the
-    ///        hub or a spoke (DEC-053, DEC-058);
+    ///      - position adapters and pools non-empty, no zero or duplicate adapter, every adapter on the hub or a spoke
+    ///        (DEC-053, DEC-058);
     ///      - every pool behind a listed adapter on the same chain, no duplicate pool (DEC-030);
-    ///      - every unwind step in the pool list, no duplicate step (DEC-069);
     ///      - spokes on chains other than the hub, unique by EVM and Wormhole chain id, vault, token and report age set,
     ///        the report age at most `MAX_REPORT_AGE` (DEC-086, DEC-087, DEC-099; independent review M-04);
     ///      - every spoke has at least one bridge adapter on the hub side and one on the spoke side (DEC-089: a chain
@@ -178,7 +165,6 @@ library MandateLib {
         _validateSpokes(m);
         _validateAdapters(m);
         _validatePools(m);
-        _validateUnwindOrder(m);
         _validateBridgeAdapters(m);
         _validateOperatingCash(m);
 
@@ -316,22 +302,6 @@ library MandateLib {
                 PoolConfig memory q = m.pools[j];
                 if (q.chainId == p.chainId && q.adapter == p.adapter && q.poolKey == p.poolKey) {
                     revert DuplicatePool(p.chainId, p.adapter, p.poolKey);
-                }
-            }
-        }
-    }
-
-    function _validateUnwindOrder(Mandate memory m) private pure {
-        if (m.unwindOrder.length == 0) revert EmptyUnwindOrder();
-        for (uint256 i; i < m.unwindOrder.length; ++i) {
-            UnwindStep memory u = m.unwindOrder[i];
-            if (!isAllowedPool(m, u.chainId, u.adapter, u.poolKey)) {
-                revert UnwindStepNotInPools(u.chainId, u.adapter, u.poolKey);
-            }
-            for (uint256 j; j < i; ++j) {
-                UnwindStep memory v = m.unwindOrder[j];
-                if (v.chainId == u.chainId && v.adapter == u.adapter && v.poolKey == u.poolKey) {
-                    revert DuplicateUnwindStep(u.chainId, u.adapter, u.poolKey);
                 }
             }
         }

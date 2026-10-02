@@ -118,9 +118,6 @@ abstract contract EndToEndScenario is EndToEndBase {
         assertEq(m.pools[0].poolKey, ARB_WETH_USDC_POOL_ID, "DEC-030: hub WETH/USDC 0.05%");
         assertEq(m.pools[1].poolKey, bytes32(uint256(uint160(ARB_USDC))), "DEC-018, DEC-028: Aave USDC on the hub");
         assertEq(m.pools[2].poolKey, RH_WETH_USDG_POOL_ID, "DEC-030: spoke WETH/USDG 0.05%");
-        assertEq(m.unwindOrder.length, 2, "feedback question 2: automatic unwind on hub positions only");
-        assertEq(m.unwindOrder[0].adapter, hubUni, "DEC-069: hub Uniswap V4 first");
-        assertEq(m.unwindOrder[1].adapter, hubAaveAdapter, "DEC-069: then Aave");
         assertEq(m.bridgeAdapters.length, 2, "DEC-088: Across on both sides");
         assertEq(m.bridgeAdapters[0].adapter, predicted.chains[0].acrossBridgeAdapter);
         assertEq(m.bridgeAdapters[1].adapter, predicted.chains[1].acrossBridgeAdapter);

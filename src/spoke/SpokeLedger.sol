@@ -75,23 +75,6 @@ library SpokeLedger {
         return false;
     }
 
-    function positionKeysOf(SpokeVaultTypes.State storage s, address adapter, bytes32 poolKey)
-        internal
-        view
-        returns (bytes32[] memory keys)
-    {
-        uint256 n = s.positions.length;
-        keys = new bytes32[](n);
-        uint256 found;
-        for (uint256 i; i < n; ++i) {
-            ISpokeVault.PositionRef storage ref = s.positions[i];
-            if (ref.adapter == adapter && ref.poolKey == poolKey) keys[found++] = ref.positionKey;
-        }
-        assembly ("memory-safe") {
-            mstore(keys, found)
-        }
-    }
-
     /// @dev DEC-056, DEC-079: decrease, close or collect; principal to Unallocated Balance, income to the collected
     ///      income bucket, both from what the adapter returned. A close leaves the registry only when the adapter no
     ///      longer lists the key: an adapter may keep it open holding income the protocol could not pay yet (Aave

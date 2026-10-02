@@ -7,7 +7,7 @@ import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {IFundFactory} from "../../../src/interfaces/IFundFactory.sol";
 import {FundFactory} from "../../../src/factory/FundFactory.sol";
 import {Test} from "forge-std/Test.sol";
-import {Mandate, MandateLib, PoolConfig, UnwindStep} from "../../../src/mandate/Mandate.sol";
+import {Mandate, MandateLib, PoolConfig} from "../../../src/mandate/Mandate.sol";
 import {CoreVaultConfig} from "../../../src/core/CoreVaultTypes.sol";
 import {Create3Harness} from "../../mocks/factory/Create3Harness.sol";
 import {FactoryReviewFixture} from "./FactoryReviewFixture.sol";
@@ -25,6 +25,8 @@ contract MandateValidator {
 ///         linked library (DEC-131 pattern): 49,854 bytes at 66, the wall back at 63 extra pools. The test now solves
 ///         the wall from the build instead of pinning it (Mandate v2, WP-07 B). Gas on main: 20.52M,
 ///         23.76M, 27.17M, 31.49M and 36.42M for 0, 10, 20, 30 and 40 extra hub pools (review: 20.7M to 37.0M).
+///         Mandate v2 dropped the unwind order (DEC-137): 96 bytes per extra pool instead of 192, the init-code wall
+///         at 143 extra pools, and 20.90M, 24.64M, 30.69M and 32.83M of gas for 0, 20, 50 and 60.
 ///         Original note: neither `MandateLib.validate` nor the factory bounds the Mandate's lists, while the cost of creating
 ///         a fund grows with them: every fund contract validates the Mandate (O(n^2) duplicate scans), the hub Spoke
 ///         Vault and the Core Vault copy it into storage, and each contract's init code carries the ABI-encoded Mandate.
@@ -35,7 +37,8 @@ contract MandateValidator {
 contract L01_MandateSizeInitcodeCliff is FactoryReviewFixture {
     uint256 internal constant ARBITRUM_MAX_TX_GAS = 32_000_000;
 
-    /// @dev The fixture Mandate plus `extra` hub Uniswap V4 pools, each also an unwind step.
+    /// @dev The fixture Mandate plus `extra` hub Uniswap V4 pools (each also an unwind step until Mandate v2 removed
+    ///      the unwind order, DEC-137).
     function _bigMandate(Deployment memory d, uint256 extra)
         internal
         view
@@ -48,13 +51,9 @@ contract L01_MandateSizeInitcodeCliff is FactoryReviewFixture {
         address hubUniswap = m.adapters[0].adapter;
 
         PoolConfig[] memory pools = new PoolConfig[](m.pools.length + extra);
-        UnwindStep[] memory steps = new UnwindStep[](m.unwindOrder.length + extra);
         PoolKey[] memory keys = new PoolKey[](1 + extra);
         for (uint256 i; i < m.pools.length; ++i) {
             pools[i] = m.pools[i];
-        }
-        for (uint256 i; i < m.unwindOrder.length; ++i) {
-            steps[i] = m.unwindOrder[i];
         }
         keys[0] = p.uniswapV4Pools[0];
         for (uint256 i; i < extra; ++i) {
@@ -62,11 +61,9 @@ contract L01_MandateSizeInitcodeCliff is FactoryReviewFixture {
             PoolKey memory k = _poolKey(address(weth), address(usdc), uint24(100 + i), int24(int256(1 + i)));
             bytes32 id = PoolId.unwrap(k.toId());
             pools[m.pools.length + i] = PoolConfig(HUB, hubUniswap, id);
-            steps[m.unwindOrder.length + i] = UnwindStep(HUB, hubUniswap, id);
             keys[1 + i] = k;
         }
         m.pools = pools;
-        m.unwindOrder = steps;
         p.uniswapV4Pools = keys;
     }
 
@@ -92,10 +89,11 @@ contract L01_MandateSizeInitcodeCliff is FactoryReviewFixture {
         assertLt(_createFundGas(20), ARBITRUM_MAX_TX_GAS);
     }
 
-    /// @dev A valid Mandate with 40 extra hub pools needs more gas than one Arbitrum transaction allows.
+    /// @dev A valid Mandate with 60 extra hub pools needs more gas than one Arbitrum transaction allows (40 before
+    ///      Mandate v2 dropped the unwind order).
     function test_POC_REVIEW_L10_createFundGasGrowsPastTheArbitrumTransactionCap() public {
         assertGt(
-            _createFundGas(40), ARBITRUM_MAX_TX_GAS, "a valid Mandate needs more gas than one Arbitrum transaction"
+            _createFundGas(60), ARBITRUM_MAX_TX_GAS, "a valid Mandate needs more gas than one Arbitrum transaction"
         );
     }
 
@@ -122,7 +120,7 @@ contract L01_MandateSizeInitcodeCliff is FactoryReviewFixture {
         console2.log("bytes per extra hub pool", perPool);
         console2.log("first extra-pool count above EIP-3860", wall);
         assertGt(initCode, 49_152, "above EIP-3860: the Core Vault can never be created from this valid Mandate");
-        assertEq(perPool, 192);
+        assertEq(perPool, 96, "one PoolConfig per extra pool (192 with the unwind step before Mandate v2)");
     }
 
     function _config(Deployment memory d, uint256 creationNumber) internal view returns (CoreVaultConfig memory c) {

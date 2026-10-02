@@ -8,7 +8,7 @@ import {ISpokeVaultUnwind} from "../interfaces/ISpokeVaultUnwind.sol";
 import {IAdapter} from "../interfaces/IAdapter.sol";
 import {ICoreVault} from "../interfaces/ICoreVault.sol";
 import {IPriceSource} from "../interfaces/IPriceSource.sol";
-import {MandateLib, UnwindStep} from "../mandate/Mandate.sol";
+import {MandateLib} from "../mandate/Mandate.sol";
 import {SpokeVaultTypes} from "./SpokeVaultTypes.sol";
 import {SpokeLedger} from "./SpokeLedger.sol";
 
@@ -31,10 +31,11 @@ library SpokeUnwindLib {
     uint256 internal constant MAX_UNWIND_SLIPPAGE_BPS = 500;
 
     /// @notice Body of `ISpokeVault.unwindForPayout`; the vault checks the chain, the caller and reentrancy first.
-    /// @dev DEC-069: walks the Mandate unwind order restricted to this chain; within a step, every open position of
-    ///      that (adapter, pool) in registry order. An illiquid step reverts (no try/catch, a position is never
-    ///      skipped). The stop condition (USDC Unallocated Balance at `usdcTarget`) is re-evaluated before every
-    ///      position.
+    /// @dev Interim order (DEC-137, DEC-139 with Mandate v2): the Mandate no longer carries an unwind order, so the
+    ///      unwind walks this vault's open positions in registry order (a snapshot taken before the first exit, since a
+    ///      close reorders the registry) until the proportional unwind of WP-09 replaces this walk. An illiquid
+    ///      position reverts (no try/catch, a position is never skipped). The stop condition (USDC Unallocated Balance
+    ///      at `usdcTarget`) is re-evaluated before every position.
     /// @dev Final verification (DEC-069, DEC-081, DEC-097, QA3 OPEN): the vault, not the claimant, sizes every step.
     ///      For each position it values the principal in USDC (`IAdapter.positionValue`, non-USDC legs at the route's
     ///      `spotQuote`), takes the shortfall still needed (`usdcTarget` minus the USDC Unallocated Balance so far)
@@ -48,7 +49,7 @@ library SpokeUnwindLib {
     ///      margin; DEC-097: its Market Costs are the fund's). The claimant's hints can only raise that minimum or
     ///      restrict the swap; they never size an exit. Income from the exits goes to the collected income bucket,
     ///      never to the proceeds (DEC-092).
-    /// @param unwindHints `abi.encode(SpokeVaultTypes.UnwindHint[])`, optional, one per position visited in order.
+    /// @param unwindHints `abi.encode(SpokeVaultTypes.UnwindHint[])`, optional, one per position in registry order.
     function unwindForPayout(
         SpokeVaultTypes.State storage s,
         SpokeVaultTypes.Config memory c,
@@ -61,9 +62,13 @@ library SpokeUnwindLib {
             : abi.decode(unwindHints, (SpokeVaultTypes.UnwindHint[]));
 
         address usdc = c.baseToken;
-        uint256 visited;
-        for (uint256 i; i < s.unwindOrder.length && s.unallocated[usdc] < usdcTarget; ++i) {
-            visited = _unwindStep(s, c, s.unwindOrder[i], hints, visited, usdcTarget);
+        ISpokeVault.PositionRef[] memory refs = s.positions;
+        for (uint256 i; i < refs.length; ++i) {
+            uint256 held = s.unallocated[usdc];
+            if (held >= usdcTarget) break;
+            SpokeVaultTypes.UnwindSwap[] memory swaps;
+            if (i < hints.length) swaps = hints[i].swaps;
+            _unwindPosition(s, c, refs[i], usdcTarget - held, swaps);
         }
 
         usdcProceeds = Math.min(s.unallocated[usdc], usdcTarget);
@@ -74,56 +79,34 @@ library SpokeUnwindLib {
         emit ISpokeVaultUnwind.UnwoundForPayout(usdcTarget, usdcProceeds);
     }
 
-    /// @dev Every open position of one Mandate unwind step, in registry order, while the target is not reached; the
-    ///      `visited`-th position takes the `visited`-th hint, if any. Returns the positions visited so far.
-    function _unwindStep(
-        SpokeVaultTypes.State storage s,
-        SpokeVaultTypes.Config memory c,
-        UnwindStep memory step,
-        SpokeVaultTypes.UnwindHint[] memory hints,
-        uint256 visited,
-        uint256 usdcTarget
-    ) private returns (uint256) {
-        bytes32[] memory keys = SpokeLedger.positionKeysOf(s, step.adapter, step.poolKey);
-        for (uint256 k; k < keys.length; ++k) {
-            uint256 held = s.unallocated[c.baseToken];
-            if (held >= usdcTarget) break;
-            SpokeVaultTypes.UnwindSwap[] memory swaps;
-            if (visited < hints.length) swaps = hints[visited].swaps;
-            ++visited;
-            _unwindPosition(s, c, step.adapter, step.poolKey, keys[k], usdcTarget - held, swaps);
-        }
-        return visited;
-    }
-
     /// @dev One unwind step on one position (final verification): value the principal in USDC, exit only the share
     ///      of it the `shortfall` needs (the whole position when its whole value is needed), then swap the non-USDC
     ///      principal the exit returned into USDC above the vault's floor.
     function _unwindPosition(
         SpokeVaultTypes.State storage s,
         SpokeVaultTypes.Config memory c,
-        address adapter,
-        bytes32 poolKey,
-        bytes32 positionKey,
+        ISpokeVault.PositionRef memory ref,
         uint256 shortfall,
         SpokeVaultTypes.UnwindSwap[] memory swaps
     ) private {
-        IAdapter a = SpokeLedger.positionAdapter(s, adapter);
-        SpokeVaultTypes.PoolTokens memory p = SpokeLedger.pool(s, adapter, poolKey);
-        SpokeVaultTypes.UnwindSwap memory r0 = _unwindRoute(s, c.baseToken, adapter, poolKey, p, p.token0, swaps);
-        SpokeVaultTypes.UnwindSwap memory r1 = _unwindRoute(s, c.baseToken, adapter, poolKey, p, p.token1, swaps);
+        IAdapter a = SpokeLedger.positionAdapter(s, ref.adapter);
+        SpokeVaultTypes.PoolTokens memory p = SpokeLedger.pool(s, ref.adapter, ref.poolKey);
+        SpokeVaultTypes.UnwindSwap memory r0 =
+            _unwindRoute(s, c.baseToken, ref.adapter, ref.poolKey, p, p.token0, swaps);
+        SpokeVaultTypes.UnwindSwap memory r1 =
+            _unwindRoute(s, c.baseToken, ref.adapter, ref.poolKey, p, p.token1, swaps);
         uint256 value;
         {
-            IAdapter.PositionValue memory v = a.positionValue(positionKey);
+            IAdapter.PositionValue memory v = a.positionValue(ref.positionKey);
             value = _unwindValue(r0, v.principal0) + _unwindValue(r1, v.principal1);
         }
         if (value == 0) return;
-        (bool close, bytes memory params) = a.unwindExitParams(positionKey, Math.min(shortfall, value), value);
+        (bool close, bytes memory params) = a.unwindExitParams(ref.positionKey, Math.min(shortfall, value), value);
         (IAdapter.Amounts memory amounts,) = SpokeLedger.exit(
             s,
             c.baseToken,
-            adapter,
-            positionKey,
+            ref.adapter,
+            ref.positionKey,
             close ? SpokeVaultTypes.ExitKind.Close : SpokeVaultTypes.ExitKind.Decrease,
             params
         );

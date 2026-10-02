@@ -150,7 +150,7 @@ library CoreVaultPayoutLogic {
         ICoreVaultPayouts.NavConsolidation memory consolidation = _priceClaim(s, w, c, req);
         // DEC-067, DEC-095: Idle first (Instant: Free Idle only; Standard: its reserve, then Free Idle).
         if (c.wanted > c.available) {
-            // DEC-081, DEC-097: unwind in Mandate order the shortfall plus 2%, proceeds to Idle.
+            // DEC-081, DEC-097: unwind the shortfall plus 2% (registry order until WP-09, DEC-137), proceeds to Idle.
             uint256 shortfall = c.wanted - c.available;
             c.proceeds = _unwindForPayout(s, w, shortfall + shortfall * UNWIND_MARGIN_BPS / 10_000, unwindHints);
             // DEC-105: one Share Price for the whole request, read after the unwind.

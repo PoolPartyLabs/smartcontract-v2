@@ -65,7 +65,7 @@ contract SpokeReportSpotFork is IntegrationPriceBase {
     function _setUp() internal {
         _createForks();
         _onArbitrum();
-        Mandate memory m = _createFund(_pricePlan(250_000e6), new PoolKey[](0), false);
+        Mandate memory m = _createFund(_pricePlan(250_000e6), new PoolKey[](0));
         oracleCached = _oracle();
         ICoreBridge(ARB_WORMHOLE_CORE).setUpOverride();
         _deposit(alice, ALICE_DEPOSIT);

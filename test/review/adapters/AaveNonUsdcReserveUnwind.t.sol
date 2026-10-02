@@ -11,7 +11,6 @@ import {
     Mandate,
     AdapterConfig,
     PoolConfig,
-    UnwindStep,
     SpokeConfig,
     BridgeAdapterConfig,
     OperatingCashConfig
@@ -87,8 +86,6 @@ contract AaveNonUsdcReserveUnwindTest is Test {
         m.pools = new PoolConfig[](2);
         m.pools[0] = PoolConfig(HUB, address(hubUni), HUB_POOL);
         m.pools[1] = PoolConfig(HUB, address(aave), aaveWeth);
-        m.unwindOrder = new UnwindStep[](1);
-        m.unwindOrder[0] = UnwindStep(HUB, address(aave), aaveWeth);
         m.spokes = new SpokeConfig[](0);
         m.bridgeAdapters = new BridgeAdapterConfig[](0);
         m.operatingCash = new OperatingCashConfig[](1);

@@ -1,14 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {
-    Mandate,
-    AdapterConfig,
-    PoolConfig,
-    UnwindStep,
-    SpokeConfig,
-    BridgeAdapterConfig
-} from "../../../src/mandate/Mandate.sol";
+import {Mandate, AdapterConfig, PoolConfig, SpokeConfig, BridgeAdapterConfig} from "../../../src/mandate/Mandate.sol";
 import {SpokeVaultTestBase} from "./SpokeVaultTestBase.sol";
 import {SpokeVault} from "../../../src/spoke/SpokeVault.sol";
 import {SpokeVaultTypes} from "../../../src/spoke/SpokeVaultTypes.sol";
@@ -208,8 +201,6 @@ contract SpokeVaultAdversarialAdapterTest is SpokeVaultTestBase {
         m.adapters[0] = AdapterConfig(SPOKE, address(evil));
         m.pools = new PoolConfig[](1);
         m.pools[0] = PoolConfig(SPOKE, address(evil), evil.POOL());
-        m.unwindOrder = new UnwindStep[](1);
-        m.unwindOrder[0] = UnwindStep(SPOKE, address(evil), evil.POOL());
         m.spokes = new SpokeConfig[](1);
         m.spokes[0] = SpokeConfig(
             SPOKE, WH_SPOKE, bytes32(uint256(uint160(spokeVaultInMandate))), address(usdg), 1_000_000e6, MAX_REPORT_AGE

@@ -52,7 +52,7 @@ contract FeeTierFork is IntegrationPriceBase {
         FundFactory factory = hubDeployment.factory;
         creationNumber = factory.nextCreationNumber();
         fundId = factory.fundIdOf(ARBITRUM, creationNumber, manager);
-        Mandate memory m = _withExtraHubPools(_buildMandate(factory, fundId, plan), extra, false);
+        Mandate memory m = _withExtraHubPools(_buildMandate(factory, fundId, plan), extra);
         IFundFactory.HubParams memory p = _hubParams(creationNumber, plan, _coreVaultCreationCode(hubDeployment));
         PoolKey[] memory keys = new PoolKey[](2);
         keys[0] = plan.hubPool;
@@ -77,7 +77,7 @@ contract FeeTierFork is IntegrationPriceBase {
         PoolKey memory onePct = _initialize(10_000);
         PoolKey[] memory extra = new PoolKey[](1);
         extra[0] = onePct;
-        _createFund(_pricePlan(SPOKE_CAP), extra, false);
+        _createFund(_pricePlan(SPOKE_CAP), extra);
         bytes32 onePctId = PoolId.unwrap(onePct.toId());
         (address t0, address t1) = SpokeVault(address(hubSpoke)).poolTokens(hubUniswap, onePctId);
         assertEq(t0, ARB_WETH, "the factory-created fund lists the 1% pool");

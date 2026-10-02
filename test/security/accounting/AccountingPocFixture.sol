@@ -28,7 +28,6 @@ import {
     Mandate,
     AdapterConfig,
     PoolConfig,
-    UnwindStep,
     SpokeConfig,
     BridgeAdapterConfig,
     OperatingCashConfig
@@ -229,8 +228,6 @@ abstract contract AccountingPocFixture is Test, FundSeed {
         m.pools = new PoolConfig[](2);
         m.pools[0] = PoolConfig(HUB, hubAdapter, hubPoolId);
         m.pools[1] = PoolConfig(SPOKE, address(spokeUni), SPOKE_POOL);
-        m.unwindOrder = new UnwindStep[](1);
-        m.unwindOrder[0] = UnwindStep(HUB, hubAdapter, hubPoolId);
         m.spokes = new SpokeConfig[](1);
         m.spokes[0] = SpokeConfig(
             SPOKE, WH_SPOKE, bytes32(uint256(uint160(spokeVaultAt))), address(usdg), SPOKE_CAP, MAX_REPORT_AGE

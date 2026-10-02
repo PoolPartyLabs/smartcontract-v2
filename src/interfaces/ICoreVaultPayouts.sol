@@ -134,7 +134,8 @@ interface ICoreVaultPayouts {
     /// @notice Executes the caller's Payout Request: burn and pay atomically (DEC-047, DEC-065, DEC-074). Only the
     ///         requester. Unlike an ERC-7540 claim, it runs the missing unwind and pays in the same transaction.
     /// @dev Idle first (Instant: Free Idle only, never the Payout Reserve; Standard: its reserve, then Free Idle,
-    ///      DEC-095); otherwise automatic unwind in Mandate order of the shortfall plus 2% (DEC-069, DEC-081, DEC-097),
+    ///      DEC-095); otherwise automatic unwind of the shortfall plus 2%, hub positions in registry order until the
+    ///      proportional unwind (DEC-137, DEC-139; DEC-081, DEC-097),
     ///      of hub positions only, so no post-unwind spoke report is needed before burning (DEC-105, erratum 11 reading);
     ///      the claim is priced again after the unwind. Burns
     ///      `ShareMath.sharesToBurn(outstanding, sharePrice)` capped at the balance (DEC-020, DEC-077). A full burn

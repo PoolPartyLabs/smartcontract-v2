@@ -14,7 +14,6 @@ import {
     Mandate,
     AdapterConfig,
     PoolConfig,
-    UnwindStep,
     SpokeConfig,
     BridgeAdapterConfig,
     OperatingCashConfig
@@ -63,8 +62,6 @@ contract CoreVaultAcrossForkTest is Test, FundSeed {
         m.adapters[0] = AdapterConfig(HUB, makeAddr("hubAdapter"));
         m.pools = new PoolConfig[](1);
         m.pools[0] = PoolConfig(HUB, m.adapters[0].adapter, keccak256("pool"));
-        m.unwindOrder = new UnwindStep[](1);
-        m.unwindOrder[0] = UnwindStep(HUB, m.adapters[0].adapter, keccak256("pool"));
         m.spokes = new SpokeConfig[](1);
         m.spokes[0] =
             SpokeConfig(SPOKE, 72, bytes32(uint256(uint160(spokeVaultAddress))), USDG_ROBINHOOD, 1_000_000e6, 1587);

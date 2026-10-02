@@ -24,7 +24,7 @@ import {IntegrationPriceBase} from "./IntegrationPriceBase.sol";
 contract IntegrationFactsFork is IntegrationPriceBase {
     function test_REVIEW_I09_measure_factoryWiringFacts() public {
         _arbitrumOnly();
-        _createFund(_pricePlan(SPOKE_CAP), new PoolKey[](0), false);
+        _createFund(_pricePlan(SPOKE_CAP), new PoolKey[](0));
 
         // Hub Operating Cash: the scripts' Mandate lists the spoke only, so the hub floor and top-up are 0.
         console2.log("hub Operating Cash floor / top-up", core.operatingCashFloor(), core.operatingCashTopUp());
