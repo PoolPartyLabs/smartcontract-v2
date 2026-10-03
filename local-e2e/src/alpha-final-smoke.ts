@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import {spawn} from "node:child_process";
 import {once} from "node:events";
 import {appendFileSync, readFileSync} from "node:fs";
-import {decodeEventLog, encodeAbiParameters, getAddress, parseAbi, type Abi, type Address} from "viem";
+import {decodeEventLog, decodeErrorResult, encodeAbiParameters, getAddress, parseAbi, type Abi, type Address} from "viem";
 import {nodes, send, read, anvil, wallet, runMain, type Side} from "./chain.ts";
-import {coreVaultAbi, spokeVaultAbi, erc20Abi, acrossSpokePoolAbi, v4SwapRouterAbi, v4SwapRouterBytecode} from "./abis.ts";
+import {coreVaultAbi, spokeVaultAbi, erc20Abi, acrossSpokePoolAbi, v4SwapRouterAbi, v4SwapRouterBytecode, shareTokenAbi, allErrorsAbi} from "./abis.ts";
 import {ACTOR_KEYS, actors, ARBITRUM, ROBINHOOD, AAVE_USDC_POOL_KEY, SPOKE_POOL_ID, SPOKE_POOL_KEY} from "./config.ts";
 import {overrideGuardianSet, universal} from "./guardian.ts";
 import {discoverBalanceLayout, setTokenBalance} from "./fund-accounts.ts";
@@ -46,7 +46,8 @@ async function fill(deposit: DepositEvent, origin: Side, vault: Address, abi: Ab
   const token = getAddress(`0x${deposit.outputToken.slice(-40)}`);
   const pool = destination === "arbitrum" ? ARBITRUM.acrossSpokePool : ROBINHOOD.acrossSpokePool;
   const layout = await discoverBalanceLayout(destination, token, actors.keeper.address);
-  await setTokenBalance(destination, layout, actors.keeper.address, deposit.outputAmount + 1000000n);
+  const balance = await read<bigint>(destination, {address: token, abi: erc20Abi, functionName: "balanceOf", args: [actors.keeper.address]});
+  await setTokenBalance(destination, layout, actors.keeper.address, balance + deposit.outputAmount);
   await send(destination, "keeper", {address: token, abi: erc20Abi, functionName: "approve", args: [pool, deposit.outputAmount]});
   const fromBlock = await nodes[destination].client.getBlockNumber();
   const result = await send(destination, "keeper", {address: pool, abi: acrossSpokePoolAbi, functionName: "fillRelay", args: [{...deposit, originChainId: BigInt(nodes[origin].chain.id)}, BigInt(nodes[destination].chain.id), universal(actors.keeper.address)]});
@@ -58,7 +59,8 @@ async function fill(deposit: DepositEvent, origin: Side, vault: Address, abi: Ab
 const environment = {
   ...process.env, ARBITRUM_RPC_URL: nodes.arbitrum.rpc, ROBINHOOD_RPC_URL: nodes.robinhood.rpc,
   ALPHA_ALLOW_LOCAL_TEST_KEYS: "1", ALPHA_REHEARSAL_LOCAL_VAA: "1",
-  ALPHA_KEEPER_KEY: ACTOR_KEYS.keeper, ALPHA_API_SIGNER_KEY: ACTOR_KEYS.apiSigner,
+  ALPHA_KEEPER_KEY: process.env.ALPHA_REHEARSAL_SAME_ROLES === "1" ? ACTOR_KEYS.operator : ACTOR_KEYS.keeper,
+  ALPHA_API_SIGNER_KEY: process.env.ALPHA_REHEARSAL_SAME_ROLES === "1" ? ACTOR_KEYS.operator : ACTOR_KEYS.apiSigner,
   ALPHA_API_TOKEN: "local-rehearsal-only", ALPHA_API_PORT: process.env.ALPHA_API_PORT ?? "18787", ALPHA_POLL_MS: "1000", ALPHA_REPORT_SECONDS: "10",
   ALPHA_HUB_START_BLOCK: (await nodes.arbitrum.client.getBlockNumber()).toString(),
   ALPHA_SPOKE_START_BLOCK: (await nodes.robinhood.client.getBlockNumber()).toString(),
@@ -98,11 +100,21 @@ try {
       await anvil.mine(side);
     }
     await restampFeed(log);
-    await transaction("arbitrum", core, coreVaultAbi, "unwindAllAfterDeadline");
+    const closing = await transaction("arbitrum", core, coreVaultAbi, "unwindAllAfterDeadline");
+    const closeOrder = closing.receipt.logs.flatMap((entry) => {
+      try {const decoded = decodeEventLog({abi: coreVaultAbi, ...entry}); return decoded.eventName === "OrderPublished" ? [decoded.args as any] : [];} catch {return [];}
+    })[0];
+    assert.ok(closeOrder, "Closure must publish CLOSE");
     await waitFor(async () => {
       const report = await read<any>("robinhood", {address: spoke, abi: spokeVaultAbi, functionName: "buildReport"});
-      return report.unwindResults.length > 130;
+      return report.unwindResults.toLowerCase().includes(closeOrder.orderId.slice(2).toLowerCase());
     }, "CLOSE order through alpha keeper");
+    await report();
+    await transaction("arbitrum", core, coreVaultAbi, "requestIncomeWithdrawal", [100]);
+    await waitFor(async () => {
+      const collection = await read<any>("arbitrum", {address: core, abi: coreVaultAbi, functionName: "incomeCollection"});
+      return collection.pendingSpokes === 0n && collection.openResults === 0n;
+    }, "final closure Income collection");
     await report();
     await transaction("arbitrum", core, coreVaultAbi, "finalizeClosure");
     assert.equal(await read("arbitrum", {address: core, abi: coreVaultAbi, functionName: "fundState"}), 2);
@@ -110,7 +122,12 @@ try {
     const frozen = await read("arbitrum", {address: core, abi: coreVaultAbi, functionName: "closedSupply"});
     await transaction("arbitrum", core, coreVaultAbi, "exitClosedFund", [actors.ana.address]);
     assert.equal(await read("arbitrum", {address: core, abi: coreVaultAbi, functionName: "closedSupply"}), frozen);
+    assert.equal(await read("arbitrum", {address: getAddress(process.env.ALPHA_SHARE_TOKEN!), abi: shareTokenAbi, functionName: "balanceOf", args: [actors.ana.address]}), 0n);
+    appendFileSync(evidence, JSON.stringify({functionName: "closureExits", core, spoke, investor: actors.ana.address, closedSupply: String(frozen), investorShares: "0", managerPaidAtFinalization: true}) + "\n");
   } else {
+    await transaction("arbitrum", ARBITRUM.usdc, erc20Abi, "approve", [core, alphaAmounts.deposit]);
+    await transaction("arbitrum", core, coreVaultAbi, "deposit", [alphaAmounts.deposit, 1n]);
+    await report();
     const sent = await transaction("arbitrum", core, coreVaultAbi, "sendToSpoke", [0n, alphaAmounts.send, 0n, "0x"]);
     const depositLog = sent.receipt.logs.find((entry) => entry.address.toLowerCase() === ARBITRUM.acrossSpokePool.toLowerCase())!;
     const deposit = decodeEventLog({abi: acrossSpokePoolAbi, ...depositLog}).args as unknown as DepositEvent;
@@ -140,8 +157,6 @@ try {
     await waitFor(async () => !JSON.parse(readFileSync(environment.ALPHA_STATE_FILE, "utf8")).work.some((work: any) => work.transitId === transitLog.transitId), "resolved transit queue removal");
     appendFileSync(evidence, JSON.stringify({functionName: "durableAcknowledgement", transitId: transitLog.transitId, returned: alphaAmounts.payout.toString(), slotFreed: true}) + "\n");
     }
-    await transaction("arbitrum", core, coreVaultAbi, "requestPayout", [alphaAmounts.payout, 0, 100]);
-    await report();
     const mandate = await read<any>("arbitrum", {address: core, abi: coreVaultAbi, functionName: "mandate"});
     const swapAdapter = mandate.swapAdapters.find((entry: any) => Number(entry.chainId) === 4663).adapter;
     const spokeV4 = mandate.pools.find((entry: any) => Number(entry.chainId) === 4663).adapter;
@@ -174,6 +189,14 @@ try {
     await restampFeed(log);
     await transaction("arbitrum", hub, spokeVaultAbi, "collectIncome", [aave, positions[0].positionKey]);
     await report();
+    const investorLayout = await discoverBalanceLayout("arbitrum", ARBITRUM.usdc, actors.ana.address);
+    await setTokenBalance("arbitrum", investorLayout, actors.ana.address, alphaAmounts.investor);
+    await send("arbitrum", "ana", {address: ARBITRUM.usdc, abi: erc20Abi, functionName: "approve", args: [core, alphaAmounts.investor]});
+    await send("arbitrum", "ana", {address: core, abi: coreVaultAbi, functionName: "deposit", args: [alphaAmounts.investor, 1n]});
+    await report();
+    const priorSpokeIncome = await read<bigint>("arbitrum", {address: core, abi: coreVaultAbi, functionName: "unconvertedIncome", args: [actors.ana.address, 1n, ROBINHOOD.usdg]});
+    assert.equal(priorSpokeIncome, 0n, "DEC-145: late entrant receives no prior-interval spoke Income");
+    appendFileSync(evidence, JSON.stringify({functionName: "lateEntrant", investor: actors.ana.address, deposit: alphaAmounts.investor.toString(), priorSpokeIncome: priorSpokeIncome.toString()}) + "\n");
     const hubFee = await read<bigint>("arbitrum", {address: ARBITRUM.wormholeCore, abi: parseAbi(["function messageFee() view returns (uint256)"]), functionName: "messageFee"});
     await transaction("arbitrum", core, coreVaultAbi, "requestIncomeWithdrawal", [100], hubFee);
     const requestedCollection = await read<any>("arbitrum", {address: core, abi: coreVaultAbi, functionName: "incomeCollection"});
@@ -207,6 +230,47 @@ try {
     assert.ok(owed > 0n, "Real Aave interest must become Attributed Income");
     await transaction("arbitrum", core, coreVaultAbi, "settleIncomeWithdrawal", [actors.manager.address]);
     appendFileSync(evidence, JSON.stringify({functionName: "attributedIncome", amount: owed.toString()}) + "\n");
+    const lateIncome = await read<bigint>("arbitrum", {address: core, abi: coreVaultAbi, functionName: "incomeOwed", args: [actors.ana.address]});
+    assert.equal(lateIncome, 0n, "DEC-145: late entrant has zero Attributed Income after prior-interval conversion");
+    appendFileSync(evidence, JSON.stringify({functionName: "lateEntrantAfterCollection", attributedIncome: lateIncome.toString()}) + "\n");
+    const freeIdle = await read<bigint>("arbitrum", {address: core, abi: coreVaultAbi, functionName: "idle"});
+    await transaction("arbitrum", core, coreVaultAbi, "allocateToHubSpokeVault", [freeIdle]);
+    await transaction("arbitrum", hub, spokeVaultAbi, "increasePosition", [aave, positions[0].positionKey, freeIdle, 0n, encodeAbiParameters([{type: "uint256"}], [freeIdle])]);
+    await report();
+    const payoutStart = await nodes.robinhood.client.getBlockNumber();
+    const payout = await send("arbitrum", "ana", {address: core, abi: coreVaultAbi, functionName: "requestPayout", args: [2000000n, 0, 500]});
+    const payoutOrders = payout.receipt.logs.flatMap((entry) => {
+      try {const decoded = decodeEventLog({abi: coreVaultAbi, ...entry}); return decoded.eventName === "OrderPublished" ? [decoded.args as any] : [];} catch {return [];}
+    });
+    assert.ok(payoutOrders.some((entry) => Number(entry.kind) === 1), "Instant Payout must unwind Hub positions and publish a spoke UNWIND");
+    await waitFor(async () => {
+      if ((await nodes.robinhood.client.getLogs({address: ROBINHOOD.acrossSpokePool, event: depositEvent, fromBlock: payoutStart})).length > 0) return true;
+      const exclusions = await nodes.robinhood.client.getLogs({address: spoke, event: spokeVaultAbi.find((entry: any) => entry.name === "UnwindStepExcluded") as any, fromBlock: payoutStart});
+      if (exclusions.length) {
+        for (const entry of exclusions as any[]) {
+          let reason: unknown = entry.args.reason;
+          try {reason = decodeErrorResult({abi: allErrorsAbi, data: entry.args.reason});} catch {}
+          console.log("UNWIND exclusion", JSON.stringify({hash: entry.transactionHash, args: entry.args, reason}, (_, value) => typeof value === "bigint" ? value.toString() : value));
+        }
+        throw new Error("Spoke UNWIND excluded a position; inspect the exact reason");
+      }
+      const bridgeExclusions = await nodes.robinhood.client.getLogs({address: spoke, event: spokeVaultAbi.find((entry: any) => entry.name === "UnwindBridgeExcluded") as any, fromBlock: payoutStart});
+      if (bridgeExclusions.length) throw new Error(`UNWIND bridge exclusion: ${JSON.stringify(bridgeExclusions.map((entry: any) => entry.args), (_, value) => typeof value === "bigint" ? value.toString() : value)}`);
+      return false;
+    }, "spoke UNWIND Principal send");
+    const unwindDeposits = await nodes.robinhood.client.getLogs({address: ROBINHOOD.acrossSpokePool, event: depositEvent, fromBlock: payoutStart});
+    await fill((unwindDeposits[0] as any).args, "robinhood", core, coreVaultAbi, "TransitReceived");
+    await report();
+    const beforePayout = await read<bigint>("arbitrum", {address: ARBITRUM.usdc, abi: erc20Abi, functionName: "balanceOf", args: [actors.ana.address]});
+    const settled = await transaction("arbitrum", core, coreVaultAbi, "settlePayout", [actors.ana.address]);
+    const received = await read<bigint>("arbitrum", {address: ARBITRUM.usdc, abi: erc20Abi, functionName: "balanceOf", args: [actors.ana.address]}) - beforePayout;
+    const payoutEvent = settled.receipt.logs.flatMap((entry) => {
+      try {const decoded = decodeEventLog({abi: coreVaultAbi, ...entry}); return decoded.eventName === "PayoutExecuted" ? [decoded.args as any] : [];} catch {return [];}
+    })[0];
+    assert.ok(payoutEvent && payoutEvent.receipt.usdcGross >= 1000000n && payoutEvent.receipt.usdcGross <= 2000000n);
+    assert.ok(received > 0n && payoutEvent.receipt.unwindProceeds > 0n);
+    await report();
+    appendFileSync(evidence, JSON.stringify({functionName: "instantPayoutWithHubAndSpokeUnwind", requested: "2000000", gross: payoutEvent.receipt.usdcGross.toString(), received: received.toString(), hubAndSpokeProceeds: payoutEvent.receipt.unwindProceeds.toString(), hash: payout.hash, gasUsed: payout.receipt.gasUsed.toString(), orderId: payoutOrders[0].orderId}) + "\n");
     const cursor = JSON.parse(readFileSync(environment.ALPHA_STATE_FILE, "utf8"));
     assert.ok(cursor.lastReport);
   }

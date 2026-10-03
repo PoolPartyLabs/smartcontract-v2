@@ -158,9 +158,11 @@ export const ACTOR_KEYS = {
 
 export type ActorName = keyof typeof ACTOR_KEYS;
 export const ACTOR_NAMES = Object.keys(ACTOR_KEYS) as ActorName[];
+const alphaSharedRoles = process.env.ALPHA_REHEARSAL_SAME_ROLES === "1";
+const sharedRoles = new Set<ActorName>(["manager", "keeper", "apiSigner", "protocolRecipient"]);
 
 export const actors: Record<ActorName, PrivateKeyAccount> = Object.fromEntries(
-  ACTOR_NAMES.map((name) => [name, privateKeyToAccount(ACTOR_KEYS[name])]),
+  ACTOR_NAMES.map((name) => [name, privateKeyToAccount(alphaSharedRoles && sharedRoles.has(name) ? ACTOR_KEYS.operator : ACTOR_KEYS[name])]),
 ) as Record<ActorName, PrivateKeyAccount>;
 
 /** The single local Wormhole guardian that replaces the Arbitrum Core's guardian set on the hub node: the Wormhole
