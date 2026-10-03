@@ -93,7 +93,8 @@ contract CoreVaultClosureTest is CoreVaultFixture {
                     arrivedTransits: new ReportCodec.TransitAmount[](0),
                     inFlightToHub: new ReportCodec.HubBoundAmount[](0),
                     unwindResults: "",
-                    collectionResults: ""
+                    collectionResults: "",
+                    refundedTransits: new bytes32[](0)
                 })
             )
         );

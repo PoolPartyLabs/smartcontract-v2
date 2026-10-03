@@ -602,6 +602,11 @@
             "name": "collectionResults",
             "type": "bytes",
             "internalType": "bytes"
+          },
+          {
+            "name": "refundedTransits",
+            "type": "bytes32[]",
+            "internalType": "bytes32[]"
           }
         ]
       }
@@ -1508,18 +1513,18 @@
     "name": "setOperatingCashParameters",
     "inputs": [
       {
-        "name": "floor",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "topUp",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       }
     ],
     "outputs": [],
-    "stateMutability": "nonpayable"
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -2897,6 +2902,17 @@
   },
   {
     "type": "error",
+    "name": "FundNotOpen",
+    "inputs": [
+      {
+        "name": "state",
+        "type": "uint8",
+        "internalType": "enum ICoreVaultLifecycle.FundState"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "IncomeSentOnlyByCollection",
     "inputs": []
   },
@@ -3081,6 +3097,11 @@
         "internalType": "uint256"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "OperatingCashNotSupported",
+    "inputs": []
   },
   {
     "type": "error",
@@ -3773,6 +3794,31 @@
         "type": "address",
         "indexed": true,
         "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ClosureDustExcluded",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "kind",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "enum TransferKind"
       }
     ],
     "anonymous": false

@@ -1,0 +1,22 @@
+$ tsx src/alpha-rehearsal.ts fund
+Funded throwaway manager for two alpha seeds and the parameterized deposit; balance slot 9
+  ALPHA CHECK PASS chain 42161
+  ALPHA CHECK PASS chain 4663
+{
+  "status": "0x1",
+  "transactionHash": "0x22a7017102f93a784b8399c72f0a9e26ee08b64da358d8cb805df39b5ac25e13",
+  "gasUsed": "0x53b27"
+}
+02:53:06 alpha-final guardian set replaced side=arbitrum core=0xa5f208e072434bC67592E4C49C1B991BA79BCA46 previous=7 (19 guardians) index=8 guardian=0xbeFA429d57cD18b7F8A4d91A2da9AB4AF05d0FBe
+02:53:07 alpha-final guardian set replaced side=robinhood core=0x141fBa8AD5D61bdaB45A047cF60b5Ad9784987FB previous=7 (19 guardians) index=8 guardian=0xbeFA429d57cD18b7F8A4d91A2da9AB4AF05d0FBe
+02:53:44 alpha-final Chainlink ETH / USD re-stamped answer=273764000000 updatedAt=1791036769
+Final alpha capital/payout/income smoke passed
+$ tsx src/alpha-rehearsal.ts runtime
+Alpha API: 5 checks passed (401, two-chain signed routes, zero-loss refusal)
+Alpha keeper: funded startup, report publication and durable cursor passed; external VAA delivery not simulated
+02:54:00 alpha-final guardian set already local index=8 guardian=0xbeFA429d57cD18b7F8A4d91A2da9AB4AF05d0FBe
+02:54:00 alpha-final guardian set already local index=8 guardian=0xbeFA429d57cD18b7F8A4d91A2da9AB4AF05d0FBe
+02:54:01 alpha-final Chainlink ETH / USD re-stamped answer=273764000000 updatedAt=1791295987
+Final alpha closure smoke passed
+Rehearsal passed; both private forks stop on exit.
+VALIDATION_EXIT=0

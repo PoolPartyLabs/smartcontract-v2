@@ -122,6 +122,8 @@ library SpokeVaultTypes {
         SpokeIncomeTypes.Book income;
         // The Core Vault's order stream (DEC-120, DEC-139).
         OrderVerifier.Cursor orders;
+        uint256 refundCount;
+        bytes32[ARRIVAL_WINDOW] recentRefunds;
     }
 
     // ---------------------------------------------------------------------------------------------------------------

@@ -24,6 +24,7 @@
 //   POST /report/after-deposit {txHash}                  DEC-159: a report published on every spoke and delivered
 //   GET  /events?fromBlock=                 Core Vault events, decoded (the indexer a server would run)
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import {SPOKE_REPORT_VERSION} from "./spoke-report.ts";
 import {
   decodeErrorResult,
   decodeEventLog,
@@ -194,7 +195,7 @@ export async function health(state: DeploymentState) {
   return {
     nodes: up,
     clocks: now,
-    spokeReport: { hasReport, reportSequence, ageSeconds: reportAge, maxReportAge, fresh: reportFresh },
+    spokeReport: { version: SPOKE_REPORT_VERSION, hasReport, reportSequence, ageSeconds: reportAge, maxReportAge, fresh: reportFresh },
     wethPrice: { ageSeconds: priceAge, maxPriceAge, fresh: priceFresh },
     mintsOpen: reportFresh && priceFresh,
     payoutsOpen: reportFresh,

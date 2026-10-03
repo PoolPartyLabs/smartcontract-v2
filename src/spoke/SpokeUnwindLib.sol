@@ -125,7 +125,7 @@ library SpokeUnwindLib {
         _markRefunds(s, transitId);
     }
 
-    /// @notice DEC-068/139/151: retire only a transit the authenticated Hub has resolved, never by elapsed time.
+    /// @notice DEC-066/068/139/151: retire every authenticated Hub outcome; update unwind books only for their sends.
     function acknowledge(
         SpokeVaultTypes.State storage s,
         SpokeVaultTypes.Config memory config,
@@ -134,7 +134,7 @@ library SpokeUnwindLib {
         if (order.fracNum != config.chainId) return;
         bytes32 transitId = order.requestId;
         bytes32 requestId = s.unwind.transitRequest[transitId];
-        if (requestId == bytes32(0) || s.unwind.retired[transitId]) return;
+        if (s.unwind.retired[transitId]) return;
         Transit storage transit = s.hubBoundTransits[transitId];
         if (order.fracDen == uint256(TransitState.ArrivalConfirmed)) {
             if (transit.state != TransitState.Sent) revert SpokeUnwindTypes.InvalidTransitOutcome();
@@ -147,8 +147,10 @@ library SpokeUnwindLib {
         ) {
             revert SpokeUnwindTypes.InvalidTransitOutcome();
         }
-        _recoverSend(s, config.baseToken, requestId, s.unwind.pending[requestId]);
+        SpokeCrossChainLib._removeInFlight(s, transitId);
         s.unwind.retired[transitId] = true;
+        if (requestId == bytes32(0)) return;
+        _recoverSend(s, config.baseToken, requestId, s.unwind.pending[requestId]);
         if (s.unwind.pending[requestId].transitId == transitId) {
             s.unwind.pending[requestId].transitId = bytes32(0);
         }

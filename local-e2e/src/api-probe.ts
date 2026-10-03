@@ -146,7 +146,7 @@ export async function probe() {
     // 1. Health: both forks answer; a fund whose spoke never reported is open for mints.
     report.phase("health and deposits");
     let h = await get("/health");
-    record("health", h.nodes.arbitrum && h.nodes.robinhood && h.mintsOpen === true, `nodes up, spoke report ${h.spokeReport.hasReport ? "present" : "none yet"}, mints ${h.mintsOpen ? "open" : "closed"}`);
+    record("health", h.nodes.arbitrum && h.nodes.robinhood && h.mintsOpen === true && h.spokeReport.version === "5", `nodes up, report v5 ${h.spokeReport.hasReport ? "present" : "none yet"}, mints ${h.mintsOpen ? "open" : "closed"}`);
 
     // 2. Deposit through the API: the quote by eth_call is exact, the built transactions do it.
     const amount = 5_000_000_000n; // 5,000 USDC

@@ -173,7 +173,7 @@ interface ICoreVaultPayouts {
     error SpokeUnwindNotCredited(uint256 spokeIndex, bytes32 transitId);
     error PayoutMessageFeeNotUsed(uint256 amount);
 
-    /// @notice DEC-068/139: publish an authenticated acknowledgement of fully credited or refunded Principal.
+    /// @notice DEC-066/068/139: acknowledge a fully credited or refunded send, Principal or Income, of any origin.
     function acknowledgeSpokeTransit(uint256 spokeIndex, bytes32 transitId) external payable returns (uint64 sequence);
 
     /// @notice A Payout Request below one share's price at the current Share Price, which could never burn a share
