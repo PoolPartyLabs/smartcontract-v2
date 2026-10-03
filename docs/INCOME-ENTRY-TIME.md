@@ -24,9 +24,18 @@ unchanged. Income recognized with no active shares remains unattributed, as in t
 
 ## Bounds and clocks
 
-Per-source token loops are bounded by 16 tokens; activation is bounded by 32 entries; settlement phases use the
-existing 64-step budget. The previous unbounded retry loop in Core Vault holder settlement is removed. An incomplete
-Income Withdrawal returns zero and persists progress; repeat it before retrying a mint or burn. Historical off-chain
+Per-source token loops are bounded by 16 tokens; activation is bounded by 32 entries. Holder settlement shares a
+**64 token-operation budget across all sources and both active and activated waiting lots**. Each frozen claim
+capture, claim payment, pending-claim merge and carried-rate conversion consumes one operation. Token cursors and
+adjustments persist even when a collection is only partially processed. Positive and negative adjustment conversions
+accumulate separately until complete, so intermediate clipping cannot change the final rounding result.
+
+An incomplete Income Withdrawal returns zero and persists progress. Anyone can also call
+`settleHolderIncome(holder)` repeatedly, without opening a collection request or transferring the holder's income,
+in Open, Closing or Closed state. Once it returns true, retry the Income Withdrawal, Payout burn, closed-fund exit
+or manager closure finalization. Incomplete balance-change hooks revert; these hooks must not be used as the
+checkpointing entry point. Pending activated-lot claim merges are isolated from new collections until merged, then
+the combined holder catches up under the same budget. Historical off-chain
 views still traverse collection history. FIFO and collection history storage grow over the fund lifetime, not the
 number of live waiting lots per holder.
 
@@ -34,6 +43,15 @@ The cap measurement with 32 eligible entries and all 16 token baselines nonzero 
 32 million gas budget. Empty token baselines cost 4,709,746 gas. Frozen-collection capture also carries its per-token
 adjustments within the step budget; it never calls an unlimited historical conversion loop from a state-changing
 holder path.
+
+Round-1 gas regression: 15 spoke tokens, 64 frozen finalized collections, active shares plus the maximum one
+activated waiting lot per holder/source, with cold storage and a 14M forwarded-gas cap. Every incomplete call
+changes a persisted checkpoint and the holder eventually completes. The cold peak is **2,038,401 gas**; the
+adversarial nonzero-baseline/pending-collection case peaks below 3M in sampled fuzz runs. Separate maximum-history
+Core Vault tests exercise permissionless continuation followed by Income Withdrawal, Payout burn, closure
+finalization and a closed-fund exit, each below 15M. Split-settlement fuzzing compares exactly against a single
+unlimited-budget reference call, for finalized and pending collections, and checks conservation. A deterministic
+case appends and finalizes a collection during a partially completed claim merge.
 
 Report timestamps come from the spoke and deposit timestamps from the Hub, never cross-chain block numbers. The
 receiver's existing future-clock tolerance is the Mandate `maxReportAge` (1,588 seconds in the alpha configuration).

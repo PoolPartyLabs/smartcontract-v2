@@ -1833,6 +1833,25 @@
   },
   {
     "type": "function",
+    "name": "settleHolderIncome",
+    "inputs": [
+      {
+        "name": "shareholder",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "complete",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "settleIncomeWithdrawal",
     "inputs": [
       {
