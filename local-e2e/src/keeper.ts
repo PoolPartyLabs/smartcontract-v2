@@ -73,7 +73,7 @@ import {
 } from "./config.ts";
 import { mappingSlot, setTokenBalance } from "./fund-accounts.ts";
 import { guardianSetIndexOf, signVaa, universal } from "./guardian.ts";
-import { logger, units, type Logger } from "./log.ts";
+import { safeConsole as console, logger, units, type Logger } from "./log.ts";
 import { ORDER_KIND_NAME, decodeOrder, orderId } from "./orders.ts";
 import { ensureFeedFresh } from "./price-feed.ts";
 import { readState, type BalanceLayout, type DeploymentState } from "./state.ts";

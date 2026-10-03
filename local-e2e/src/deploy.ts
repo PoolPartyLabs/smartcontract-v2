@@ -46,7 +46,7 @@ interface ForgeRun {
 }
 
 /** Runs a command in the repository root and returns its combined output; rejects with the tail of it, its URLs cut
- *  to their host (forge repeats the upstream URL, key included, of an error anvil forwards). */
+ *  categorically redacted (forge repeats upstream credentials in errors anvil forwards). */
 function run(command: string, args: string[], env: Record<string, string>, log: Logger): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd: REPO_DIR, env: { ...process.env, ...env } });

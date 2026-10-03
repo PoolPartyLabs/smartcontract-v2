@@ -1,7 +1,7 @@
 import {discoverBalanceLayout, setTokenBalance} from "./fund-accounts.ts";
 import {overrideGuardianSet, guardianSetIndexOf, signVaa, universal} from "./guardian.ts";
-import {logger} from "./log.ts";
-import {send, read, nodes} from "./chain.ts";
+import { safeConsole as console,logger} from "./log.ts";
+import {send, read, nodes, runMain} from "./chain.ts";
 import {spokeVaultAbi, coreVaultAbi, valueReportReceiverAbi, wormholeCoreAbi} from "./abis.ts";
 import {ARBITRUM, ROBINHOOD, actors} from "./config.ts";
 import {decodeEventLog, getAddress} from "viem";
@@ -9,7 +9,9 @@ import {spawn} from "node:child_process";
 import {once} from "node:events";
 import {existsSync, readFileSync} from "node:fs";
 import {ACTOR_KEYS} from "./config.ts";
+import {alphaAmounts} from "./alpha-amounts.ts";
 
+async function main() {
 for (const side of ["arbitrum", "robinhood"] as const) {
   const version = await nodes[side].client.request({method: "web3_clientVersion"});
   if (!version.toLowerCase().includes("anvil")) throw new Error("Rehearsal requires two local Anvil nodes");
@@ -19,8 +21,8 @@ for (const side of ["arbitrum", "robinhood"] as const) {
 
 if (process.argv[2] === "fund") {
   const layout = await discoverBalanceLayout("arbitrum", ARBITRUM.usdc, actors.manager.address);
-  await setTokenBalance("arbitrum", layout, actors.manager.address, 1000000000n);
-  console.log("Funded throwaway manager with 1000 USDC; balance slot", layout.mappingSlot);
+  await setTokenBalance("arbitrum", layout, actors.manager.address, 2n * BigInt(process.env.SEED_AMOUNT ?? "5000000") + alphaAmounts.deposit);
+  console.log("Funded throwaway manager for two alpha seeds and the parameterized deposit; balance slot", layout.mappingSlot);
 } else if (process.argv[2] === "smoke") {
   const core = getAddress(process.env.ALPHA_CORE_VAULT!);
   const spoke = getAddress(process.env.ALPHA_SPOKE_VAULT!);
@@ -35,7 +37,7 @@ if (process.argv[2] === "fund") {
   const vaa = await signVaa({timestamp: Number(block.timestamp), nonce: event.args.nonce, emitterChainId: 72, emitterAddress: universal(spoke), sequence: event.args.sequence, consistencyLevel: event.args.consistencyLevel, payload: event.args.payload}, await guardianSetIndexOf("arbitrum"));
   const delivered = await send("arbitrum", "keeper", {address: receiver, abi: valueReportReceiverAbi, functionName: "deliver", args: [vaa]});
   console.log("Report publication/delivery", sent.hash, delivered.hash);
-  const paid = await send("arbitrum", "manager", {address: core, abi: coreVaultAbi, functionName: "requestPayout", args: [1000000n, 0]});
+  const paid = await send("arbitrum", "manager", {address: core, abi: coreVaultAbi, functionName: "requestPayout", args: [1000000n, 0, 100]});
   console.log("Instant Payout 1 USDC", paid.hash, "gas", paid.receipt.gasUsed.toString());
   console.log("Idle", (await read<bigint>("arbitrum", {address: core, abi: coreVaultAbi, functionName: "idle"})).toString());
 } else if (process.argv[2] === "runtime") {
@@ -94,3 +96,6 @@ if (process.argv[2] === "fund") {
     }
   }
 } else {throw new Error("Use alpha-rehearsal.ts fund|smoke|runtime");}
+}
+
+await runMain(main);
