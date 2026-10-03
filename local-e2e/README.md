@@ -14,14 +14,14 @@ actors are simulated.
 
 - Foundry 1.7+ (`anvil`, `forge`) on the `PATH`: <https://getfoundry.sh>
 - Node 24 and pnpm (10 or later)
-- `bash`, `curl`, `lsof` (macOS or Linux)
+- `bash`, `curl`, `lsof`, `perl` (macOS or Linux)
 - Network access to an Arbitrum One and a Robinhood Chain RPC. An archive endpoint is best: one Alchemy key serves both
   chains (Alchemy supports Robinhood Chain mainnet as well as Arbitrum One). Export `ARBITRUM_RPC_URL` and
   `ROBINHOOD_RPC_URL` (and, for reproducible runs, `ARBITRUM_FORK_BLOCK` and `ROBINHOOD_FORK_BLOCK`) in the shell that
-  runs `pnpm run up`, for instance by sourcing a local env file. The harness prints the upstream host only, never the
-  URL, its error output included (anvil's and forge's errors repeat the URL; the harness cuts every URL to its host).
-  anvil's own logs, `.state/arbitrum.log` and `.state/robinhood.log`, hold the full URL with its key: they are
-  gitignored, never share them. The public endpoints work for short sessions (see [Troubleshooting](#troubleshooting)).
+  runs `pnpm run up`, for instance by sourcing a local env file. The harness replaces every HTTP(S)/WS(S) URL with
+  `<redacted-url>` in output and persisted anvil logs. Only literal loopback endpoints (`127.0.0.1`, `localhost`,
+  `[::1]`, any port, no userinfo) may remain whole for debugging. The public endpoints work for short sessions
+  (see [Troubleshooting](#troubleshooting)).
 
 ## Quick start
 
@@ -378,9 +378,10 @@ back to the deployment); after a warp they run ahead. Deadlines must use the cha
 account's activity (MetaMask: Settings, Advanced, Clear activity tab data).
 
 **Logs.** `local-e2e/.state/arbitrum.log`, `robinhood.log` (anvil), the keeper logs to its terminal, forge broadcast
-files in `.state/broadcast/`. The fork launcher redacts URL userinfo, paths, queries, and fragments before anvil's output reaches
-disk. Status, structured logs, forwarded RPC errors, and run reports use the same protection, keeping only the scheme,
-host, and port. Run `pnpm check:urls` for a synthetic-credentials stdout and persisted-log regression check.
+files in `.state/broadcast/`. The fork launcher replaces HTTP(S)/WS(S) URLs with `<redacted-url>` before anvil's output
+reaches disk; only literal loopback endpoints without userinfo may remain whole. Status, console output, structured
+logs, forwarded RPC errors, and run reports use the same rule. Run `pnpm check:urls` for stdout, stderr, persisted-log,
+and error regression checks, including malformed, percent-encoded, and internationalized hosts.
 
 ## How it differs from production
 

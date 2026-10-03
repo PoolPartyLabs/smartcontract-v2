@@ -20,7 +20,7 @@ import {
 } from "viem";
 import { allErrorsAbi } from "./abis.ts";
 import { ACTOR_NAMES, actors, arbitrumFork, robinhoodFork, type ActorName } from "./config.ts";
-import { redactUrls } from "./log.ts";
+import { safeConsole as console, redactUrls } from "./log.ts";
 
 export type Side = "arbitrum" | "robinhood";
 export const SIDES: Side[] = ["arbitrum", "robinhood"];
@@ -155,7 +155,7 @@ function findRevertData(err: BaseError): Hex | undefined {
   return found;
 }
 
-/** A one-line explanation of a failure, with the pruned-state hint when it applies; URLs keep their host only. */
+/** A one-line explanation of a failure, with the pruned-state hint and categorical URL redaction. */
 export function explain(err: unknown): string {
   const revert = revertOf(err);
   const text = err instanceof BaseError ? err.shortMessage + "\n" + err.message : String(err);

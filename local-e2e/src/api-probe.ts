@@ -12,7 +12,7 @@ import { explain, nodes, read, recordTransaction, send, simulateRevert, wallet, 
 import { actors, ARBITRUM, ROBINHOOD, isMain, type ActorName } from "./config.ts";
 import { freshFund } from "./deploy.ts";
 import { DEFAULT_KEEPER_OPTIONS, startKeeper, type Keeper } from "./keeper.ts";
-import { bold, green, logger, red, units } from "./log.ts";
+import { safeConsole as console, bold, green, logger, red, units } from "./log.ts";
 import { RunReport } from "./report.ts";
 import { readState } from "./state.ts";
 import { API_PORT, decodeRevert, startApi, type UnsignedTx } from "./api.ts";

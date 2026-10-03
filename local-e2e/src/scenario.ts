@@ -59,7 +59,7 @@ import {
 import { freshFund } from "./deploy.ts";
 import { guardianSetIndexOf, signVaa, universal } from "./guardian.ts";
 import { DEFAULT_KEEPER_OPTIONS, runningKeeperPid, startKeeper, type Keeper } from "./keeper.ts";
-import { bold, dim, green, logger, red, units, type Logger } from "./log.ts";
+import { safeConsole as console, bold, dim, green, logger, red, units, type Logger } from "./log.ts";
 import { ORDER_CONSISTENCY, ORDER_KIND, ORDER_KIND_NAME, ORDER_LIFETIME, encodeOrder, orderId, type Order } from "./orders.ts";
 import { ensureFeedFresh } from "./price-feed.ts";
 import { linkedArrival, type DepositEvent, type LinkedArrival } from "./arrivals.ts";

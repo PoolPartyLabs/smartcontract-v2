@@ -1,3 +1,4 @@
+import { safeConsole as console } from "./log.ts";
 import {createServer} from "node:http";
 import {mkdirSync, readFileSync, writeFileSync, renameSync, existsSync} from "node:fs";
 import {dirname, resolve} from "node:path";

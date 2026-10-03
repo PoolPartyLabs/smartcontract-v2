@@ -1,7 +1,7 @@
 import {discoverBalanceLayout, setTokenBalance} from "./fund-accounts.ts";
 import {overrideGuardianSet, guardianSetIndexOf, signVaa, universal} from "./guardian.ts";
-import {logger} from "./log.ts";
-import {send, read, nodes} from "./chain.ts";
+import { safeConsole as console,logger} from "./log.ts";
+import {send, read, nodes, runMain} from "./chain.ts";
 import {spokeVaultAbi, coreVaultAbi, valueReportReceiverAbi, wormholeCoreAbi} from "./abis.ts";
 import {ARBITRUM, ROBINHOOD, actors} from "./config.ts";
 import {decodeEventLog, getAddress} from "viem";
@@ -11,6 +11,7 @@ import {existsSync, readFileSync} from "node:fs";
 import {ACTOR_KEYS} from "./config.ts";
 import {alphaAmounts} from "./alpha-amounts.ts";
 
+async function main() {
 for (const side of ["arbitrum", "robinhood"] as const) {
   const version = await nodes[side].client.request({method: "web3_clientVersion"});
   if (!version.toLowerCase().includes("anvil")) throw new Error("Rehearsal requires two local Anvil nodes");
@@ -95,3 +96,6 @@ if (process.argv[2] === "fund") {
     }
   }
 } else {throw new Error("Use alpha-rehearsal.ts fund|smoke|runtime");}
+}
+
+await runMain(main);

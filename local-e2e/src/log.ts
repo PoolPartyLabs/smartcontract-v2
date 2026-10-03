@@ -1,4 +1,5 @@
 // Structured, readable console logs: `HH:MM:SS component  message  key=value ...`.
+import { format } from "node:util";
 
 const COLORS = process.stdout.isTTY && !process.env.NO_COLOR;
 const paint = (code: number, text: string) => (COLORS ? `\x1b[${code}m${text}\x1b[0m` : text);
@@ -52,9 +53,17 @@ export function logger(component: string, quiet = false): Logger {
 }
 
 export function redactUrls(text: string): string {
-  return text.replace(/([a-z][a-z0-9+.-]*:\/\/)([^/?#\s]*@)?(\[[0-9a-f:.%]+\]|[a-z0-9_.-]+)(:\d+)?[^\s]*/gi,
-    (_, scheme: string, _userinfo: string, host: string, port?: string) => `${scheme}${host}${port ?? ""}`);
+  return text.replace(/(?:https?|wss?):\/\/[^\s]*/gi, (url) =>
+    /^(?:https?|wss?):\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::[0-9]+)?(?:[/?#][^\s]*)?$/i.test(url)
+      && !/(?:https?|wss?):\/\//i.test(url.slice(url.indexOf("://") + 3))
+      ? url : "<redacted-url>");
 }
+
+export const safeConsole = {
+  log: (...values: unknown[]) => console.log(redactUrls(format(...values))),
+  warn: (...values: unknown[]) => console.warn(redactUrls(format(...values))),
+  error: (...values: unknown[]) => console.error(redactUrls(format(...values))),
+};
 
 /** USDC-style fixed point for logs: 6 decimals by default. */
 export function units(value: bigint, decimals = 6, digits = decimals): string {

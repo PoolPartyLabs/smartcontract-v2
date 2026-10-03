@@ -3,18 +3,19 @@ import {spawn} from "node:child_process";
 import {once} from "node:events";
 import {appendFileSync, readFileSync} from "node:fs";
 import {decodeEventLog, encodeAbiParameters, getAddress, parseAbi, type Abi, type Address} from "viem";
-import {nodes, send, read, anvil, wallet, type Side} from "./chain.ts";
+import {nodes, send, read, anvil, wallet, runMain, type Side} from "./chain.ts";
 import {coreVaultAbi, spokeVaultAbi, erc20Abi, acrossSpokePoolAbi, v4SwapRouterAbi, v4SwapRouterBytecode} from "./abis.ts";
 import {ACTOR_KEYS, actors, ARBITRUM, ROBINHOOD, AAVE_USDC_POOL_KEY, SPOKE_POOL_ID, SPOKE_POOL_KEY} from "./config.ts";
 import {overrideGuardianSet, universal} from "./guardian.ts";
 import {discoverBalanceLayout, setTokenBalance} from "./fund-accounts.ts";
 import {linkedArrival, type DepositEvent} from "./arrivals.ts";
 import {restampFeed} from "./price-feed.ts";
-import {logger} from "./log.ts";
+import { safeConsole as console,logger} from "./log.ts";
 import {centerTick, openParams, generateFees} from "./uniswap.ts";
 import {alphaAmounts} from "./alpha-amounts.ts";
 import {collectAllowed} from "./alpha-work.ts";
 
+async function main() {
 const core = getAddress(process.env.ALPHA_CORE_VAULT!);
 const spoke = getAddress(process.env.ALPHA_SPOKE_VAULT!);
 const state = process.env.ALPHA_REHEARSAL_STATE!;
@@ -214,3 +215,6 @@ try {
     if (child.exitCode === null) {child.kill("SIGTERM"); await once(child, "exit");}
   }
 }
+}
+
+await runMain(main);

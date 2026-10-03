@@ -16,7 +16,7 @@ import { ARBITRUM, HARNESS_DIR, ROBINHOOD, SWAP_ADAPTER_TOKENS, actors, guardian
 import { createFund, deployFactory, forgeBuild, protocolRoles } from "./deploy.ts";
 import { discoverLayouts, discoverMappingSlot, fundAccounts, mappingSlot, storageRead } from "./fund-accounts.ts";
 import { CORES, WORMHOLE_SEQUENCES_SLOT, overrideBothCores, selfTest } from "./guardian.ts";
-import { bold, green, logger, red, redactUrls, type Logger } from "./log.ts";
+import { safeConsole as console, bold, green, logger, red, redactUrls, type Logger } from "./log.ts";
 import { restampFeed } from "./price-feed.ts";
 import { runScenario } from "./scenario.ts";
 import { tryReadState, writeState, type DeploymentState, type NodeState } from "./state.ts";

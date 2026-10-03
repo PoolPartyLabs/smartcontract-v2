@@ -1,3 +1,4 @@
+import { safeConsole as console } from "./log.ts";
 import assert from "node:assert/strict";
 import {appendFileSync, mkdirSync} from "node:fs";
 import {createPublicClient, createWalletClient, defineChain, http, getAddress, decodeEventLog, decodeAbiParameters, keccak256, type Address, type Hex, type Abi} from "viem";
