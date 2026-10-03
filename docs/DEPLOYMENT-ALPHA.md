@@ -5,7 +5,10 @@ Final B-04 measured baseline: **October 3, 2026**, `origin/main` `f171dc6`, incl
 The final alpha-sized rehearsal and full lifecycle replay pass on this production build. Historical rehearsal sections retain their original SHAs/counts; current tests and sizes are in
 the [founder report](reports/2026-10-03-MVP-REPORT.md). Arbitrum One is the Hub Chain
 (EVM 42161 / Wormhole 23); Robinhood Chain is the Spoke Chain (EVM 4663 / Wormhole 72).
-This is an operator runbook, **not authorization to broadcast on mainnet**. No mainnet deployment took place.
+**Mainnet internal alpha deployed October 3, 2026 from release `797d592`.** Addresses, receipt-derived costs,
+verification and measured smoke outcomes are in the [mainnet deployment record](reports/2026-10-03-MVP-REPORT.md#mainnet-alpha-deployment).
+The B-04 figures below remain historical rehearsal evidence. This operator runbook is **not authorization for
+additional broadcasts or public capital**; preserve the frozen deployment artifacts and require explicit approval.
 
 ## Release gates
 
@@ -238,10 +241,11 @@ records are required too. It does not require live adapters to be unpaused: it r
 ## Source verification and library linking
 
 **Arbitrum:** Arbiscan / Etherscan-compatible API, chain 42161, `ARBISCAN_API_KEY`.
-**Robinhood:** official Blockscout explorer `https://robinhoodchain.blockscout.com`, Etherscan-compatible
-Blockscout verification API `https://robinhoodchain.blockscout.com/api/`, chain 4663. No API key is required by the
-standard Blockscout Forge workflow. Confirm the actual service on deployment day; do not confuse testnet explorer
-`explorer.testnet.chain.robinhood.com` / chain 46630 with mainnet.
+**Robinhood:** chain 4663, verification through **Sourcify** (`--verifier sourcify`); matches are imported by the
+Robinhood Blockscout explorer. On October 3 the public Blockscout API returned Cloudflare 403/challenges,
+while its PRO API required a key. Do not rely on the previously proposed keyless Blockscout endpoint.
+Recorded successful coverage is **24/24 Arbitrum and 11/11 Robinhood**, excluding raw CodeStores/CREATE3 proxies.
+Do not confuse testnet chain 46630 with mainnet.
 
 Primary sources checked October 2, 2026:
 - https://docs.blockscout.com/robinhood-api (official mainnet explorer/API)
@@ -287,6 +291,19 @@ jq -e '.verified | length == 24' "$ALPHA_RECORD_DIR/verified-hub/coverage.json"
 jq -e '.verified | length == 11' "$ALPHA_RECORD_DIR/verified-spoke/coverage.json"
 ```
 
+The exact Robinhood inventory command against the preserved mainnet records is:
+
+```bash
+bash script/alpha-safe.sh node script/alpha-verify-all.mjs 4663 "$ALPHA_RECORD_DIR/alpha-spoke-verification.json" "$ALPHA_RECORD_DIR/verified-spoke"
+```
+
+It verifies linked dependencies first and invokes each artifact with this command shape (the inventory supplies
+the exact constructor arguments and any repeated `--libraries` flags):
+
+```bash
+bash script/alpha-safe.sh forge verify-contract "$VERIFY_ADDRESS" "$VERIFY_CONTRACT" --chain-id 4663 --compiler-version v0.8.28+commit.7893614a --num-of-optimizations 800 --constructor-args "$VERIFY_CONSTRUCTOR_ARGS" --watch --verifier sourcify
+```
+
 Save inventories, the public linked-library map and per-address redacted verification receipts. A rejection is a
 release-blocking failure; do not mark coverage complete using only a submission or a browser upload.
 
@@ -326,6 +343,21 @@ The explicit `ALPHA_REHEARSAL_LOCAL_VAA=1` test mode dynamically loads the local
 clients as loopback Anvil and requires `ALPHA_ALLOW_LOCAL_TEST_KEYS=1`. Only that mode scans latest rather than
 finalized blocks: a pinned Anvil fork otherwise remains 64 blocks behind and cannot discover new orders.
 Production always uses finalized blocks and the HTTPS VAA service. Keep both test flags unset in production.
+Set `ALPHA_LOG_RANGE` to the provider's inclusive `eth_getLogs` block cap: default **1000**, minimum **1**
+(positive safe integer). The October 3 Alchemy free tier capped calls at **10 blocks**, so it requires
+**`ALPHA_LOG_RANGE=10`**. That tier cannot keep up continuously with Robinhood at roughly **10 blocks/second**:
+use PAYG or another provider with sufficient log range, request throughput and archive/finalized access.
+A smaller window fixes rejected requests, not the capacity deficit. Each tick loops windows fairly across
+Hub, Spoke and credited scans within a **20-second scanning budget**, then proceeds to reports and relay work;
+the budget is checked between requests and does not cancel an in-flight RPC request.
+
+The state also stores a separate Hub credited-scan next-block cursor (`credited`) and decimal matched
+`TransitReceived` totals (`credits`) per transit. Legacy keeper JSON initializes this cursor from
+`ALPHA_HUB_START_BLOCK`, not the advanced message cursor, so earlier credits are backfilled. Totals and
+next-block progress are saved atomically after each successful window; a restart does not recount completed
+windows. Keep start blocks and fund identity unchanged. ACK resolution reads these totals instead of making
+an unbounded start-to-finalized log query. Backfill must catch up before a pending transit can be acknowledged.
+
 The keeper persists every `SentToHub` before advancing the scanned cursor and retries uncredited transits and
 pending acknowledgement messages every poll with exponential backoff capped at 60 seconds, including after a
 restart or temporary RPC/send failure. After authenticated Principal credit it publishes
@@ -341,7 +373,9 @@ CI=true pnpm --dir local-e2e install --frozen-lockfile
 pnpm --dir local-e2e exec tsc --noEmit
 . /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
 read -r -s -p 'Funded keeper key: ' ALPHA_KEEPER_KEY; printf '\n'; export ALPHA_KEEPER_KEY
-pnpm --dir local-e2e alpha:keeper
+# Only for a provider with the observed free-tier cap; prefer PAYG for continuous operation.
+export ALPHA_LOG_RANGE=10
+bash script/alpha-safe.sh pnpm --dir local-e2e alpha:keeper
 ```
 
 In a second private shell, source helper, export the same actual fund addresses/start blocks, inject API key/token:
@@ -350,7 +384,7 @@ In a second private shell, source helper, export the same actual fund addresses/
 . /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
 read -r -s -p 'API signer key: ' ALPHA_API_SIGNER_KEY; printf '\n'; export ALPHA_API_SIGNER_KEY
 read -r -s -p 'API bearer token: ' ALPHA_API_TOKEN; printf '\n'; export ALPHA_API_TOKEN
-pnpm --dir local-e2e alpha:api
+bash script/alpha-safe.sh pnpm --dir local-e2e alpha:api
 ```
 
 Use a supervisor that stops the child on shutdown and restarts the keeper with its same cursor. The keeper scans
@@ -360,6 +394,16 @@ durable pending VAA queue. Watch transaction receipts, queue growth, report age,
 failed ticks and Across events. Stale or expired orders require manual inspection; do not discard the queue or
 rewind it blindly. Mainnet Wormhole finality/observation latency, report expiry and order deadlines must be proved
 compatible before opening positions. No supervisor, alert delivery or service SLA is supplied by this branch.
+
+**Measured October 3 report latency:** first signed report v5/sequence 1 delivered in **858 seconds**;
+Robinhood finalized-head lag **980–1,109 seconds**; later synchronous report cycles approximately **19 minutes**.
+The **1,588-second** lifetime leaves **730 seconds** after that first delivery, or only **479–608 seconds**
+beyond the observed finality lag for other delivery work. These are separate measurements, not additive timings
+or an SLA. Enforce DEC-159/160 pre/post mint/burn reports and stop on stale delivery. The shared
+`alpha-report-client.ts` uses Node HTTP with a **35-minute socket timeout**, avoiding global fetch's fixed
+**300-second headers timeout**; it does not extend on-chain report validity. The first capital attempt failed
+at about 303 seconds with zero broadcasts. Continuous keeper operation was not demonstrated during this smoke:
+the free-tier cap stopped ticks, while explicit API reports enabled the money operations.
 
 API (all POST, all `Authorization: Bearer <token>`, no public bind):
 - `/report`: publish a Robinhood report, wait for a real signed VAA, validate and deliver it; returns `delivered`
@@ -423,6 +467,38 @@ the adapter fee covers current terms, simulates every write, deposits 5 USDC, se
 `FilledRelay` matching (chains/id, all relay fields/message hash), asserts the vault arrival/confirmed transit,
 and requests a 1 USDC Instant Payout with fresh reports. Unavailable routes, missing terms or insufficient
 immutable adapter fees are **STOP** conditions: no caller may widen fees.
+
+Across terms requests must name **`inputToken` (USDC) and `outputToken` (USDG)** for this route; the legacy
+`token` parameter returned HTTP 400 on mainnet. Smoke log scans use bounded `ALPHA_LOG_RANGE` windows
+(default **10** in that script; the keeper default is **1000**).
+
+**`bridge` is an explicit resume mode after a confirmed manager deposit**, not a capital replay. First run
+`reconcile` and inspect balances, successful deposit receipts and any send hashes. Only if the deposit succeeded
+but no send was submitted, authorize the bridge phase; it sends to the Spoke Chain, matches the real Across
+fill/`TransitArrived`, then requests the manager Instant Payout, without approving/depositing again:
+
+```bash
+. /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
+bash script/alpha-safe.sh pnpm --dir local-e2e exec tsx src/alpha-mainnet-smoke.ts bridge
+```
+
+Use the same protected manager-key environment and record directory as the continuation above. The mode
+allow-list includes `bridge`; its durable phase guard still prevents blind repeat broadcasts.
+
+`alpha-mainnet-positions.ts` supplies separately authorized live modes: **`spoke-position`** (spoke swap and
+V4 openPosition), **`hub-aave`** (allocation and Aave openPosition), **`investor-deposit`**, **`investor-payout`**,
+**`hub-batch`** (Aave allocation/open, second investor deposit and Instant Payout in three report cycles), and
+**`status`** (read-only snapshot). For example, with the nonsecret manifest loaded and approved keys injected:
+
+```bash
+. /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
+bash script/alpha-safe.sh pnpm --dir local-e2e exec tsx src/alpha-mainnet-positions.ts status
+```
+
+Writes append submission/receipt records to `positions.jsonl`; **this script does not use the continuation
+journal's fresh-mode replay guard**. Never rerun a write mode blindly: reconcile saved hashes, chain balances
+and open positions first, and authorize only missing work. The live smoke left the fund Open with one V4 and
+one Aave position; closure, Standard Payout, above-minimum COLLECT and keeper order relay were not exercised.
 
 `income` collects real open-position income without adding capital. Below `ALPHA_MIN_COLLECT_USDC`
 (default **500000 = 0.50 USDC**) it defers COLLECT and retains income. Above it, it checks current route/fee

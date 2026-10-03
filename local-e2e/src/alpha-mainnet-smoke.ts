@@ -9,10 +9,11 @@ import {alphaAmounts} from "./alpha-amounts.ts";
 import {collectAllowed} from "./alpha-work.ts";
 import {parseAbi} from "viem";
 import {AlphaTransactions, reconcileAlphaTransactions, sendAlphaTransaction} from "./alpha-transactions.ts";
+import {postReport} from "./alpha-report-client.ts";
 
 async function main() {
   const mode = process.argv[2];
-  assert.ok(["capital", "income", "closure", "reconcile"].includes(mode!));
+  assert.ok(["capital", "bridge", "income", "closure", "reconcile"].includes(mode!));
   const account = privateKeyToAccount(process.env.ALPHA_MANAGER_KEY as Hex);
   assert.equal(account.address, getAddress(process.env.MANAGER!));
   assert.ok(![...Object.values(actors), guardian].some((entry) => entry.address === account.address), "Public test keys refused");
@@ -59,6 +60,22 @@ async function main() {
       await new Promise((done) => setTimeout(done, 5000));
     }
   }
+  // Providers cap eth_getLogs ranges (Alchemy free tier: 10 blocks). Scan in bounded windows and keep a cursor so a
+  // polling wait only reads the blocks produced since its previous call.
+  const logRange = BigInt(process.env.ALPHA_LOG_RANGE ?? "10");
+  function logsSince(side: string, filter: object, fromBlock: bigint) {
+    let next = fromBlock;
+    const found: any[] = [];
+    return async () => {
+      const latest = await chains[side]!.client.getBlockNumber();
+      while (next <= latest) {
+        const toBlock = next + logRange - 1n < latest ? next + logRange - 1n : latest;
+        found.push(...await chains[side]!.client.getLogs({...filter, fromBlock: next, toBlock} as never) as any[]);
+        next = toBlock + 1n;
+      }
+      return found;
+    };
+  }
   const mandate = await read("hub", core, coreVaultAbi, "mandate");
   assert.equal(mandate.spokes.length, 1);
   assert.equal(Number(mandate.spokes[0].chainId), 4663);
@@ -66,9 +83,8 @@ async function main() {
   const adapter = (side: string) => getAddress(mandate.bridgeAdapters.find((entry: any) => Number(entry.chainId) === (side === "hub" ? 42161 : 4663)).adapter);
   const fee = () => read("hub", ARBITRUM.wormholeCore, wormholeCoreAbi, "messageFee");
   async function report() {
-    const response = await fetch(`http://127.0.0.1:${process.env.ALPHA_API_PORT ?? "8787"}/report`, {method: "POST", headers: {authorization: `Bearer ${process.env.ALPHA_API_TOKEN}`}});
-    assert.equal(response.status, 200);
-    const result = await response.json() as any;
+    const {status, body: result} = await postReport();
+    assert.equal(status, 200);
     assert.equal(result.delivered, true);
     assert.equal(result.reportVersion, "5", "Alpha API must decode report v5");
   }
@@ -76,8 +92,10 @@ async function main() {
     const originChainId = side === "hub" ? 42161 : 4663;
     const destinationChainId = side === "hub" ? 4663 : 42161;
     const token = side === "hub" ? ARBITRUM.usdc : ROBINHOOD.usdg;
+    const outputToken = side === "hub" ? ROBINHOOD.usdg : ARBITRUM.usdc;
     const url = new URL("https://app.across.to/api/suggested-fees");
-    for (const [key, value] of Object.entries({originChainId, destinationChainId, token, amount: amount.toString()})) url.searchParams.set(key, String(value));
+    // USDC -> USDG is a cross-token route: the legacy `token` parameter implies the same token on both sides (HTTP 400).
+    for (const [key, value] of Object.entries({originChainId, destinationChainId, inputToken: token, outputToken, amount: amount.toString()})) url.searchParams.set(key, String(value));
     const response = await fetch(url, {signal: AbortSignal.timeout(15000)});
     assert.ok(response.ok, "Across route terms unavailable: STOP");
     const terms = await response.json() as any;
@@ -96,9 +114,10 @@ async function main() {
     assert.equal(version, 1n);
     assert.equal(fundId, await read("hub", core, coreVaultAbi, "fundId"));
     assert.equal(originChainId, origin === "hub" ? 42161n : 4663n);
+    const fills = logsSince(destination, {address: config.acrossSpokePool, event,
+      args: {originChainId: origin === "hub" ? 42161n : 4663n, depositId: deposit.depositId}}, fromBlock);
     await wait(async () => {
-      const logs = await chains[destination]!.client.getLogs({address: config.acrossSpokePool, event, fromBlock,
-        args: {originChainId: origin === "hub" ? 42161n : 4663n, depositId: deposit.depositId}} as never) as any[];
+      const logs = await fills();
       const fill = logs.find((entry) => ["inputToken", "outputToken", "depositor", "recipient", "exclusiveRelayer"].every((key) => entry.args[key].toLowerCase() === deposit[key].toLowerCase())
         && ["inputAmount", "outputAmount", "fillDeadline", "exclusivityDeadline"].every((key) => BigInt(entry.args[key]) === BigInt(deposit[key])) && entry.args.messageHash === keccak256(deposit.message));
       if (!fill) return false;
@@ -116,11 +135,14 @@ async function main() {
     }, "full relay-data match and vault arrival");
   }
   await report();
-  if (mode === "capital") {
+  if (mode === "capital" || mode === "bridge") {
+    // `bridge` resumes a capital phase that deposited but stopped before the spoke send (its own phase guard).
     assert.ok(BigInt(process.env.SEED_AMOUNT!) <= 5000000n && BigInt(process.env.SPOKE_CAP!) <= 100000000n);
-    await send("hub", ARBITRUM.usdc, erc20Abi, "approve", [core, alphaAmounts.deposit]);
-    await send("hub", core, coreVaultAbi, "deposit", [alphaAmounts.deposit, 1n]);
-    await report();
+    if (mode === "capital") {
+      await send("hub", ARBITRUM.usdc, erc20Abi, "approve", [core, alphaAmounts.deposit]);
+      await send("hub", core, coreVaultAbi, "deposit", [alphaAmounts.deposit, 1n]);
+      await report();
+    }
     const arrival = await terms("hub", alphaAmounts.send);
     const head = await chains.spoke!.client.getBlockNumber();
     const receipt = await send("hub", core, coreVaultAbi, "sendToSpoke", [0n, alphaAmounts.send, 0n, "0x"]);
@@ -149,8 +171,9 @@ async function main() {
     await send("hub", core, coreVaultAbi, "requestIncomeWithdrawal", [100], await fee());
     const depositEvent = acrossSpokePoolAbi.find((entry: any) => entry.name === "FundsDeposited") as any;
     let deposit: any;
+    const deposits = logsSince("spoke", {address: ROBINHOOD.acrossSpokePool, event: depositEvent}, head);
     await wait(async () => {
-      const logs = await chains.spoke!.client.getLogs({address: ROBINHOOD.acrossSpokePool, event: depositEvent, fromBlock: head}) as any[];
+      const logs = await deposits();
       deposit = logs.find((entry) => entry.args.recipient.toLowerCase().endsWith(core.slice(2).toLowerCase()))?.args;
       return !!deposit;
     }, "COLLECT bridge deposit");
@@ -165,11 +188,12 @@ async function main() {
     await send("hub", core, coreVaultAbi, "closeFund");
     await send("hub", core, coreVaultAbi, "unwindAllAfterDeadline", [], await fee());
     const event = spokeVaultAbi.find((entry: any) => entry.name === "OrderExecuted") as any;
-    await wait(async () => (await chains.spoke!.client.getLogs({address: spoke, event, fromBlock: head}) as any[]).some((entry) => Number(entry.args.kind) === 2), "CLOSE execution");
-    const deposits = await chains.spoke!.client.getLogs({address: ROBINHOOD.acrossSpokePool, event: acrossSpokePoolAbi.find((entry: any) => entry.name === "FundsDeposited") as any, fromBlock: head}) as any[];
+    const executed = logsSince("spoke", {address: spoke, event}, head);
+    await wait(async () => (await executed()).some((entry) => Number(entry.args.kind) === 2), "CLOSE execution");
+    const deposits = await logsSince("spoke", {address: ROBINHOOD.acrossSpokePool, event: acrossSpokePoolAbi.find((entry: any) => entry.name === "FundsDeposited") as any}, head)();
     for (const entry of deposits.filter((entry) => entry.args.recipient.toLowerCase().endsWith(core.slice(2).toLowerCase()))) await waitFill("spoke", entry.args, core, coreVaultAbi, "TransitReceived", hubHead);
     await report();
-    const returns = await chains.spoke!.client.getLogs({address: spoke, event: spokeVaultAbi.find((entry: any) => entry.name === "SentToHub") as any, fromBlock: head}) as any[];
+    const returns = await logsSince("spoke", {address: spoke, event: spokeVaultAbi.find((entry: any) => entry.name === "SentToHub") as any}, head)();
     for (const entry of returns.filter((entry) => Number(entry.args.transit.kind) === 0)) {
       await wait(async () => Number((await read("spoke", spoke, spokeVaultAbi, "hubBoundTransit", [entry.args.transitId])).state) === 2, "Principal acknowledgement delivered by durable keeper");
     }
@@ -206,4 +230,8 @@ async function main() {
   console.log(`Mainnet ${mode} continuation passed; receipts retained`);
 }
 
-main().catch(() => {console.error("Mainnet continuation stopped: inspect redacted receipts and chain state; do not blindly repeat sends"); process.exitCode = 1;});
+main().catch((error) => {
+  console.error("Mainnet continuation stopped: inspect redacted receipts and chain state; do not blindly repeat sends");
+  console.error(String(error?.shortMessage ?? error?.message ?? error).slice(0, 600));
+  process.exitCode = 1;
+});

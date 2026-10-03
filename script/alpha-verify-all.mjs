@@ -20,7 +20,7 @@ while (pending.length) {
   if (chain === "42161") {
     if (!process.env.ARBISCAN_API_KEY) throw new Error("Missing ARBISCAN_API_KEY");
     args.push("--verifier", "etherscan", "--etherscan-api-key", process.env.ARBISCAN_API_KEY);
-  } else args.push("--verifier", "blockscout", "--verifier-url", "https://robinhoodchain.blockscout.com/api/");
+  } else args.push("--verifier", "sourcify"); // public Blockscout API is behind a Cloudflare challenge; Blockscout imports Sourcify matches
   const result = spawnSync("bash", ["script/alpha-safe.sh", ...args], {encoding: "utf8"});
   const output = result.stdout ?? "";
   writeFileSync(`${directory}/${record.address}.log`, output);

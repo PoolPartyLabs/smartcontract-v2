@@ -25,7 +25,7 @@ export class AlphaTransactions {
         assert.ok(/^0x[0-9a-f]{64}$/i.test(entry.hash));
         assert.ok(["submitted", "success", "reverted"].includes(entry.status));
         assert.ok(["hub", "spoke"].includes(entry.side));
-        assert.ok(["capital", "income", "closure"].includes(entry.mode));
+        assert.ok(["capital", "bridge", "income", "closure"].includes(entry.mode));
         this.transactions.set(entry.hash, entry);
       }
     }
