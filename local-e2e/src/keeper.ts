@@ -28,7 +28,9 @@
 //
 // Usage: pnpm keeper [--auto-report <seconds>] [--vaa-delay <seconds>] [--order-delay <seconds>] [--fill-delay <seconds>]
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import {
+  decodeEventLog,
   encodeAbiParameters,
   encodeFunctionData,
   getAddress,
@@ -63,6 +65,7 @@ import {
   ARBITRUM,
   KEEPER_PID_FILE,
   ROBINHOOD,
+  STATE_DIR,
   WORMHOLE_ARBITRUM,
   WORMHOLE_ROBINHOOD,
   actors,
@@ -74,6 +77,7 @@ import { logger, units, type Logger } from "./log.ts";
 import { ORDER_KIND_NAME, decodeOrder, orderId } from "./orders.ts";
 import { ensureFeedFresh } from "./price-feed.ts";
 import { readState, type BalanceLayout, type DeploymentState } from "./state.ts";
+import { PendingTransits, type PendingTransit } from "./pending-transits.ts";
 
 export interface KeeperOptions {
   /** Seconds between a published report and its delivery (production: 15 to 20 minutes of finality). */
@@ -439,20 +443,61 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
     track(next);
   }
 
-  const acknowledgedTransits = new Set<string>();
+  const transits = new PendingTransits(join(STATE_DIR, "pending-transits.json"), state.createdAt);
 
   async function acknowledgePrincipal(fund: FundEntry) {
     const [report] = await read<readonly [any, bigint, bigint]>("arbitrum", { address: fund.receiver, abi: valueReportReceiverAbi, functionName: "latestReport", args: [BigInt(fund.spokeIndex)] });
     for (const transit of report.inFlightToHub) {
       if (Number(transit.kind) !== 0) continue;
-      const key = `${fund.coreVault}:${transit.transitId}`;
-      if (acknowledgedTransits.has(key)) continue;
-      const value = await read<bigint>("arbitrum", { address: ARBITRUM.wormholeCore, abi: wormholeCoreAbi, functionName: "messageFee" });
-      const call = { address: fund.coreVault, abi: coreVaultAbi, functionName: "acknowledgeSpokeTransit", args: [BigInt(fund.spokeIndex), transit.transitId], value };
-      if (await simulateRevert("arbitrum", "keeper", call)) continue;
-      await send("arbitrum", "keeper", call);
-      acknowledgedTransits.add(key);
+      queueTransit(fund, transit.transitId);
     }
+  }
+
+  function queueTransit(fund: FundEntry, transitId: Hex) {
+    if (!fund.spokeVault) return;
+    transits.add({ key: `${fund.coreVault.toLowerCase()}:${transitId}`, coreVault: fund.coreVault, spokeVault: fund.spokeVault, receiver: fund.receiver, spokeIndex: fund.spokeIndex, transitId });
+  }
+
+  async function retryTransit(entry: PendingTransit): Promise<boolean> {
+    const fund = byVault.get(entry.coreVault.toLowerCase());
+    if (!fund?.spokeVault) return false;
+    const transit = await read<any>("robinhood", { address: fund.spokeVault, abi: spokeVaultAbi, functionName: "hubBoundTransit", args: [entry.transitId] });
+    if ([2, 3].includes(Number(transit.state))) return true;
+    const currentBlock = await nodes.robinhood.client.getBlock();
+    if (Number(transit.state) === 1 && currentBlock.timestamp > BigInt(transit.fillDeadline) + 3n * 86_400n) return true;
+    if (!entry.acknowledgement) {
+      const value = await read<bigint>("arbitrum", { address: ARBITRUM.wormholeCore, abi: wormholeCoreAbi, functionName: "messageFee" });
+      const call = { address: fund.coreVault, abi: coreVaultAbi, functionName: "acknowledgeSpokeTransit", args: [BigInt(fund.spokeIndex), entry.transitId], value };
+      if (await simulateRevert("arbitrum", "keeper", call)) return false;
+      const sent = await send("arbitrum", "keeper", call);
+      const published = sent.receipt.logs.find((event) => event.address.toLowerCase() === ARBITRUM.wormholeCore.toLowerCase());
+      if (!published) throw new Error("ACK receipt has no Wormhole message");
+      const decoded = decodeEventLog({ abi: wormholeCoreAbi, ...published }) as any;
+      const block = await nodes.arbitrum.client.getBlock({ blockNumber: sent.receipt.blockNumber });
+      entry.acknowledgement = { payload: decoded.args.payload, sequence: String(decoded.args.sequence), nonce: Number(decoded.args.nonce), consistencyLevel: Number(decoded.args.consistencyLevel), timestamp: Number(block.timestamp) };
+      transits.save();
+    }
+    const acknowledgement = entry.acknowledgement;
+    const order = decodeOrder(acknowledgement.payload as Hex);
+    const block = await nodes.robinhood.client.getBlock();
+    if (order && block.timestamp > order.deadline) {
+      delete entry.acknowledgement;
+      return false;
+    }
+    const message = { args: { ...acknowledgement, sender: fund.coreVault, sequence: BigInt(acknowledgement.sequence) } };
+    const emitter = fund.coreVault.toLowerCase();
+    const previous = deliveryChains.get(emitter) ?? Promise.resolve();
+    const execution = previous.then(() => executeOrder(fund, message, acknowledgement.timestamp, true));
+    deliveryChains.set(emitter, execution.then(() => {}, () => {}));
+    let executed: boolean;
+    try {
+      executed = await execution;
+    } catch (error) {
+      if (["OrderSequenceTooLow", "OrderExpired"].includes(revertOf(error)?.name ?? "")) delete entry.acknowledgement;
+      throw error;
+    }
+    if (executed) handledOrders.add(orderKey(fund.coreVault, BigInt(acknowledgement.sequence)));
+    return executed;
   }
 
   async function deliver(fund: FundEntry, message: DecodedLog, blockTimestamp: number) {
@@ -465,6 +510,7 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
     ]);
     if (hasReport && last >= sequence) {
       wormholeLog.info("already delivered", fields);
+      await acknowledgePrincipal(fund);
       return;
     }
     const hubHeader = await nodes.arbitrum.client.getBlock();
@@ -527,7 +573,7 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
   /** DEC-120 items 1-2, DEC-139: the order VAA, signed for the Robinhood Core, executed on the fund's Spoke Vault by
    *  the keeper (any address may), paying the message fee of the report `executeOrder` publishes. Returns whether the
    *  order reached the Spoke Vault. */
-  async function executeOrder(fund: FundEntry, message: DecodedLog, blockTimestamp: number): Promise<boolean> {
+  async function executeOrder(fund: FundEntry, message: Pick<DecodedLog, "args">, blockTimestamp: number, retryAcknowledgement = false): Promise<boolean> {
     const a = message.args;
     const order = decodeOrder(a.payload);
     const fields = {
@@ -569,10 +615,12 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
     } catch (err) {
       const revert = revertOf(err)?.name;
       if (revert === "OrderSequenceTooLow") {
+        if (retryAcknowledgement) throw err;
         wormholeLog.info("order already executed or superseded by a later one", fields);
         return true;
       }
       if (revert === "OrderExpired") {
+        if (retryAcknowledgement) throw err;
         wormholeLog.warn("order expired before delivery; the request's retry republishes it (DEC-151)", fields);
         return true;
       }
@@ -595,6 +643,16 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
     if (!fund || fund.coreVault.toLowerCase() !== sender) return;
     const block = await nodes.arbitrum.client.getBlock({ blockNumber: message.blockNumber! });
     const sequence = message.args.sequence as bigint;
+    const order = decodeOrder(message.args.payload);
+    if (order?.kind === 4) {
+      queueTransit(fund, order.requestId);
+      const entry = transits.entries.get(`${fund.coreVault.toLowerCase()}:${order.requestId}`);
+      if (entry && (!entry.acknowledgement || BigInt(entry.acknowledgement.sequence) < sequence)) {
+        entry.acknowledgement = { payload: message.args.payload, sequence: String(sequence), timestamp: Number(block.timestamp), nonce: Number(message.args.nonce), consistencyLevel: Number(message.args.consistencyLevel) };
+        transits.save();
+      }
+      return;
+    }
     wormholeLog.info("Hub order published", {
       emitter: fund.coreVault,
       sequence,
@@ -717,6 +775,15 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
       if (entry.eventName === "FundsDeposited") onDeposit("robinhood", entry);
       else if (entry.eventName === "LogMessagePublished") await onReportMessage(entry);
     }
+    for (const fund of funds.values()) {
+      if (!fund.spokeVault) continue;
+      const sends = await nodes.robinhood.client.getContractEvents({ address: fund.spokeVault, abi: spokeVaultAbi, eventName: "SentToHub", fromBlock: BigInt(state.nodes.robinhood.forkBlockNumber) + 1n });
+      for (const sent of sends) if (Number((sent.args as any).transit.kind) === 0) queueTransit(fund, (sent.args as any).transitId);
+    }
+    await transits.drain(retryTransit, (error) => {
+      stats.errors++;
+      wormholeLog.warn("pending transit will retry", { error: explain(error) });
+    });
   }
 
   let lastReportAt = 0;

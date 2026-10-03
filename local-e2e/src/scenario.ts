@@ -912,7 +912,7 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     // linked transit id in that delivery's transaction.
     const [acceptedReturn] = (await coreEvents(core, "ReportAccepted", sendTx.receipt.blockNumber)).filter((e) => e.args.reportSequence === returnReport.result[0]);
     run.true(acceptedReturn !== undefined, "the hub accepted the report that lists the transfer");
-    const delivery = await nodes.arbitrum.client.getTransactionReceipt({ hash: acceptedReturn.transactionHash });
+    const delivery = await nodes.arbitrum.client.waitForTransactionReceipt({ hash: acceptedReturn.transactionHash, pollingInterval: 100 });
     const matchedTotal = events(delivery, core, coreVaultAbi, "TransitReceived")
       .filter((e) => e.transitId === returnId && e.matched)
       .reduce((sum, e) => sum + (e.amount as bigint), 0n);
