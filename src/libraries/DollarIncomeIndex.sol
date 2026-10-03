@@ -54,6 +54,9 @@ library DollarIncomeIndex {
     ///         (two cold slots); after full sales a holder needs one per adjusted token (at most `MAX_TOKENS`).
     uint256 internal constant MAX_SETTLE_STEPS = 64;
 
+    /// @notice DEC-145: maximum FIFO entries activated per accepted report.
+    uint256 internal constant MAX_ACTIVATIONS = 32;
+
     /// @notice Open-interval state of one income token.
     /// @param registered Whether the token is in the closed list.
     /// @param interval Number of the token's open interval: how many collections converted the token so far.
@@ -108,6 +111,20 @@ library DollarIncomeIndex {
         uint64 captured;
         uint64 paid;
         mapping(uint64 collection => uint256[]) claims;
+        uint256 waitingShares;
+        uint256 waitingEntry;
+        bool capturePrepared;
+        mapping(address token => Adjustment) captureAdjustment;
+    }
+
+    struct Entry {
+        uint256 timestamp;
+        uint256 shares;
+        bool activated;
+        uint256 mark;
+        uint64 captured;
+        uint256[] indices;
+        uint64[] intervals;
     }
 
     struct FrozenCollection {
@@ -147,6 +164,66 @@ library DollarIncomeIndex {
         uint64 frozenCount;
         uint256 deferredIndex;
         mapping(uint64 collection => FrozenCollection) frozen;
+        uint256 waitingTotal;
+        uint256 entryCount;
+        uint256 activationCursor;
+        uint64 reportTimestamp;
+        mapping(uint256 entry => Entry) entries;
+        mapping(address holder => Holder) activating;
+        mapping(address holder => bool) activationPrepared;
+        mapping(address holder => uint64) activationMerged;
+    }
+
+    /// @notice DEC-145: merge new shares into the holder's single waiting lot at the latest deposit timestamp.
+    function wait(State storage s, address holder, uint256 shares, uint256 timestamp) internal {
+        Holder storage account = s.holders[holder];
+        uint256 combined = account.waitingShares + shares;
+        if (account.waitingShares != 0) s.entries[account.waitingEntry].shares -= account.waitingShares;
+        uint256 entryId = s.entryCount;
+        if (entryId == 0 || s.entries[entryId].timestamp != timestamp || s.entries[entryId].activated) {
+            entryId = ++s.entryCount;
+            s.entries[entryId].timestamp = timestamp;
+        }
+        s.entries[entryId].shares += combined;
+        account.waitingEntry = entryId;
+        account.waitingShares = combined;
+        s.waitingTotal += shares;
+    }
+
+    /// @notice DEC-145: activate at most 32 FIFO entries eligible for the interval beginning at the previous report.
+    function activate(State storage s, uint64 timestamp) internal {
+        uint256 cursor = s.activationCursor;
+        uint256 budget = MAX_ACTIVATIONS;
+        while (cursor < s.entryCount && budget != 0) {
+            Entry storage entry = s.entries[cursor + 1];
+            if (entry.timestamp > s.reportTimestamp) break;
+            entry.activated = true;
+            entry.mark = s.dollarIndex - s.deferredIndex;
+            entry.captured = s.frozenCount;
+            s.waitingTotal -= entry.shares;
+            for (uint256 index; index < s.tokens.length; ++index) {
+                IncomeToken storage token = s.token[s.tokens[index]];
+                entry.indices.push(token.openIndex);
+                entry.intervals.push(token.interval);
+                token.remainder = 0;
+            }
+            ++cursor;
+            --budget;
+        }
+        s.activationCursor = cursor;
+        s.reportTimestamp = timestamp;
+    }
+
+    /// @notice DEC-145: burn waiting shares first; return the remainder to burn from active shares.
+    function burnWaiting(State storage s, address holder, uint256 burned) internal returns (uint256 activeBurn) {
+        Holder storage account = s.holders[holder];
+        uint256 waitingBurn = Math.min(burned, account.waitingShares);
+        if (waitingBurn != 0) {
+            account.waitingShares -= waitingBurn;
+            s.entries[account.waitingEntry].shares -= waitingBurn;
+            s.waitingTotal -= waitingBurn;
+        }
+        return burned - waitingBurn;
     }
 
     /// @notice An income token was added to the closed list.
@@ -362,14 +439,44 @@ library DollarIncomeIndex {
     }
 
     function _settleFrozen(State storage s, Holder storage holder, uint256 shares) private returns (bool complete) {
+        if (holder.captured < s.frozenCount && !holder.capturePrepared) {
+            for (uint256 index; index < s.tokens.length; ++index) {
+                address token = s.tokens[index];
+                holder.captureAdjustment[token] = holder.adjustment[token];
+            }
+            holder.capturePrepared = true;
+        }
         uint256 budget = MAX_SETTLE_STEPS;
         while (holder.captured < s.frozenCount && budget != 0) {
-            uint64 id = ++holder.captured;
+            uint64 id = holder.captured + 1;
             FrozenCollection storage frozen = s.frozen[id];
-            for (uint256 index; index < s.tokens.length; ++index) {
-                holder.claims[id].push(_frozenClaim(s, holder, frozen, shares, index));
+            for (uint256 index = holder.claims[id].length; index < s.tokens.length; ++index) {
+                address token = s.tokens[index];
+                Adjustment storage adjustment = holder.captureAdjustment[token];
+                uint64 closing = frozen.intervals[index];
+                if (adjustment.amount != 0 && adjustment.interval < closing) {
+                    uint64 from = adjustment.interval;
+                    (, int256 rest, uint64 reached) = _carryForward(s, token, adjustment.amount, from, closing, budget);
+                    budget -= reached - from;
+                    adjustment.amount = rest.toInt192();
+                    adjustment.interval = reached;
+                    if (rest != 0 && reached < closing) return false;
+                }
+                uint256 claim = Math.mulDiv(shares, frozen.indices[index], Q128);
+                int256 amount = adjustment.amount;
+                if (amount != 0 && adjustment.interval <= closing) {
+                    uint256 correction = Math.mulDiv(
+                        _abs(amount),
+                        frozen.fractions[index],
+                        Q128,
+                        amount < 0 ? Math.Rounding.Ceil : Math.Rounding.Floor
+                    );
+                    claim = amount >= 0 ? claim + correction : claim > correction ? claim - correction : 0;
+                }
+                holder.claims[id].push(claim);
             }
-            --budget;
+            holder.captured = id;
+            if (budget != 0) --budget;
         }
         complete = holder.captured == s.frozenCount;
         budget = MAX_SETTLE_STEPS;
@@ -400,6 +507,57 @@ library DollarIncomeIndex {
     /// @return settled Whether every adjustment reached its token's open interval (the hooks and `take` may run).
     function settle(State storage s, address holder, uint256 shares) internal returns (bool settled) {
         Holder storage h = s.holders[holder];
+        uint256 waiting = h.waitingShares;
+        if (!_settleHolder(s, h, shares - waiting)) return false;
+        if (waiting == 0 || !s.entries[h.waitingEntry].activated) return true;
+        Holder storage activation = s.activating[holder];
+        if (!s.activationPrepared[holder]) {
+            Entry storage entry = s.entries[h.waitingEntry];
+            activation.mark = entry.mark;
+            activation.captured = entry.captured;
+            activation.paid = entry.captured;
+            for (uint256 index; index < s.tokens.length; ++index) {
+                Adjustment storage adjustment = activation.adjustment[s.tokens[index]];
+                adjustment.amount =
+                    (-Math.mulDiv(waiting, entry.indices[index], Q128, Math.Rounding.Ceil).toInt256()).toInt192();
+                adjustment.interval = entry.intervals[index];
+            }
+            activation.adjusted = true;
+            s.activationPrepared[holder] = true;
+        }
+        if (!_settleHolder(s, activation, waiting)) return false;
+        uint64 merged = s.activationMerged[holder];
+        if (merged < activation.paid) merged = activation.paid;
+        uint256 budget = MAX_SETTLE_STEPS;
+        while (merged < activation.captured && budget != 0) {
+            uint64 id = ++merged;
+            for (uint256 index; index < s.tokens.length; ++index) {
+                h.claims[id][index] += activation.claims[id][index];
+                activation.claims[id][index] = 0;
+            }
+            --budget;
+        }
+        s.activationMerged[holder] = merged;
+        if (merged < activation.captured) return false;
+        h.dollars += activation.dollars;
+        for (uint256 index; index < s.tokens.length; ++index) {
+            address token = s.tokens[index];
+            Adjustment storage adjustment = h.adjustment[token];
+            adjustment.amount = (int256(adjustment.amount) + activation.adjustment[token].amount).toInt192();
+            adjustment.interval = s.token[token].interval;
+            delete activation.adjustment[token];
+        }
+        h.adjusted = true;
+        h.capturePrepared = false;
+        h.waitingShares = 0;
+        h.waitingEntry = 0;
+        delete s.activating[holder];
+        delete s.activationPrepared[holder];
+        delete s.activationMerged[holder];
+        return true;
+    }
+
+    function _settleHolder(State storage s, Holder storage h, uint256 shares) private returns (bool settled) {
         if (!_settleFrozen(s, h, shares)) return false;
         uint256 dollars = h.dollars + _indexed(s, h, shares);
         settled = true;
@@ -451,6 +609,44 @@ library DollarIncomeIndex {
     /// @dev Walks every carried adjustment to the open interval, with no step bound (a view for off-chain reads).
     function owedDollars(State storage s, address holder, uint256 shares) internal view returns (uint256 dollars) {
         Holder storage h = s.holders[holder];
+        dollars = _owedHolder(s, h, shares - h.waitingShares);
+        if (h.waitingShares == 0 || !s.entries[h.waitingEntry].activated) return dollars;
+        if (s.activationPrepared[holder]) return dollars + _owedHolder(s, s.activating[holder], h.waitingShares);
+        return dollars + _entryDollars(s, s.entries[h.waitingEntry], h.waitingShares);
+    }
+
+    function _entryDollars(State storage s, Entry storage entry, uint256 shares)
+        private
+        view
+        returns (uint256 dollars)
+    {
+        dollars = Math.mulDiv(shares, s.dollarIndex - s.deferredIndex - entry.mark, Q128);
+        uint256 debit;
+        for (uint256 index; index < s.tokens.length; ++index) {
+            address token = s.tokens[index];
+            int256 amount = -Math.mulDiv(shares, entry.indices[index], Q128, Math.Rounding.Ceil).toInt256();
+            (uint256 converted,,) =
+                _carryForward(s, token, amount, entry.intervals[index], s.token[token].interval, type(uint256).max);
+            debit += converted;
+        }
+        dollars = dollars > debit ? dollars - debit : 0;
+        for (uint64 id = entry.captured + 1; id <= s.frozenCount; ++id) {
+            FrozenCollection storage frozen = s.frozen[id];
+            if (!frozen.finalized) break;
+            for (uint256 index; index < s.tokens.length; ++index) {
+                int256 amount = -Math.mulDiv(shares, entry.indices[index], Q128, Math.Rounding.Ceil).toInt256();
+                (, amount,) = _carryForward(
+                    s, s.tokens[index], amount, entry.intervals[index], frozen.intervals[index], type(uint256).max
+                );
+                uint256 claim = Math.mulDiv(shares, frozen.indices[index], Q128);
+                uint256 correction = Math.mulDiv(_abs(amount), frozen.fractions[index], Q128, Math.Rounding.Ceil);
+                claim = claim > correction ? claim - correction : 0;
+                dollars += Math.mulDiv(claim, frozen.rates[index], Q128);
+            }
+        }
+    }
+
+    function _owedHolder(State storage s, Holder storage h, uint256 shares) private view returns (uint256 dollars) {
         dollars = h.dollars + _indexed(s, h, shares);
         for (uint64 id = h.paid + 1; id <= s.frozenCount; ++id) {
             FrozenCollection storage frozen = s.frozen[id];
@@ -479,9 +675,34 @@ library DollarIncomeIndex {
 
     /// @notice Units of `token` `holder` is owed in the open interval (not yet converted) for a balance of `shares`.
     function tokenOwed(State storage s, address holder, uint256 shares, address token) internal view returns (uint256) {
+        Holder storage account = s.holders[holder];
+        uint256 owed = _tokenOwed(s, account, shares - account.waitingShares, token);
+        if (account.waitingShares == 0 || !s.entries[account.waitingEntry].activated) return owed;
+        if (s.activationPrepared[holder]) {
+            return owed + _tokenOwed(s, s.activating[holder], account.waitingShares, token);
+        }
+        Entry storage entry = s.entries[account.waitingEntry];
+        for (uint256 index; index < s.tokens.length; ++index) {
+            if (s.tokens[index] != token) continue;
+            int256 amount =
+                -Math.mulDiv(account.waitingShares, entry.indices[index], Q128, Math.Rounding.Ceil).toInt256();
+            (, amount,) =
+                _carryForward(s, token, amount, entry.intervals[index], s.token[token].interval, type(uint256).max);
+            uint256 base = Math.mulDiv(account.waitingShares, s.token[token].openIndex, Q128);
+            uint256 debit = _abs(amount);
+            return owed + (base > debit ? base - debit : 0);
+        }
+        return owed;
+    }
+
+    function _tokenOwed(State storage s, Holder storage holder, uint256 shares, address token)
+        private
+        view
+        returns (uint256)
+    {
         IncomeToken storage t = s.token[token];
         uint256 base = Math.mulDiv(shares, t.openIndex, Q128);
-        Adjustment storage a = s.holders[holder].adjustment[token];
+        Adjustment storage a = holder.adjustment[token];
         int256 amount = a.amount;
         uint64 open = t.interval;
         // An adjustment of a closed interval is already dollars (pending in `owedDollars`) but for its carried part.
@@ -565,6 +786,7 @@ library DollarIncomeIndex {
         Holder storage h = s.holders[holder];
         _requireSettled(s, h, holder);
         if (shares == 0) return;
+        h.capturePrepared = false;
         address[] storage tokens = s.tokens;
         uint256 length = tokens.length;
         bool written;

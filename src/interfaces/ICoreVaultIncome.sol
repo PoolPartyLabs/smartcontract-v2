@@ -171,6 +171,8 @@ interface ICoreVaultIncome {
 
     /// @notice Pays the caller every settled dollar of Attributed Income in USDC now, without waiting for a collection
     ///         (DEC-117 item 4). No Payout Fee, no flow fee.
+    /// @dev DEC-145: a history exceeding the bounded settlement budget returns zero and persists progress. Repeat
+    ///      before retrying a mint or burn; waiting lots and their historical collection rights are preserved.
     function withdrawIncome() external returns (uint256 amount);
 
     /// @notice Pays `recipient` every transfer in `token` that could not be made to it when due: a fee, or Attributed

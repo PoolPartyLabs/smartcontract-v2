@@ -81,8 +81,9 @@ library CoreVaultIncomeLogic {
         if ((r.round == b.round && b.pendingSpokes != 0) || b.openResults != 0) {
             revert ICoreVaultIncome.IncomeCollectionPending(r.round);
         }
+        if (!_settle(s, holder, IERC20(w.shareToken).balanceOf(holder))) return 0;
         delete b.requests[holder];
-        return withdrawIncome(s, w, holder);
+        return _pay(s, w, holder);
     }
 
     /// @notice ICoreVaultIncome.withdrawIncome for `holder`, after the guard: settles and pays every settled dollar.
@@ -90,7 +91,7 @@ library CoreVaultIncomeLogic {
         public
         returns (uint256 amount)
     {
-        _settle(s, holder, IERC20(w.shareToken).balanceOf(holder));
+        if (!_settle(s, holder, IERC20(w.shareToken).balanceOf(holder))) return 0;
         return _pay(s, w, holder);
     }
 
@@ -125,15 +126,15 @@ library CoreVaultIncomeLogic {
 
     /// @notice Called before every mint (deposit, seed) and every burn (payout) of `holder`'s shares, with the balance
     ///         before the change: settles the holder in every source (doc 10 section 2, "apuração do investidor").
-    /// @dev A settlement that runs out of steps (`DollarIncomeIndex.MAX_SETTLE_STEPS`, only after many partial sales)
-    ///      keeps its progress, so the loop always ends; a mint or burn is never refused for it.
+    /// @dev DEC-145: each source is settled once within its step budget. An incomplete balance-change settlement
+    ///      reverts; repeated Income Withdrawals persist progress before retrying the balance change.
     function beforeBalanceChange(
         CoreVaultState storage s,
         CoreVaultWiring memory,
         address holder,
         uint256 balanceBefore
     ) public {
-        _settle(s, holder, balanceBefore);
+        if (!_settle(s, holder, balanceBefore)) revert DollarIncomeIndex.HolderNotSettled(holder);
     }
 
     /// @notice Called after every mint (deposit, seed): the `minted` shares take nothing of what the open intervals
@@ -142,7 +143,8 @@ library CoreVaultIncomeLogic {
         CoreVaultIncomeTypes.Book storage b = s.incomeBook;
         uint256 count = b.sourceCount;
         for (uint256 k; k < count; ++k) {
-            b.sources[k].index.onMint(holder, minted);
+            if (k == CoreVaultIncomeTypes.HUB_SOURCE) b.sources[k].index.onMint(holder, minted);
+            else b.sources[k].index.wait(holder, minted, block.timestamp);
         }
     }
 
@@ -161,7 +163,9 @@ library CoreVaultIncomeLogic {
         CoreVaultIncomeTypes.Book storage b = s.incomeBook;
         uint256 count = b.sourceCount;
         for (uint256 k; k < count; ++k) {
-            b.sources[k].index.onBurn(holder, burned);
+            DollarIncomeIndex.State storage index = b.sources[k].index;
+            uint256 activeBurn = k == CoreVaultIncomeTypes.HUB_SOURCE ? burned : index.burnWaiting(holder, burned);
+            index.onBurn(holder, activeBurn);
         }
         if (balanceAfter == 0) _pay(s, w, holder);
     }
@@ -180,6 +184,7 @@ library CoreVaultIncomeLogic {
         uint256 spokeIndex,
         ReportCodec.Report memory r
     ) public {
+        s.incomeBook.sources[spokeIndex + 1].index.activate(r.timestamp);
         CoreVaultIncomeCollectionLogic.readReport(s, w, spokeIndex, r.cumulativeIncome, r.collectionResults);
     }
 
@@ -248,13 +253,14 @@ library CoreVaultIncomeLogic {
     // Holders
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @dev Settles `holder` at `shares` in every source, to completion (see `beforeBalanceChange`).
-    function _settle(CoreVaultState storage s, address holder, uint256 shares) private {
+    /// @dev Settles `holder` at `shares` in every source within its step budget.
+    function _settle(CoreVaultState storage s, address holder, uint256 shares) private returns (bool complete) {
         CoreVaultIncomeTypes.Book storage b = s.incomeBook;
         uint256 count = b.sourceCount;
+        complete = true;
         for (uint256 k; k < count; ++k) {
             DollarIncomeIndex.State storage index = b.sources[k].index;
-            while (!index.settle(holder, shares)) {}
+            if (!index.settle(holder, shares)) complete = false;
         }
     }
 
