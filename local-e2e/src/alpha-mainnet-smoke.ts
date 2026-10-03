@@ -68,7 +68,9 @@ async function main() {
   async function report() {
     const response = await fetch(`http://127.0.0.1:${process.env.ALPHA_API_PORT ?? "8787"}/report`, {method: "POST", headers: {authorization: `Bearer ${process.env.ALPHA_API_TOKEN}`}});
     assert.equal(response.status, 200);
-    assert.equal((await response.json() as any).delivered, true);
+    const result = await response.json() as any;
+    assert.equal(result.delivered, true);
+    assert.equal(result.reportVersion, "5", "Alpha API must decode report v5");
   }
   async function terms(side: string, amount: bigint) {
     const originChainId = side === "hub" ? 42161 : 4663;

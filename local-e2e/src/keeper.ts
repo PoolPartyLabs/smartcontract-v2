@@ -75,6 +75,7 @@ import { mappingSlot, setTokenBalance } from "./fund-accounts.ts";
 import { guardianSetIndexOf, signVaa, universal } from "./guardian.ts";
 import { safeConsole as console, logger, units, type Logger } from "./log.ts";
 import { ORDER_KIND_NAME, decodeOrder, orderId } from "./orders.ts";
+import {decodeSpokeReport} from "./spoke-report.ts";
 import { ensureFeedFresh } from "./price-feed.ts";
 import { readState, type BalanceLayout, type DeploymentState } from "./state.ts";
 import { PendingTransits, type PendingTransit } from "./pending-transits.ts";
@@ -502,6 +503,7 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
 
   async function deliver(fund: FundEntry, message: DecodedLog, blockTimestamp: number) {
     const a = message.args;
+    decodeSpokeReport(a.payload);
     const sequence = a.sequence as bigint;
     const fields = { emitter: fund.spokeVault, sequence };
     const [hasReport, last] = await Promise.all([

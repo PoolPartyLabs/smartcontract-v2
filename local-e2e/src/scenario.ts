@@ -57,6 +57,7 @@ import {
   type ActorName,
 } from "./config.ts";
 import { freshFund } from "./deploy.ts";
+import {decodeSpokeReport} from "./spoke-report.ts";
 import { guardianSetIndexOf, signVaa, universal } from "./guardian.ts";
 import { DEFAULT_KEEPER_OPTIONS, runningKeeperPid, startKeeper, type Keeper } from "./keeper.ts";
 import { safeConsole as console, bold, dim, green, logger, red, units, type Logger } from "./log.ts";
@@ -806,6 +807,9 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     const [reportSequence, wormholeSequence] = reported.result;
     const [published] = events(reported.receipt, ROBINHOOD.wormholeCore, wormholeCoreAbi, "LogMessagePublished");
     run.true(published !== undefined, "the real Robinhood Core published the report");
+    const decodedReport = decodeSpokeReport(published.payload);
+    run.eq(decodedReport.sequence, reportSequence, "v5 payload decodes the report sequence");
+    run.true(Array.isArray(decodedReport.refundedTransits), "v5 payload includes authenticated refund proofs");
     run.eq(published.sender, spokeVault, "DEC-086: the Spoke Vault is the emitter");
     run.eq(published.sequence, wormholeSequence, "Wormhole sequence");
     run.eq(Number(published.consistencyLevel), 1, "DEC-093: finalized");
@@ -923,6 +927,15 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     run.approx(assetsBeforeReturn - (await principalAssets()), returnFee, AAVE_ROUNDING, "DEC-085: principal drops by the bridge fee only");
     await bucketsMatch("DEC-104: Share Assets is the sum of its buckets");
     await run.ok(`the next report listed the transfer as Principal and the hub credited ${units(matchedTotal)} USDC to Idle`);
+    await waitFor("manual sendToHub acknowledgement", async () => {
+      const transit = await view<any>("robinhood", spokeVault, spokeVaultAbi, "hubBoundTransit", [returnId]);
+      return Number(transit.state) === 2;
+    });
+    const remainingTransits = await view<readonly Hex[]>("robinhood", spokeVault, spokeVaultAbi, "inFlightTransitIds");
+    run.true(!remainingTransits.includes(returnId), "acknowledged manual sendToHub frees its shared in-flight slot");
+    const afterAcknowledgement = await view<any>("robinhood", spokeVault, spokeVaultAbi, "buildReport");
+    run.true(!afterAcknowledgement.inFlightToHub.some((entry: any) => entry.transitId === returnId), "acknowledged manual transit leaves the v5 report");
+    await run.ok("the keeper acknowledged the manual sendToHub and freed its shared send slot");
 
     // ------------------------------------------------------------------------------------------------------------
     // Phase 8: hub income collected and split at collection (ruling 2026-09-29, DEC-106, DEC-107, DEC-109)

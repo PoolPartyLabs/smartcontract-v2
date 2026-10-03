@@ -10,6 +10,7 @@ import {once} from "node:events";
 import {existsSync, readFileSync} from "node:fs";
 import {ACTOR_KEYS} from "./config.ts";
 import {alphaAmounts} from "./alpha-amounts.ts";
+import {decodeSpokeReport} from "./spoke-report.ts";
 
 async function main() {
 for (const side of ["arbitrum", "robinhood"] as const) {
@@ -33,6 +34,7 @@ if (process.argv[2] === "fund") {
   const sent = await send("robinhood", "keeper", {address: spoke, abi: spokeVaultAbi, functionName: "report", value: fee});
   const log = sent.receipt.logs.find((entry) => entry.address.toLowerCase() === ROBINHOOD.wormholeCore.toLowerCase())!;
   const event = decodeEventLog({abi: wormholeCoreAbi, ...log}) as any;
+  decodeSpokeReport(event.args.payload);
   const block = await nodes.robinhood.client.getBlock({blockNumber: sent.receipt.blockNumber});
   const vaa = await signVaa({timestamp: Number(block.timestamp), nonce: event.args.nonce, emitterChainId: 72, emitterAddress: universal(spoke), sequence: event.args.sequence, consistencyLevel: event.args.consistencyLevel, payload: event.args.payload}, await guardianSetIndexOf("arbitrum"));
   const delivered = await send("arbitrum", "keeper", {address: receiver, abi: valueReportReceiverAbi, functionName: "deliver", args: [vaa]});

@@ -80,7 +80,9 @@ try {
   async function report() {
     const response = await fetch(`${apiUrl}/report`, {method: "POST", headers: {authorization: "Bearer local-rehearsal-only"}});
     assert.equal(response.status, 200, "API must publish and deliver report");
-    assert.equal((await response.json() as any).delivered, true);
+    const result = await response.json() as any;
+    assert.equal(result.delivered, true);
+    assert.equal(result.reportVersion, "5", "Alpha API must decode the v5 report");
   }
   await report();
   if (process.argv[2] === "close") {
@@ -132,15 +134,20 @@ try {
       const transit = await read<any>("robinhood", {address: spoke, abi: spokeVaultAbi, functionName: "hubBoundTransit", args: [transitLog.transitId]});
       return Number(transit.state) === 2;
     }, "durable keeper Principal acknowledgement");
+    const remainingTransits = await read<readonly string[]>("robinhood", {address: spoke, abi: spokeVaultAbi, functionName: "inFlightTransitIds"});
+    assert.ok(!remainingTransits.includes(transitLog.transitId), "Acknowledged manual send must free its shared slot");
+    const afterAcknowledgement = await read<any>("robinhood", {address: spoke, abi: spokeVaultAbi, functionName: "buildReport"});
+    assert.ok(!afterAcknowledgement.inFlightToHub.some((entry: any) => entry.transitId === transitLog.transitId));
     await waitFor(async () => !JSON.parse(readFileSync(environment.ALPHA_STATE_FILE, "utf8")).work.some((work: any) => work.transitId === transitLog.transitId), "resolved transit queue removal");
-    appendFileSync(evidence, JSON.stringify({functionName: "durableAcknowledgement", transitId: transitLog.transitId, returned: alphaAmounts.payout.toString()}) + "\n");
+    appendFileSync(evidence, JSON.stringify({functionName: "durableAcknowledgement", transitId: transitLog.transitId, returned: alphaAmounts.payout.toString(), slotFreed: true}) + "\n");
     }
     await transaction("arbitrum", core, coreVaultAbi, "requestPayout", [alphaAmounts.payout, 0, 100]);
     await report();
     const mandate = await read<any>("arbitrum", {address: core, abi: coreVaultAbi, functionName: "mandate"});
     const swapAdapter = mandate.swapAdapters.find((entry: any) => Number(entry.chainId) === 4663).adapter;
     const spokeV4 = mandate.pools.find((entry: any) => Number(entry.chainId) === 4663).adapter;
-    const half = deposit.outputAmount / 2n;
+    const remaining = await read<bigint>("robinhood", {address: spoke, abi: spokeVaultAbi, functionName: "unallocatedBalance", args: [ROBINHOOD.usdg]});
+    const half = remaining / 2n;
     const swapped = await transaction("robinhood", spoke, spokeVaultAbi, "swap", [swapAdapter, ROBINHOOD.usdg, ROBINHOOD.weth, half, 100, "0x"]);
     const weth = swapped.result as bigint;
     const center = await centerTick("robinhood", ROBINHOOD.v4StateView, SPOKE_POOL_ID);

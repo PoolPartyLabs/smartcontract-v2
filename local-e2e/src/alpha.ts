@@ -13,6 +13,7 @@ import {ROUTE_TYPES, encodeRoute, legsHash} from "./swap-route.ts";
 import {actors, guardian} from "./config.ts";
 import {createAlphaDelivery, drainAlphaPending, type AlphaMessage} from "./alpha-relay.ts";
 import {collectAllowed, drainAlphaWork, type AlphaWork} from "./alpha-work.ts";
+import {decodeSpokeReport, SPOKE_REPORT_VERSION} from "./spoke-report.ts";
 
 function required(name: string): string {
   const value = process.env[name];
@@ -165,6 +166,7 @@ async function publish(): Promise<Message> {
     try {
       const event = decodeEventLog({abi: wormholeCoreAbi, ...log}) as any;
       if (event.eventName === "LogMessagePublished" && getAddress(event.args.sender) === spoke) {
+        decodeSpokeReport(event.args.payload);
         return {side: "spoke", sequence: event.args.sequence.toString(), payload: event.args.payload};
       }
     } catch {}
@@ -182,6 +184,7 @@ async function keeperTick() {
     const logs = await nodes[side].client.getLogs({address: bridges[side], event: wormholeCoreAbi.find((item: any) => item.type === "event") as any, fromBlock, toBlock});
     for (const log of logs as any[]) {
       if (getAddress(log.args.sender) === sides[side].emitter && !cursor.pending.some((entry) => entry.side === side && entry.sequence === log.args.sequence.toString())) {
+        if (side === "spoke") decodeSpokeReport(log.args.payload);
         cursor.pending.push({side, sequence: log.args.sequence.toString(), payload: log.args.payload});
       }
     }
@@ -268,7 +271,7 @@ if (mode === "keeper") {
           if (Date.now() > deadline) throw new Error("VAA timeout; keeper must retry");
           await new Promise((done) => setTimeout(done, pollMs));
         }
-        result = {delivered: true, sequence: message.sequence};
+        result = {delivered: true, sequence: message.sequence, reportVersion: SPOKE_REPORT_VERSION.toString()};
       } else if (request.url === "/income") {
         const report = await read("spoke", spoke, "buildReport", [], spokeVaultAbi);
         const mandate = await read("hub", core, "mandate", [], coreVaultAbi);
