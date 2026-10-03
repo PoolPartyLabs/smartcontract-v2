@@ -111,7 +111,27 @@ function save() {
   renameSync(`${stateFile}.tmp`, stateFile);
 }
 
-const deliver = createAlphaDelivery({sides, bridges, receiver, spoke, vaaBase, read, send});
+let fetchVaa: typeof fetch | undefined;
+if (process.env.ALPHA_REHEARSAL_LOCAL_VAA === "1") {
+  if (process.env.ALPHA_ALLOW_LOCAL_TEST_KEYS !== "1") throw new Error("Local VAAs require rehearsal mode");
+  for (const side of ["hub", "spoke"] as const) {
+    if (new URL(sides[side].rpc).hostname !== "127.0.0.1") throw new Error("Local VAAs require loopback Anvil");
+  }
+  const {signVaa, universal, guardianSetIndexOf} = await import("./guardian.ts");
+  fetchVaa = async (input) => {
+    const parts = String(input).split("/");
+    const sequence = BigInt(parts.at(-1)!);
+    const side: Side = Number(parts.at(-3)) === sides.hub.wormhole ? "hub" : "spoke";
+    const logs = await nodes[side].client.getLogs({address: bridges[side], event: wormholeCoreAbi.find((entry: any) => entry.type === "event") as any, fromBlock: BigInt(required(side === "hub" ? "ALPHA_HUB_START_BLOCK" : "ALPHA_SPOKE_START_BLOCK"))});
+    const message = (logs as any[]).find((entry) => getAddress(entry.args.sender) === sides[side].emitter && entry.args.sequence === sequence);
+    if (!message) return new Response(null, {status: 404});
+    const block = await nodes[side].client.getBlock({blockNumber: message.blockNumber});
+    const destination = side === "hub" ? "robinhood" : "arbitrum";
+    const vaa = await signVaa({timestamp: Number(block.timestamp), nonce: message.args.nonce, emitterChainId: sides[side].wormhole, emitterAddress: universal(sides[side].emitter), sequence, consistencyLevel: message.args.consistencyLevel, payload: message.args.payload}, await guardianSetIndexOf(destination));
+    return Response.json({data: {vaa: Buffer.from(vaa.slice(2), "hex").toString("base64")}});
+  };
+}
+const deliver = createAlphaDelivery({sides, bridges, receiver, spoke, vaaBase, read, send, fetchVaa});
 
 async function publish(): Promise<Message> {
   const fee = await read("spoke", bridges.spoke, "messageFee", [], wormholeCoreAbi);
@@ -132,7 +152,7 @@ async function keeperTick() {
   let balanceChanged = false;
   for (const side of ["hub", "spoke"] as const) {
     const fromBlock = BigInt(cursor[side]);
-    const head = (await nodes[side].client.getBlock({blockTag: "finalized"})).number!;
+    const head = (await nodes[side].client.getBlock({blockTag: process.env.ALPHA_REHEARSAL_LOCAL_VAA === "1" ? "latest" : "finalized"})).number!;
     if (fromBlock > head) continue;
     const toBlock = fromBlock + 999n < head ? fromBlock + 999n : head;
     const logs = await nodes[side].client.getLogs({address: bridges[side], event: wormholeCoreAbi.find((item: any) => item.type === "event") as any, fromBlock, toBlock});
