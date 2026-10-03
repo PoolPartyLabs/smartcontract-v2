@@ -1,6 +1,6 @@
 # Open questions and how the MVP code handles them
 
-Current status: **2026-10-03**, `main` **`f88b25b`**, through PR #23 and PR #21 (including #22); register **DEC-001..DEC-187**.
+Current status: **2026-10-03**, `origin/main` **`334eae6`**, including merged PR #24/#25/#26/#28/#29; register **DEC-001..DEC-187**.
 The current tables take precedence over the historical research digest below. A question being answered does not
 mean its implementation is complete. The spec register at `9cde6b7` wins over the plan; DEC-186/187 are Slack-only.
 
@@ -8,27 +8,39 @@ mean its implementation is complete. The spec register at `9cde6b7` wins over th
 
 - DEC-157/160 intentionally have no inactivity escape: a spoke that never answers blocks exits needing its fresh
   report, including closure finalization. Another relayer can replace a keeper, not fabricate a report.
-- Spoke capacity is reclaimed only on delivered Hub ACKNOWLEDGE orders. Sixteen undelivered acknowledgements
+- Spoke capacity is reclaimed only on delivered Hub ACKNOWLEDGE orders. Sixty-four undelivered acknowledgements
   can block later sends/exits. Anyone can republish/deliver via `acknowledgeSpokeTransit` and `executeOrder`;
   the keeper must drain this queue after full credit/authenticated refund, not just deliver reports/fills.
 - Standard Payout Wormhole publication fees are caller-funded for now. Refunds DEC-164/165, DEC-185 gas top-up,
-  native Operating Cash (WP-16), signed bridge quotes (WP-11/DEC-176), entry-time filter (WP-14/DEC-145) remain deferred.
+  native Operating Cash (WP-16) and signed bridge quotes (WP-11/DEC-176) remain deferred.
+  DEC-145 is **in PR #30, landing before the deploy**; waiting lots and resumable checkpoints have a reported
+  max-config peak of **2,038,401 gas (2.04M)**. That evidence is from #30, not this measured main. WP-17 is deferred by Rafael.
 - PR #12 L-2: sub-base-unit management accrual keeps its clock. For positive old base, entrant pre-entry charge is
   below `(new base / old base)` base units; about 0.01 USDC per 1M deposit over 100 USDC. Manager loses <1 base unit
   per positive rounded booking. This is not exact entry isolation or a global bound; NatSpec unchanged (docs only).
-- PR #21 round-3 L-1: retirement uses raw `abi.encode(records)` instead of shared result encoder; bytes identical
-  today, size assertion bypassed. Carry to a code follow-up, not silently fix in this WP.
+- PR #21 round-3 L-1 is resolved by merged PR #25: retirement uses the shared 416-byte result encoder, with regression evidence.
 - PR #20 prepared/checks alpha deployment; no broadcast certified here. Rafael must confirm final keys/roles,
   manager seed and fees, fund Mandate, native gas budgets and operational risk acceptance. See
-  [MVP report](reports/2026-10-03-MVP-REPORT.md). Final lifecycle transaction evidence awaits PR #24.
+  [MVP report](reports/2026-10-03-MVP-REPORT.md). Final lifecycle transaction evidence is merged in PR #24; final-SHA rehearsal remains open.
+
+## Final-main conformance dispositions
+
+Merged #28 resolves **B-01/B-02/B-03/G-05**: Hub exposure gated during Closing/Closed; terminal spoke dust
+strictly below 0.50 recorded and sweepable (including late Principal); Operating Cash enforced at 0; no Idle
+credit after Closed. The dust exception to literal DEC-163 is accepted only for alpha. Merged #29 ships report
+v5 and 64 shared send slots with acknowledgement-driven reuse; manual Principal retirement is no longer blocked.
+
+**G-02/G-03/G-04/G-06/G-07 remain accepted alpha limitations**, not closed implementation gaps. Their exact
+scope is recorded in [KNOWN-LIMITATIONS](security/KNOWN-LIMITATIONS.md#conformance-alpha-exceptions-2026-10-03).
+DEC-145 is in PR #30, landing before the deploy. Freeze/rehearse the post-#30 release before mainnet.
 
 ## Questions answered by DEC-111..DEC-187
 
 | Earlier question | Governing answer | Merged code status |
 |---|---|---|
 | SEC-OQ-1 / S-8 / F-13, mandatory manager price floor | DEC-129 accepts no oracle floor; DEC-142 specifies caller maximum and stricter signed minimum | Answered, accepted residual; PR #4/#7/#13, not a security fix |
-| SEC-OQ-2 / S-5, Operating Cash cap | DEC-130/144: native token, floor + top-up <= 0.5 ETH per chain | Answered, implementation deferred; existing base-token bucket uncapped; defaults 0 in PR #12 |
-| SEC-OQ-3 / S-15 / Q60, recognition versus collection | DEC-117/138/152/161: recognition-time token claims, dollar conversion at collection; DEC-145 entry-time eligibility | Recognition/dollar cohorts implemented PR #18/#23; WP-14 entry-time filter deferred; S-15 residual remains |
+| SEC-OQ-2 / S-5, Operating Cash cap | DEC-130/144: native token, floor + top-up <= 0.5 ETH per chain | Native design deferred; MVP Operating Cash enforced at 0 and setters disabled by PR #28 (B-03) |
+| SEC-OQ-3 / S-15 / Q60, recognition versus collection | DEC-117/138/152/161: recognition-time token claims, dollar conversion at collection; DEC-145 entry-time eligibility | Recognition/dollar cohorts implemented PR #18/#23; DEC-145 in PR #30, landing before the deploy; no entry-time implementation claim for current main |
 | LC-142, registry scope/writer/slice | DEC-112/170/181: shared registry records per manager; API key is deployment owner; slice 5–50% | Answered; PR #12; `Ownable2Step` still permits owner transfer |
 | LC-143, flow-fee incidence and mutability | DEC-113/125: seed/deposit and both Payout modes, not Income Withdrawal; immutable per factory | Answered; PR #3/#12 |
 | LC-144 / LC-164, management fee and bounds | DEC-114/178: liability at valuation, stop at `closeFund`; DEC-182/184/186: performance 10–90%, management 0–5% | Implemented accrual/bounds PR #12 and closure payment PR #21; L-2 rounding bound disclosed |
@@ -64,7 +76,7 @@ mean its implementation is complete. The spec register at `9cde6b7` wins over th
 This is the disposition of **PLAN section 8 D-01..D-54**, not a second source of specification.
 “In progress” denotes unfinished code, not an approved substitute design. Amendments override the original plan.
 
-| ID | Reading / disposition | Status at `f88b25b` |
+| ID | Reading / disposition | Status at `334eae6`, with pending #30 explicitly labeled |
 |---|---|---|
 | D-01 | One API signer: EIP-712 swap routes, direct registry-owner calls; no signed bridge quotes in MVP | Partial PR #12/#13; bridge clause superseded by DEC-176; registry ownership can transfer |
 | D-02 | Only signed routes override adapter choice; no arbitrary router calldata | Implemented PR #4/#7/#13 |
@@ -107,14 +119,14 @@ This is the disposition of **PLAN section 8 D-01..D-54**, not a second source of
 | D-39 | Hub income converted in same collection as spoke income | Implemented Hub/spoke same-round collection PR #18/#23 |
 | D-40 | Fees converted at same collection rate, dollars to manager/protocol | Implemented cohort-specific dollar conversion and fee split PR #18/#23 |
 | D-41 | Fund bridge / caller gas for Income Withdrawal, originally unconfirmed | Fund pays collection/bridge PR #18/#23; caller gas/message fees, refund schedule deferred |
-| D-42 | Hub/spoke clock skew in entry eligibility | Accepted DEC-183; WP-14 deferred, no active entry-time filter |
+| D-42 | Hub/spoke clock skew in entry eligibility | Accepted DEC-183; DEC-145 in PR #30, landing before the deploy; bounded report/deposit timestamp skew reading retained |
 | D-43 | Extra linked Core libraries needed for bytecode headroom | Closed DEC-183; implemented PR #10/#12/#15; fresh size test is authoritative |
 | D-44 | Remove Mandate unwind order | Proportional replacement implemented PR #19/#23 |
 | D-45 | Bridge builder stateful and vault-only, not pure translation | Implemented PR #2/#13 |
 | D-46 | Refund sample 57–99 min, relay-hash fill status; API endpoints historical | Research observation, not SLA; integrations corrected; reverify route availability before sends |
 | D-47 | Old nonarchive pins unavailable; use latest-minus-300 | Superseded operationally by archive RPC ruling; fixed handoff pins supported, no secret logging |
 | D-48 | Native replenishment failure must not revert host operation | Confirmed DEC-183; deferred WP-16 |
-| D-49 | 0.5 ETH cap on floor + top-up per chain | Answered DEC-130; deferred WP-16, not enforced on old base-token bucket |
+| D-49 | 0.5 ETH cap on floor + top-up per chain | Answered DEC-130; native WP-16 deferred; MVP base-token floor/top-up enforced at 0 by #28 |
 | D-50 | Gas bridge delivers WETH, adapter must unwrap | DEC-180/185 answer; deferred by ruling 2026-10-02 |
 | D-51 | “Sign once” means no investor signature after claim; Standard still request + claim | Permissionless settlement implemented PR #22/#21; Standard request/claim remains |
 | D-52 | Every API hop must be a Mandate token | **Superseded** DEC-173; endpoints only, PR #13 |
@@ -132,8 +144,9 @@ This is the disposition of **PLAN section 8 D-01..D-54**, not a second source of
 | WP-10 dollar income / owed event / collection amendments | Implemented PR #18 via #23 |
 | WP-12 spoke orders / publishing event | Implemented PR #22 via #21; ACK delivery operational prerequisite |
 | WP-13 closure / frozen event record / publishing event | Implemented PR #21 |
-| WP-14 entry-time filter; WP-16 native Operating Cash; WP-17 Foundry e2e | Deferred; WP-17 optional, not claimed complete |
-| WP-15 ABI library events, arrival matching, zero Operating Cash | Ports/API probes PR #16/#23; final lifecycle/library-event evidence awaits PR #24 |
+| WP-14 entry-time filter | In PR #30, landing before the deploy; waiting lots/resumable checkpoints, reported max-config peak 2.04M gas |
+| WP-16 native Operating Cash; WP-17 Foundry e2e | WP-16 deferred by ruling; WP-17 deferred by Rafael, not claimed complete |
+| WP-15 ABI library events, arrival matching, zero Operating Cash | Ports/API probes PR #16/#23; final lifecycle/library-event evidence merged in PR #24 |
 | PR #12 L-1 Aave-first assertion / PR #13 sale price-source event | Implemented by WP-09/landing PR #19/#23; not a docs-only code fix |
 | PR #12 L-2 management accrual rounding bound | Documented in ARCHITECTURE/KNOWN-LIMITATIONS; NatSpec intentionally untouched |
 | PR #12 L-3 Operating Cash expectation; PR #13 old harness verbs | Verbs/zero-default scenario ported PR #16/#23; no native replenishment claimed |

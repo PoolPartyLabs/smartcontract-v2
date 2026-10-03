@@ -1,6 +1,6 @@
 # Pre-mainnet checklist: internal alpha versus public release
 
-Status at **2026-10-03**, `main` **`f88b25b`**, through PR #23 and PR #21 (including #22), DEC-001..DEC-187.
+Status at **2026-10-03**, `origin/main` **`334eae6`**, including merged PR #24/#25/#26/#28/#29, DEC-001..DEC-187.
 Checked items mean baseline evidence exists, not that deployment happened. Historical reports are not release certificates.
 DEC-134 permits a small Pool Party-capital internal alpha; public/customer use requires the remaining gates.
 
@@ -10,8 +10,8 @@ DEC-134 permits a small Pool Party-capital internal alpha; public/customer use r
       DEC-187 manager pays own gas. Performance range **1000–9000 bps** applies at creation (PR #12).
 - [x] S-8/F-13 answered by DEC-129: no mandatory manager oracle floor, **accepted residual**, not fixed.
 - [x] S-5 cap question answered by DEC-130/144 (0.5 ETH floor + top-up per chain); native implementation deferred,
-      current base-token sink remains; script/harness defaults 0.
-- [x] S-15 attribution question answered DEC-117/138/145/152/161; recognition/dollar cohorts implemented PR #18/#23; entry-time filter deferred.
+      MVP floor/top-up enforced at 0 and setters disabled by #28 (B-03).
+- [x] S-15 attribution question answered DEC-117/138/145/152/161; recognition/dollar cohorts implemented PR #18/#23; DEC-145 in PR #30, landing before the deploy.
 - [x] DEC-169/176/177/183 bridge rule: own last-3-send reference, unsigned MVP, 1% rate plus fixed token component.
 - [x] Record ruling 2026-10-02: native Operating Cash, gas refunds and DEC-185 top-up deferred; DEC-165 caps confirmed.
 - [x] Record DEC-167 closure-event/frozen-split ruling, not per-holder snapshot; implemented PR #21.
@@ -19,25 +19,34 @@ DEC-134 permits a small Pool Party-capital internal alpha; public/customer use r
 - [x] **WP-10 income dollar index — implemented #18 via #23.**
 - [x] **WP-12 spoke orders — implemented #22 via #21.**
 - [x] **WP-13 closure — implemented #21.**
-- [ ] Resolve deferred entry-time rule DEC-145 and pricing hierarchy/report fallback before public use.
+- [ ] Land DEC-145 PR #30 before the deploy; waiting lots and resumable checkpoints, reported max-config peak 2.04M gas.
+- [ ] Resolve pricing hierarchy/report fallback before public use.
+- [x] WP-17 deferred by Rafael; not claimed complete.
 - [ ] Resolve empty-route spot-reference Market Cost attribution (PR #7), creation-price caching and registry-owner
       versus immutable-signer discrepancy; disposition in OPEN-QUESTIONS.
 
 ## B. Verification and review gates
 
 - [x] Internal sweep and independent model reviews recorded; merged PRs reviewed, fixes carry regression evidence.
-- [x] DEC-131 completeness/size suite: **3/3**, every runtime <=24,576 bytes. SpokeUnwindLib
-      **23,473 / 1,103 margin**, SpokeVault **22,887 / 1,689**, CoreVault **22,862 / 1,714**; no margin below 1,000.
+- [x] Reviewed merged #28 fixes B-01/B-02/B-03/G-05: Hub exposure gated after closure; terminal spoke dust
+      strictly below 0.50 recorded/excluded/sweepable; Operating Cash enforced at 0; no Idle credit after Closed.
+- [x] Accepted alpha-only limitations G-02/G-03/G-04/G-06/G-07 recorded in KNOWN-LIMITATIONS; no public waiver.
+- [x] Merged #25 shared-result encoder and #29 report v5/manual Principal/Income ACKs; 64 shared send slots,
+      acknowledgement-driven reuse, distinct 16-entry unwind result bound.
+- [x] DEC-131 completeness/size suite: **3/3**, every runtime <=24,576 bytes. SpokeVault
+      **22,907 / 1,669 margin**, CoreVaultPayoutLogic **22,547 / 2,029**, CoreVault **22,358 / 2,218**; no margin below 1,000.
       Docs-only before/after identical; complete measured table in [MVP report](../reports/2026-10-03-MVP-REPORT.md).
-- [x] Fresh build and `forge fmt --check` pass; **1,432 non-fork tests / 183 suites**, including size suite.
-- [x] Fresh full fork run with RPC helper: **222 tests / 56 suites**, fixed archive pins 511007613 / 78293056.
+- [x] Fresh build and `forge fmt --check` pass; **1,548 non-fork tests / 190 suites**, including size suite.
+- [x] Fresh full fork run with RPC helper: **227 tests / 57 suites**, fixed archive pins 511007613 / 78293056.
       CI has five isolated fork shards and validates scenario-shard `_createForks()` coverage (PR #8).
-- [x] Fresh relevant unit/fork gas reports; operation samples in MVP report, not worst-case release gas certificates.
-- [ ] Freeze final release SHA and re-run complete lifecycle harness after PR #24 merges. PR #23's
-      **46 steps / 294 assertions** and API **19 concepts** are historical pre-closure evidence, not the final run.
+- [x] Historical unit/fork gas samples and receipt-derived lifecycle gas labeled by executed SHA in MVP report;
+      not a fresh main gas rerun or worst-case release certificate.
+- [x] PR #24 completed lifecycle **55 steps / 319 assertions**, API **31 concepts**, is merged evidence.
+      #29 adds integrated manual/Income ACK and warm-up/replay evidence; see the MVP report.
+- [ ] Freeze final post-#30 release SHA and re-run complete lifecycle and dual-chain deployment rehearsal.
 - [ ] Unit tests -> invariants -> formal verification -> independent external audit in DEC-133 order. Internal
       alpha acceptance is not a replacement for public audit or post-change rebaseline.
-- [ ] Re-measure v4 worst-case report delivery gas and creation gas on both chains; old v3 26.87M report gas is historical.
+- [ ] Re-measure v5 worst-case report delivery gas and creation gas on both chains; old v3 26.87M report gas is historical.
 - [ ] Re-run deep fuzz campaigns, coverage, static-analysis triage/ratchets, symbolic checks and mutations on release
       code, including new codecs/libraries. Do not treat old percentages as current coverage.
 - [ ] Public deployment must close or explicitly gate above-low exploitable PoCs, including accepted internal-alpha
@@ -50,7 +59,7 @@ DEC-134 permits a small Pool Party-capital internal alpha; public/customer use r
 - [ ] Re-run dual-chain deployment/address checks on the frozen final release; no mainnet broadcast attested here.
 - [ ] Verify Wormhole Core/chain ids, Across SpokePool/buffers, V3 factory/QuoterV2/router, V4 managers, Aave Pool,
       token/feed configuration, Protocol Recipient, guardian, API signer and ManagerRegistry owner.
-- [ ] Explicitly configure Operating Cash floor/top-up **0** for the alpha; confirm no manager changes reintroduce sink.
+- [ ] Explicitly configure Operating Cash floor/top-up **0** for the alpha; verify deployed Mandate rejects nonzero values and setters are disabled (#28).
 - [ ] Publish linked addresses: **CoreVaultIncomeCollectionLogic, CoreVaultIncomeLogic, CoreVaultLogic, CoreVaultPayoutLogic,
       CoreVaultClosureLogic, CoreVaultTransitLogic, SpokeCrossChainLib, SpokeUnwindLib, SpokeCloseLib, SpokeIncomeLib**. Verify library dependency links and stored vault creation code.
 - [x] Factory deployment checks wiring/direct and nested links; PR #21 fixed dependency-first artifact linking.
@@ -64,7 +73,7 @@ DEC-134 permits a small Pool Party-capital internal alpha; public/customer use r
 ## D. Operations and disclosure
 
 - [ ] Keeper acknowledges fully credited/refunded spoke transits: publish `acknowledgeSpokeTransit`, deliver
-      ACKNOWLEDGE to `executeOrder`, retry/republish as needed. Hub credit alone does not reclaim the 16-slot capacity.
+      ACKNOWLEDGE to `executeOrder`, retry/republish as needed. Hub credit alone does not reclaim the 64-slot shared send capacity.
 - [ ] Monitor silent-spoke freshness/closure stalls (DEC-157/160); no inactivity fallback. Disclose that Standard
       Payout Wormhole fees and all transaction gas remain caller/keeper-funded; no refunds in this MVP.
 - [ ] Rafael approves input sheet: role addresses/keystores, fees, seed/Spoke Cap/Mandate, ETH budgets on both

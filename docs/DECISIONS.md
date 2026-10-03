@@ -1,7 +1,7 @@
 # Pool Party v2 decision register (English digest)
 Source: PoolParty_SCs_v2/docs/definicao-v2/01-RESPOSTAS-E-DECISOES.md at `9cde6b7`, DEC-001..DEC-185;
 DEC-186 and DEC-187 are Slack-only decisions recorded in the handoff (2026-10-02). Register range: **DEC-001..DEC-187**.
-Code baseline: `main` at `f88b25b`, 2026-10-03, through PR #23 and PR #21 (including PR #22).
+Code baseline: `origin/main` at `334eae6`, October 3, 2026, including merged PR #24/#25/#26/#28/#29.
 This is a merged-code digest, not a claim that all decisions shipped.
 
 Reading rule of the source: a later decision prevails over an earlier one where it corrects it. The reconciliation errata of 2026-09-23 (26 items) do not rewrite the text above them; they state which decision governs. "Hub" = Hub Chain (Arbitrum in POC/MVP); "spoke" = Spoke Chain (Robinhood Chain in POC/MVP).
@@ -17,7 +17,26 @@ Fresh tests, runtime margins and review history: [MVP report](reports/2026-10-03
 Implemented is not audited or live. Standard Payout Wormhole fees are caller-funded; silent spokes block
 fresh-report exits (DEC-157/160), and the keeper must deliver Hub acknowledgements to reclaim spoke send capacity.
 DEC-164/165 refunds, DEC-185 gas top-up, native Operating Cash (WP-16), signed bridge quotes (WP-11/DEC-176),
-and entry-time eligibility (WP-14/DEC-145) remain deferred by the amendments/ruling 2026-10-02.
+remain deferred by the amendments/ruling 2026-10-02. DEC-145 is **in PR #30, landing before the deploy**;
+WP-17 is deferred by Rafael. The pending PR implements waiting lots and resumable settlement checkpoints,
+with a reported maximum-configuration peak of **2,038,401 gas (2.04M)**, not measured on this main baseline.
+
+## Final-main conformance and alpha scope
+
+Merged **PR #28** resolves B-01 (Hub exposure gated during Closing/Closed), B-02 (terminal spoke dust strictly
+below 0.50 base-token units recorded, excluded from the ledger and permissionlessly swept), B-03 (Operating Cash
+floor/top-up enforced at 0, setters disabled), and G-05 (Closed recovered Principal never credits live Idle).
+This qualifies the closure/late-value implementation rows below; it is not a claim of literal zero-dust DEC-163
+conformance. See [closure dust](security/CLOSURE-DUST.md) and [limitations](security/KNOWN-LIMITATIONS.md).
+
+Merged **PR #29** ships report v5 and **64 shared send slots with acknowledgement-driven reuse** for manual
+Principal and order-driven Principal/Income. Only delivered credit/refund-backed ACKs release slots; **16 unwind
+result entries** is a distinct bound. PR #25 resolves the shared-result encoder carry-over.
+
+**G-02, G-03, G-04, G-06 and G-07 remain accepted alpha limitations**, not implemented spec requirements:
+unconverted Open-exit Income rights need later collection; Gross Assets omits Income in flight; Spoke Cap uses
+return output; report lifetime is selectable; direct constructors allow recipient mismatch. G-01/DEC-145 is
+in PR #30, landing before the deploy. Final-SHA rehearsal and mainnet evidence remain unchecked release gates.
 
 ## Current implementation status: DEC-111..DEC-187
 
@@ -35,11 +54,11 @@ The older digest below is historical; this table and the current numeric paramet
 | DEC-114 | Management fee accrues as a liability, pays manager/protocol at closure. | implemented — accrual stops at Closing, final management payment/owed handling; PR #12, #21; L-2 rounding bound disclosed |
 | DEC-115 | Fee ceilings; later decisions fix performance floor and management cap. | implemented — `MandateLib`, `ManagerRegistry`, factory flow-fee bound; PR #3, #12; DEC-186 governs management |
 | DEC-116 | Canonical fee wallet name is Protocol Recipient. | implemented — `protocolRecipient` wiring and fee paths; PR #12 (retains existing rule) |
-| DEC-117 | Recognition while earned; holder entitlement independent of principal loss. | implemented — live recognition-time token cohorts, sealed sale intervals and Hub dollar index; PR #6, #18 via #23; DEC-145 deferred |
+| DEC-117 | Recognition while earned; holder entitlement independent of principal loss. | implemented — live recognition-time token cohorts, sealed sale intervals and Hub dollar index; PR #6, #18 via #23; DEC-145 in PR #30, landing before the deploy |
 | DEC-118 | Market Costs measured per sale; attribution differs by Payout mode. | implemented — per-sale Market Costs, Standard absorption up to 1%, excess to leaver/closing manager; PR #19/#23, #22, #21; reference residual remains |
 | DEC-119 | Flow fee is revenue, not an attack deterrent. | implemented — analysis rule; fee paths retained in PR #12; see security residuals |
 | DEC-120 | Instant-consistency orders, permissionless delivery/execution and subsequent payment; inactivity switch superseded by DEC-157. | implemented — authenticated orders, Hub/spoke unwind and permissionless consolidated payment; PR #19/#23, #22 via #21; no inactivity escape |
-| DEC-121 | Late closed-fund value goes to the garbage collector; refined by DEC-167. | implemented — closure event and frozen closedSupply/closedIdle; late Closed value outside Idle, sweepable; PR #21, ruling 2026-10-02 |
+| DEC-121 | Late closed-fund value goes to the garbage collector; refined by DEC-167. | implemented — closure event and frozen closedSupply/closedIdle; late Closed value outside Idle, sweepable; PR #21, #28 (closure/late-value conformance fixes), ruling 2026-10-02 |
 | DEC-122 | Recognize, collect and convert income across chains; token payout/conversion readings superseded by DEC-124/178. | implemented — Hub/spoke stablecoin collection, USDC Income Withdrawal, retained sale/refund identities; PR #18 via #23; gas reimbursement deferred |
 | DEC-123 | Reliable token pricing hierarchy, reject unpriceable assets. | partial — factory checks nonzero prices at creation; `ChainlinkPriceSource`, no spoke-carried fallback prices; PR #12 |
 | DEC-124 | Bridge in stablecoins; Income Withdrawal in dollars; gas-token exception. | partial — stablecoin bridge and USDC Income Withdrawal implemented PR #18/#23; native exception deferred |
@@ -56,21 +75,21 @@ The older digest below is historical; this table and the current numeric paramet
 | DEC-135 | Closure belongs in first version, returning remaining Operating Cash. | partial — closure/frozen exits and base-token Operating Cash return PR #21; native Operating Cash deferred |
 | DEC-136 | Closed token and swap-adapter lists; swaps separate from fund position pools. | implemented — manager, income and payout sales use Mandate swap adapter, direct discovery or signed V3 routes; PR #4, #7, #13, #19/#23; reference residual remains |
 | DEC-137 | Idle first, proportional automatic unwind, not Mandate priority. | implemented — proportional unwind, requester sale/bridge bounds, exclusions and current-size retries; PR #19/#23, #22/#21; ACK delivery reclaims spoke capacity |
-| DEC-138 | Recognition-time attribution, replacing collection-only code. | implemented — live recognition-time token cohorts, sealed sale intervals and Hub dollar index; PR #6, #18 via #23; DEC-145 deferred |
+| DEC-138 | Recognition-time attribution, replacing collection-only code. | implemented — live recognition-time token cohorts, sealed sale intervals and Hub dollar index; PR #6, #18 via #23; DEC-145 in PR #30, landing before the deploy |
 | DEC-139 | Automatic unwind reaches Hub and spokes in MVP. | implemented — authenticated orders, Hub/spoke unwind and permissionless consolidated payment; PR #19/#23, #22 via #21; no inactivity escape |
 | DEC-140 | Optional requester maximum loss, no protocol ceiling. | implemented — proportional unwind, requester sale/bridge bounds, exclusions and current-size retries; PR #19/#23, #22/#21; ACK delivery reclaims spoke capacity |
 | DEC-141 | Standard Payout fund absorption up to 1% per sale, excess to leaver. | implemented — per-sale Market Costs, Standard absorption up to 1%, excess to leaver/closing manager; PR #19/#23, #22, #21; reference residual remains |
 | DEC-142 | Manager maximum uses pool spot; signed API minimum can only tighten. | implemented — stricter output minimum in `UniswapV3SwapAdapter`; PR #4, #13 |
 | DEC-143 | Without signed API route the adapter, not caller, chooses a direct route. | implemented — manager, income and payout sales use Mandate swap adapter, direct discovery or signed V3 routes; PR #4, #7, #13, #19/#23; reference residual remains |
 | DEC-144 | Payout Fee stays in Idle; native Operating Cash funded by replenishment. | partial — Payout Fee in Idle; PR #3, #12; native replenishment deferred by ruling 2026-10-02 |
-| DEC-145 | Entry timestamp eligibility against report timestamp. | deferred — no entry-time filter; PR #6, #15 baseline; WP-14 deferred |
+| DEC-145 | Entry timestamp eligibility against report timestamp. | in PR #30, landing before the deploy — waiting lots, report timestamp eligibility and resumable settlement checkpoints; maximum-configuration peak 2.04M gas in the PR evidence, not on main |
 | DEC-146 | Manager base is half the peak manager share count. | implemented — peak tracking, request check and capped burn; PR #3; DEC-183 confirms reading |
-| DEC-147 | Explicit irreversible Closing state, refusal below manager base. | implemented — seed/base and irreversible closure, 72-hour manager window, frozen Closed exits without reports/Payout Fee; PR #3, #21 |
+| DEC-147 | Explicit irreversible Closing state, refusal below manager base. | implemented — seed/base and irreversible closure, 72-hour manager window, frozen Closed exits without reports/Payout Fee; PR #3, #21, #28 (B-01/B-02/B-03/G-05 fixes; alpha dust exception) |
 | DEC-148 | Exclude only positions whose sale exceeds requester maximum. | implemented — proportional unwind, requester sale/bridge bounds, exclusions and current-size retries; PR #19/#23, #22/#21; ACK delivery reclaims spoke capacity |
-| DEC-149 | Manager has 72 hours for closure, then anyone unwinds. | implemented — seed/base and irreversible closure, 72-hour manager window, frozen Closed exits without reports/Payout Fee; PR #3, #21 |
-| DEC-150 | Closed-fund exits immediate, no Payout Fee, flow fee retained. | implemented — seed/base and irreversible closure, 72-hour manager window, frozen Closed exits without reports/Payout Fee; PR #3, #21 |
+| DEC-149 | Manager has 72 hours for closure, then anyone unwinds. | implemented — seed/base and irreversible closure, 72-hour manager window, frozen Closed exits without reports/Payout Fee; PR #3, #21, #28 (B-01/B-02/B-03/G-05 fixes; alpha dust exception) |
+| DEC-150 | Closed-fund exits immediate, no Payout Fee, flow fee retained. | implemented — seed/base and irreversible closure, 72-hour manager window, frozen Closed exits without reports/Payout Fee; PR #3, #21, #28 (B-01/B-02/B-03/G-05 fixes; alpha dust exception) |
 | DEC-151 | Retries only for positions that have not delivered. | implemented — proportional unwind, requester sale/bridge bounds, exclusions and current-size retries; PR #19/#23, #22/#21; ACK delivery reclaims spoke capacity |
-| DEC-152 | Per-token recognition, dollar conversion at collection. | implemented — live recognition-time token cohorts, sealed sale intervals and Hub dollar index; PR #6, #18 via #23; DEC-145 deferred |
+| DEC-152 | Per-token recognition, dollar conversion at collection. | implemented — live recognition-time token cohorts, sealed sale intervals and Hub dollar index; PR #6, #18 via #23; DEC-145 in PR #30, landing before the deploy |
 | DEC-153 | On-chain direct V3 tier selection; API V3 split/multihop routes. | implemented — manager, income and payout sales use Mandate swap adapter, direct discovery or signed V3 routes; PR #4, #7, #13, #19/#23; reference residual remains |
 | DEC-154 | Standard Payout term fixed at 72 hours. | implemented — `STANDARD_PAYOUT_TERM`, removed Mandate term; PR #12 |
 | DEC-155 | Payout Fee cap 10%. | implemented — `MandateLib.MAX_PAYOUT_FEE_BPS = 1000`; PR #3 |
@@ -79,13 +98,13 @@ The older digest below is historical; this table and the current numeric paramet
 | DEC-158 | Send caller supplies no bridge economics. | implemented — adapter derives amounts/deadline, no exclusive relayer, rejects quote data; PR #2, #12, #13 |
 | DEC-159 | Publish report after every deposit. | partial — off-chain `/report/after-deposit` helper; no atomic deposit report; PR #9, #15 |
 | DEC-160 | Every mint and burn needs a fresh report. | implemented — operation-driven freshness and post-unwind report gates, no inactivity switch; PR #19/#23, #22/#21; silent spoke blocks fresh-report exits; DEC-163 Closed exception |
-| DEC-161 | Hub dollar index with collection-specific conversion rates. | implemented — live recognition-time token cohorts, sealed sale intervals and Hub dollar index; PR #6, #18 via #23; DEC-145 deferred |
+| DEC-161 | Hub dollar index with collection-specific conversion rates. | implemented — live recognition-time token cohorts, sealed sale intervals and Hub dollar index; PR #6, #18 via #23; DEC-145 in PR #30, landing before the deploy |
 | DEC-162 | Stateful bridge adapter fixes send terms and maintains fee rule. | implemented — `AcrossBridgeAdapter`, `BridgeFeeRule`; PR #2, #12, #13 |
-| DEC-163 | Closed exits use frozen Hub USDC split without reports. | implemented — seed/base and irreversible closure, 72-hour manager window, frozen Closed exits without reports/Payout Fee; PR #3, #21 |
+| DEC-163 | Closed exits use frozen Hub USDC split without reports. | implemented — seed/base and irreversible closure, 72-hour manager window, frozen Closed exits without reports/Payout Fee; PR #3, #21, #28 (B-01/B-02/B-03/G-05 fixes; alpha dust exception) |
 | DEC-164 | Only permissionless calls reimbursed in first version, not manager calls. | deferred — no gas refunds; PR #12 baseline; ruling 2026-10-02 |
 | DEC-165 | Refund caps: 0.5 gwei, 0.001 ETH/call and /day/vault, no minimum interval. | deferred — confirmed parameters, not code; PR #12 baseline; ruling 2026-10-02 |
 | DEC-166 | Fund pays Income Withdrawal collection and bridge. | partial — fund pays collection/bridge PR #18/#23; gas/message fees caller-funded, refunds deferred |
-| DEC-167 | Late Closed arrivals excluded from frozen split; event records closure. | implemented — closure event and frozen closedSupply/closedIdle; late Closed value outside Idle, sweepable; PR #21, ruling 2026-10-02 |
+| DEC-167 | Late Closed arrivals excluded from frozen split; event records closure. | implemented — closure event and frozen closedSupply/closedIdle; late Closed value outside Idle, sweepable; PR #21, #28 (closure/late-value conformance fixes), ruling 2026-10-02 |
 | DEC-168 | API-signed bridge fee within reference band, refined by DEC-176. | deferred — quote data rejected, no Across signer; PR #2, #12, #13; no signed fee in MVP |
 | DEC-169 | Across adapter has fixed 1% rate cap, not a Mandate cap. | implemented — `CAP_RATE`; PR #2, #12; fixed component is additional |
 | DEC-170 | Immutable factory API route signer, registry owner at deployment; later rotation/updater deferred. | partial — route signatures and default owner wired; PR #4, #12; registry ownership itself remains transferable |
@@ -101,7 +120,7 @@ The older digest below is historical; this table and the current numeric paramet
 | DEC-180 | Across adapter unwraps spoke gas WETH. | deferred — no gas-token bridge/unwrap path; PR #12 baseline; ruling 2026-10-02 |
 | DEC-181 | One shared registry with one record per manager. | implemented — `ManagerRegistry`, factory wiring; PR #12 |
 | DEC-182 | Performance 10–90%, management initially specified 0–10%; both in Mandate. | implemented — performance range; management superseded to 0–5% by DEC-186; PR #12 |
-| DEC-183 | Confirms manager capped burn, clock skew, extra Core libraries, own send notebook and failure-isolated replenishment. | partial — manager base, libraries and fee notebook live; PR #3, #10, #12; timestamp filter/replenishment deferred |
+| DEC-183 | Confirms manager capped burn, clock skew, extra Core libraries, own send notebook and failure-isolated replenishment. | partial — manager base, libraries and fee notebook live; PR #3, #10, #12; timestamp filter in PR #30, landing before the deploy; replenishment deferred |
 | DEC-184 | Fee bounds apply at creation in MVP; adjustable registry minimum removed. | implemented — performance 1000–9000 bps, management 0–500 by DEC-186, decrease-only; PR #12 |
 | DEC-185 | Spoke gas top-up over bridge required by spec. | deferred — explicit spec/schedule divergence: post-buildathon by ruling 2026-10-02; PR #12 baseline |
 | DEC-186 | Management fee cap 500 bps (5% annually), Slack-only, supersedes DEC-182/184's 10%. | implemented — `MandateLib.MAX_MANAGEMENT_FEE_BPS = 500`; PR #12 |
@@ -109,8 +128,9 @@ The older digest below is historical; this table and the current numeric paramet
 
 Work-package markers: **WP-09 proportional unwind — implemented #19 via #23; WP-10 income dollar index —
 implemented #18 via #23; WP-12 spoke orders — implemented #22 via #21; WP-13 closure — implemented #21.**
-Final end-to-end evidence awaits PR #24; native Operating Cash/refunds/gas top-up, signed bridge quotes and
-entry-time eligibility remain deferred. Implemented code is not a production deployment or public-readiness claim.
+Final lifecycle evidence is merged in PR #24; see the [MVP report](reports/2026-10-03-MVP-REPORT.md#7-end-to-end-flow-and-share-price-over-time).
+Native Operating Cash/refunds/gas top-up and signed bridge quotes remain deferred. DEC-145 is in PR #30, landing
+before the deploy. Implemented code is not a production deployment or public-readiness claim.
 
 ## Historical digest: DEC-001..DEC-110
 
@@ -367,14 +387,14 @@ Open items without an id in the register:
 | In-flight Value in Spoke Cap | amount sent (C1), until arrival / attested expiry / recognized refund | DEC-066 |
 | Spoke Cap | set by Manager in Mandate at creation; checked only on send | DEC-095 |
 | Minimum seed | manager's `minFirstDeposit`, script default 100 USDC, no protocol 100-USDC floor; later deposits need a whole share | DEC-127; PR #3 |
-| Operating Cash floor + top-up | Native design: sum <= 0.5 ETH per chain; deferred. Existing base-token bucket has no native cap; creation-script/harness defaults are 0 | DEC-130/144; ruling 2026-10-02; PR #12 |
+| Operating Cash floor + top-up | Native design: sum <= 0.5 ETH per chain; deferred. MVP floor/top-up enforced at 0 by PR #28; setters disabled | DEC-130/144; ruling 2026-10-02; PR #12 |
 | Protocol slice of manager fee | 500–5,000 bps (5–50%), default 50%; shared registry keyed by manager | DEC-112, DEC-181; PR #12 |
 | Protocol flow fee | 0.25% default on new funds, on deposit and on payout; cap 1% (core constant) | DEC-106, DEC-110 |
 | Performance fee | 1,000–9,000 bps (10–90%), manager chooses at creation, decrease-only | DEC-182/184; PR #12 |
-| Management fee | 0–500 bps annually (0–5%); accrues on Share Assets net of booked liability; closure payment not shipped | DEC-114/178/186; PR #12 |
+| Management fee | 0–500 bps annually (0–5%); accrues on Share Assets net of booked liability; closure payment shipped in PR #21 (manager/Protocol Recipient split before frozen exits) | DEC-114/178/186; PR #12 |
 | Manager fee mutability | may only decrease on a live fund | DEC-110 |
 | Manager base | `ceil(managerPeakShares / 2)`; checked at request, capped at burn | DEC-146/183; PR #3 |
-| Report lifetime | Mandate per spoke, at most 1 day; Robinhood alpha uses 1,588 s (1,587 + one block); payload v4 | DEC-128; PR #12, #15 |
+| Report lifetime | Mandate per spoke, at most 1 day; Robinhood alpha uses 1,588 s (1,587 + one block); payload v5 (#29) | DEC-128; PR #12, #15 |
 | Wormhole consistency | Reports finalized (202); orders instant (200); order lifetime 1 hour, engineering default | DEC-093/120; PR #5, #15 |
 | Across fee rule | Mean of own last 3 sends; initial 0.08%, floor 0.03%, rate cap 1%; plus 0.03 input-token units; x1.5 after expiry | DEC-169/177/183; PR #2 |
 | Optional swap maximum | 1–9,999 bps bounds loss; 0 or >=10,000 means unbounded; signed API minimum still applies | DEC-140/142/178; PR #4, #13 |

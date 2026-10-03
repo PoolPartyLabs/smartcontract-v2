@@ -1,6 +1,6 @@
 # Architecture: merged internal-alpha baseline
 
-Baseline: `main` at **`f88b25b`**, 2026-10-03, through PR #23 and PR #21 (including #22). Governing register: **DEC-001..DEC-187**;
+Baseline: `origin/main` at **`334eae6`**, October 3, 2026, including merged PR #24/#25/#26/#28/#29. Governing register: **DEC-001..DEC-187**;
 see [DECISIONS](DECISIONS.md) for implemented/partial/deferred status and
 [OPEN-QUESTIONS](OPEN-QUESTIONS.md) for plan divergences. This describes code already on main, not the end-state plan.
 
@@ -119,7 +119,7 @@ independently of dollar arrival. Partial/out-of-order arrivals and aged refunds/
 Credited dollars convert at the collection's own rate; performance fees split to ManagerFeeVault and Protocol
 Recipient, failed transfers become owed. `settleIncomeWithdrawal` completes a round; `withdrawIncome()` pays USDC
 without burning shares or flow/Payout Fee. Collection/bridge costs are fund-borne; gas/message fees externally funded.
-DEC-145 entry-time filtering remains deferred; reports that first recognize old income after entry remain a risk.
+DEC-145 is in PR #30, landing before the deploy; current main lacks this filter. See the pending-PR section below.
 
 `closeFund` irreversibly enters Closing and stops management accrual (WP-13, PR #21). Manager closure unwind has
 72 hours; afterward anyone calls `unwindAllAfterDeadline` to unwind Hub and publish CLOSE to spokes. Manual and
@@ -186,13 +186,14 @@ consistency 200 and a publish-time + 1-hour deadline. Guardian, Hub emitter, fun
 precede dispatch; consumed UNWIND/CLOSE ids also block fresh-sequence replay. Successful `executeOrder` invokes
 the linked executor and publishes a report. Capital travels only via Across, never Wormhole.
 
-Spoke unwind results/transit identities have capacity 16, a concurrency limit rather than lifetime-send cap.
+Spoke send-home transit identities share **64 slots**, a concurrency limit rather than lifetime-send cap.
+UNWIND/CLOSE result entries have a separate capacity of **16**.
 `acknowledgeSpokeTransit(spokeIndex, transitId)` is permissionless after full Principal credit or authenticated
 refund proof; delivering its targeted Hub ACKNOWLEDGE to spoke `executeOrder` retires the resolved identity.
-Hub credit alone does not reclaim capacity: sixteen undelivered acknowledgements can block later sends/exits.
+Hub credit alone does not reclaim capacity: sixty-four undelivered acknowledgements can block later sends/exits.
 Anyone can republish/deliver them; the keeper must service the queue. Elapsed time alone is not the Hub publisher's
-expiry proof. PR #21 review L-1: retirement uses `abi.encode(records)` rather than the shared
-`SpokeUnwindTypes.encodeResults(records)`; identical bytes today, but bypasses the size assertion (docs-only carry-over).
+expiry proof. PR #25 resolved review L-1: retirement uses the shared
+`SpokeUnwindTypes.encodeResults(records)` and its 416-byte size assertion, with a regression.
 
 `ReportCodec.VERSION = 5` extends the quantities/principal/income/cumulative counters/Mandate hash/transit payload
 with `bytes unwindResults`, `bytes collectionResults` and `bytes32[] refundedTransits`. The last field carries the
@@ -206,11 +207,26 @@ In-flight Value slot, and ignores repeat acknowledgements. Only unwind/CLOSE sen
 books; collection result ownership is unchanged. In the current base, the shared send-home capacity is 64 slots
 and manual `sendToHub` remains Principal-only: Income is sent by COLLECT orders. Neither limit nor permission changes.
 Reports use finalized consistency 202. Receiver checks the authenticated report; hooks are called for accepted reports,
-but they do not implement result settlement or the dollar index. Rebuild off-chain decoders against v5.
+and feed the implemented payout, closure and income settlement books. Rebuild off-chain decoders against v5.
 
 Reporting is permissionless/operation-driven. The API requests reports after deposits; Core deposit does not
 atomically publish a cross-chain report (DEC-159 remains partial). Freshness/post-unwind gates are live; Closed
 frozen exits are the DEC-163 exception. A replacement relayer can recover keeper downtime, not a spoke that never reports.
+
+### Final-main closure compliance and pending entry-time rule
+
+PR #28 gates Hub exposure by Core Fund State during Closing/Closed, enforces Operating Cash floor/top-up at 0
+and disables setters. Terminal spoke Principal/Income dust strictly below 0.50 base-token units is recorded and
+excluded from the ledger, leaving it permissionlessly sweepable; late Principal dust needs no second CLOSE.
+Closed recovery is checked before Idle credit, preserving the frozen split (B-01/B-02/B-03/G-05).
+See [CLOSURE-DUST](security/CLOSURE-DUST.md) for the accepted alpha exception to literal DEC-163.
+
+DEC-145 is **in PR #30, landing before the deploy**, not implemented on this measured main. Its waiting lots use
+report/deposit timestamps and resumable capture/payment/merge checkpoints with a shared 64-token-operation budget.
+Permissionless `settleHolderIncome(holder)` progresses settlement in Open/Closing/Closed; the PR reports a cold,
+maximum-configuration peak of **2,038,401 gas (2.04M)**. This is PR evidence, not a main-baseline measurement.
+G-02/G-03/G-04/G-06/G-07 remain accepted only for alpha; [KNOWN-LIMITATIONS](security/KNOWN-LIMITATIONS.md)
+is authoritative for their scope. WP-17 is deferred by Rafael.
 
 ## 7. Fees, management accrual and Operating Cash
 
@@ -232,9 +248,9 @@ old base and approximately 1M-USDC new base, the scale is about 0.01 USDC. This 
 The bound assumes positive old base; it is a local accrual-rounding bound, not a global loss bound. NatSpec is
 intentionally unchanged in this docs-only work package.
 
-The existing Operating Cash bucket remains **base token**, not native ETH, and has no native 0.5-ETH cap. Nothing
-spends it in this MVP. `CreateFund.s.sol` and the harness default floor/top-up to 0 (PR #12); this is not an enforced
-factory-wide zero setting, since managers can change existing parameters. Native Operating Cash, refunds and gas
+The legacy Operating Cash bucket remains **base token**, not native ETH. Nothing spends it in this MVP.
+PR #28 enforces floor/top-up at 0 in the Mandate, disables Core/spoke setters and makes internal hooks inert;
+this is enforcement, not merely creation-script/harness defaults. Native Operating Cash, refunds and gas
 bridge/unwrap are deferred by ruling 2026-10-02 despite DEC-185's MVP requirement. Manager pays own gas (DEC-187);
 keeper pays reporting/delivery/order gas. Bridge fees reduce delivered value.
 
@@ -245,8 +261,8 @@ adapter/factory version; deployment defaults ManagerRegistry owner to that signe
 and registry ownership can transfer. Signer compromise remains a permanent route-signing risk for those adapters.
 Guardian pause/deprecation is immutable adapter wiring, not a guarantee of safe manager execution.
 
-Accepted/unfinished risks, including manager swaps, spot-reference manipulation, stale reports, deferred entry-time
-eligibility and zero-default Operating Cash, are in [KNOWN-LIMITATIONS](security/KNOWN-LIMITATIONS.md).
+Accepted/unfinished risks, including manager swaps, spot-reference manipulation, stale reports and DEC-145
+in PR #30, landing before the deploy, are in [KNOWN-LIMITATIONS](security/KNOWN-LIMITATIONS.md).
 Public gates follow unit tests -> invariants -> formal verification -> independent audit (DEC-133/134).
 Run build/sizes, format, size completeness and all non-fork tests; fork suites are required when affected.
 CI runs one non-fork job and five isolated fork shards; the scenario shard exactly matches `_createForks()` callers.

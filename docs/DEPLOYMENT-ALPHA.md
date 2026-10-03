@@ -1,15 +1,19 @@
 # Internal alpha deployment — DEC-134
 
-Final rehearsal on **October 3, 2026**, against `main` `f88b25b` plus this PR's tooling fixes. Arbitrum One is the Hub Chain
+Current measured baseline: **October 3, 2026**, `origin/main` `334eae6`, including #24/#25/#26/#28/#29.
+DEC-145 is **in PR #30, landing before the deploy** (waiting lots/resumable checkpoints, reported max-config peak
+2.04M gas). Historical rehearsal sections below retain their original SHAs/counts; current tests and sizes are in
+the [founder report](reports/2026-10-03-MVP-REPORT.md). Arbitrum One is the Hub Chain
 (EVM 42161 / Wormhole 23); Robinhood Chain is the Spoke Chain (EVM 4663 / Wormhole 72).
 This is an operator runbook, **not authorization to broadcast on mainnet**. No mainnet deployment took place.
 
 ## Release gates
 
-1. Freeze an independently reviewed commit. All MVP unwind, income and closure contracts are merged in `f88b25b`.
-   This rehearsal adds COLLECT/CLOSE through the alpha runtime, capital arrival and Instant Payout; it does not
-   replace the full strategy/Standard Payout scenario. Re-run on the frozen commit: library addresses and creation
-   code hashes depend on the build.
+1. Land DEC-145 PR #30 and freeze an independently reviewed commit. Unwind/income/closure are merged, including
+   #28 conformance fixes and #29 report v5/all-kind acknowledgements. #24's full lifecycle and #29's integrated
+   replay are committed evidence, not a frozen post-#30 rehearsal. Re-run on the frozen commit: library addresses and creation
+   code hashes depend on the build. WP-17 is deferred by Rafael. G-02/G-03/G-04/G-06/G-07 remain accepted only
+   for alpha; see [KNOWN-LIMITATIONS](security/KNOWN-LIMITATIONS.md).
 2. Pass `bash script/alpha-safe.sh forge build --sizes`, `bash script/alpha-safe.sh forge fmt --check`, the size suite, all non-fork and all fork tests, and the final
    `local-e2e` scenario/API probe required by HANDOFF section 6. This branch's smoke is not that final scenario.
 3. Obtain Rafael's signed-off input sheet, maximum alpha exposure, funded wallets, incident contact and process
@@ -291,22 +295,22 @@ ManagerFeeVault. On the fresh sample: **24 hub + 11 spoke executable contract re
 CodeStores and one-use CREATE3 proxies are **raw assembly data/proxies**, not deployed Solidity `CodeStore` or
 `Create3` library artifacts: do not submit those artifact names to a verifier. Extraction records their raw
 creation bytes/address separately; retain these, codehashes and the checker-reassembled role hashes in the
-manifest. CodeStore runtime is STOP + data, up to 24,576 bytes (zero margin for a full chunk by design). CREATE3
+manifest. CodeStore runtime is STOP + data, up to 23,576 bytes with a 1,000-byte reserve enforced by #28. CREATE3
 proxy runtime is 24 bytes. TransitEscrow clones created later are EIP-1167 proxies: record implementation and
 clone links separately, not an implementation constructor at each clone address.
 
 ## Mainnet alpha keeper and API
 
-### Manual Principal returns blocked
+### Manual Principal returns and acknowledgement-driven reuse
 
-**October 3, 2026 release restriction:** do not call
-`SpokeVault.sendToHub(amount, Principal, bridgeRank)` manually. The manual send remains Sent after its Hub
-acknowledgement; its contract retirement fix is in progress. Cash arrival and Idle credit alone do not prove
-that the spoke record has retired. Manual Principal returns remain forbidden until that fix is independently
-reviewed, merged and retested on the frozen release. Use only reviewed order-driven Principal return paths,
-deliver their ACKs, and repeat terminal CLOSE after its ACK when required. An empty off-chain pending queue
-is not proof that every on-chain transit is terminal. See the
-[founder report](reports/2026-10-03-MVP-REPORT.md#open-manual-principal-acknowledgement-issue).
+**Merged PR #29 removes the Sent-after-ACK restriction.** Manual Principal and order-driven Principal/Income
+sends share **64 slots**, reused only after delivered credit/refund-backed acknowledgements. Report v5 carries
+authenticated refund proofs; **16 unwind result entries** is a separate bound. Manual Income stays forbidden:
+use COLLECT. Cash arrival, Hub credit, ACK publication or an empty local queue alone does not prove retirement.
+The alpha/harness keepers retain durable all-kind work until terminal spoke confirmation and retry/republish.
+Repeat terminal CLOSE after its ACK when required. Revalidate the deployed runtime/codec/slot release on the
+frozen post-#30 release; do not use the historical #20 runtime. See the
+[founder report](reports/2026-10-03-MVP-REPORT.md#manual-and-income-acknowledgements-merged-pr-29).
 
 Do **not** point `pnpm keeper` / `pnpm api` / `pnpm up` at mainnet: those paths use public Anvil actor keys, replace
 guardian sets, edit storage/fund accounts, simulate fills and update oracle state. Instead this branch adds a
@@ -593,7 +597,14 @@ fee, wait for CLOSE results and every return transfer, and only then `finalizeCl
 All mint/burn operations require synchronous pre/post reports. Inspect fees, received amounts and actual share
 balances; do not infer success from a transaction submission or from an unledgered token balance.
 
-### Final October 3 evidence
+### Historical October 3 rehearsal evidence (before #28/#29)
+
+The following round-specific counts, sizes and manual-send blocker describe their original commits, not current
+main. #28 now enforces zero Operating Cash, gated closure exposure, recorded/sweepable terminal dust strictly
+below 0.50, no Idle credit after Closed and the CodeStore reserve. #29 resolves manual/Income acknowledgement
+retirement. Current green bar: **1,548 non-fork / 190 suites; 227 fork / 57 suites; size 3/3**, build/format PASS.
+SpokeVault **22,907 B / 1,669 B margin**, CoreVaultPayoutLogic **22,547 / 2,029**, CoreVault **22,358 / 2,218**;
+no executable below 1,000-byte margin. See the report's complete freshly measured inventory.
 
 ### Round-2 corrections and fresh alpha-sized rehearsal (October 3, 2026)
 

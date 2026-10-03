@@ -12,11 +12,12 @@ recorded in the handoff; management cap is 500 bps (5%), manager pays own gas in
 
 ## Status
 
-Buildathon MVP, **internal-alpha code baseline `main` at `f88b25b` (2026-10-03)**. WP-09 proportional Hub
+Buildathon MVP, **internal-alpha code baseline `origin/main` at `334eae6` (October 3, 2026)**. WP-09 proportional Hub
 unwind and WP-10 live income dollar index landed via PR #23 (#19/#18); WP-12 spoke orders and WP-13 closure
 landed via PR #21 (including #22). PR #20 prepares/checks dual-chain deployment, not a production broadcast.
 No public-readiness claim: [founder MVP report](docs/reports/2026-10-03-MVP-REPORT.md) contains fresh tests,
-sizes, gas, reviews and release inputs. Final end-to-end transaction evidence awaits PR #24.
+sizes, gas, reviews and release inputs. PR #24’s completed lifecycle is merged; #28 closes the conformance
+blockers and #29 ships report v5/manual-send acknowledgements. DEC-145 is **in PR #30, landing before the deploy**.
 
 ## Scope of the buildathon MVP
 
@@ -25,7 +26,7 @@ sizes, gas, reviews and release inputs. Final end-to-end transaction evidence aw
 | Arbitrum One Hub, Robinhood Chain spoke; Across USDC/USDG | More spokes and CCTP routes | Borrowing, leverage, perps |
 | Uniswap V4 positions; Aave V3 supply-only on Arbitrum | External reward collectors | Share transfers between owners |
 | Mandate swap adapter: direct V3 discovery or signed split/multihop | V4/mixed API routes | V3 position adapter |
-| Finalized report v4; UNWIND, CLOSE, COLLECT, ACKNOWLEDGE orders | Multi-spoke report scheduling | ZK proofs of value |
+| Finalized report v5; UNWIND, CLOSE, COLLECT, ACKNOWLEDGE orders | Multi-spoke report scheduling | ZK proofs of value |
 | Deposit, allocate, report, proportional Hub/spoke payouts, USDC Income Withdrawal | Entry-time filter, signed bridge quotes | Auto-compounding |
 | Irreversible closure, final management payment and frozen Closed exits | Native Operating Cash, refunds, gas top-up | Solana / CCTP on Robinhood |
 
@@ -36,7 +37,8 @@ belongs to the leaver; closure excess belongs to the manager. Across fixes send 
 no signed bridge quote in MVP (DEC-176). Standard Payout Wormhole fees are caller-funded for now.
 A silent spoke blocks exits needing a fresh report (DEC-157/160); the keeper must deliver Hub acknowledgements
 to reclaim spoke send capacity (anyone may republish/deliver). Native Operating Cash/refunds/DEC-185 gas top-up
-are deferred by ruling 2026-10-02; creation defaults 0 are not enforcement. DEC-145 entry-time filter remains deferred.
+are deferred by ruling 2026-10-02; MVP Operating Cash is enforced at 0 by #28, setters disabled.
+DEC-145 is in PR #30, landing before the deploy (waiting lots, resumable checkpoints, reported max-config peak 2.04M gas).
 
 ## Layout
 
@@ -112,10 +114,10 @@ lenses) ran on 2026-09-30: 44 findings, 16 fixed with regression tests, 3 waitin
 acknowledged. An independent model-driven review and a verification plan (2026-09-30) were cross-checked against the
 code on 2026-10-01 (`docs/security/CROSS-CHECK-2026-10-01.md`; their proofs of concept run in `test/review/`).
 Historical sweep counts are not current release certification: S-8 is accepted by DEC-129; S-5's native cap and
-S-15's entry-time residual remain deferred despite implemented recognition cohorts.
-Fresh baseline: **1,432 non-fork tests / 183 suites; 222 fork tests / 56 suites; 3/3 size tests**
-(size suite included in non-fork total). Every production runtime fits 24,576 B; tightest SpokeUnwindLib is
-**23,473 B / 1,103 B margin**. Fresh complete sizes, per-suite counts and gas are in
+S-15’s DEC-145 entry-time rule is in PR #30, landing before the deploy; Operating Cash is enforced at 0 by #28.
+Fresh baseline: **1,548 non-fork tests / 190 suites; 227 fork tests / 57 suites; 3/3 size tests**
+(size suite included in non-fork total). Every production runtime fits 24,576 B; tightest SpokeVault is
+**22,907 B / 1,669 B margin**. Fresh complete sizes, per-suite counts and gas are in
 `docs/reports/2026-10-03-MVP-REPORT.md`; `docs/security/BASELINE-2026-10-02.md` is historical only. The
 Mandate fixes where a manager may trade and where tokens may go, not the price of a manager's trade
 (`docs/security/THREAT-MODEL.md`). Read `SECURITY.md` for the disclosure policy and `docs/security/` for the threat
