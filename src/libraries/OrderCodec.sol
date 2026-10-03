@@ -33,7 +33,7 @@ library OrderCodec {
     ///         DEC-124, DEC-161). The fraction is not read.
     uint8 internal constant COLLECT = 3;
 
-    /// @notice DEC-068/139: Hub acknowledgement of a resolved spoke Principal transit.
+    /// @notice DEC-066/068/139: Hub acknowledgement of a resolved spoke transit, Principal or Income, of any origin.
     uint8 internal constant ACKNOWLEDGE = 4;
 
     /// @notice Wormhole consistency level of an order: instant (DEC-120 item 1, DEC-111). Reports stay finalized

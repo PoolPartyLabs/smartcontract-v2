@@ -13,7 +13,6 @@ import {restampFeed} from "./price-feed.ts";
 import { safeConsole as console,logger} from "./log.ts";
 import {centerTick, openParams, generateFees} from "./uniswap.ts";
 import {alphaAmounts} from "./alpha-amounts.ts";
-import {collectAllowed} from "./alpha-work.ts";
 
 async function main() {
 const core = getAddress(process.env.ALPHA_CORE_VAULT!);
@@ -80,7 +79,9 @@ try {
   async function report() {
     const response = await fetch(`${apiUrl}/report`, {method: "POST", headers: {authorization: "Bearer local-rehearsal-only"}});
     assert.equal(response.status, 200, "API must publish and deliver report");
-    assert.equal((await response.json() as any).delivered, true);
+    const result = await response.json() as any;
+    assert.equal(result.delivered, true);
+    assert.equal(result.reportVersion, "5", "Alpha API must decode the v5 report");
   }
   await report();
   if (process.argv[2] === "close") {
@@ -132,15 +133,20 @@ try {
       const transit = await read<any>("robinhood", {address: spoke, abi: spokeVaultAbi, functionName: "hubBoundTransit", args: [transitLog.transitId]});
       return Number(transit.state) === 2;
     }, "durable keeper Principal acknowledgement");
+    const remainingTransits = await read<readonly string[]>("robinhood", {address: spoke, abi: spokeVaultAbi, functionName: "inFlightTransitIds"});
+    assert.ok(!remainingTransits.includes(transitLog.transitId), "Acknowledged manual send must free its shared slot");
+    const afterAcknowledgement = await read<any>("robinhood", {address: spoke, abi: spokeVaultAbi, functionName: "buildReport"});
+    assert.ok(!afterAcknowledgement.inFlightToHub.some((entry: any) => entry.transitId === transitLog.transitId));
     await waitFor(async () => !JSON.parse(readFileSync(environment.ALPHA_STATE_FILE, "utf8")).work.some((work: any) => work.transitId === transitLog.transitId), "resolved transit queue removal");
-    appendFileSync(evidence, JSON.stringify({functionName: "durableAcknowledgement", transitId: transitLog.transitId, returned: alphaAmounts.payout.toString()}) + "\n");
+    appendFileSync(evidence, JSON.stringify({functionName: "durableAcknowledgement", transitId: transitLog.transitId, returned: alphaAmounts.payout.toString(), slotFreed: true}) + "\n");
     }
     await transaction("arbitrum", core, coreVaultAbi, "requestPayout", [alphaAmounts.payout, 0, 100]);
     await report();
     const mandate = await read<any>("arbitrum", {address: core, abi: coreVaultAbi, functionName: "mandate"});
     const swapAdapter = mandate.swapAdapters.find((entry: any) => Number(entry.chainId) === 4663).adapter;
     const spokeV4 = mandate.pools.find((entry: any) => Number(entry.chainId) === 4663).adapter;
-    const half = deposit.outputAmount / 2n;
+    const remaining = await read<bigint>("robinhood", {address: spoke, abi: spokeVaultAbi, functionName: "unallocatedBalance", args: [ROBINHOOD.usdg]});
+    const half = remaining / 2n;
     const swapped = await transaction("robinhood", spoke, spokeVaultAbi, "swap", [swapAdapter, ROBINHOOD.usdg, ROBINHOOD.weth, half, 100, "0x"]);
     const weth = swapped.result as bigint;
     const center = await centerTick("robinhood", ROBINHOOD.v4StateView, SPOKE_POOL_ID);
@@ -152,7 +158,9 @@ try {
     const routerHash = await wallet("robinhood", "trader").deployContract({abi: v4SwapRouterAbi, bytecode: v4SwapRouterBytecode(), args: [ROBINHOOD.v4PoolManager]} as never);
     const router = (await nodes.robinhood.client.waitForTransactionReceipt({hash: routerHash})).contractAddress!;
     for (const token of [ROBINHOOD.usdg, ROBINHOOD.weth]) await send("robinhood", "trader", {address: token, abi: erc20Abi, functionName: "approve", args: [router, 2n ** 255n]});
-    await generateFees("robinhood", router, SPOKE_POOL_KEY, ROBINHOOD.v4StateView, SPOKE_POOL_ID, center, 1000);
+    for (let cycle = 0; cycle < 20; cycle++) {
+      await generateFees("robinhood", router, SPOKE_POOL_KEY, ROBINHOOD.v4StateView, SPOKE_POOL_ID, center, 1000);
+    }
     const hub = getAddress(process.env.ALPHA_HUB_SPOKE_VAULT!);
     const aave = mandate.pools.find((entry: any) => entry.poolKey.toLowerCase() === AAVE_USDC_POOL_KEY.toLowerCase()).adapter;
     await transaction("arbitrum", core, coreVaultAbi, "allocateToHubSpokeVault", [alphaAmounts.aave]);
@@ -178,24 +186,17 @@ try {
       return deposits.length > 0 || collection.pendingSpokes === 0n;
     }, "COLLECT deposit or authenticated empty result");
     const incomeLogs = await nodes.robinhood.client.getLogs({address: ROBINHOOD.acrossSpokePool, event: depositEvent, fromBlock: spokePoolHead});
-    if (incomeLogs.length) await fill((incomeLogs[0] as any).args, "robinhood", core, coreVaultAbi, "TransitReceived");
-    else {
-      const retained = await read<bigint>("robinhood", {address: spoke, abi: spokeVaultAbi, functionName: "collectedIncome", args: [ROBINHOOD.usdg]});
-      const adapter = mandate.bridgeAdapters.find((entry: any) => Number(entry.chainId) === 4663).adapter;
-      let arrival = 0n, errorName = "", quoteError: unknown;
-      try {
-        const quoted = await read<any>("robinhood", {address: adapter, abi: parseAbi(["function quoteSend(address,uint256,uint256,bytes) view returns (uint256,uint256)", "error FeeNotBelowAmount(uint256 fee,uint256 amount)"]), functionName: "quoteSend", args: [ROBINHOOD.usdg, 42161n, retained, "0x"]});
-        arrival = quoted[0];
-      } catch (error: any) {
-        const decoded = error.walk?.((entry: any) => entry?.data?.errorName)?.data;
-        errorName = decoded?.errorName ?? "quote reverted";
-        quoteError = decoded?.args;
-      }
-      assert.ok(retained > 0n, "Unbridgeable income remains in the bucket");
-      assert.equal(collectAllowed(retained, alphaAmounts.collectMinimum, arrival), false);
-      appendFileSync(evidence, JSON.stringify({functionName: "retainedDust", retained: retained.toString(), minimum: alphaAmounts.collectMinimum.toString(), quotedArrival: arrival.toString(), errorName, quoteError}, (_, value) => typeof value === "bigint" ? value.toString() : value) + "\n");
-      const gated = await fetch(`${apiUrl}/income`, {method: "POST", headers: {authorization: "Bearer local-rehearsal-only"}});
-      assert.equal(gated.status, 409, "Runtime must not publish another dust COLLECT");
+    assert.ok(incomeLogs.length > 0, "Repeated real LP trades must produce bridgeable Income for the ACK regression");
+    if (incomeLogs.length) {
+      await fill((incomeLogs[0] as any).args, "robinhood", core, coreVaultAbi, "TransitReceived");
+      const sent = await nodes.robinhood.client.getLogs({address: spoke, event: spokeVaultAbi.find((entry: any) => entry.name === "SentToHub") as any, fromBlock: spokePoolHead});
+      const incomeTransit = (sent as any[]).find((entry) => Number(entry.args.transit.kind) === 1);
+      assert.ok(incomeTransit, "COLLECT must emit an Income transit");
+      const transitId = incomeTransit.args.transitId;
+      await waitFor(async () => Number((await read<any>("robinhood", {address: spoke, abi: spokeVaultAbi, functionName: "hubBoundTransit", args: [transitId]})).state) === 2, "COLLECT Income acknowledgement confirmed on the spoke");
+      assert.ok(!(await read<readonly string[]>("robinhood", {address: spoke, abi: spokeVaultAbi, functionName: "inFlightTransitIds"})).includes(transitId));
+      await waitFor(async () => !JSON.parse(readFileSync(environment.ALPHA_STATE_FILE, "utf8")).work.some((work: any) => work.transitId === transitId), "COLLECT Income durable queue removal");
+      appendFileSync(evidence, JSON.stringify({functionName: "incomeAcknowledgement", transitId, slotFreed: true}) + "\n");
     }
     await report();
     await waitFor(async () => {

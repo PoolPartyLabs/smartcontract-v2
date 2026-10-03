@@ -8,11 +8,12 @@
 // Usage: pnpm run up [--warm-up scenario|none]
 // (`pnpm up` is pnpm's own `update` command; the script needs `pnpm run up`.)
 import { spawn } from "node:child_process";
+import {existsSync, readFileSync, rmSync, writeFileSync} from "node:fs";
 import { join } from "node:path";
 import { encodeDeployData, encodeFunctionData, type Address, type Hex } from "viem";
 import { acrossSpokePoolAbi, forgeArtifact, v4SwapRouterAbi, v4SwapRouterBytecode, wormholeCoreAbi } from "./abis.ts";
 import { anvil, deploy, explain, nodes, nodesUp, rpc, type Side } from "./chain.ts";
-import { ARBITRUM, HARNESS_DIR, ROBINHOOD, SWAP_ADAPTER_TOKENS, actors, guardian, isMain } from "./config.ts";
+import { ARBITRUM, HARNESS_DIR, ROBINHOOD, STATE_DIR, SWAP_ADAPTER_TOKENS, actors, guardian, isMain } from "./config.ts";
 import { createFund, deployFactory, forgeBuild, protocolRoles } from "./deploy.ts";
 import { discoverLayouts, discoverMappingSlot, fundAccounts, mappingSlot, storageRead } from "./fund-accounts.ts";
 import { CORES, WORMHOLE_SEQUENCES_SLOT, overrideBothCores, selfTest } from "./guardian.ts";
@@ -209,6 +210,8 @@ async function warmUpCaches(log: Logger): Promise<void> {
     robinhood: (await nodes.robinhood.client.getBlockNumber()) + 1n,
   };
   const snapshots = { arbitrum: await anvil.snapshot("arbitrum"), robinhood: await anvil.snapshot("robinhood") };
+  const transitFile = join(STATE_DIR, "pending-transits.json");
+  const transitSnapshot = existsSync(transitFile) ? readFileSync(transitFile) : undefined;
   let failure: unknown;
   try {
     const result = await runScenario({ keeper: "inprocess", newFund: false, quiet: true, report: false }, logger("warm-up", true));
@@ -228,6 +231,8 @@ async function warmUpCaches(log: Logger): Promise<void> {
   for (const side of ["arbitrum", "robinhood"] as const) {
     if (!(await anvil.revert(side, snapshots[side]))) throw new Error(`could not revert the ${side} snapshot`);
   }
+  if (transitSnapshot) writeFileSync(transitFile, transitSnapshot);
+  else rmSync(transitFile, {force: true});
   for (const side of ["arbitrum", "robinhood"] as const) {
     const reads = await reread(side, touched[side]);
     log.info("fork cache re-filled", { chain: nodes[side].chain.id, contracts: touched[side].size, reads });

@@ -10,6 +10,11 @@ It is a developer tool for the API and frontend teams (and for anyone who wants 
 production code. Everything the contracts talk to is the real mainnet contract as of the fork block; only the off-chain
 actors are simulated.
 
+Reports use `ReportCodec` v5, including the authenticated `refundedTransits` proof. The harness and alpha runtimes
+decode published payloads through `src/spoke-report.ts`, using the exported `SpokeVault.buildReport` tuple; older
+payload versions are rejected. Regenerate ABIs with `pnpm abis` after contract changes. The full scenario and
+`script/rehearse-alpha.sh` both prove a manual `sendToHub` is acknowledged and leaves its shared in-flight slot.
+
 ## Prerequisites
 
 - Foundry 1.7+ (`anvil`, `forge`) on the `PATH`: <https://getfoundry.sh>

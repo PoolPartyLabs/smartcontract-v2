@@ -602,6 +602,11 @@
             "name": "collectionResults",
             "type": "bytes",
             "internalType": "bytes"
+          },
+          {
+            "name": "refundedTransits",
+            "type": "bytes32[]",
+            "internalType": "bytes32[]"
           }
         ]
       }

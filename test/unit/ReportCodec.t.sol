@@ -64,6 +64,8 @@ contract ReportCodecTest is Test {
         r.inFlightToHub[0] = ReportCodec.HubBoundAmount(keccak256("t2"), 999e6, TransferKind.Income);
         r.unwindResults = abi.encode(keccak256("order-1"), uint256(1457), uint256(10_000));
         r.collectionResults = hex"c011ec7ed0";
+        r.refundedTransits = new bytes32[](1);
+        r.refundedTransits[0] = keccak256("manual refund");
     }
 
     function _assertSame(ReportCodec.Report memory a, ReportCodec.Report memory b) internal pure {
@@ -84,18 +86,16 @@ contract ReportCodecTest is Test {
         assertEq(d.collectionResults, hex"c011ec7ed0", "WP-07 D3: the collection results travel as they are");
     }
 
-    /// @dev WP-07 D3: version 4 appends the two opaque order-result fields after `inFlightToHub`; every field before
-    ///      them keeps its place in the head, and empty results cost two empty `bytes`.
-    function test_WP07D3_versionFourCarriesTheOrderResults() public view {
-        assertEq(ReportCodec.VERSION, 4);
+    /// @dev DEC-066/093: version 5 appends origin-independent refund proof after the order results.
+    function test_DEC066_versionFiveCarriesOrderResultsAndRefunds() public view {
+        assertEq(ReportCodec.VERSION, 5);
         ReportCodec.Report memory r;
         bytes memory payload = h.encode(r);
-        // Version word, the report's offset, its 17-word head (15 fields of version 3 plus the two results), then the
-        // tails: 6 empty arrays and 2 empty `bytes`, one length word each.
-        assertEq(payload.length, 32 * (2 + 17 + 8));
+        assertEq(payload.length, 32 * (2 + 18 + 9));
         ReportCodec.Report memory d = h.decode(payload);
         assertEq(d.unwindResults.length, 0);
         assertEq(d.collectionResults.length, 0);
+        assertEq(d.refundedTransits.length, 0);
     }
 
     /// @dev Results of any length travel unchanged, whatever their encoding (opaque to the codec).
@@ -129,8 +129,11 @@ contract ReportCodecTest is Test {
         payload = abi.encode(uint256(3), _sample());
         vm.expectRevert(abi.encodeWithSelector(ReportCodec.UnsupportedReportVersion.selector, 3));
         h.decode(payload);
-        payload = abi.encode(uint256(5), _sample());
-        vm.expectRevert(abi.encodeWithSelector(ReportCodec.UnsupportedReportVersion.selector, 5));
+        payload = abi.encode(uint256(4), _sample());
+        vm.expectRevert(abi.encodeWithSelector(ReportCodec.UnsupportedReportVersion.selector, 4));
+        h.decode(payload);
+        payload = abi.encode(uint256(6), _sample());
+        vm.expectRevert(abi.encodeWithSelector(ReportCodec.UnsupportedReportVersion.selector, 6));
         h.decode(payload);
         payload = abi.encode(uint256(0), _sample());
         vm.expectRevert(abi.encodeWithSelector(ReportCodec.UnsupportedReportVersion.selector, 0));

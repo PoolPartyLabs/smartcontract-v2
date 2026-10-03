@@ -157,7 +157,7 @@ Capital travels USDC/USDG. Per-send TransitEscrow receives origin refunds; anyon
 vault checks. Reports reconcile arrival totals and hub-bound ids. Refund timing research observed 57–99 minutes
 after fill deadline (2026-10-02 sample), not an SLA; retention is separate from immediate deliverability.
 
-## 6. Wormhole orders and report v4
+## 6. Wormhole orders and report v5
 
 `OrderCodec` v1 encodes UNWIND, CLOSE or COLLECT, fund id, request id, attempt, deadline, fraction, maximum and Payout
 mode (320-byte static payload). Order id hashes kind/fund/request/attempt. Publishing uses instant consistency 200
@@ -170,10 +170,19 @@ older/replayed orders rejected. Retry completion is not implemented merely becau
 the transaction rolls back its cursor. It cannot unwind, collect, or close today. The successful-dispatch report/event
 path and `OrderPublished` declaration are foundations only. **WP-12 spoke orders — in progress.**
 
-`ReportCodec.VERSION = 4` extends the quantities/principal/income/cumulative counters/Mandate hash/transit payload
-with `bytes unwindResults` and `bytes collectionResults`; these book blobs are empty on the baseline.
+`ReportCodec.VERSION = 5` extends the quantities/principal/income/cumulative counters/Mandate hash/transit payload
+with `bytes unwindResults`, `bytes collectionResults` and `bytes32[] refundedTransits`. The last field carries the
+last 256 locally recognized send-home refunds, including manual sends (DEC-066/093). It is authenticated by the
+same report channel; silence or elapsed time is not refund proof. Off-chain report decoders must use v5; earlier
+versions are rejected. The refund ring is informational and never credits a Hub bucket.
+
+`acknowledgeSpokeTransit` publishes an ACKNOWLEDGE order only after the Hub has fully credited the listed amount
+(Principal or Income), or accepted explicit refund proof. The spoke resolves any origin, immediately removes its
+In-flight Value slot, and ignores repeat acknowledgements. Only unwind/CLOSE sends update unwind result and retry
+books; collection result ownership is unchanged. In the current base, the shared send-home capacity is 64 slots
+and manual `sendToHub` remains Principal-only: Income is sent by COLLECT orders. Neither limit nor permission changes.
 Reports use finalized consistency 202. Receiver checks the authenticated report; hooks are called for accepted reports,
-but they do not implement result settlement or the dollar index. Rebuild off-chain decoders against v4; v3 payloads fail.
+but they do not implement result settlement or the dollar index. Rebuild off-chain decoders against v5.
 
 Reporting is permissionless and the API helper requests reports after deposits; Core deposit itself does not atomically
 publish a new report. Burn-wide DEC-160 freshness is unfinished. No inactivity switch exists (DEC-157).
