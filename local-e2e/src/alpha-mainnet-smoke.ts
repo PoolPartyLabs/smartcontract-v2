@@ -7,10 +7,11 @@ import {ARBITRUM, ROBINHOOD, actors, guardian} from "./config.ts";
 import {alphaAmounts} from "./alpha-amounts.ts";
 import {collectAllowed} from "./alpha-work.ts";
 import {parseAbi} from "viem";
+import {AlphaTransactions, reconcileAlphaTransactions, sendAlphaTransaction} from "./alpha-transactions.ts";
 
 async function main() {
   const mode = process.argv[2];
-  assert.ok(["capital", "income", "closure"].includes(mode!));
+  assert.ok(["capital", "income", "closure", "reconcile"].includes(mode!));
   const account = privateKeyToAccount(process.env.ALPHA_MANAGER_KEY as Hex);
   assert.equal(account.address, getAddress(process.env.MANAGER!));
   assert.ok(![...Object.values(actors), guardian].some((entry) => entry.address === account.address), "Public test keys refused");
@@ -20,6 +21,7 @@ async function main() {
   const directory = process.env.ALPHA_RECORD_DIR!;
   assert.ok(directory);
   mkdirSync(directory, {recursive: true});
+  const transactions = new AlphaTransactions(`${directory}/continuation-state.jsonl`);
   const chains = Object.fromEntries((["hub", "spoke"] as const).map((side) => {
     const id = side === "hub" ? 42161 : 4663;
     const rpc = process.env[side === "hub" ? "ARBITRUM_RPC_URL" : "ROBINHOOD_RPC_URL"]!;
@@ -30,16 +32,23 @@ async function main() {
     assert.equal(await node.client.getChainId(), side === "hub" ? 42161 : 4663);
     assert.ok(!/anvil/i.test(await node.client.request({method: "web3_clientVersion"})));
   }
+  if (mode === "reconcile") {
+    const entries = await reconcileAlphaTransactions(transactions, (entry) =>
+      chains[entry.side]!.client.getTransactionReceipt({hash: entry.hash}));
+    for (const {side, functionName, hash, status, receiptOutcome} of entries) console.log(JSON.stringify({side, functionName, hash, status, receiptOutcome}));
+    assert.ok(entries.every((entry) => entry.status === "success"), "Unresolved or reverted transactions: inspect chain state; no writes were sent");
+    return;
+  }
+  transactions.assertFreshMode(mode!);
   const record = (value: unknown) => appendFileSync(`${directory}/continuation.jsonl`, JSON.stringify(value, (_, entry) => typeof entry === "bigint" ? entry.toString() : entry) + "\n");
   const read = (side: string, address: Address, abi: Abi, functionName: string, args: unknown[] = []): Promise<any> =>
     chains[side]!.client.readContract({address, abi, functionName, args} as never);
   async function send(side: string, address: Address, abi: Abi, functionName: string, args: unknown[] = [], value = 0n) {
     const node = chains[side]!;
     const {request} = await node.client.simulateContract({account, address, abi, functionName, args, value} as never);
-    const hash = await node.wallet.writeContract(request as never);
-    const receipt = await node.client.waitForTransactionReceipt({hash});
-    assert.equal(receipt.status, "success");
-    record({side, functionName, hash, gasUsed: receipt.gasUsed});
+    const receipt = await sendAlphaTransaction(transactions, {mode: mode!, side, address, functionName},
+      () => node.wallet.writeContract(request as never), (hash) => node.client.waitForTransactionReceipt({hash}));
+    record({side, functionName, hash: receipt.transactionHash, gasUsed: receipt.gasUsed});
     return receipt;
   }
   async function wait(check: () => Promise<boolean>, label: string) {

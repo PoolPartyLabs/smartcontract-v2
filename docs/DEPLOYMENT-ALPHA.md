@@ -364,7 +364,10 @@ rotation needs new factory/fund deployment (DEC-170).
 After release gates, explorer coverage and a real VAA report pass, execute from the worktree root in **Bash**.
 Keep the keeper/API running under the supervisor. This authorized one-time continuation is not an automatic
 retry script. It refuses Anvil/public keys and contains no storage funding, guardian override or simulated fills.
-Failures retain receipts: reconcile submitted transactions before retrying.
+Every broadcast hash is appended and fsynced to `continuation-state.jsonl` **before** receipt polling.
+Polling failures retain `status: submitted` with an unknown receipt outcome; successful and reverted receipts
+are persisted too. A phase with prior broadcasts refuses to run again, even if all receipts succeeded.
+Reconcile from saved hashes without sending any transactions before planning an explicit recovery.
 
 ```bash
 . /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
@@ -380,6 +383,23 @@ bash script/alpha-safe.sh pnpm --dir local-e2e exec tsx src/alpha-mainnet-smoke.
 bash script/alpha-safe.sh pnpm --dir local-e2e exec tsx src/alpha-mainnet-smoke.ts closure
 unset ALPHA_MANAGER_KEY
 ```
+
+On interruption, use the same record directory, chain configuration and authorized manager identity:
+
+```bash
+. /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
+read -r -s -p 'Authorized manager key: ' ALPHA_MANAGER_KEY; printf '\n'; export ALPHA_MANAGER_KEY
+trap 'unset ALPHA_MANAGER_KEY' EXIT
+bash script/alpha-safe.sh pnpm --dir local-e2e exec tsx src/alpha-mainnet-smoke.ts reconcile
+unset ALPHA_MANAGER_KEY
+```
+
+`reconcile` loads `continuation-state.jsonl` and queries each submitted hash on its recorded chain. It saves
+success/revert outcomes, retains unknown/pending hashes on RPC errors or missing receipts, prints hash/status
+records and exits nonzero if any remain unresolved or reverted. It never broadcasts or resubmits. Do not delete
+or replace this state file to bypass the phase guard: receipt success alone does not prove relay delivery or
+settlement. Inspect the saved receipts, full relay data and vault state, then authorize only the missing steps
+as a separate recovery operation. This is receipt reconciliation, not automatic workflow replay.
 
 `capital` derives the Mandate bridge adapter, fetches live Across min/max/fee terms, calls `quoteSend`, checks
 the adapter fee covers current terms, simulates every write, deposits 5 USDC, sends 5 USDC, waits for exact
@@ -405,7 +425,8 @@ permissionless exit against `shares * closedIdle / closedSupply` and the frozen 
 it asserts zero remaining supply/Idle and never divides by zero or attempts a second manager payout. Mainnet time is never manipulated. Retained
 dust/unsettled positions can block finalization: report the failing call, do not claim successful closure.
 
-Writes, quotes and fill assertions go to `$ALPHA_RECORD_DIR/continuation.jsonl`; durable queues remain in
+Quotes, confirmed receipts and fill assertions go to `$ALPHA_RECORD_DIR/continuation.jsonl`; every broadcast
+and receipt outcome goes to the durable `$ALPHA_RECORD_DIR/continuation-state.jsonl`. Keeper queues remain in
 `$ALPHA_STATE_FILE`. Never delete queues to clear timeouts. Close this sample only with explicit approval.
 
 ## Post-deployment smoke (mainnet)
