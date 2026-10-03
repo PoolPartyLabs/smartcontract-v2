@@ -138,8 +138,10 @@ Margins are against 24,576 bytes. No margin is below 1,000; tightest is SpokeUnw
 3. Undelivered acknowledgements retain send capacity; 16 pending records block later sends.
    The keeper must publish/deliver acknowledgements; anyone can republish them. A report made
    stale by an intentional harness warp is skipped in favor of the next fresh report.
-4. The PR remains stacked on `feat/pp-sc-feat-fund-closure` as explicitly requested, not retargeted
-   to main. HTTP tests validate builders/status; the scenario executes lifecycle verbs directly
+4. Work started stacked on `feat/pp-sc-feat-fund-closure` as requested. PR #21 merged at
+   October 2, 2026 23:45:08 UTC; GitHub automatically retargeted PR #24 to main. Parent
+   `0146fb3` is an ancestor of `origin/main` (`f88b25b`); this agent merged neither PR.
+   HTTP tests validate builders/status; the scenario executes lifecycle verbs directly
    through JSON-RPC, not a second full lifecycle through HTTP.
 5. Operating Cash, native gas refunds and spoke gas top-up remain deferred by ruling
    October 2, 2026; DEC-187 gas stays manager/keeper-paid. DEC-157/160: a permanently
