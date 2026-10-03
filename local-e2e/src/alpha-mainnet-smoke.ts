@@ -173,6 +173,12 @@ async function main() {
     for (const entry of returns.filter((entry) => Number(entry.args.transit.kind) === 0)) {
       await wait(async () => Number((await read("spoke", spoke, spokeVaultAbi, "hubBoundTransit", [entry.args.transitId])).state) === 2, "Principal acknowledgement delivered by durable keeper");
     }
+    await send("hub", core, coreVaultAbi, "requestIncomeWithdrawal", [100], await fee());
+    await wait(async () => {
+      const collection = await read("hub", core, coreVaultAbi, "incomeCollection");
+      return collection.pendingSpokes === 0n && collection.openResults === 0n;
+    }, "final closure Income collection");
+    await report();
     await send("hub", core, coreVaultAbi, "finalizeClosure");
     assert.equal(Number(await read("hub", core, coreVaultAbi, "fundState")), 2);
     const supply = await read("hub", core, coreVaultAbi, "closedSupply");
