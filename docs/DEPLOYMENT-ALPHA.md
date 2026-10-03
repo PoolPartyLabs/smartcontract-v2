@@ -62,9 +62,9 @@ empty `REGISTRY_OWNER` is not an unset variable: `unset REGISTRY_OWNER` to use `
 | `MANAGER`; manager keystore | Only the wallet that creates the first (smoke-test) fund, not a deployment manager list or registration input. Same address signs hub and spoke creation. Holds hub USDC seed and ETH on both chains. Manager pays own gas (DEC-187). |
 | `PERFORMANCE_FEE_BPS` | Manager-selected 1,000..9,000 inclusive (10..90%); default 2,000. |
 | `MANAGEMENT_FEE_BPS` | Annual manager-selected 0..500 inclusive (0..5%); default 0, DEC-186. |
-| `SPOKE_CAP` | Maximum spoke principal including In-flight Value, in hub USDC base units (6 decimals); default `10000000000` = 10,000 USDC. Not a fund-wide TVL cap. |
+| `SPOKE_CAP` | Maximum spoke principal including In-flight Value, in hub USDC base units (6 decimals); set `100000000` = 100 USDC for alpha. Not a fund-wide TVL cap. |
 | `SEED_AMOUNT` | Creation seed budget in USDC base units; defaults to `MIN_FIRST_DEPOSIT`. Must meet that minimum. Whole-share rounding means actual charged amount can be lower than budget; inspect receipt. |
-| `MIN_FIRST_DEPOSIT` | Minimum first deposit/seed budget, USDC base units; default `100000000` = 100 USDC. Later deposits still need at least one whole share after fees. |
+| `MIN_FIRST_DEPOSIT` | Minimum first deposit/seed budget, USDC base units; set `2000000` = 2 USDC for alpha. Later deposits still need at least one whole share after fees. |
 | `SPOKE_OPERATING_CASH_FLOOR`, `SPOKE_OPERATING_CASH_TOP_UP` | Both **0**, USDG base units; hub has no Operating Cash Mandate entry and also starts at 0. |
 | `HUB_POOL_TOKEN0`, `HUB_POOL_TOKEN1` | Ordered Uniswap V4 token addresses; defaults Arbitrum WETH `0x82aF49447D8a07e3bd95BD0d56f35241523fBab1` / USDC `0xaf88d065e77c8cC2239327C5EDb3A432268e5831`. |
 | `HUB_POOL_FEE`, `HUB_POOL_TICK_SPACING` | V4 fee in hundredths of a basis point / positive int24 spacing; defaults 500 / 10 (0.05%). |
@@ -89,7 +89,7 @@ position is opened. The selected pools are investment venues, not swap venues (s
 | `FUND_FACTORY` | Copy the identical factory address from the two successful deployment logs. Required for creation/checking. |
 | `CREATION_NUMBER`, `MANDATE_HASH` | Copy exactly from hub `FundCreated` / CreateFund output, not a spoke's `nextCreationNumber`. Checker requires both. |
 | `ARBITRUM_FORK_BLOCK`, `ROBINHOOD_FORK_BLOCK` | Helper pins 511007613 / 78293056 for this rehearsal. Optional helper `*_FORK_BLOCK_OVERRIDE` selects different archive pins. |
-| `FOUNDRY_BROADCAST` | Optional private deployment-record directory, separate for each immutable release. Do not stage raw broadcasts/caches. |
+| `FOUNDRY_BROADCAST` | Required absolute private deployment-record directory, defined before deployment; separate for each immutable release. Do not stage raw broadcasts/caches. |
 | `ALPHA_CORE_VAULT`, `ALPHA_SPOKE_VAULT` | Actual hub Core Vault / actual Robinhood Spoke Vault; not the hub's Spoke Vault. |
 | `ALPHA_REPORT_RECEIVER`, `ALPHA_SHARE_TOKEN` | Hub receiver / ShareToken from the hub creation record. |
 | `ALPHA_HUB_START_BLOCK`, `ALPHA_SPOKE_START_BLOCK` | Inclusive scanning start blocks, normally respective fund-creation blocks. Never start after an undelivered order/report. |
@@ -118,6 +118,10 @@ Run from the release worktree root. Keep operator and manager keystores separate
 twice on a chain after success: registry/price-source/stores are CREATE deployments, and the fixed factory CREATE3
 salt is already occupied. A failed broadcast needs receipt-by-receipt reconciliation, not a blind rerun.
 
+Every Foundry command uses `bash script/alpha-safe.sh`: stdout **and** stderr are redacted before display,
+command substitution or disk logging, preserving failure status. URL userinfo, paths, queries and fragments are
+removed. Never enable shell tracing or bypass the wrapper for private RPCs.
+
 ```bash
 bash script/alpha-safe.sh forge build --sizes
 bash script/alpha-safe.sh forge fmt --check
@@ -133,6 +137,13 @@ Then load Rafael's approved nonsecret inputs into the shell explicitly, and unlo
 
 ```bash
 . /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
+export ALPHA_RECORD_DIR="$PWD/local-e2e/.state/mainnet-$(git rev-parse --short HEAD)"
+export FOUNDRY_BROADCAST="$ALPHA_RECORD_DIR/broadcast"
+mkdir -p "$FOUNDRY_BROADCAST"
+chmod 700 "$ALPHA_RECORD_DIR"
+export MIN_FIRST_DEPOSIT=2000000 SEED_AMOUNT=5000000 SPOKE_CAP=100000000
+export ALPHA_DEPOSIT_AMOUNT=5000000 ALPHA_SEND_AMOUNT=5000000 ALPHA_PAYOUT_AMOUNT=1000000
+export ALPHA_AAVE_AMOUNT=1000000 ALPHA_INVESTOR_DEPOSIT=2000000 ALPHA_MIN_COLLECT_USDC=500000
 test "$(bash script/alpha-safe.sh cast chain-id --rpc-url "$ARBITRUM_RPC_URL")" = 42161
 test "$(bash script/alpha-safe.sh cast chain-id --rpc-url "$ROBINHOOD_RPC_URL")" = 4663
 bash script/alpha-safe.sh cast balance "$DEPLOYER_ADDRESS" --rpc-url "$ARBITRUM_RPC_URL"
@@ -151,8 +162,11 @@ themselves differ across chains because their salts include the chain id.
 
 ```bash
 . /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
-bash script/alpha-safe.sh forge script script/DeployFactory.s.sol --rpc-url "$ARBITRUM_RPC_URL" --account alpha-operator --sender "$DEPLOYER_ADDRESS" --broadcast --slow
-bash script/alpha-safe.sh forge script script/DeployFactory.s.sol --rpc-url "$ROBINHOOD_RPC_URL" --account alpha-operator --sender "$DEPLOYER_ADDRESS" --broadcast --slow
+bash script/alpha-safe.sh forge script script/DeployFactory.s.sol --rpc-url "$ARBITRUM_RPC_URL" --account alpha-operator --sender "$DEPLOYER_ADDRESS" --broadcast --slow > alpha-deploy-hub.log
+bash script/alpha-safe.sh forge script script/DeployFactory.s.sol --rpc-url "$ROBINHOOD_RPC_URL" --account alpha-operator --sender "$DEPLOYER_ADDRESS" --broadcast --slow > alpha-deploy-spoke.log
+export FUND_FACTORY=$(sed -n 's/^  FundFactory //p' alpha-deploy-hub.log | tail -1)
+test -n "$FUND_FACTORY"
+test "$FUND_FACTORY" = "$(sed -n 's/^  FundFactory //p' alpha-deploy-spoke.log | tail -1)"
 ```
 
 On each chain: wiring validation; hub-only ManagerRegistry and ChainlinkPriceSource; deterministic Create3Deployer;
@@ -176,7 +190,15 @@ advance it between simulation and broadcast. Do not assume number 1.
 . /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
 bash script/alpha-safe.sh cast call "$FUND_FACTORY" 'nextCreationNumber()(uint256)' --rpc-url "$ARBITRUM_RPC_URL"
 bash script/alpha-safe.sh forge script script/CreateFund.s.sol --rpc-url "$ARBITRUM_RPC_URL" --sender "$MANAGER"
-bash script/alpha-safe.sh forge script script/CreateFund.s.sol --rpc-url "$ARBITRUM_RPC_URL" --account alpha-manager --sender "$MANAGER" --broadcast --slow
+bash script/alpha-safe.sh forge script script/CreateFund.s.sol --rpc-url "$ARBITRUM_RPC_URL" --account alpha-manager --sender "$MANAGER" --broadcast --slow > alpha-create-hub.log
+export CREATION_NUMBER=$(sed -n 's/^  CREATION_NUMBER //p' alpha-create-hub.log)
+export MANDATE_HASH=$(sed -n '/^  MANDATE_HASH/{n;s/^  //;p;}' alpha-create-hub.log)
+export ALPHA_CORE_VAULT=$(sed -n 's/^  Core Vault //p' alpha-create-hub.log)
+export ALPHA_SPOKE_VAULT=$(sed -n 's/^  Robinhood Spoke Vault (predicted) //p' alpha-create-hub.log)
+export ALPHA_REPORT_RECEIVER=$(sed -n 's/^  ValueReportReceiver //p' alpha-create-hub.log)
+export ALPHA_SHARE_TOKEN=$(sed -n 's/^  ShareToken //p' alpha-create-hub.log)
+export ALPHA_HUB_SPOKE_VAULT=$(sed -n 's/^  hub Spoke Vault //p' alpha-create-hub.log)
+test -n "$CREATION_NUMBER" && test -n "$MANDATE_HASH" && test -n "$ALPHA_CORE_VAULT"
 ```
 
 CreateFund approves the seed and creates the fund; no separate factory allowance transaction is needed. Copy
@@ -186,7 +208,10 @@ and use **exactly the same pool/fee/cap/minimum/Operating Cash inputs** on Robin
 ```bash
 . /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
 bash script/alpha-safe.sh forge script script/CreateFund.s.sol --rpc-url "$ROBINHOOD_RPC_URL" --sender "$MANAGER"
-bash script/alpha-safe.sh forge script script/CreateFund.s.sol --rpc-url "$ROBINHOOD_RPC_URL" --account alpha-manager --sender "$MANAGER" --broadcast --slow
+bash script/alpha-safe.sh forge script script/CreateFund.s.sol --rpc-url "$ROBINHOOD_RPC_URL" --account alpha-manager --sender "$MANAGER" --broadcast --slow > alpha-create-spoke.log
+export ALPHA_HUB_START_BLOCK=$(jq -r '[.receipts[].blockNumber | if startswith("0x") then .[2:] | explode | reduce .[] as $char (0; . * 16 + (if $char >= 97 then $char - 87 else $char - 48 end)) else tonumber end] | min' "$FOUNDRY_BROADCAST/CreateFund.s.sol/42161/run-latest.json")
+export ALPHA_SPOKE_START_BLOCK=$(jq -r '[.receipts[].blockNumber | if startswith("0x") then .[2:] | explode | reduce .[] as $char (0; . * 16 + (if $char >= 97 then $char - 87 else $char - 48 end)) else tonumber end] | min' "$FOUNDRY_BROADCAST/CreateFund.s.sol/4663/run-latest.json")
+export ALPHA_STATE_FILE="$ALPHA_RECORD_DIR/keeper.json"
 bash script/alpha-safe.sh forge script script/CheckAlphaDeployment.s.sol --rpc-url "$ARBITRUM_RPC_URL"
 bash script/alpha-safe.sh forge script script/CheckAlphaDeployment.s.sol --rpc-url "$ROBINHOOD_RPC_URL"
 ```
@@ -239,31 +264,29 @@ Extract exact constructor bytes from Forge's retained creation traces, including
 deployments (no guessing constructor arguments of contracts created through proxies):
 
 ```bash
+export ALPHA_LIBRARIES=$(bash script/alpha-safe.sh node script/alpha-libraries.mjs alpha-deploy-hub.log)
 node script/alpha-verification.mjs "$FOUNDRY_BROADCAST/DeployFactory.s.sol/42161/run-latest.json" "$FOUNDRY_BROADCAST/CreateFund.s.sol/42161/run-latest.json" > alpha-hub-verification.json
 node script/alpha-verification.mjs "$FOUNDRY_BROADCAST/DeployFactory.s.sol/4663/run-latest.json" "$FOUNDRY_BROADCAST/CreateFund.s.sol/4663/run-latest.json" > alpha-spoke-verification.json
 node --test script/alpha-verification.test.mjs
 ```
 
-For each record with `contract`, set `ADDRESS`, `CONTRACT`, `CTOR_ARGS` from that record and a Bash `LINK_ARGS`
-array from its `libraries` list (one `--libraries "src/path.sol:Name:0x..."` pair per link). Unlinked contracts use
-an empty array; libraries with no constructor use `CTOR_ARGS=0x`:
+Run the complete verification loop for both chains. It derives address/artifact/constructor bytes and every nested
+link from the inventories, orders libraries before dependants, refuses unknown/missing records and requires
+successful verified status, not merely a GUID:
 
 ```bash
-bash script/alpha-safe.sh forge verify-contract "$ADDRESS" "$CONTRACT" --chain-id 42161 --verifier etherscan --etherscan-api-key "$ARBISCAN_API_KEY" --compiler-version v0.8.28+commit.7893614a --num-of-optimizations 800 --constructor-args "$CTOR_ARGS" "${LINK_ARGS[@]}" --watch
-bash script/alpha-safe.sh forge verify-contract "$ADDRESS" "$CONTRACT" --chain-id 4663 --verifier blockscout --verifier-url 'https://robinhoodchain.blockscout.com/api/' --compiler-version v0.8.28+commit.7893614a --num-of-optimizations 800 --constructor-args "$CTOR_ARGS" "${LINK_ARGS[@]}" --watch
+bash script/alpha-safe.sh node script/alpha-verify-all.mjs 42161 alpha-hub-verification.json "$ALPHA_RECORD_DIR/verified-hub"
+bash script/alpha-safe.sh node script/alpha-verify-all.mjs 4663 alpha-spoke-verification.json "$ALPHA_RECORD_DIR/verified-spoke"
+jq -e '.verified | length == 24' "$ALPHA_RECORD_DIR/verified-hub/coverage.json"
+jq -e '.verified | length == 11' "$ALPHA_RECORD_DIR/verified-spoke/coverage.json"
 ```
 
-Execute only the command for the record's chain. Check successful verified status on the explorer, not only a
-submission GUID. Save the linked-library map and verification receipts with the deployment record. If Blockscout
-rejects ABI argument flags, use its standard-JSON browser verifier with the exact linked settings:
-
-```bash
-bash script/alpha-safe.sh forge verify-contract "$ADDRESS" "$CONTRACT" --chain-id 4663 "${LINK_ARGS[@]}" --show-standard-json-input > alpha-standard-input.json
-```
+Save inventories, the public linked-library map and per-address redacted verification receipts. A rejection is a
+release-blocking failure; do not mark coverage complete using only a submission or a browser upload.
 
 Coverage inventory: Create3Deployer, all applicable linked libraries, ManagerRegistry, ChainlinkPriceSource,
 FundFactory, TransitEscrow implementation, hub and spoke adapters/vaults, ValueReportReceiver, ShareToken and
-ManagerFeeVault. On the sample: **21 hub + 10 spoke executable contract records**.
+ManagerFeeVault. On the fresh sample: **24 hub + 11 spoke executable contract records**.
 
 CodeStores and one-use CREATE3 proxies are **raw assembly data/proxies**, not deployed Solidity `CodeStore` or
 `Create3` library artifacts: do not submit those artifact names to a verifier. Extraction records their raw
@@ -286,9 +309,12 @@ The explicit `ALPHA_REHEARSAL_LOCAL_VAA=1` test mode dynamically loads the local
 clients as loopback Anvil and requires `ALPHA_ALLOW_LOCAL_TEST_KEYS=1`. Only that mode scans latest rather than
 finalized blocks: a pinned Anvil fork otherwise remains 64 blocks behind and cannot discover new orders.
 Production always uses finalized blocks and the HTTPS VAA service. Keep both test flags unset in production.
-The keeper delivers already-published acknowledgements, but does **not** publish them automatically. Operators
-must call `acknowledgeSpokeTransit(spokeIndex,transitId)` after Principal is fully credited/refunded and let the
-keeper deliver it; 16 unacknowledged spoke Principal sends can block subsequent exits (DEC-068/139/151).
+The keeper persists every `SentToHub` before advancing the scanned cursor and retries uncredited transits and
+pending acknowledgement messages every poll with exponential backoff capped at 60 seconds, including after a
+restart or temporary RPC/send failure. After authenticated Principal credit it publishes
+`acknowledgeSpokeTransit(0,transitId)` and retains work until the Spoke Vault confirms resolution. Income work
+resolves only after authenticated credit; late/unlisted recovery and refunds still require incident handling.
+Sixteen undelivered Principal acknowledgements can still block exits; monitor the durable queues (DEC-068/139/151).
 
 Install with the frozen lockfile; type-check; export the nonsecret runtime variables from the actual deployment.
 Inject only the key required by the process (hidden prompt below is **Bash**, not zsh):
@@ -333,6 +359,55 @@ reports **before and after** mint/burn; API signer doubles as registry owner by 
 Registry ownership can be transferred by its contract but this does not rotate immutable route signers. API
 rotation needs new factory/fund deployment (DEC-170).
 
+## Executable spoke, income and closure continuation
+
+After release gates, explorer coverage and a real VAA report pass, execute from the worktree root in **Bash**.
+Keep the keeper/API running under the supervisor. This authorized one-time continuation is not an automatic
+retry script. It refuses Anvil/public keys and contains no storage funding, guardian override or simulated fills.
+Failures retain receipts: reconcile submitted transactions before retrying.
+
+```bash
+. /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
+unset ALPHA_ALLOW_LOCAL_TEST_KEYS ALPHA_REHEARSAL_LOCAL_VAA
+test -n "$ALPHA_RECORD_DIR" && test -n "$ALPHA_CORE_VAULT" && test -n "$ALPHA_SPOKE_VAULT"
+read -r -s -p 'Authorized manager key: ' ALPHA_MANAGER_KEY; printf '\n'; export ALPHA_MANAGER_KEY
+trap 'unset ALPHA_MANAGER_KEY' EXIT
+export ALPHA_DEPOSIT_AMOUNT=5000000 ALPHA_SEND_AMOUNT=5000000 ALPHA_PAYOUT_AMOUNT=1000000
+export ALPHA_MIN_COLLECT_USDC=500000
+bash script/alpha-safe.sh pnpm --dir local-e2e exec tsx src/alpha-mainnet-smoke.ts capital
+bash script/alpha-safe.sh pnpm --dir local-e2e exec tsx src/alpha-mainnet-smoke.ts income
+# Irreversible: execute only after approval to close this smoke fund.
+bash script/alpha-safe.sh pnpm --dir local-e2e exec tsx src/alpha-mainnet-smoke.ts closure
+unset ALPHA_MANAGER_KEY
+```
+
+`capital` derives the Mandate bridge adapter, fetches live Across min/max/fee terms, calls `quoteSend`, checks
+the adapter fee covers current terms, simulates every write, deposits 5 USDC, sends 5 USDC, waits for exact
+`FilledRelay` matching (chains/id, all relay fields/message hash), asserts the vault arrival/confirmed transit,
+and requests a 1 USDC Instant Payout with fresh reports. Unavailable routes, missing terms or insufficient
+immutable adapter fees are **STOP** conditions: no caller may widen fees.
+
+`income` collects real open-position income without adding capital. Below `ALPHA_MIN_COLLECT_USDC`
+(default **500000 = 0.50 USDC**) it defers COLLECT and retains income. Above it, it checks current route/fee
+terms, reads the payable Wormhole fee, publishes COLLECT, matches the real fill, waits for
+`pendingSpokes == 0 && openResults == 0`, then settles the manager's Income Withdrawal. Deferred income is
+expected at alpha size. Retry only this stage as income accrues, never repeat capital to manufacture income.
+Runtime `/income` uses the same conservative base-only minimum/positive-quote gate, but requests for the API
+signer (the transaction caller), not the manager; use the CLI for manager income. Non-base income must first
+be converted into base; the runtime does not estimate it as bridgeable dollars. Operator live route checks
+remain required: an adapter quote does not prove relayer acceptance. Income is not requested autonomously.
+
+`closure` reads the message fee, calls `closeFund`, then the manager calls `unwindAllAfterDeadline` immediately
+(only non-managers wait 72 hours). It waits for CLOSE execution, full return-fill matches and durable keeper
+Principal acknowledgements, delivers a fresh report, finalizes, asserts Closed and the manager's automatic
+payment/burn. If other holders remain, set `ALPHA_EXIT_HOLDER` to the approved investor address: it checks that
+permissionless exit against `shares * closedIdle / closedSupply` and the frozen supply. With manager-only supply,
+it asserts zero remaining supply/Idle and never divides by zero or attempts a second manager payout. Mainnet time is never manipulated. Retained
+dust/unsettled positions can block finalization: report the failing call, do not claim successful closure.
+
+Writes, quotes and fill assertions go to `$ALPHA_RECORD_DIR/continuation.jsonl`; durable queues remain in
+`$ALPHA_STATE_FILE`. Never delete queues to clear timeouts. Close this sample only with explicit approval.
+
 ## Post-deployment smoke (mainnet)
 
 Do not use `alpha:rehearsal` on mainnet. Use small Pool Party wallet balances and actual release addresses.
@@ -340,7 +415,8 @@ The seed exists already. Keep funds in Idle; no investment/bridge allocation unt
 
 1. Start keeper/API. Call `/report`, wait for `delivered: true`; confirm receiver sequence and a live price source.
 2. Use manager wallet for a tiny **2 USDC budget** deposit; a 1 USDC budget fails `DepositBelowOneShare` at the
-   initial Share Price after the 25 bps flow fee. A new shareholder's first deposit must meet the Mandate minimum.
+   initial Share Price after the 25 bps flow fee. Only the fund seed/first deposit must meet the Mandate minimum;
+   subsequent deposits, including a new investor's, need at least one whole share after fees.
 3. Call `/report` immediately after deposit. Check minted shares, actual USDC debit, flow fee to Protocol Recipient,
    Idle, Share Assets, Share Price, Operating Cash zero and receiver sequence. Do not assume budget = charged amount.
 4. Call `/report` again immediately before a 1 USDC Instant Payout; keep manager holdings well above half its peak
@@ -353,7 +429,7 @@ The seed exists already. Keep funds in Idle; no investment/bridge allocation unt
 Example calls (Bash; keep bearer token out of process command arguments by passing curl config on stdin):
 
 ```bash
-printf 'header = "Authorization: Bearer %s"\n' "$ALPHA_API_TOKEN" | curl --config - --fail-with-body -X POST "http://127.0.0.1:${ALPHA_API_PORT:-8787}/report"
+printf 'header = "Authorization: Bearer %s"\n' "$ALPHA_API_TOKEN" | bash script/alpha-safe.sh curl --config - --fail-with-body -X POST "http://127.0.0.1:${ALPHA_API_PORT:-8787}/report"
 . /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
 bash script/alpha-safe.sh cast send 0xaf88d065e77c8cC2239327C5EDb3A432268e5831 'approve(address,uint256)' "$ALPHA_CORE_VAULT" 2000000 --account alpha-manager --rpc-url "$ARBITRUM_RPC_URL"
 bash script/alpha-safe.sh cast call "$ALPHA_CORE_VAULT" 'deposit(uint256,uint256)' 2000000 1 --from "$MANAGER" --rpc-url "$ARBITRUM_RPC_URL"
@@ -449,19 +525,19 @@ node --test script/alpha-verification.test.mjs
 
 The expanded smoke sequence is exact in `script/rehearse-alpha.sh` and `local-e2e/src/alpha-final-smoke.ts`:
 
-1. Give the throwaway manager 1,000 fork USDC; deploy both factories with the same operator and all three salts;
-   create the 100 USDC seed fund on the Hub, then its Spoke Vault using the emitted creation number/Mandate hash.
-2. Run both on-chain checkers, approve/deposit a 500 USDC budget, and start the alpha API/keeper in guarded local
+1. Fund only two parameterized 5 USDC seeds and one 5 USDC deposit on the fork; deploy both factories and
+   create the fund (minimum 2 USDC, Spoke Cap 100 USDC) and its Spoke Vault.
+2. Run both on-chain checkers, approve/deposit a 5 USDC budget, and start the alpha API/keeper in guarded local
    VAA mode. `/report` publishes and delivers before and after the 1 USDC Instant Payout.
-3. Send 300 USDC to the spoke; fill through the real Across SpokePool with fork-funded relayer inventory;
+3. Send 5 USDC to the spoke; fill through the real Across SpokePool with fork-funded relayer inventory;
    match `FilledRelay` to the exact origin deposit and `TransitArrived`, then deliver the arrival report.
 4. Swap half the spoke allocation through V3; open its Mandate V4 position; a fork-funded third-party trader
-   moves the real V4 pool to earn fees. Allocate 20 USDC on the Hub and supply the Mandate Aave reserve.
+   moves the real V4 pool to earn fees. Allocate 1 USDC on the Hub and supply the Mandate Aave reserve.
 5. Advance both clocks one day and re-stamp the fork oracle; collect real Aave interest; request Income Withdrawal
    with `maxLossBps=100`. The alpha keeper delivers COLLECT, the Spoke Vault sells fees and sends Income through
-   Across. Fill the real return relay, match `TransitReceived`, deliver the result report, wait for zero pending
-   spokes/open results, and settle the manager's positive Attributed Income.
-6. Create a second 100 USDC seed fund on both chains. Ana deposits a 2 USDC budget, producing one whole share.
+   Across when bridgeable. At alpha size assert an authenticated empty result, retained dust and runtime
+   deferral instead of waiting for a nonexistent deposit; settle the positive Hub Attributed Income.
+6. Create a second 5 USDC seed fund on both chains. Ana deposits a 2 USDC budget, producing one whole share.
    Start a separate alpha runtime/cursor for this fund; `closeFund`, advance past `closingDeadline`, re-stamp
    the fork oracle, `unwindAllAfterDeadline`, deliver CLOSE and its report, `finalizeClosure`, then permissionlessly
    `exitClosedFund(Ana)`. The manager is already paid/burned by finalization; the frozen `closedSupply` remains
@@ -486,6 +562,53 @@ All mint/burn operations require synchronous pre/post reports. Inspect fees, rec
 balances; do not infer success from a transaction submission or from an unledgered token balance.
 
 ### Final October 3 evidence
+
+### Round-1 corrections and alpha-sized evidence (October 3, 2026)
+
+Baseline now includes `origin/main` `2b04b28` (shared result encoder). Default rehearsal parameters are
+minimum **2 USDC**, seed **5 USDC**, Spoke Cap **100 USDC**, additional deposit **5 USDC**, send **5 USDC**,
+Aave allocation **1 USDC**, Instant Payout **1 USDC**, and second-fund investor deposit **2 USDC**.
+All are environment parameters with conservative upper bounds; trader inventory/pool tick movement are
+synthetic fork-only fee generation, not alpha investor exposure. The larger historical run below is not the
+current release rehearsal and does not establish live acceptance of small Income sends.
+
+**Root cause of the alpha COLLECT timeout:** the execution succeeds with an empty result, not a bridge failure.
+After fee collection/sale, retained base income is **2594 units = 0.002594 USDG**. Direct call to the deployed
+spoke Across adapter `quoteSend(USDG,42161,2594,0x)` reverts with
+**`FeeNotBelowAmount(30003,2594)`**: the adapter's fixed 0.03 USDG fee plus rounded variable fee exceeds
+the entire income. `SpokeIncomeLib._bridgeable` catches this; `_sendResult` emits an empty collection result
+and preserves `unsentBase`/the collected income bucket. No `FundsDeposited` exists to fill. Thus the original
+timeout is caused by the smoke's unconditional deposit wait, not a relayer failing to fill or a proven universal
+Across 0.50 minimum. `ALPHA_MIN_COLLECT_USDC=500000` is a conservative **operator-configured floor**, not
+a hard-coded claim about current Across limits; fetch actual route terms at execution time. Runtime `/income`
+returns 409/deferred below that floor or on a nonpositive/reverting quote. The alpha smoke deliberately exercises
+one dust COLLECT directly to prove contract retention, then proves the runtime will defer a repeat.
+
+Default end-to-end smoke passes: 5 USDC send / **4.966000 USDG** real fork relay arrival, 1 USDC Instant Payout,
+V3 swap/V4 position, 1 USDC Aave supply, authenticated empty COLLECT/retained dust, **80 units = 0.000080 USDC**
+Attributed Income settlement, second alpha fund CLOSE/finalization/frozen exit, API 5 checks and durable keeper
+startup. No larger synthetic return was needed or filled to claim alpha success.
+
+**Additional contract-behaviour blocker (not changed in `src/`):** an optional
+`ALPHA_MANUAL_ACK_PROBE=1 bash script/rehearse-alpha.sh` sends 1 USDG using manual `sendToHub(1000000,Principal,0)`.
+It proves durable queue retention before the later real fill. The Hub subsequently credits 969200 units;
+`acknowledgeSpokeTransit(0,0x58dc2f195c2b26eb1f9a533e9531292de0c6950e307250845e494ccabc517476)` succeeds
+in transaction `0xd1049abe1c15d9cde3e4c5863c6f5bcaf1e4526ea13bf1eb27cbba526ac95a87` (210123 gas).
+Spoke `executeOrder(ACKNOWLEDGE VAA)` succeeds in
+`0xa17e08db7a68468abfca808a672ecfefff47f6ddc285d3e3d604788ce8ee79fe` (218685 gas), but the transit stays Sent.
+`SpokeUnwindLib.acknowledge` returns early when `s.unwind.transitRequest[transitId] == 0`; manual `sendToHub`
+does not populate that unwind mapping. The probe fails precisely at `Timed out: durable keeper Principal acknowledgement`.
+The runtime keeps this work pending and retries; it does not falsely mark it resolved. This is a separate
+contract limitation requiring an independently reviewed source fix, **not** the alpha COLLECT root cause.
+Do not use manual Principal returns on mainnet alpha; the CLOSE/UNWIND-owned path has its request mapping.
+Default capital/income/second-fund-closure rehearsal does not use this unsupported manual acknowledgement path.
+
+All production sizes match merged main: Core Vault **22862 / 1714 margin**, Spoke Vault **22887 / 1689**, tightest
+SpokeUnwindLib **23449 / 1127**. No executable margin below 1000; full CodeStore data chunks intentionally reach
+24576. Green bar: size **3/3**, non-fork **1433/1433 (183 suites)**, fork **222/222 (56 suites)**, alpha tests **8/8**,
+verification tooling **2/2**, URL cases **8/8** including failing stdout/stderr/real synthetic cast, TypeScript and
+format/build checks pass. Inventories recognize **24 hub / 11 spoke**, zero unknown. Mainnet broadcast/explorer
+submission/real guardian and relayer gates remain unexecuted and explicit.
 
 **PASS on fresh forks; no mainnet broadcasts.** Source baseline `f88b25b`, Solidity 0.8.28, optimizer 800,
 Cancun, no via-IR. Ports 18745/18746 (API 18787); archive pins 511007613/78293056.
