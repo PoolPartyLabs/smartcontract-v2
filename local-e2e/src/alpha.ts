@@ -14,6 +14,7 @@ import {actors, guardian} from "./config.ts";
 import {createAlphaDelivery, drainAlphaPending, type AlphaMessage} from "./alpha-relay.ts";
 import {collectAllowed, createAlphaTransitResolver, drainAlphaWork, type AlphaWork} from "./alpha-work.ts";
 import {decodeSpokeReport, SPOKE_REPORT_VERSION} from "./spoke-report.ts";
+import {alphaLogRange, scanAlphaLogs} from "./alpha-logs.ts";
 
 function required(name: string): string {
   const value = process.env[name];
@@ -35,6 +36,7 @@ const receiver = getAddress(required("ALPHA_REPORT_RECEIVER"));
 const share = getAddress(required("ALPHA_SHARE_TOKEN"));
 const stateFile = resolve(process.env.ALPHA_STATE_FILE ?? ".state/alpha-keeper.json");
 const pollMs = Number(process.env.ALPHA_POLL_MS ?? "5000");
+const logRange = alphaLogRange(process.env.ALPHA_LOG_RANGE);
 const reportSeconds = Number(process.env.ALPHA_REPORT_SECONDS ?? "300");
 const collectMinimum = BigInt(process.env.ALPHA_MIN_COLLECT_USDC ?? "500000");
 if (collectMinimum < 500000n) throw new Error("COLLECT minimum must be at least 0.50 USDC");
@@ -172,11 +174,9 @@ async function publish(): Promise<Message> {
 
 async function keeperTick() {
   let balanceChanged = false;
-  for (const side of ["hub", "spoke"] as const) {
-    const fromBlock = BigInt(cursor[side]);
-    const head = (await nodes[side].client.getBlock({blockTag: process.env.ALPHA_REHEARSAL_LOCAL_VAA === "1" ? "latest" : "finalized"})).number!;
-    if (fromBlock > head) continue;
-    const toBlock = fromBlock + 999n < head ? fromBlock + 999n : head;
+  await scanAlphaLogs({sides: ["hub", "spoke"] as const, cursor, range: logRange, deadline: Date.now() + 20000,
+    head: async (side) => (await nodes[side].client.getBlock({blockTag: process.env.ALPHA_REHEARSAL_LOCAL_VAA === "1" ? "latest" : "finalized"})).number!,
+    save, scan: async (side, {fromBlock, toBlock}) => {
     const logs = await nodes[side].client.getLogs({address: bridges[side], event: wormholeCoreAbi.find((item: any) => item.type === "event") as any, fromBlock, toBlock});
     for (const log of logs as any[]) {
       if (getAddress(log.args.sender) === sides[side].emitter && !cursor.pending.some((entry) => entry.side === side && entry.sequence === log.args.sequence.toString())) {
@@ -194,9 +194,7 @@ async function keeperTick() {
           kind: Number(log.args.transit.kind), expected: log.args.transit.amountToArrive.toString(), attempts: 0, retryAt: 0});
       }
     }
-    cursor[side] = (toBlock + 1n).toString();
-    save();
-  }
+  }});
   if (balanceChanged || Date.now() - cursor.lastReport >= reportSeconds * 1000) {
     await publish();
     cursor.lastReport = Date.now();
