@@ -169,6 +169,11 @@ interface ICoreVaultIncome {
     /// @dev No Payout Fee, no flow fee (DEC-075, DEC-113). A transfer that fails is owed (`IncomeTransferOwed`).
     function settleIncomeWithdrawal(address shareholder) external returns (uint256 amount);
 
+    /// @notice DEC-145, DEC-161: anyone may persist bounded settlement progress for a holder in any fund state.
+    /// @dev Returns false until complete. Call repeatedly before an Income Withdrawal, Payout burn, closed-fund exit
+    ///      or closure finalization whose balance hook needs historical settlement. No collection request is required.
+    function settleHolderIncome(address shareholder) external returns (bool complete);
+
     /// @notice Pays the caller every settled dollar of Attributed Income in USDC now, without waiting for a collection
     ///         (DEC-117 item 4). No Payout Fee, no flow fee.
     /// @dev DEC-145: a history exceeding the bounded settlement budget returns zero and persists progress. Repeat

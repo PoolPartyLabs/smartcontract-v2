@@ -95,6 +95,14 @@ library CoreVaultIncomeLogic {
         return _pay(s, w, holder);
     }
 
+    /// @notice DEC-145, DEC-161: permissionless checkpointing without a collection request or income transfer.
+    function settleHolderIncome(CoreVaultState storage s, CoreVaultWiring memory w, address holder)
+        public
+        returns (bool)
+    {
+        return _settle(s, holder, IERC20(w.shareToken).balanceOf(holder));
+    }
+
     // ---------------------------------------------------------------------------------------------------------------
     // Valuation hook (WP-07 D2; DEC-117, DEC-138)
     // ---------------------------------------------------------------------------------------------------------------
@@ -126,8 +134,8 @@ library CoreVaultIncomeLogic {
 
     /// @notice Called before every mint (deposit, seed) and every burn (payout) of `holder`'s shares, with the balance
     ///         before the change: settles the holder in every source (doc 10 section 2, "apuração do investidor").
-    /// @dev DEC-145: each source is settled once within its step budget. An incomplete balance-change settlement
-    ///      reverts; repeated Income Withdrawals persist progress before retrying the balance change.
+    /// @dev DEC-145: all sources share one token-operation budget. An incomplete balance-change settlement reverts;
+    ///      anyone can call `settleHolderIncome` to persist progress before retrying the balance change.
     function beforeBalanceChange(
         CoreVaultState storage s,
         CoreVaultWiring memory,
@@ -258,9 +266,10 @@ library CoreVaultIncomeLogic {
         CoreVaultIncomeTypes.Book storage b = s.incomeBook;
         uint256 count = b.sourceCount;
         complete = true;
+        DollarIncomeIndex.Work memory work = DollarIncomeIndex.Work(DollarIncomeIndex.MAX_SETTLE_STEPS);
         for (uint256 k; k < count; ++k) {
             DollarIncomeIndex.State storage index = b.sources[k].index;
-            if (!index.settle(holder, shares)) complete = false;
+            if (!index.settle(holder, shares, work)) complete = false;
         }
     }
 
