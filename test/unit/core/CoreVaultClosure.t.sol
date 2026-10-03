@@ -218,7 +218,7 @@ contract CoreVaultClosureTest is CoreVaultFixture {
         vault.finalizeClosure();
         report.unallocated[0].amount = 0;
         report.collectedIncome = new ReportCodec.TokenAmount[](1);
-        report.collectedIncome[0] = ReportCodec.TokenAmount(address(usdg), 1);
+        report.collectedIncome[0] = ReportCodec.TokenAmount(address(usdg), 500_000);
         receiver.store(0, report);
         vm.expectRevert(ICoreVaultLifecycle.ClosureNotReady.selector);
         vault.finalizeClosure();

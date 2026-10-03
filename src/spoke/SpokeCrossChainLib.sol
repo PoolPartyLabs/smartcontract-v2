@@ -18,6 +18,7 @@ import {SpokeUnwindTypes} from "./SpokeUnwindTypes.sol";
 import {ISpokeVaultUnwind} from "../interfaces/ISpokeVaultUnwind.sol";
 import {ICoreVaultPayouts} from "../interfaces/ICoreVaultPayouts.sol";
 import {OrderCodec} from "../libraries/OrderCodec.sol";
+import {ClosureDust} from "../libraries/ClosureDust.sol";
 
 /// @title SpokeCrossChainLib
 /// @notice The Spoke Chain half of the Spoke Vault: sends home, refund recognition, the hub-bound in-flight list and
@@ -26,7 +27,9 @@ import {OrderCodec} from "../libraries/OrderCodec.sol";
 /// @dev Split out of the vault only to keep the vault's runtime bytecode under EIP-170. Events and errors are the
 ///      vault's (ISpokeVault and SpokeVaultTypes), emitted from the vault's address.
 library SpokeCrossChainLib {
+    event ClosureDustExcluded(address indexed token, uint256 amount, TransferKind kind);
     uint256 private constant BPS = 10_000;
+
     function sendUnwindResult(
         SpokeVaultTypes.State storage s,
         SpokeVaultTypes.Config memory c,
@@ -45,6 +48,13 @@ library SpokeCrossChainLib {
         record.excluded = result.excluded;
         record.closureExcessCost = s.unwind.closureExcessCost;
         uint256 amount = pending.proceeds;
+        if (order.kind == OrderCodec.CLOSE && amount != 0 && amount < ClosureDust.threshold(c.baseToken)) {
+            s.unallocated[c.baseToken] -= amount;
+            s.unwind.reservedBase -= amount;
+            pending.proceeds = 0;
+            emit ClosureDustExcluded(c.baseToken, amount, TransferKind.Principal);
+            amount = 0;
+        }
         if (pending.transitId != bytes32(0)) {
             record.transitId = pending.transitId;
             record.amountSent = s.hubBoundTransits[pending.transitId].amountSent;
