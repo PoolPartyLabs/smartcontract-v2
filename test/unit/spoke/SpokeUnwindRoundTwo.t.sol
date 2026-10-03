@@ -7,6 +7,38 @@ import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {Transit, TransferKind} from "../../../src/interfaces/FundTypes.sol";
 
 contract SpokeUnwindRoundTwoTest is SpokeUnwindOrdersTest {
+    function test_REGRESSION_allResultEncoderPathsKeepSharedSize() public {
+        for (uint32 sequence = 1; sequence <= SpokeUnwindTypes.REPORTED_RESULTS; ++sequence) {
+            _distinctSend(
+                sequence, sequence == SpokeUnwindTypes.REPORTED_RESULTS ? OrderCodec.CLOSE : OrderCodec.UNWIND
+            );
+            _assertResultEncoding(sequence);
+        }
+        SpokeUnwindTypes.OrderResult[] memory records = _records();
+        Transit memory transit = vault.hubBoundTransit(records[0].transitId);
+        vm.warp(uint256(transit.fillDeadline) + 1);
+        usdg.mint(transit.escrow, transit.amountSent);
+        vault.recognizeRefund(records[0].transitId);
+        _assertResultEncoding(records.length);
+        assertTrue(_records()[0].refunded);
+        vault.report();
+        _assertResultEncoding(records.length);
+        for (uint256 index; index < records.length; ++index) {
+            _acknowledge(records[index].transitId, uint64(records.length + index + 1), index == 0 ? 4 : 2);
+            _assertResultEncoding(records.length - index - 1);
+        }
+        assertTrue(vault.spokeClosed());
+    }
+
+    function _assertResultEncoding(uint256 count) internal view {
+        bytes memory blob = vault.buildReport().unwindResults;
+        assertEq(blob.length, 64 + count * SpokeUnwindTypes.ENCODED_RESULT_SIZE);
+        assertTrue(SpokeUnwindTypes.validResults(blob));
+        SpokeUnwindTypes.OrderResult[] memory records = abi.decode(blob, (SpokeUnwindTypes.OrderResult[]));
+        assertEq(records.length, count);
+        assertEq(blob, SpokeUnwindTypes.encodeResults(records));
+    }
+
     function test_M2R2_olderRefundUpdatesNewerCumulativeCosts() public {
         _position();
         spokeSwap.setHaircutBps(200);
