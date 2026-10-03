@@ -194,6 +194,7 @@ export interface Call {
   functionName: string;
   args?: readonly unknown[];
   value?: bigint;
+  gas?: bigint;
 }
 
 export interface Sent<T = unknown> {
@@ -274,7 +275,8 @@ export async function send<T = unknown>(side: Side, who: ActorName | Account, ca
       args: call.args ?? [],
       value: call.value,
     } as never);
-    const hash = await wallet(side, account).writeContract(request as never);
+    const gas = call.gas ?? (await node.client.estimateContractGas({ ...request, account } as never)) * 3n / 2n;
+    const hash = await wallet(side, account).writeContract({ ...request, gas } as never);
     const receipt = await node.client.waitForTransactionReceipt({ hash, pollingInterval: 100 });
     if (receipt.status !== "success") throw new Error(`transaction ${hash} reverted on ${node.label}`);
     recordTransaction(side, call.functionName, receipt);
