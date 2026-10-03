@@ -26,7 +26,7 @@ New collections cannot invalidate a partially completed activated-lot merge.
 
 | Validation | Result |
 | --- | --- |
-| `forge build --sizes` | Pass |
+| `forge build --sizes` | Round-2 review found failure in the test fixture; fixed and rerun below |
 | `forge fmt --check`, `git diff --check` | Pass |
 | Size suite | 3 passed |
 | Full non-fork suite | 1,567 passed, 193 suites |
@@ -62,5 +62,42 @@ and linked library; the tightest margin is 1,669 bytes. No production margin is 
 Persistent resumable token checkpoints, rather than lot aggregation, resolve the high finding without changing
 per-lot attribution or rate rounding. Existing per-source FIFO grouping and one waiting lot per holder remain.
 The founder's October 3 ruling still overrides WP-14's earlier deferral. No new specification divergence;
-the existing D-42 bounded cross-chain timestamp-skew interpretation is unchanged. No remaining implementation,
-test or closure-harness prerequisite for this fix round.
+the existing D-42 bounded cross-chain timestamp-skew interpretation is unchanged.
+
+## Round-2 M-1: test fixture size correction
+
+The round-1 unqualified size-build claim was incorrect: `SettlementCoreVault` had a 31,536-byte runtime,
+6,960 bytes over the 24,576-byte limit. Its production inventory passed, but `forge build --sizes` failed.
+
+Moved only the history preparation into the externally linked test library
+`test/utils/IncomeSettlementHistory.sol`. The library executes in the derived Core Vault's storage context;
+the fixture still updates held dollars and funds the same history. No production code, compiler settings,
+size gates or settlement test assertions changed.
+
+| Runtime | Before bytes / margin | After bytes / margin |
+| --- | ---: | ---: |
+| SettlementCoreVault | 31,536 / -6,960 | 22,927 / 1,649 |
+| IncomeSettlementHistory (new test library) | Not present | 9,494 / 15,082 |
+| CoreVault | 22,578 / 1,998 | 22,578 / 1,998 |
+| CoreVaultIncomeLogic | 18,118 / 6,458 | 18,118 / 6,458 |
+| CoreVaultClosureLogic | 17,052 / 7,524 | 17,052 / 7,524 |
+| CoreVaultPayoutLogic | 22,547 / 2,029 | 22,547 / 2,029 |
+| SpokeVault | 22,907 / 1,669 | 22,907 / 1,669 |
+
+The unqualified size build now exits 0. No reported runtime margin is below 1,000 bytes;
+the size inventory confirms every production contract and linked library retains that reserve.
+
+| Round-2 validation (October 3, 2026) | Result |
+| --- | --- |
+| `forge build --sizes` | Pass |
+| `forge fmt --check`, `git diff --check` | Pass |
+| Size suite | 3 passed, 1 suite |
+| Full non-fork suite | 1,567 passed, 193 suites |
+| Settlement-path and settlement-gas regressions | 6 passed, 2 suites |
+| All unit settlement files | 23 passed, 4 suites |
+| Full fork suite, archive helper sourced in the same shell, `-j 4` | 228 passed, 58 suites |
+| Income-focused suite, `FOUNDRY_FUZZ_RUNS=2048`, `-j 4` | 207 passed, 16 suites |
+
+The maximum-history gas regression still completes in 90 calls with peak cold settlement gas 2,038,401.
+The harness was not rerun for this isolated test-only change; the round-1 harness results above remain historical.
+No new plan deviation or specification divergence. No harness, API, keeper or Anvil process was started.
