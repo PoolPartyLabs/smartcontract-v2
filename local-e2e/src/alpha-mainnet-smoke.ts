@@ -9,6 +9,7 @@ import {alphaAmounts} from "./alpha-amounts.ts";
 import {collectAllowed} from "./alpha-work.ts";
 import {parseAbi} from "viem";
 import {AlphaTransactions, reconcileAlphaTransactions, sendAlphaTransaction} from "./alpha-transactions.ts";
+import {postReport} from "./alpha-report-client.ts";
 
 async function main() {
   const mode = process.argv[2];
@@ -66,9 +67,8 @@ async function main() {
   const adapter = (side: string) => getAddress(mandate.bridgeAdapters.find((entry: any) => Number(entry.chainId) === (side === "hub" ? 42161 : 4663)).adapter);
   const fee = () => read("hub", ARBITRUM.wormholeCore, wormholeCoreAbi, "messageFee");
   async function report() {
-    const response = await fetch(`http://127.0.0.1:${process.env.ALPHA_API_PORT ?? "8787"}/report`, {method: "POST", headers: {authorization: `Bearer ${process.env.ALPHA_API_TOKEN}`}});
-    assert.equal(response.status, 200);
-    const result = await response.json() as any;
+    const {status, body: result} = await postReport();
+    assert.equal(status, 200);
     assert.equal(result.delivered, true);
     assert.equal(result.reportVersion, "5", "Alpha API must decode report v5");
   }
@@ -206,4 +206,8 @@ async function main() {
   console.log(`Mainnet ${mode} continuation passed; receipts retained`);
 }
 
-main().catch(() => {console.error("Mainnet continuation stopped: inspect redacted receipts and chain state; do not blindly repeat sends"); process.exitCode = 1;});
+main().catch((error) => {
+  console.error("Mainnet continuation stopped: inspect redacted receipts and chain state; do not blindly repeat sends");
+  console.error(String(error?.shortMessage ?? error?.message ?? error).slice(0, 600));
+  process.exitCode = 1;
+});
