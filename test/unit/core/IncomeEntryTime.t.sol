@@ -154,12 +154,17 @@ contract IncomeEntryTimeTest is Test {
         for (uint256 token; token < 15; ++token) {
             index.registerToken(address(uint160(token + 2000)));
         }
-        for (uint256 timestamp = 1; timestamp <= 32; ++timestamp) {
+        deposit(ANA, 1, 0);
+        report(100, 0);
+        for (uint256 token; token < index.tokens.length; ++token) {
+            assertTrue(index.recognize(index.tokens[token], 1e6, 1));
+        }
+        for (uint256 timestamp = 101; timestamp <= 132; ++timestamp) {
             deposit(address(uint160(timestamp + 1000)), 1, timestamp);
         }
-        report(100, 0);
+        report(200, 0);
         uint256 before = gasleft();
-        index.activate(200);
+        index.activate(300);
         uint256 used = before - gasleft();
         emit log_named_uint("activation gas: 32 entries, 16 tokens", used);
         assertLt(used, 32_000_000);
