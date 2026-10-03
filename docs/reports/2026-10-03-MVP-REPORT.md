@@ -1,15 +1,22 @@
-# Founder MVP report — October 3, 2026 (draft)
+# Founder MVP report — October 3, 2026
 
 ## Executive status and evidence boundary
 
-**Code measured:** `main` `f88b25b96913301aa9b00dd0b638adc89f9ee689`, through wave-3 landing PR #23 and
-wave-4 PR #21 (which contains approved PR #22). This WP-19b is docs only: no executable, compiler, fixture,
-ABI or deployment change. The final lifecycle transaction report is **pending PR #24**, not certified here.
+**Code measured:** merged main `7cea87d`, including PR #24 and shared result-encoder PR #25.
+This WP-19b update is docs only: no executable, compiler, fixture, ABI or deployment change. Fresh validation
+runs in this worktree against that merged contract tree. The completed PR #24 lifecycle is reported in section 7
+with its own executed SHA; it is not a mainnet broadcast or a conformance certificate.
 
-**Fresh local results:** 1,432 non-fork tests in 183 suites; 222 fork tests in 56 suites; zero failures/skips.
+**Fresh local results:** 1,433 non-fork tests in 183 suites; 222 fork tests in 56 suites; zero failures/skips.
 The 3/3 size tests are included in the non-fork total, not three additional tests. Every listed production
-contract/linked library fits 24,576 bytes. Tightest: SpokeUnwindLib 23,473 bytes, **1,103 bytes headroom**.
-No margin below 1,000, but that library is only 103 bytes above the warning threshold.
+contract/linked library fits 24,576 bytes. Tightest: SpokeUnwindLib 23,449 bytes, **1,127 bytes headroom**.
+No margin below 1,000; that library is only 127 bytes above the warning threshold.
+
+**End-to-end:** PASS, 55 steps / 319 assertions, 103 receipts, 6 real fills / 0 simulated, API 31 concepts.
+Zero conservation residual; 6.577616-USDC bridge costs and 0.000008-USDC ledgered dust remain explicit.
+**Conformance:** B-01..B-03 and G-05 require the separate fix PR; G-01/DEC-145 awaits founder disposition.
+G-02/G-03/G-04/G-06/G-07 are accepted for internal alpha only (section 8), not full-spec conformance.
+Manual Principal returns are forbidden until the separate `sendToHub` acknowledgement fix lands.
 
 **Readiness:** feature-complete for the landed proportional unwind, dollar income, spoke orders and closure
 scope, subject to explicit deferrals/limitations. Internal alpha preparation is not a public release, external
@@ -92,7 +99,8 @@ No public-audit claim follows from independent agent reviews.
 
 ## 4. Fresh verification and reproducibility
 
-Measured October 3 in a dedicated origin/main worktree with shared dependency/RPC configuration, no source edits.
+Measured October 3 in this docs worktree after merging origin/main `7cea87d`, with shared dependency/RPC
+configuration and no source edits.
 Foundry **1.7.1**, commit `4072e48705af9d93e3c0f6e29e93b5e9a40caed8`; Solidity **0.8.28**, optimizer **800**,
 `via_ir = false`, Cancun. Default fuzz 512; invariants 256 runs/depth 32. No statistical gas confidence interval implied.
 
@@ -107,16 +115,16 @@ forge test --match-path 'test/{fork/**,review/**/*Fork*}' -j 4
 
 | Run | Suites | Passed | Failed | Skipped |
 |---|---:|---:|---:|---:|
-| Non-fork, including size | 183 | 1,432 | 0 | 0 |
+| Non-fork, including size | 183 | 1,433 | 0 | 0 |
 | Fork including review Fork suites | 56 | 222 | 0 | 0 |
 | Size, separately rerun (already included above) | 1 | 3 | 0 | 0 |
-| Relevant unit gas suites (repeated subset) | 9 | 198 | 0 | 0 |
-| Relevant fork gas suites (repeated subset) | 4 | 5 | 0 | 0 |
-| Instant high-loss gas regression (repeated subset) | 1 | 1 | 0 | 0 |
-| Standard high-loss gas regression (repeated subset) | 1 | 1 | 0 | 0 |
+| Historical f88b25b unit gas suites (repeated subset) | 9 | 198 | 0 | 0 |
+| Historical f88b25b fork gas suites (repeated subset) | 4 | 5 | 0 | 0 |
+| Historical Instant high-loss gas regression (repeated subset) | 1 | 1 | 0 | 0 |
+| Historical Standard high-loss gas regression (repeated subset) | 1 | 1 | 0 | 0 |
 
 Archive fork pins: **Arbitrum 511007613; Robinhood 78293056**, exported by the helper in the same shell before
-each fork command. Never log URLs/keys. Full fork run completed locally, not copied from a PR. Build and format
+each fork command. Never log URLs/keys. Full fork run completed locally on the merged tree, not copied from a PR. Build and format
 passed; existing compiler/lint warnings retained. No harness/Anvil/API/keeper was started by WP-19b.
 CI uses one non-fork job plus five independent fork shards: ordinary fork, swap, cross-fork scenarios,
 review integration-price, remaining review forks. Scenario shard membership must exactly match `_createForks()`
@@ -124,6 +132,9 @@ callers; shared-fork clock changes otherwise contaminate subsequent suites. CI n
 this local report uses the fixed archive pins, not an assertion of identical provider state to CI.
 
 ### Counts per suite from the fresh run
+
+The merged encoder regression adds one test to `SpokeUnwindRoundTwoTest` (24 -> 25); all other suite counts
+are unchanged from the earlier f88b25b measurement. Gas subsets in section 6 remain historical measurements.
 
 These are executed test counts, not declared-function counts (fuzz/invariant runs do not inflate test totals).
 
@@ -295,7 +306,7 @@ These are executed test counts, not declared-function counts (fuzz/invariant run
 | non-fork | `test/unit/spoke/SpokeIncomeCollection.t.sol:SpokeIncomeCollectionTest` | 6 |
 | non-fork | `test/unit/spoke/SpokeUnwindOrders.t.sol:SpokeUnwindOrdersTest` | 18 |
 | non-fork | `test/unit/spoke/SpokeUnwindReview.t.sol:SpokeUnwindReviewTest` | 23 |
-| non-fork | `test/unit/spoke/SpokeUnwindRoundTwo.t.sol:SpokeUnwindRoundTwoTest` | 24 |
+| non-fork | `test/unit/spoke/SpokeUnwindRoundTwo.t.sol:SpokeUnwindRoundTwoTest` | 25 |
 | non-fork | `test/unit/spoke/SpokeVaultAdversarial.t.sol:SpokeVaultAdversarialAdapterTest` | 1 |
 | non-fork | `test/unit/spoke/SpokeVaultAdversarial.t.sol:SpokeVaultAdversarialHubTest` | 1 |
 | non-fork | `test/unit/spoke/SpokeVaultAdversarial.t.sol:SpokeVaultAdversarialSpokeTest` | 6 |
@@ -372,14 +383,16 @@ These are executed test counts, not declared-function counts (fuzz/invariant run
 ## 5. Bytecode sizes and margins
 
 Fresh `forge build --sizes`, cross-checked by the 3-test completeness/limit suite. Before/after columns refer
-**to this docs-only PR** and are identical. This is not a claim wave-3/4 sizes equal the old #17 baseline.
+**to docs edits on merged main** and are identical. PR #25 reduced SpokeUnwindLib by 24 bytes
+(23,473 -> 23,449); this documentation does not change runtime size. This is not a claim wave-3/4 sizes equal
+the old #17 baseline.
 EIP-170/smallest supported-chain limit **24,576 bytes** for every production contract and linked library.
 Inlined library artifact stubs are not deployed executables; CodeStore byte chunks are data, full chunks may use
 24,576 bytes intentionally. Complete deployment verification still includes every executable and creation-code link.
 
 | Production contract / linked library | Before B | After B | Margin B |
 |---|---:|---:|---:|
-| SpokeUnwindLib | 23,473 | 23,473 | 1,103 |
+| SpokeUnwindLib | 23,449 | 23,449 | 1,127 |
 | SpokeVault | 22,887 | 22,887 | 1,689 |
 | CoreVault | 22,862 | 22,862 | 1,714 |
 | CoreVaultPayoutLogic | 22,256 | 22,256 | 2,320 |
@@ -404,13 +417,15 @@ Inlined library artifact stubs are not deployed executables; CodeStore byte chun
 | ManagerFeeVault | 1,077 | 1,077 | 23,499 |
 | TransitEscrow | 894 | 894 | 23,682 |
 
-**No margin under 1,000 bytes.** SpokeUnwindLib 1,103 is the growth bottleneck; SpokeVault 1,689 and CoreVault
+**No margin under 1,000 bytes.** SpokeUnwindLib 1,127 is the growth bottleneck; SpokeVault 1,689 and CoreVault
 1,714 also warrant monitoring. CoreVaultClosureLogic and SpokeCloseLib splits plus linked income collection
 keep each executable legal without via-IR/compiler changes. The old #17 SpokeVault 22,304/2,272 is historical.
 
 ## 6. Gas of the main operations
 
-Gas below is **Foundry call-level gas**, not a production fee quote. Relevant suites include failures, retries,
+Gas below is **historical f88b25b Foundry call-level gas**, not a production fee quote or a fresh gas rerun.
+Section 7 adds receipt-derived min/average/max for every operation in the authoritative PR #24 lifecycle.
+Relevant suites include failures, retries,
 fuzz calls and mocks, so mixed-suite min/mean/median/max can include early reverting calls and varied warm storage.
 Deployment/setup-heavy `[PASS] test... (gas: ...)` values are not user-operation gas. Cross-chain operations need
 multiple transactions plus externally funded Wormhole fees, Across fees, L1 data fees and relayer latency; gas
@@ -467,11 +482,13 @@ final USDC payment without a burn, not an investor Payout.
 Instant `requestPayout` includes inline Hub unwind/payment attempt; its later claim is retry work. Standard
 request reserves Idle and starts the 72-hour term; its two claims include unwind and retry. These deliberately
 99%-loss/mock regressions verify who bears costs, not normal market gas estimates. Final successful Instant and
-Standard multi-chain operation gas, balances and share-price trajectory will come from PR #24's lifecycle report.
+Standard multi-chain operation gas, balances and Share Price trajectory appear in PR #24's lifecycle evidence
+in section 7, separately from these historical mock samples.
 
 ## 7. End-to-end flow and Share Price over time
 
-This is the **implemented flow**, not a claim all phases ran together in this WP:
+This is the **implemented flow**; the completed PR #24 run below supplies the step-by-step evidence.
+That successful path does not waive the conformance/recovery limitations in section 8:
 
 1. Operator deploys both immutable factories/libraries; manager atomically seeds Hub fund, creates spoke with the
    same Mandate/predicted addresses; keeper delivers first fresh report. Creation/seed pays flow fee.
@@ -498,26 +515,327 @@ reduces Share Assets; recognition separates income from principal; collection sh
 into share backing; Market Costs/bridge fees and mode-specific absorption change post-unwind pricing. Deposits
 and burns have whole-share rounding. Frozen closing Share Price does not change with late donations/arrivals.
 The fresh isolated spoke-unwind fork logged **0.998786632916418503077228 USDC Share Price** after its Robinhood
-report: one fixture datapoint, not the missing founder lifecycle time series.
+report: one historical fixture datapoint, separate from the completed founder lifecycle time series below.
 
 ### End-to-end run (from PR #24)
 
-**PLACEHOLDER — intentionally unfilled until PR #24 merges and its local-e2e/reports evidence is available.**
-Do not copy pre-closure smoke data or manufacture a successful final lifecycle run. The future update must cite
-PR #24 merged head/release SHA, exact report files, fixed pins, real versus simulated fills, actor balances,
-transaction hashes/status, keeper errors/ack queue, phase gas and assertion counts. Include fund creation,
-investors in, fees generated, income collected/withdrawn, Instant and Standard Hub/spoke unwinds, refunds/retries,
-closure/finalization, every holder's frozen exit and final residuals.
+**PASS: the complete two-fork lifecycle, including the recovery rerun.** PR #24 merged into main as
+`7cea87d1a05b6150925de0cc8799d788f84ce958` (use the repository merge commit as the baseline; the
+executed run itself is pinned to `4eba29eea896ffbb7d6304e58d8d833372156d9d`). The authoritative round-1 rerun
+supersedes the original October 2 UTC run and its conservation figures:
 
-| Phase / timestamp / chain | Transaction hash | Gas / message fee | Idle / reserve / In-flight Value | Share Assets / supply / Share Price | Holder Income / manager / protocol fees |
-|---|---|---|---|---|---|
-| PENDING PR #24 | PENDING | PENDING | PENDING | PENDING | PENDING |
+- [Completion and recovery report](../../local-e2e/reports/2026-10-03-wp15b-completed.md).
+- [All 55 steps, actor balances and receipts](../../local-e2e/reports/2026-10-03T00-44-44Z-scenario.md)
+  and [machine-readable accounting/evidence](../../local-e2e/reports/2026-10-03T00-44-44Z-scenario.json).
+- [API probe](../../local-e2e/reports/2026-10-03T00-44-01Z-api-probe.md)
+  and [API JSON](../../local-e2e/reports/2026-10-03T00-44-01Z-api-probe.json): 31 concepts passed.
 
-Historical #23 integration review independently ran **46 steps / 294 assertions**, **3 real Across fills**,
-zero simulated fills/errors; API **19 concepts / 19 assertions**. #21 records deployment `up/status/probe`
-passing after nested linking fixes. Those are reviewed historical snapshots, not a WP-19b final harness run.
+Wall-clock run: **October 3, 2026, 00:44:44–00:46:06 UTC** (01:44:44–01:46:06 Lisbon),
+82 seconds, 55 steps / 319 assertions, 103 receipt-derived transactions / 99,813,982 gas.
+Archive pins: Arbitrum 511007613 (chain 42161), Robinhood 78293056 (chain 4663).
+The keeper made **6 real SpokePool fills, 0 simulated fills, 22 report deliveries and 10 orders**;
+exactly one intentionally injected ACK-send RPC error recovered. Local guardian signing and a funded local
+relayer on mainnet forks are not evidence of production guardian acceptance or independent relayer service.
+Chain timestamps advance through artificial warps, including 72-hour terms and closure: the recorded
+October 11 Closing timestamp is simulated chain time, not an October 11 real-world run.
+The scenario submits lifecycle calls directly through JSON-RPC; the HTTP API probe is not a second full lifecycle.
+
+#### Executed lifecycle
+
+1. **Creation and manager seed (steps 1–5).** One deterministic factory address on both chains creates the
+   Core Vault / Spoke Vault with matching Mandate. The 100-USDC seed budget produces 99 whole shares at
+   Share Price 1.000000, 99.000000 USDC Idle and a 0.250000 USDC flow fee. The actual capital charge is
+   99.250000 USDC, not the whole 100-USDC budget. Mandate: 4,000-USDC Spoke Cap, 2% Payout Fee,
+   72-hour Standard term, 20% performance fee, 1,588-second report lifetime, Operating Cash floor/top-up 0.
+2. **Ana and Hub investment (steps 6–12).** Ana deposits 10,000 USDC, receives 9,975 shares and pays a
+   25-USDC flow fee. The manager allocates 5,000 USDC to the Hub Spoke Vault, supplies 2,000 USDC to Aave,
+   swaps 1,500 USDC through the separate V3 adapter and opens the WETH/USDC V4 range. A one-hour warp
+   generates 0.008479 USDC Aave interest; trader swaps generate 0.000097 WETH + 0.292078 USDC V4 fees.
+   Income is separate from Share Assets. A 1-bp swap bound deterministically reverts `InsufficientOutput`.
+3. **Capital and fees on the spoke (steps 13–24).** Above-cap sends and caller-supplied bridge quotes revert.
+   Across sends 4,000 USDC for 3,996.770000 USDG, with 3.230000 USDC bridge cost fixed by the adapter.
+   The real `FilledRelay` receipt matches recipient/token/amount and the vault arrival; no Operating Cash
+   top-up occurs. An API-signed V3 route buys WETH, the manager opens WETH/USDG V4, and trader swaps
+   generate 0.000094 WETH + 0.289509 USDG fees. The local guardian report is delivered to the Hub:
+   outbound transit becomes ArrivalConfirmed and In-flight Value becomes zero.
+4. **Historical manual return (steps 25–27).** A 500-USDG manual `sendToHub` returns 499.570000 USDC
+   (0.430000 bridge cost), held until a Principal report authorizes Idle credit. This is evidence of that
+   executed run, **not an authorized alpha procedure**: the separate open contract issue below leaves a
+   manual send Sent after acknowledgement. The runbook forbids manual Principal returns until its fix lands.
+5. **Recognize, collect, split and withdraw income (steps 28–31).** Hub collection returns 0.300604 USDC
+   + 0.000097 WETH; COLLECT also sells spoke income, bridges dollars and settles attribution in Hub USDC.
+   At step 29, 1.085840 USDC has been collected, 0.217164 paid as performance fees (manager 0.108583,
+   protocol 0.108581), and 0.868676 assigned to holders. Bruno then uses an 11,000-USDC budget:
+   actual charge 10,999.542047 USDC, 10,975 shares at 0.999730, flow fee 27.500000 USDC.
+   Ana withdraws 0.860137 USDC Income without burning shares or paying a flow fee / Payout Fee.
+6. **Standard Payout after 72 hours (steps 32–34).** Ana requests 3,000 USDC; Idle is reserved and an early
+   claim reverts `PayoutTermNotEnded`. After a 72-hour warp, refreshed price feed and fresh spoke report,
+   3,001 shares burn at 0.999648; Ana receives 2,992.444724 USDC, flow fee 7.499861, no Payout Fee.
+7. **Instant Payout with Hub unwind (steps 35–36).** Bruno's request exceeds Free Idle and starts inline
+   proportional Hub/spoke unwind; no shares burn before the required return/report. Hub unwind proceeds
+   are 1,017.244109 USDC. Final settlement burns 10,549 shares at 0.999636, pays 10,307.482583 USDC,
+   and retains the 210.903373-USDC Payout Fee in Idle. Remaining Share Price rises to 1.027761.
+   Bruno retains 426 shares: this Instant Payout is not his full closed-fund exit.
+8. **Payout with spoke unwind through Wormhole (steps 37–39).** Ana requests 4,695.521566 USDC, beyond
+   Idle plus Hub liquidity. UNWIND order
+   `0x9d15c1f46f7101b27514072c0dd1bdb20134b60c00b20f1ad3be9dca565d25f7` is executed on the spoke.
+   A Standard Payout with `maxLossBps=1` excludes two positions; a stranger settles 1,310.087178 USDC,
+   leaving 3,382.150962 outstanding. Retry with `maxLossBps=0` retains the request/fraction, sells only
+   previously undelivered positions and pays 3,373.069105 USDC. Fresh post-unwind reports and credited
+   arrivals precede settlement; already-delivered Aave principal is not sold twice. The retry records
+   **0.000000 USDC positive Market Costs absorbed by the fund**; it does not demonstrate a positive-cost case.
+9. **Invariants and closure (steps 40–50).** Payout Reserve stays <= Idle, supply stays in whole shares and
+   Share Assets reconcile. A 1,234-USDC donation is swept without changing Share Price. The manager's
+   half-peak-base crossing reverts `ManagerMustCloseFund`; `closeFund` enters Closing and stops accrual.
+   Deposits/requests/claims/repeated closure revert; the manager still withdraws 0.008535 USDC Income.
+   Manager closes remaining Aave within 72 hours; a stranger's early unwind is refused, then succeeds after
+   the deadline. CLOSE executes remotely, its Principal fill/empty report arrive, and ACKs retire order-linked
+   Principal sends. A terminal CLOSE retry restores the result removed by ACK before final income collection.
+   Finalization pays 2.374759 USDC management fees, burns/pays the manager, and freezes
+   **2,904.439117 USDC / 2,830 shares** for the remaining investors.
+10. **Closed-fund exits and conservation (steps 51–55).** After a deliberate 1,589-second warp makes the
+    report stale, Ana receives 2,461.065710 USDC and Bruno 436.112309 USDC from the frozen split, without
+    another report or Payout Fee (flow fees still apply). Supply reaches zero; unledgered excess is swept.
+    Eight USDC base units remain as ledgered rounding dust, not an unexplained loss or a claimed successful dust sweep.
+
+#### Share Price, assets and fee liabilities over the steps
+
+All monetary columns are **USDC**, six decimals truncated for display. These are end-of-step snapshots,
+not transaction execution prices; step 36's post-burn Share Price differs from its burn price. Management
+accrual is a liability, not cash already paid; performance/flow fees are cumulative USDC paid. Payout Fee is
+cumulative retained Idle, not external payment; bridge costs sum both routes.
+Gross Assets remains an informational aggregate with the accepted G-03 Income-in-transit omission.
+All 55 snapshots, Idle, Free Idle, Payout Reserve, In-flight Value, transaction hashes, block numbers,
+effective gas prices and token balances are preserved in the linked Markdown/JSON evidence.
+
+| Step / event | Share Price | Share Assets | Gross Assets | Management accrued | Management paid | Performance paid | Flow paid | Payout Fee retained | Bridge costs |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 5: Manager seed | 1.000000 | 99.000000 | 99.000000 | 0.000000 | 0.000000 | 0.000000 | 0.250000 | 0.000000 | 0.000000 |
+| 6: Ana deposit | 0.999999 | 10,073.999997 | 10,074.000000 | 0.000003 | 0.000000 | 0.000000 | 25.250000 | 0.000000 | 0.000000 |
+| 11: Hub interest | 1.000089 | 10,074.897773 | 10,074.917788 | 0.011536 | 0.000000 | 0.000000 | 25.250000 | 0.000000 | 0.000000 |
+| 12: Hub V4 fees | 1.000089 | 10,074.897770 | 10,075.477417 | 0.011539 | 0.000000 | 0.000000 | 25.250000 | 0.000000 | 0.000000 |
+| 16: Capital sent | 0.999768 | 10,071.667771 | 10,072.247420 | 0.011538 | 0.000000 | 0.000000 | 25.250000 | 0.000000 | 3.230000 |
+| 18: Spoke arrival | 0.999768 | 10,071.667771 | 10,072.247420 | 0.011538 | 0.000000 | 0.000000 | 25.250000 | 0.000000 | 3.230000 |
+| 21: Spoke V4 fees | 0.999768 | 10,071.667771 | 10,072.247420 | 0.011538 | 0.000000 | 0.000000 | 25.250000 | 0.000000 | 3.230000 |
+| 24: Spoke report accepted | 0.999773 | 10,071.714934 | 10,072.843165 | 0.011570 | 0.000000 | 0.000000 | 25.250000 | 0.000000 | 3.230000 |
+| 27: Manual Principal credited | 0.999730 | 10,071.284912 | 10,072.413182 | 0.011592 | 0.000000 | 0.000000 | 25.250000 | 0.000000 | 3.660000 |
+| 29: Income collected | 0.999730 | 10,071.284883 | 10,072.165198 | 0.011621 | 0.000000 | 0.217164 | 25.250000 | 0.000000 | 3.690439 |
+| 30: Bruno deposit | 0.999730 | 21,043.326930 | 21,044.207245 | 0.011621 | 0.000000 | 0.217164 | 52.750000 | 0.000000 | 3.690439 |
+| 31: Ana Income Withdrawal | 0.999730 | 21,043.326930 | 21,043.347108 | 0.011621 | 0.000000 | 0.217164 | 52.750000 | 0.000000 | 3.690439 |
+| 32: Standard requested | 0.999730 | 21,043.326930 | 21,043.347108 | 0.011621 | 0.000000 | 0.217164 | 52.750000 | 0.000000 | 3.690439 |
+| 34: Standard after 72 h | 0.999648 | 18,041.652744 | 18,044.011877 | 1.741222 | 0.000000 | 0.217164 | 60.249861 | 0.000000 | 3.690439 |
+| 35: Instant pending | 0.999634 | 18,041.399527 | 18,043.758660 | 1.741222 | 0.000000 | 0.217164 | 60.249861 | 0.000000 | 3.690439 |
+| 36: Instant settled | 1.027761 | 7,707.179774 | 7,709.538960 | 1.741262 | 0.000000 | 0.217164 | 86.612782 | 210.903373 | 4.027144 |
+| 37: Spoke UNWIND requested | 1.027676 | 7,706.546299 | 7,710.081915 | 2.374736 | 0.000000 | 0.217164 | 86.612782 | 210.903373 | 4.027144 |
+| 38: Partial Payout | 1.027676 | 6,393.175689 | 6,396.711313 | 2.374743 | 0.000000 | 0.217164 | 89.896208 | 210.903373 | 4.027144 |
+| 39: Retry settled | 1.027194 | 3,008.651461 | 3,012.187105 | 2.374757 | 0.000000 | 0.217164 | 98.350015 | 210.903373 | 5.574485 |
+| 41: Donation swept | 1.027194 | 3,008.651461 | 3,012.187105 | 2.374757 | 0.000000 | 0.217164 | 98.350015 | 210.903373 | 5.574485 |
+| 44: Closing | 1.027194 | 3,008.651459 | 3,012.187107 | 2.374759 | 0.000000 | 0.217164 | 98.350015 | 210.903373 | 5.574485 |
+| 45: Manager Income Withdrawal | 1.027194 | 3,008.651459 | 3,012.178572 | 2.374759 | 0.000000 | 0.217164 | 98.350015 | 210.903373 | 5.574485 |
+| 47: Post-deadline unwind | 1.026687 | 3,007.169038 | 3,010.696151 | 2.374759 | 0.000000 | 0.217164 | 98.350015 | 210.903373 | 5.574485 |
+| 48: CLOSE fill/report | 1.026303 | 3,006.043170 | 3,009.570283 | 2.374759 | 0.000000 | 0.217164 | 98.350015 | 210.903373 | 6.577616 |
+| 49: Principal ACKs delivered | 1.026303 | 3,006.043170 | 3,009.570283 | 2.374759 | 0.000000 | 0.217164 | 98.350015 | 210.903373 | 6.577616 |
+| 50: Closure finalized | 1.026303 | 2,904.439117 | 2,905.352977 | 0.000000 | 2.374759 | 0.447631 | 98.604025 | 210.903373 | 6.577616 |
+| 52: Ana Closed exit | 1.026303 | 437.205323 | 437.484187 | 0.000000 | 2.374759 | 0.447631 | 104.772109 | 210.903373 | 6.577616 |
+| 53: Bruno Closed exit | 1.000000 | 0.000001 | 0.000009 | 0.000000 | 2.374759 | 0.447631 | 105.865122 | 210.903373 | 6.577616 |
+| 54: Excess swept | 1.000000 | 0.000000 | 0.000008 | 0.000000 | 2.374759 | 0.447631 | 105.865122 | 210.903373 | 6.577616 |
+| 55: Conservation checked | 1.000000 | 0.000000 | 0.000008 | 0.000000 | 2.374759 | 0.447631 | 105.865122 | 210.903373 | 6.577616 |
+
+#### Each investor's position
+
+Each cell is **whole shares / share value in USDC / converted Attributed Income owed in USDC**. Token
+rights not yet converted are not represented by `incomeOwed`; a zero dollar balance is not proof that
+all remote income rights have been collected (G-01/G-02). Full wallet USDC/USDG/WETH balances appear
+at every step in the evidence; the ManagerFeeVault balance is separate from the manager's investor position.
+
+| Step / event | Manager | Ana | Bruno |
+|---|---:|---:|---:|
+| 5: Manager seed | 99 / 99.000000 / 0.000000 | 0 / 0.000000 / 0.000000 | 0 / 0.000000 / 0.000000 |
+| 6: Ana deposit | 99 / 98.999999 / 0.000000 | 9,975 / 9,974.999997 / 0.000000 | 0 / 0.000000 / 0.000000 |
+| 11: Hub interest | 99 / 99.008822 / 0.000000 | 9,975 / 9,975.888950 / 0.000000 | 0 / 0.000000 / 0.000000 |
+| 12: Hub V4 fees | 99 / 99.008822 / 0.000000 | 9,975 / 9,975.888947 / 0.000000 | 0 / 0.000000 / 0.000000 |
+| 16: Capital sent | 99 / 98.977080 / 0.000000 | 9,975 / 9,972.690690 / 0.000000 | 0 / 0.000000 / 0.000000 |
+| 18: Spoke arrival | 99 / 98.977080 / 0.000000 | 9,975 / 9,972.690690 / 0.000000 | 0 / 0.000000 / 0.000000 |
+| 21: Spoke V4 fees | 99 / 98.977080 / 0.000000 | 9,975 / 9,972.690690 / 0.000000 | 0 / 0.000000 / 0.000000 |
+| 24: Spoke report accepted | 99 / 98.977544 / 0.000000 | 9,975 / 9,972.737389 / 0.000000 | 0 / 0.000000 / 0.000000 |
+| 27: Manual Principal credited | 99 / 98.973318 / 0.000000 | 9,975 / 9,972.311593 / 0.000000 | 0 / 0.000000 / 0.000000 |
+| 29: Income collected | 99 / 98.973317 / 0.008535 | 9,975 / 9,972.311565 / 0.860137 | 0 / 0.000000 / 0.000000 |
+| 30: Bruno deposit | 99 / 98.973317 / 0.008535 | 9,975 / 9,972.311564 / 0.860137 | 10,975 / 10,972.042047 / 0.000000 |
+| 31: Ana Income Withdrawal | 99 / 98.973317 / 0.008535 | 9,975 / 9,972.311564 / 0.000000 | 10,975 / 10,972.042047 / 0.000000 |
+| 32: Standard requested | 99 / 98.973317 / 0.008535 | 9,975 / 9,972.311564 / 0.000000 | 10,975 / 10,972.042047 / 0.000000 |
+| 34: Standard after 72 h | 99 / 98.965182 / 0.008535 | 6,974 / 6,971.547331 / 0.000000 | 10,975 / 10,971.140229 / 0.000000 |
+| 35: Instant pending | 99 / 98.963793 / 0.008535 | 6,974 / 6,971.449484 / 0.000000 | 10,975 / 10,970.986248 / 0.000000 |
+| 36: Instant settled | 99 / 101.748339 / 0.008535 | 6,974 / 7,167.605246 / 0.000000 | 426 / 437.826187 / 0.000000 |
+| 37: Spoke UNWIND requested | 99 / 101.739976 / 0.008535 | 6,974 / 7,167.016120 / 0.000000 | 426 / 437.790201 / 0.000000 |
+| 38: Partial Payout | 99 / 101.739976 / 0.008535 | 5,696 / 5,853.645511 / 0.000000 | 426 / 437.790201 / 0.000000 |
+| 39: Retry settled | 99 / 101.692213 / 0.008535 | 2,404 / 2,469.374568 / 0.000000 | 426 / 437.584678 / 0.000000 |
+| 41: Donation swept | 99 / 101.692213 / 0.008535 | 2,404 / 2,469.374568 / 0.000000 | 426 / 437.584678 / 0.000000 |
+| 44: Closing | 99 / 101.692213 / 0.008535 | 2,404 / 2,469.374567 / 0.000000 | 426 / 437.584677 / 0.000000 |
+| 45: Manager Income Withdrawal | 99 / 101.692213 / 0.000000 | 2,404 / 2,469.374567 / 0.000000 | 426 / 437.584677 / 0.000000 |
+| 47: Post-deadline unwind | 99 / 101.642108 / 0.000000 | 2,404 / 2,468.157858 / 0.000000 | 426 / 437.369071 / 0.000000 |
+| 48: CLOSE fill/report | 99 / 101.604053 / 0.000000 | 2,404 / 2,467.233793 / 0.000000 | 426 / 437.205322 / 0.000000 |
+| 49: Principal ACKs delivered | 99 / 101.604053 / 0.000000 | 2,404 / 2,467.233793 / 0.000000 | 426 / 437.205322 / 0.000000 |
+| 50: Closure finalized | 0 / 0.000000 / 0.000000 | 2,404 / 2,467.233794 / 0.634996 | 426 / 437.205322 / 0.278856 |
+| 52: Ana Closed exit | 0 / 0.000000 / 0.000000 | 0 / 0.000000 / 0.000000 | 426 / 437.205322 / 0.278856 |
+| 53: Bruno Closed exit | 0 / 0.000000 / 0.000000 | 0 / 0.000000 / 0.000000 | 0 / 0.000000 / 0.000000 |
+| 54: Excess swept | 0 / 0.000000 / 0.000000 | 0 / 0.000000 / 0.000000 | 0 / 0.000000 / 0.000000 |
+| 55: Conservation checked | 0 / 0.000000 / 0.000000 | 0 / 0.000000 / 0.000000 | 0 / 0.000000 / 0.000000 |
+
+#### Accrued and paid fees
+
+| Fee / allocation | Final cumulative USDC | Treatment |
+|---|---:|---|
+| Flow fees: seed / deposits / payouts including Closed exits | 0.250000 / 52.500000 / 53.115122 | 105.865122 total paid to Protocol Recipient |
+| Instant Payout Fee | 210.903373 | Retained in Idle, not an external payment |
+| Income collected and sold | 2.238190 | Includes final collection on both chains |
+| Performance fee | 0.447631 | ManagerFeeVault 0.223817; Protocol Recipient 0.223814 |
+| Net income assigned to holders | 1.790559 | Outside Share Assets; withdrawals in USDC |
+| Management fee accrued at Closing, then paid at finalization | 2.374759 | ManagerFeeVault 1.187380; Protocol Recipient 1.187379; ending liability 0 |
+| Bridge costs: outbound / return | 3.230000 / 3.347616 | 6.577616 total, independently matched to event ledger |
+
+The protocol slice is 50% in this run. Split rounding is per collection/payment, so the final manager/protocol
+performance halves differ by three base units. Final ManagerFeeVault holds 1.411197 USDC (= performance
+0.223817 + management 1.187380); assignment to the vault is not a tested manager withdrawal to a wallet.
+
+#### Receipt-derived gas per operation type
+
+These are successful **transaction receipt gas units** from this run, not the Foundry call samples in section 6,
+a production dollar quote or a worst-case certificate. Average = total receipt gas / count, rounded down.
+Deployment rows include setup/creation; approval and trader rows are shown so all **103 receipts / 99,813,982 gas**
+reconcile. Address-labelled rows retain the raw artifact labels; their role is not guessed. Cross-chain operations
+span multiple rows; Wormhole fees and native gas remain externally funded under the MVP scope/DEC-187.
+
+| Chain / contract — operation | Count | Min gas | Avg gas | Max gas |
+|---|---:|---:|---:|---:|
+| Hub: USDC — approve (forge CreateFund) | 1 | 38,325 | 38,325 | 38,325 |
+| Hub: FundFactory — createFund (forge CreateFund) | 1 | 24,264,276 | 24,264,276 | 24,264,276 |
+| Spoke: FundFactory — createSpoke (forge CreateFund) | 1 | 12,124,613 | 12,124,613 | 12,124,613 |
+| Hub: USDC — approve | 3 | 38,325 | 49,733 | 55,437 |
+| Hub: Core Vault — deposit | 2 | 352,419 | 730,199 | 1,107,979 |
+| Hub: Core Vault — allocateToHubSpokeVault | 1 | 138,286 | 138,286 | 138,286 |
+| Hub: hub Spoke Vault — openPosition | 2 | 492,192 | 616,051 | 739,911 |
+| Hub: hub Spoke Vault — swap | 1 | 2,362,611 | 2,362,611 | 2,362,611 |
+| Spoke: 0x3a0ef4d68eddd9821593472ac84a75741bbcf3cf — report | 5 | 139,859 | 150,358 | 164,934 |
+| Spoke: Robinhood Spoke Vault — report | 7 | 168,373 | 313,640 | 403,510 |
+| Hub: ValueReportReceiver — deliver | 17 | 477,571 | 881,798 | 1,741,871 |
+| Hub: 0xf90640a43acf3f7443fcf01891f1c9772a560b54 — deliver | 5 | 329,917 | 395,742 | 630,980 |
+| Hub: trader's V4 router (Arbitrum) — swap | 3 | 164,396 | 186,187 | 213,497 |
+| Hub: Core Vault — sendToSpoke | 1 | 740,776 | 740,776 | 740,776 |
+| Spoke: Across SpokePool (Robinhood) — fillRelay | 1 | 263,688 | 263,688 | 263,688 |
+| Spoke: Robinhood Spoke Vault — swap | 1 | 852,441 | 852,441 | 852,441 |
+| Spoke: Robinhood Spoke Vault — openPosition | 1 | 770,066 | 770,066 | 770,066 |
+| Spoke: trader's V4 router (Robinhood) — swap | 3 | 130,074 | 155,048 | 167,763 |
+| Spoke: Robinhood Spoke Vault — sendToHub | 1 | 640,636 | 640,636 | 640,636 |
+| Hub: Across SpokePool (Arbitrum) — fillRelay | 5 | 173,420 | 253,431 | 461,831 |
+| Hub: hub Spoke Vault — collectIncome | 2 | 269,960 | 302,973 | 335,986 |
+| Hub: Core Vault — requestIncomeWithdrawal | 2 | 557,946 | 1,033,947 | 1,509,948 |
+| Hub: Core Vault — acknowledgeSpokeTransit | 4 | 221,633 | 287,925 | 329,373 |
+| Spoke: Robinhood Spoke Vault — executeOrder | 10 | 346,468 | 1,254,075 | 2,430,892 |
+| Hub: Core Vault — settleIncomeWithdrawal | 1 | 313,790 | 313,790 | 313,790 |
+| Hub: Core Vault — withdrawIncome | 2 | 78,145 | 177,305 | 276,465 |
+| Hub: Core Vault — requestPayout | 3 | 798,861 | 1,348,902 | 2,443,227 |
+| Hub: Core Vault — claimPayout | 3 | 862,728 | 1,669,865 | 2,271,632 |
+| Hub: Core Vault — settlePayout | 3 | 886,582 | 948,381 | 985,148 |
+| Hub: Core Vault — sweepExcess | 3 | 48,395 | 61,026 | 69,067 |
+| Hub: USDC — transfer | 1 | 45,059 | 45,059 | 45,059 |
+| Hub: Core Vault — closeFund | 1 | 727,437 | 727,437 | 727,437 |
+| Hub: hub Spoke Vault — closePosition | 1 | 295,971 | 295,971 | 295,971 |
+| Hub: Core Vault — unwindAllAfterDeadline | 2 | 100,806 | 596,672 | 1,092,539 |
+| Hub: Core Vault — finalizeClosure | 1 | 724,612 | 724,612 | 724,612 |
+| Hub: Core Vault — exitClosedFund | 2 | 231,745 | 231,750 | 231,755 |
+
+Closure sends use a **15,000,000 gas budget**, not the smaller measured receipt value as a safe limit.
+Earlier estimation selected a caught inner OutOfGas and emitted `ClosureUnwindFailed` despite an outer
+successful receipt; the run asserts no such event. ACK retirement also removes the final CLOSE result,
+so an additional terminal CLOSE is required before finalization. Both are unresolved implementation
+limitations/workarounds, not fixed by this docs change.
+
+#### Conservation and recovery
+
+| Conservation component | USDC |
+|---|---:|
+| External capital, including the 1,234-USDC donation | 22,332.792047 |
+| Evidence-derived realized investment/swap cash flow and income | -0.124707 |
+| Total value in | 22,332.667340 |
+| Investor/manager payouts and Income Withdrawals | 20,983.402203 |
+| External fees and excess/garbage sweeps | 1,342.687513 |
+| Bridge costs | 6.577616 |
+| External fees/sweeps plus bridge costs | 1,349.265129 |
+| Remaining physical vault cash: ledgered rounding dust | 0.000008 |
+| Remaining positions / In-flight Value | 0 / 0 |
+| Unexplained flows / conservation residual | 0 / 0.000000 |
+
+**22,332.667340 = 20,983.402203 + 1,349.265129 + 0.000008 USDC.** The residual is exactly zero,
+not merely below the 20-base-unit tolerance. Separate Core Vault physical-cash reconciliation also has zero
+residual. Internal allocations/bridge principal cancel; Payout Fee remains internal, not counted again as an
+external fee. USDG uses 1:1 and WETH the unchanged scenario feed; this fully unwound result is not a live
+mark-to-market/depeg proof. The original run's positive 99.139509-USDC cash-flow figure is superseded by this
+receipt/event-bounded rerun; unmatched flows are not allowed to become investment losses or Market Costs.
+
+Recovery evidence:
+
+- **Delayed fills:** `KEEPER_FILL_DELAY_SECONDS=5`, `KEEPER_VAA_DELAY_SECONDS=1` make reports arrive
+  at least four seconds before later order-return fills. Polling completes credit/ACK without another report.
+- **Acknowledgement failures:** exactly one temporary ACK-send RPC failure is injected after successful
+  preflight. Deployment-scoped pending records/payloads persist atomically; 500-ms–30-s exponential backoff
+  has no retry limit, reconstructs candidates independently of new reports, preserves emitter sequence, and
+  republishes expired/superseded ACKs. The final queue is empty: four Principal candidates resolved.
+- **Deterministic regressions:** 7/7 cover report-before-fill, temporary ACK send and delivery failures,
+  restart/backoff/no retry cap, unrelated 10-USDC outflow, wrong transaction/token/counterparty/amount,
+  and sub-tolerance unknown flow. The 100-in / 10-unexplained-out / 90-cash negative control fails with a
+  10-USDC residual. Tiny unknown flows fail too; tolerance never authorizes unexplained transfers.
+- The real scenario injects **ACK publication**, not delivery, failure; delivery-failure/restart cases are the
+  deterministic tests. Refund tracking remains pending until its ACK executes, but this completed scenario
+  does not certify a live Across refund, production outage recovery or the manual-send retirement fix.
+- Cleanup from PR #24: `pnpm down` passed; no listener remained on its ports 59645, 59646 or 59687.
+  This report update starts no Anvil/API/keeper process.
+
+Historical #23's 46 steps / 294 assertions and API 19 concepts remain earlier integration evidence,
+not the final lifecycle counts. Final frozen-release/mainnet rehearsal and conformance fixes remain gates.
 
 ## 8. Known limitations and explicit deferrals
+
+### Whole-codebase conformance pass and alpha dispositions
+
+Source: `pool-party-sc-v2-handoff/results/conformance-pass-full.md`, **October 3, 2026**, read-only review
+of `f88b25b96913301aa9b00dd0b638adc89f9ee689`. It covers all production source families, DEC-001..187,
+the PLAN section 8 divergence readings, authorization roles and release evidence. Its own build/format/size
+checks and 1,432 non-fork tests passed; it did not run forks, a harness or new exploit demonstrations.
+The current main validation and PR #24 rerun above supersede its old counts/lifecycle evidence, not its
+unresolved code-path findings. **A conformance review is not an unconditional conformance pass or audit.**
+
+The following dispositions are the instructions for this report update, not waivers inferred from green tests:
+
+| ID | Finding / alpha consequence | Current disposition |
+|---|---|---|
+| B-01 | Hub Spoke Vault exposure remains callable during/after Core closure because its local Closed gate is not synchronized with Core Fund State | Being fixed in a separate contract PR; not claimed resolved here |
+| B-02 | Tiny terminal Principal/Income cannot cover the fixed bridge component and can prevent permissionless closure indefinitely | Being fixed in the separate contract PR; no guaranteed absent-manager terminal dust recovery claimed |
+| B-03 | Operating Cash = 0 is a deployment/manager convention; nonzero creation/setters remain callable | Being fixed in the separate contract PR; keep every alpha floor/top-up at 0 pending enforcement |
+| B-04 | Exact frozen-release deployment rehearsal, real new-emitter guardian/bridge evidence and explorer verification are not certified by this review | PR #24 supplies the local full lifecycle; production/final-SHA evidence remains a release gate |
+| G-01 / DEC-145 | Deposit/report timestamp eligibility is absent; a later report can attribute pre-entry remote income to new shares | **Pending the founder**; WP-14 deferral is not a founder acceptance or implementation claim |
+| G-02 | Full Open-fund exit pays converted dollars; unconverted income rights survive zero shares and require later collection | **Accepted for internal alpha**; rights preserved, not immediate complete income cash-out; Closed exits require final collection |
+| G-03 | Gross Assets omits Income bridging home | **Accepted for internal alpha**; informational view gap, not evidence that Share Assets include income or principal is lost |
+| G-04 | Spoke Cap return occupancy uses bridge output rather than amount sent, understating usage by bridge cost | **Accepted for internal alpha**; DEC-066 sent-base symmetry remains incomplete |
+| G-05 | Previously reserved unlisted Principal recovery can credit live Idle after Closed while frozen closedIdle is unchanged | Being fixed in the separate contract PR; not a demonstrated increase in frozen holder entitlements |
+| G-06 | Report lifetime is selectable within one day, not enforced per supported network | **Accepted for internal alpha** with the checked 1,588-second Mandate value; not protocol-wide conformance |
+| G-07 | Direct constructors permit different Protocol Recipient and excess recipient | **Accepted for internal alpha** with equality verified in standard factory wiring |
+
+B-01/B-02 are static code-path findings, B-03 a configuration/trusted-manager gate, B-04 an evidence gate;
+do not call them executed exploits. B-01..B-03/G-05 fixes require independent review, tests and a new frozen
+release rehearsal after landing. The accepted G findings are **internal-alpha limitations**, not permission
+for public capital, and G-01 remains undecided. Existing deferrals/operating risks below remain in addition.
+
+### Open manual Principal acknowledgement issue
+
+A manual `SpokeVault.sendToHub(amount, Principal, bridgeRank)` remains **Sent after its Hub acknowledgement**.
+The retirement fix is in progress in a separate contract change. The runbook therefore **forbids manual
+Principal returns until the fix lands and is reviewed/retested**; use only the reviewed order-driven return
+paths and their documented ACK/CLOSE procedure. Historical steps 25–27 above prove cash arrival/credit,
+not correct terminal retirement of that manual record. Four resolved order-linked Principal candidates and
+an empty keeper queue do not prove the manual send's on-chain state is terminal.
+See the [alpha runbook restriction](../DEPLOYMENT-ALPHA.md#manual-principal-returns-blocked).
+
+### Other retained limitations
 
 - **Silent spoke:** DEC-157/160 have no inactivity escape; exits needing its fresh report and closure cannot
   finish if a spoke never answers. Permissionless relay replaces a keeper, not the report source.
@@ -544,8 +862,8 @@ passing after nested linking fixes. Those are reviewed historical snapshots, not
   overcharge below `(new base / old base)` USDC base units. About 0.01 USDC per 1M over a 100-USDC old base;
   at the 1-USDC test seed the reviewer measured 0.998859 USDC. Each positive rounded booking loses manager <1
   base unit. Local rounding bound, not exact entry-time isolation/global-loss cap. Docs only, NatSpec unchanged.
-- **PR #21 L-1:** retirement `abi.encode(records)` matches shared encoder bytes today but bypasses its 416-byte
-  size assertion; low code follow-up, not fixed in docs. Immutable API route signer/registry-owner transfer
+- **PR #21 L-1 resolved:** merged PR #25 uses the shared 416-byte result encoder on retirement; its extra
+  regression is included in the current non-fork count. Immutable API route signer/registry-owner transfer
   discrepancy, guardian/key compromise and absent public depositor allowlist remain disclosed.
 - No external audit, current full formal verification/deep-fuzz/coverage/mutation rebaseline, worst-case report
   gas certificate, real new-emitter VAA delivery or production explorer verification claimed by this report.
@@ -553,8 +871,10 @@ passing after nested linking fixes. Those are reviewed historical snapshots, not
 ## 9. Deploy readiness and Rafael's required inputs
 
 **Ready evidence:** #20 dual-chain deploy/checker rehearsal and executable verification extraction; #21 fixed
-nested library linking with deployment regressions; fresh green tests/sizes/format. **Not ready evidence:** final
-PR #24 lifecycle, final frozen-SHA deployment rehearsal, production guardian service, live Across route confirmation,
+nested library linking with deployment regressions; fresh green tests/sizes/format.
+**Completed lifecycle evidence:** merged PR #24 recovery run, section 7. **Still not ready:** conformance
+B-01..B-03/G-05 fixes, founder G-01 disposition, manual-send ACK fix, final frozen-SHA deployment rehearsal,
+production guardian service, live Across route confirmation,
 explorer source verification, approved real keys/ETH budgets and internal risk acceptance. No mainnet deployment here.
 
 Use [DEPLOYMENT-ALPHA](../DEPLOYMENT-ALPHA.md) for the input sheet/broadcast procedure; its October 2 feature-gap
@@ -587,12 +907,13 @@ rehearsal/live chain fee estimation. Public gates remain DEC-133 order: unit -> 
 
 WP-19b deliberately changes docs only, including README/report; management-fee NatSpec follow-up is documented,
 not edited. No new tests/CI shard/fixture/runtime edits; full forks nevertheless rerun for founder evidence.
-Final end-to-end section is intentionally deferred to merged PR #24, per task, not omitted silently.
+The final end-to-end placeholder is now replaced by merged PR #24's authoritative recovery evidence.
+This update reruns build/format/size/non-fork and the full fork suite without changing contracts or fixtures.
 
 Existing divergences are not resolved by documentation: native Operating Cash/refunds/DEC-185 MVP top-up versus
 ruling 2026-10-02 delivery scope; DEC-171 fund executor gas versus external funding; Standard Wormhole fee caller
 funding; DEC-145 absent timestamp eligibility; DEC-159 off-chain reporting versus atomic publication; DEC-123
 incomplete source hierarchy. DEC-186 Slack cap overrides register's older 10%; registry Ownable2Step/override can
-separate owner from immutable API signer; 1% rate plus fixed fee differs from a 1% total gap; raw result retirement
-encoder bypasses size assertion. ACK delivery and silent-spoke liveness are implementation/operating prerequisites,
+separate owner from immutable API signer; 1% rate plus fixed fee differs from a 1% total gap; shared result retirement
+encoder follow-up was fixed by PR #25; it is no longer an open divergence. ACK delivery and silent-spoke liveness are implementation/operating prerequisites,
 not new waivers. Full dispositions: [OPEN-QUESTIONS](../OPEN-QUESTIONS.md).

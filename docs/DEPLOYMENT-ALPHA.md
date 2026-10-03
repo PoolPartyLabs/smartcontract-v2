@@ -268,6 +268,17 @@ clone links separately, not an implementation constructor at each clone address.
 
 ## Mainnet alpha keeper and API
 
+### Manual Principal returns blocked
+
+**October 3, 2026 release restriction:** do not call
+`SpokeVault.sendToHub(amount, Principal, bridgeRank)` manually. The manual send remains Sent after its Hub
+acknowledgement; its contract retirement fix is in progress. Cash arrival and Idle credit alone do not prove
+that the spoke record has retired. Manual Principal returns remain forbidden until that fix is independently
+reviewed, merged and retested on the frozen release. Use only reviewed order-driven Principal return paths,
+deliver their ACKs, and repeat terminal CLOSE after its ACK when required. An empty off-chain pending queue
+is not proof that every on-chain transit is terminal. See the
+[founder report](reports/2026-10-03-MVP-REPORT.md#open-manual-principal-acknowledgement-issue).
+
 Do **not** point `pnpm keeper` / `pnpm api` / `pnpm up` at mainnet: those paths use public Anvil actor keys, replace
 guardian sets, edit storage/fund accounts, simulate fills and update oracle state. Instead this branch adds a
 separate, loopback-only `local-e2e/src/alpha.ts`, reusing protocol ABIs and the route signature encoding, with real
