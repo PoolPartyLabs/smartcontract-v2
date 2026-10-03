@@ -10,6 +10,31 @@ export interface AlphaWork {
   acknowledgedAt?: number;
 }
 
+export function transitResolved(state: number): boolean {
+  return state === 2 || state === 4;
+}
+
+export function createAlphaTransitResolver(dependencies: {
+  state: (work: AlphaWork) => Promise<number>;
+  credited: (work: AlphaWork) => Promise<bigint>;
+  acknowledge: (work: AlphaWork) => Promise<void>;
+  save: () => void;
+  now?: () => number;
+}) {
+  const now = dependencies.now ?? Date.now;
+  return async (work: AlphaWork): Promise<boolean> => {
+    if (transitResolved(await dependencies.state(work))) return true;
+    if (await dependencies.credited(work) < BigInt(work.expected)) return false;
+    if (!work.acknowledged || now() - (work.acknowledgedAt ?? 0) >= 60000) {
+      await dependencies.acknowledge(work);
+      work.acknowledged = true;
+      work.acknowledgedAt = now();
+      dependencies.save();
+    }
+    return false;
+  };
+}
+
 export async function drainAlphaWork(
   cursor: {work: AlphaWork[]},
   resolve: (work: AlphaWork) => Promise<boolean>,

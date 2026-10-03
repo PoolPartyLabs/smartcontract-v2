@@ -12,7 +12,7 @@ import {coreVaultAbi, spokeVaultAbi, valueReportReceiverAbi, wormholeCoreAbi} fr
 import {ROUTE_TYPES, encodeRoute, legsHash} from "./swap-route.ts";
 import {actors, guardian} from "./config.ts";
 import {createAlphaDelivery, drainAlphaPending, type AlphaMessage} from "./alpha-relay.ts";
-import {collectAllowed, drainAlphaWork, type AlphaWork} from "./alpha-work.ts";
+import {collectAllowed, createAlphaTransitResolver, drainAlphaWork, type AlphaWork} from "./alpha-work.ts";
 import {decodeSpokeReport, SPOKE_REPORT_VERSION} from "./spoke-report.ts";
 
 function required(name: string): string {
@@ -139,24 +139,20 @@ if (process.env.ALPHA_REHEARSAL_LOCAL_VAA === "1") {
 }
 const deliver = createAlphaDelivery({sides, bridges, receiver, spoke, vaaBase, read, send, fetchVaa});
 
-async function resolveTransit(work: AlphaWork) {
-  const transit = await read("spoke", spoke, "hubBoundTransit", [work.transitId], spokeVaultAbi);
-  if (Number(transit.state) === 2 || Number(transit.state) === 4) return true;
-  const events = await nodes.hub.client.getLogs({address: core, event: coreVaultAbi.find((entry: any) => entry.name === "TransitReceived") as any,
-    fromBlock: BigInt(required("ALPHA_HUB_START_BLOCK")), toBlock: (await nodes.hub.client.getBlock({blockTag: process.env.ALPHA_REHEARSAL_LOCAL_VAA === "1" ? "latest" : "finalized"})).number!});
-  const credited = (events as any[]).filter((entry) => entry.args.transitId === work.transitId && entry.args.originChainId === 4663n && entry.args.matched)
-    .reduce((total, entry) => total + entry.args.amount, 0n);
-  if (credited < BigInt(work.expected)) return false;
-  if (work.kind === 1) return true;
-  if (!work.acknowledged || Date.now() - (work.acknowledgedAt ?? 0) >= 60000) {
+const resolveTransit = createAlphaTransitResolver({
+  state: async (work) => Number((await read("spoke", spoke, "hubBoundTransit", [work.transitId], spokeVaultAbi)).state),
+  credited: async (work) => {
+    const events = await nodes.hub.client.getLogs({address: core, event: coreVaultAbi.find((entry: any) => entry.name === "TransitReceived") as any,
+      fromBlock: BigInt(required("ALPHA_HUB_START_BLOCK")), toBlock: (await nodes.hub.client.getBlock({blockTag: process.env.ALPHA_REHEARSAL_LOCAL_VAA === "1" ? "latest" : "finalized"})).number!});
+    return (events as any[]).filter((entry) => entry.args.transitId === work.transitId && entry.args.originChainId === 4663n && entry.args.matched)
+      .reduce((total, entry) => total + entry.args.amount, 0n);
+  },
+  acknowledge: async (work) => {
     const fee = await read("hub", bridges.hub, "messageFee", [], wormholeCoreAbi);
     await send("hub", core, coreVaultAbi, "acknowledgeSpokeTransit", [0n, work.transitId], fee);
-    work.acknowledged = true;
-    work.acknowledgedAt = Date.now();
-    save();
-  }
-  return false;
-}
+  },
+  save,
+});
 
 async function publish(): Promise<Message> {
   const fee = await read("spoke", bridges.spoke, "messageFee", [], wormholeCoreAbi);

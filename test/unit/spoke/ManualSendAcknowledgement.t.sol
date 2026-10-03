@@ -22,9 +22,9 @@ contract ManualSendAcknowledgementTest is SpokeUnwindRoundTwoTest {
         }
     }
 
-    function test_collectionIncomeMoreThanSixteenAcknowledgedSends() public {
+    function test_collectionIncomeMoreThanSharedCapacityAcknowledgedSends() public {
         _position();
-        for (uint64 index; index < 24; ++index) {
+        for (uint64 index; index < 65; ++index) {
             _earnIncome(spokeUni, position, 0, 10e6);
             OrderCodec.Order memory order;
             order.kind = OrderCodec.COLLECT;
@@ -39,6 +39,8 @@ contract ManualSendAcknowledgementTest is SpokeUnwindRoundTwoTest {
             SpokeIncomeTypes.CollectionResult[] memory results =
                 abi.decode(vault.buildReport().collectionResults, (SpokeIncomeTypes.CollectionResult[]));
             bytes32 transitId = results[results.length - 1].transitId;
+            assertEq(uint8(vault.hubBoundTransit(transitId).kind), uint8(TransferKind.Income));
+            assertEq(vault.inFlightTransitIds().length, 1);
             bytes memory blob = vault.buildReport().collectionResults;
             _acknowledge(transitId, index * 2 + 2, uint8(TransitState.ArrivalConfirmed));
             _assertRetired(transitId, TransitState.ArrivalConfirmed);
