@@ -584,6 +584,38 @@ balances; do not infer success from a transaction submission or from an unledger
 
 ### Final October 3 evidence
 
+### Round-2 corrections and fresh alpha-sized rehearsal (October 3, 2026)
+
+Fix commits: `9ba93bd` (URL redaction) and `fa6773f` (durable broadcast checkpoints). `origin/main`
+remains `2b04b28`, already included in this branch; no additional main merge was needed.
+
+Shell and TypeScript now keep only scheme/host/port, strip userinfo and consume every non-whitespace suffix,
+including embedded parentheses, quotes, brackets and trailing punctuation. Conservative redaction may remove
+closing log delimiters too. **13 synthetic URL cases** pass across shell output/saved logs, TypeScript and all
+logger levels, plus **5 actual failing cast commands** with synthetic credentials; command exit status is preserved.
+
+`continuation-state.jsonl` is fsynced immediately after each broadcast and before polling. Post-broadcast outages
+retain submitted/unknown records; reverted receipts are saved before failure. The executable `reconcile` mode
+reloads saved hashes, queries receipts without broadcasting, and refuses success with unresolved/reverted records.
+Already-started phases cannot replay, and unresolved prior broadcasts block new phases. **3 new transaction
+regressions** cover durable-before-poll ordering, restart/outage recovery, read-only reconciliation, reverted and
+successful receipts, no duplicate broadcast, and corrupt-state failure. Recovery remains operator-authorized,
+not automatic workflow replay; the mainnet CLI was tested through its shared transaction helper, not live writes.
+
+Fresh rehearsal passes at archive pins **511007613 / 78293056**, private ports **20645 / 20646 / 20787**,
+with the same tiny parameters listed below: both deployment checkers, 5 USDC capital send / 4.966000 USDG fill,
+1 USDC Instant Payout, V3/V4/Aave, retained **2594 USDG units** and empty COLLECT result, **80 USDC units**
+Attributed Income settlement, second-fund CLOSE/frozen exit, and **5 API checks**. All three ports have no
+listeners after cleanup; no owned Anvil/keeper/API remains. No mainnet broadcast or live explorer verification.
+
+Green bar: size **3/3 (1 suite)**, non-fork **1433/1433 (183 suites)**, full fork **222/222 (56 suites)**,
+alpha Node **11/11**, verification tooling **2/2**, URL **13/13**, TypeScript, formatting and diff checks pass.
+Production bytecode is unchanged: Core Vault **22862 / 1714 margin**, Spoke Vault **22887 / 1689**, tightest
+SpokeUnwindLib **23449 / 1127**. No executable margin below 1000; full CodeStore data chunks intentionally
+have zero margin. The older 23473/1103 unwind figures were pre-encoder and are corrected in the current table.
+No new specification divergence or scope deviation; manual Principal returns and all live release gates remain
+restricted as documented below. Full multi-strategy WP-15b/18 coverage remains outside this smoke scope.
+
 ### Round-1 corrections and alpha-sized evidence (October 3, 2026)
 
 Baseline now includes `origin/main` `2b04b28` (shared result encoder). Default rehearsal parameters are
@@ -739,9 +771,9 @@ The final script prints both smoke passes and stops both private forks; no owned
 
 ## Validation and runtime sizes
 
-Fresh green bar: build/sizes and format check; size **3/3 in 1 suite**; non-fork **1,432/1,432 in 183 suites**;
-fork **222/222 in 56 suites** with -j 4; alpha relay **6/6 Node tests**; verification extractor **1/1 Node test**;
-URL redaction **8 synthetic cases**; TypeScript type-check; final scripted two-fork rehearsal and **5 API checks**.
+Fresh round-2 green bar: build/sizes and format check; size **3/3 in 1 suite**; non-fork **1,433/1,433 in 183 suites**;
+fork **222/222 in 56 suites** with -j 4; alpha **11/11 Node tests**; verification tooling **2/2 Node tests**;
+URL redaction **13 synthetic cases**; TypeScript type-check; final scripted two-fork rehearsal and **5 API checks**.
 
 Production before = after (no source change), EIP-170 limit 24,576 bytes:
 
@@ -768,10 +800,10 @@ Production before = after (no source change), EIP-170 limit 24,576 bytes:
 | CoreVaultIncomeCollectionLogic | 16816 / 16816 | 7760 |
 | CoreVaultPayoutLogic | 22256 / 22256 | 2320 |
 | SpokeCrossChainLib | 12199 / 12199 | 12377 |
-| SpokeUnwindLib | 23473 / 23473 | 1103 |
+| SpokeUnwindLib | 23449 / 23449 | 1127 |
 | SpokeCloseLib | 5875 / 5875 | 18701 |
 | SpokeIncomeLib | 11631 / 11631 | 12945 |
 
-Tightest executable: **SpokeUnwindLib 23,473 B / 1,103 B margin**; Core Vault 22,862 / 1,714;
+Tightest executable: **SpokeUnwindLib 23,449 B / 1,127 B margin**; Core Vault 22,862 / 1,714;
 Spoke Vault 22,887 / 1,689. No executable margin below 1,000. Full CodeStore data chunks intentionally
 have **0 B margin** (STOP plus data at EIP-170); do not increase chunk size. Script contracts are off-chain.
