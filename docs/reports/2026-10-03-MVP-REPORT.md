@@ -3,10 +3,10 @@
 ## Executive status and evidence boundary
 
 **Code measured:** merged main `334eae6` (October 3, 2026), including PR #24/#25/#26/#28/#29;
-merged into this docs branch as `8e5755b`. #30 is OPEN at `c36da24`: DEC-145 is
-**in PR #30, landing before the deploy**, not implemented on this measured main.
-This WP-19b update is docs only: no executable, compiler, fixture, ABI or deployment change. Fresh validation
-runs in this worktree against that merged contract tree. The completed PR #24 lifecycle is reported in section 7
+merged into the earlier docs baseline as `8e5755b`. These historical contract-suite measurements predate #30.
+**DEC-145 is implemented by merged PR #30** and included in deployed release `797d592`.
+This update records the live internal alpha and off-chain tooling fixes; no `src/` contracts change.
+The historical suite counts below are retained, not presented as a rerun on the deployment release. The completed PR #24 lifecycle is reported in section 7
 with its own executed SHA; it is not a mainnet broadcast or a conformance certificate.
 
 **Fresh local results:** 1,548 non-fork tests in 190 suites; 227 fork tests in 57 suites; zero failures/skips.
@@ -16,14 +16,14 @@ No margin below 1,000; the complete fresh 24-executable inventory is in section 
 
 **Historical PR #24 end-to-end:** PASS, 55 steps / 319 assertions, 103 receipts, 6 real fills / 0 simulated, API 31 concepts.
 Zero conservation residual; 6.577616-USDC bridge costs and 0.000008-USDC ledgered dust remain explicit.
-**Conformance:** merged #28 resolves B-01/B-02/B-03/G-05; DEC-145 is in PR #30, landing before the deploy.
+**Conformance:** merged #28 resolves B-01/B-02/B-03/G-05; DEC-145 is implemented by merged PR #30.
 G-02/G-03/G-04/G-06/G-07 are accepted for internal alpha only (section 8), not full-spec conformance.
 Merged #29 ships report v5, manual Principal ACKs and **64 shared send slots with acknowledgement-driven reuse**.
 Its committed replay has **56 steps / 326 assertions**, zero residual (distinct from #24’s historical figures).
 
 **Readiness:** feature-complete for the landed proportional unwind, dollar income, spoke orders and closure
-scope, subject to explicit deferrals/limitations. Internal alpha preparation is not a public release, external
-audit, real guardian-service certificate or mainnet broadcast. Rafael's input approval and final rehearsal remain gates.
+scope, subject to explicit deferrals/limitations. The internal mainnet alpha is deployed (see the final section); it is not a public release or external audit.
+Live reports and the capital/position smoke pass; continuous keeper operation remains an operator gate.
 
 ## 1. What Rafael asked for
 
@@ -107,7 +107,7 @@ No public-audit claim follows from independent agent reviews.
 | [#26](https://github.com/PoolPartyLabs/smartcontract-v2/pull/26) | Rounds 1–3 plus fix replies; no final numbered approval comment visible. [comment 1](https://github.com/PoolPartyLabs/smartcontract-v2/pull/26#issuecomment-5963535568); [comment 2](https://github.com/PoolPartyLabs/smartcontract-v2/pull/26#issuecomment-5963760912); [comment 3](https://github.com/PoolPartyLabs/smartcontract-v2/pull/26#issuecomment-5963839481); [comment 4](https://github.com/PoolPartyLabs/smartcontract-v2/pull/26#issuecomment-5963911614); [comment 5](https://github.com/PoolPartyLabs/smartcontract-v2/pull/26#issuecomment-5963975875); [comment 6](https://github.com/PoolPartyLabs/smartcontract-v2/pull/26#issuecomment-5964048024) | Round 1: credential leakage, oversized alpha rehearsal/sub-minimum Income assumptions, incomplete executable runbook, stale executable/seed-minimum facts. Round 2: parenthesized URL redaction leakage and submitted hashes lost on receipt errors. Round 3: unsupported/encoded/Unicode host fallback retained userinfo. Fix replies record fail-closed authority stripping/regressions, fsynced journal/reconciliation, alpha-sized executable smoke and verification inventory. Merged status does not establish a separately visible round-4 approval. |
 | [#28](https://github.com/PoolPartyLabs/smartcontract-v2/pull/28) | Rounds 1–2. [comment 1](https://github.com/PoolPartyLabs/smartcontract-v2/pull/28#issuecomment-5964072863); [comment 2](https://github.com/PoolPartyLabs/smartcontract-v2/pull/28#issuecomment-5964132093); [comment 3](https://github.com/PoolPartyLabs/smartcontract-v2/pull/28#issuecomment-5964163311) | Round 1: B-02 late Principal dust finalized but stayed ledgered/unsweepable. Arrival-path exclusion preserves credits and permits sweeping without a second CLOSE. Round 2 approved ONLY that fix commit/regression, including the two-fork ordinary-report-after-late-arrival case. B-01/B-03/G-05 checks recorded in round 1. |
 | [#29](https://github.com/PoolPartyLabs/smartcontract-v2/pull/29) | Rounds 1–2. [comment 1](https://github.com/PoolPartyLabs/smartcontract-v2/pull/29#issuecomment-5964522295); [comment 2](https://github.com/PoolPartyLabs/smartcontract-v2/pull/29#issuecomment-5964615006); [comment 3](https://github.com/PoolPartyLabs/smartcontract-v2/pull/29#issuecomment-5964841756); [comment 4](https://github.com/PoolPartyLabs/smartcontract-v2/pull/29#issuecomment-5964911497) | Round 1: alpha keeper silently completed Income work without ACK, exhausting slots. Durable all-kind work stays until terminal spoke confirmation; retry/republish, 65 on-chain collection sends and 130-send runtime regressions, snapshot rollback and mined mint-price assertions. Round 2 approved the fix scope and independently reproduced default warm-up/replay and alpha Income/manual slot release. |
-| [#30](https://github.com/PoolPartyLabs/smartcontract-v2/pull/30) | Rounds 1–2 plus fix replies; pending landing. [comment 1](https://github.com/PoolPartyLabs/smartcontract-v2/pull/30#issuecomment-5964884845); [comment 2](https://github.com/PoolPartyLabs/smartcontract-v2/pull/30#issuecomment-5965066647); [comment 3](https://github.com/PoolPartyLabs/smartcontract-v2/pull/30#issuecomment-5965106507); [comment 4](https://github.com/PoolPartyLabs/smartcontract-v2/pull/30#issuecomment-5965160148) | Round 1 high: activated waiting-lot settlement exceeded transaction gas, blocking withdrawals/live/Closed exits. Fixed with shared 64-token-operation budget, persisted checkpoints and permissionless continuation. Round 2 reproduced 2,038,401 gas in 90 calls and verified settlement, but found medium: test-only SettlementCoreVault 31,536 B broke exact size build/CI. Fix c36da24 links history preparation into a test library, fixture 22,927 B / 1,649 margin; clean exact build/regressions pass in fix reply, production unchanged. No later independent approving comment visible; not merged-main evidence. |
+| [#30](https://github.com/PoolPartyLabs/smartcontract-v2/pull/30) | Rounds 1–2 plus fix replies; subsequently merged before release `797d592`. [comment 1](https://github.com/PoolPartyLabs/smartcontract-v2/pull/30#issuecomment-5964884845); [comment 2](https://github.com/PoolPartyLabs/smartcontract-v2/pull/30#issuecomment-5965066647); [comment 3](https://github.com/PoolPartyLabs/smartcontract-v2/pull/30#issuecomment-5965106507); [comment 4](https://github.com/PoolPartyLabs/smartcontract-v2/pull/30#issuecomment-5965160148) | Round 1 high: activated waiting-lot settlement exceeded transaction gas, blocking withdrawals/live/Closed exits. Fixed with shared 64-token-operation budget, persisted checkpoints and permissionless continuation. Round 2 reproduced 2,038,401 gas in 90 calls and verified settlement, but found medium: test-only SettlementCoreVault 31,536 B broke exact size build/CI. Fix c36da24 links history preparation into a test library, fixture 22,927 B / 1,649 margin; clean exact build/regressions pass in fix reply, production unchanged. Historical review observations; #30 is implemented in deployed release `797d592`. |
 
 ## 4. Fresh verification and reproducibility
 
@@ -832,7 +832,7 @@ The following dispositions are the instructions for this report update, not waiv
 | B-02 | Historical finding: terminal Principal/Income too small to bridge could block closure | **Resolved by merged #28**, including round-1 fix: terminal dust strictly below 0.50 recorded/excluded/sweepable; late Principal needs no second CLOSE. Alpha exception to literal DEC-163 |
 | B-03 | Historical finding: zero Operating Cash was only a deployment/manager convention | **Resolved by merged #28:** nonzero Mandate floor/top-up rejected; setters disabled, internal hooks inert |
 | B-04 | Exact frozen-release deployment rehearsal, real new-emitter guardian/bridge evidence and explorer verification are not certified by this review | PR #24 supplies the local full lifecycle; production/final-SHA evidence remains a release gate |
-| G-01 / DEC-145 | Deposit/report timestamp eligibility is absent; a later report can attribute pre-entry remote income to new shares | **In PR #30, landing before the deploy:** waiting lots/resumable checkpoints, reported max-config peak 2.04M gas; not implemented on measured main |
+| G-01 / DEC-145 | Deposit/report timestamp eligibility is absent; a later report can attribute pre-entry remote income to new shares | **Implemented (#30), included in release `797d592`:** waiting lots/resumable checkpoints, reported max-config peak 2.04M gas; historical measured main predates this fix |
 | G-02 | Full Open-fund exit pays converted dollars; unconverted income rights survive zero shares and require later collection | **Accepted for internal alpha**; rights preserved, not immediate complete income cash-out; Closed exits require final collection |
 | G-03 | Gross Assets omits Income bridging home | **Accepted for internal alpha**; informational view gap, not evidence that Share Assets include income or principal is lost |
 | G-04 | Spoke Cap return occupancy uses bridge output rather than amount sent, understating usage by bridge cost | **Accepted for internal alpha**; DEC-066 sent-base symmetry remains incomplete |
@@ -842,9 +842,9 @@ The following dispositions are the instructions for this report update, not waiv
 
 B-01/B-02 are static code-path findings, B-03 a configuration/trusted-manager gate, B-04 an evidence gate;
 do not call them executed exploits. B-01..B-03/G-05 fixes are merged in reviewed #28, including the late-dust
-round-2 regression verification. A frozen post-#30 release-SHA rehearsal remains required before production.
-Accepted G findings are **internal-alpha limitations**, not permission for public capital. DEC-145 is in PR #30,
-landing before the deploy; the earlier WP-14 deferral is superseded by this pre-deploy work.
+round-2 regression verification. The frozen post-#30 rehearsal preceded release `797d592` deployment.
+Accepted G findings are **internal-alpha limitations**, not permission for public capital. DEC-145 is implemented
+by merged #30; the earlier WP-14 deferral is superseded.
 
 ### Manual and Income acknowledgements: merged PR #29
 
@@ -866,9 +866,9 @@ These are committed #29 evidence, not a fresh harness run by this docs WP. The i
 warm-up/replay was **55 / 321**; its review explicitly did not rerun the report-only conservation step.
 Section 7’s #24 figures remain a separate historical run.
 
-### DEC-145: in PR #30, landing before the deploy
+### DEC-145: implemented (#30)
 
-PR #30 head `c36da24` implements report/deposit timestamp eligibility using per-source FIFO waiting lots,
+Merged PR #30 (included in release `797d592`; reviewed fix head `c36da24`) implements report/deposit timestamp eligibility using per-source FIFO waiting lots,
 waiting-first burns and resumable frozen capture/payment/merge checkpoints. One shared **64-token-operation
 budget** covers sources, active and activated waiting shares; permissionless `settleHolderIncome(holder)`
 progresses in Open/Closing/Closed without a collection request. Balance hooks retry after completion;
@@ -879,12 +879,12 @@ Round 1 found a high gas-liveness blocker; the fix reply reports cold maximum le
 at 14M gas, peak **2,038,401 gas (2.04M)** with persisted progress. Income Withdrawal, Payout burn, closure
 finalization and Closed exit tests stay below 15M including continuation. Its integrated replay is
 **57 steps / 330 assertions**, zero residual; default warm-up **56 / 325**. These are #30’s reported evidence,
-not rerun/merged-main counts or sizes here. Round 2 independently reproduced the 2.04M peak in **90 continuation
+not freshly rerun counts or sizes here. Round 2 independently reproduced the 2.04M peak in **90 continuation
 calls** and verified the settlement fix, but found a test-only fixture breaking the exact size build: 31,536 bytes,
 6,960 over EIP-170. Its fix reply at `c36da24` moves history preparation into a linked test-only library:
 fixture **22,927 / 1,649 B margin**, helper **9,494 / 15,082**. A clean unqualified build and existing path
-regressions pass in that reply; production code and prior harness evidence are unchanged. No later independent
-approving comment is visible at this check. Landing #30 and frozen-release validation remain pre-deploy gates.
+regressions pass in that reply; production code and prior harness evidence are unchanged. The review history
+above is historical; #30 subsequently merged and frozen-release validation preceded mainnet deployment.
 
 ### Other retained limitations
 
@@ -897,13 +897,13 @@ approving comment is visible at this check. Landing #30 and frozen-release valid
   gas (DEC-187); keeper/API/callers pay gas and message fees. Accounting for fund collection/bridge costs is
   not gas reimbursement. DEC-164/165 refund and DEC-171 executor-gas absorption are deferred.
 - **Deferred:** DEC-185 spoke gas top-up; native Operating Cash WP-16 (including native cap/unwrap); WP-11 signed
-  bridge quotes DEC-168/176; **WP-17 deferred by Rafael**. DEC-145 is in PR #30, landing before the deploy. Confirmed future refund caps are 0.5 gwei,
+  bridge quotes DEC-168/176; **WP-17 deferred by Rafael**. DEC-145 is implemented by merged PR #30. Confirmed future refund caps are 0.5 gwei,
   0.001 ETH/call and /day/vault, no minimum interval. MVP Operating Cash is enforced at 0 by #28:
   nonzero Mandate parameters rejected, manager setters disabled, no native spend/refund/top-up implemented.
 - **Economics:** manager no-floor swaps (S-8/DEC-129), pre-sale spot manipulation/empty-route reference residual
   (C-01/#7) remain accepted only for internal alpha. Optional signed/caller minima are not independent market-price
   guarantees; flow fee is not an attack brake. Partial intermediate V3 route residue can be sweepable.
-- **Income:** recognition cohorts implemented on main; DEC-145 is in PR #30, landing before the deploy,
+- **Income:** recognition cohorts implemented on main; DEC-145 is implemented by merged PR #30,
   replacing the timestamp-filter gap with waiting lots/checkpoints. No external incentive collector distribution.
 - **Pricing/bridge:** incomplete DEC-123 reliable-source hierarchy/cache initialization; 1:1 USDG ignores depeg.
   Adapter cap is 1% rate plus fixed 0.03 token, not total 1% gap. Mean is own sends, expiry may mean downtime/limits;
@@ -924,7 +924,7 @@ approving comment is visible at this check. Landing #30 and frozen-release valid
 **Ready evidence:** #20 dual-chain deploy/checker rehearsal and executable verification extraction; #21 fixed
 nested library linking with deployment regressions; fresh green tests/sizes/format.
 **Completed lifecycle evidence:** merged PR #24 recovery run, section 7. **Still not ready:** conformance
-DEC-145 PR #30 landing, final frozen-SHA deployment rehearsal,
+the completed DEC-145 PR #30 merge and frozen-SHA deployment rehearsal,
 production guardian service, live Across route confirmation,
 explorer source verification, approved real keys/ETH budgets and internal risk acceptance. No mainnet deployment here.
 
@@ -963,7 +963,7 @@ This update reruns build/format/size/non-fork and the full fork suite without ch
 
 Existing divergences are not resolved by documentation: native Operating Cash/refunds/DEC-185 MVP top-up versus
 ruling 2026-10-02 delivery scope; DEC-171 fund executor gas versus external funding; Standard Wormhole fee caller
-funding; DEC-145 in PR #30, landing before the deploy (FIFO/waiting-first and bounded timestamp-skew reading); DEC-159 off-chain reporting versus atomic publication; DEC-123
+funding; DEC-145 implemented by merged PR #30 (FIFO/waiting-first and bounded timestamp-skew reading); DEC-159 off-chain reporting versus atomic publication; DEC-123
 incomplete source hierarchy. DEC-186 Slack cap overrides register's older 10%; registry Ownable2Step/override can
 separate owner from immutable API signer; 1% rate plus fixed fee differs from a 1% total gap; shared result retirement
 encoder follow-up was fixed by PR #25; it is no longer an open divergence. ACK delivery and silent-spoke liveness are implementation/operating prerequisites,
@@ -971,10 +971,221 @@ not new waivers. Full dispositions: [OPEN-QUESTIONS](../OPEN-QUESTIONS.md).
 
 ## Mainnet alpha deployment
 
-**Placeholder — fill after the deploy. No mainnet deployment is attested by this docs PR.**
+### Release, evidence and scope
 
-Record the final post-#30 release SHA/compiler/build; both chain IDs and factory/fund/vault/linked-library
-addresses/dependency links; Mandate hash/deployment blocks; transaction hashes/receipts/gas/costs; approved
-roles and budgets (no keys/RPC URLs); explorer verification coverage/status; real guardian VAA/live Across
-fill/refund evidence; keeper/API health and ACK-driven slot release; final lifecycle/closure/frozen-exit/
-conservation checks and alpha-only risk acceptance.
+The internal alpha (DEC-134) was deployed on **October 3, 2026**, from frozen release **`797d592`**,
+including merged #30 / DEC-145. Solidity **0.8.28**, optimizer **800**, **Cancun**, **no via-IR**.
+Arbitrum One is the Hub Chain (**42161**, Wormhole **23**); Robinhood Chain is the Spoke Chain
+(**4663**, Wormhole **72**). Fund creation number **1**, Fund ID
+`0xe49050db325f1963991d8b7fa591be9fe3fac1e7bfea0c34955c4f67893f6e46`, Mandate hash
+`0x9714b37e5576b0d8b07652dee42cb16517fdea99528468d877e41b0ec806a198`.
+Fund scan start blocks: Arbitrum **511198781**, Robinhood **78805261**.
+
+Evidence is outside this repository: `/Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/mainnet-records/`.
+Sources: `fund.env`, `alpha-deploy-*.log`, `alpha-create-*.log`, `check-*.log`,
+`verified-*/coverage.json`, `broadcast/*/run-latest.json`, `continuation.jsonl`,
+`continuation-state.jsonl`, `positions.jsonl`, `smoke-*.log` and `report-1.json`;
+timing/operational observations are the October 3 entries in the external `HANDOFF.md`.
+No keys, RPC URLs or handoff chronology are copied here. The Across fill gas and manager Payout receipt
+were supplemented by read-only receipt queries on October 3, through the RPC loader and safe wrapper.
+Historical test counts above are not updated by this evidence review.
+
+### Factory and complete deployment inventory
+
+The **FundFactory** is `0x2cdb1f3fa95f8a65495d01d20ad53cf980728534` on both chains.
+The tables include every executable, linked library, CodeStore and one-use CREATE3 proxy in the recorded
+factory/fund #1 inventories. Raw CodeStores/proxies are identified separately; they are not Solidity
+verification targets. TransitEscrow below is the factory's implementation, not a separately deployed fund escrow.
+
+#### Arbitrum One
+
+| Contract / record | Address and explorer |
+|---|---|
+| ManagerRegistry | [`0xd6671dc995e6d5f2f7f65ea05a513738907737ce`](https://arbiscan.io/address/0xd6671dc995e6d5f2f7f65ea05a513738907737ce) |
+| ChainlinkPriceSource | [`0xd1e43765fcb66515cd8cf0ede73dff2e4bf249bf`](https://arbiscan.io/address/0xd1e43765fcb66515cd8cf0ede73dff2e4bf249bf) |
+| Create3Deployer | [`0x1da47ced247a6776329281836600283b033f8e41`](https://arbiscan.io/address/0x1da47ced247a6776329281836600283b033f8e41) |
+| SpokeCrossChainLib | [`0x3341467fd9f8ce784d77348bea276ce80eb57693`](https://arbiscan.io/address/0x3341467fd9f8ce784d77348bea276ce80eb57693) |
+| SpokeUnwindLib | [`0xfea626e44de1d2d7a01935a485399e992725351d`](https://arbiscan.io/address/0xfea626e44de1d2d7a01935a485399e992725351d) |
+| SpokeCloseLib | [`0xfcadfa1b5bcd4edca95220e07661795efa883035`](https://arbiscan.io/address/0xfcadfa1b5bcd4edca95220e07661795efa883035) |
+| SpokeIncomeLib | [`0xcb8ece6a3a1fcb80083ed1c8b7c7b6e85b14dc5b`](https://arbiscan.io/address/0xcb8ece6a3a1fcb80083ed1c8b7c7b6e85b14dc5b) |
+| CoreVaultIncomeCollectionLogic | [`0x4a0ae1f3017f6869bc3b24cd69d0b501ba93faca`](https://arbiscan.io/address/0x4a0ae1f3017f6869bc3b24cd69d0b501ba93faca) |
+| CoreVaultIncomeLogic | [`0x593bf11bf8e3b2f795bbc538aee1d59f8d4d55b8`](https://arbiscan.io/address/0x593bf11bf8e3b2f795bbc538aee1d59f8d4d55b8) |
+| CoreVaultLogic | [`0x43ddb24ac75cffa09f0849ddd71a78f7e9c3068d`](https://arbiscan.io/address/0x43ddb24ac75cffa09f0849ddd71a78f7e9c3068d) |
+| CoreVaultPayoutLogic | [`0xfaa7d44e670570cab3346522f55d1b25408d05e8`](https://arbiscan.io/address/0xfaa7d44e670570cab3346522f55d1b25408d05e8) |
+| CoreVaultClosureLogic | [`0x75997f8b180e20695c58ff519d672cfa9274e028`](https://arbiscan.io/address/0x75997f8b180e20695c58ff519d672cfa9274e028) |
+| CoreVaultTransitLogic | [`0x6e6b2461628008c5e496c480860c675c33fe957d`](https://arbiscan.io/address/0x6e6b2461628008c5e496c480860c675c33fe957d) |
+| CodeStore | [`0x20f33f1ce98b43af4734ab59e2d0df534abdc1f9`](https://arbiscan.io/address/0x20f33f1ce98b43af4734ab59e2d0df534abdc1f9) |
+| CodeStore | [`0x5b3abb330faf73c8cdf78c17f706c72bc5206123`](https://arbiscan.io/address/0x5b3abb330faf73c8cdf78c17f706c72bc5206123) |
+| CodeStore | [`0x7fce7311e85fb90fbcc9724b233c3d2fbba78fd1`](https://arbiscan.io/address/0x7fce7311e85fb90fbcc9724b233c3d2fbba78fd1) |
+| CodeStore | [`0x80a1e353259ab4560a27bc4b2fbfd13a52a7ae48`](https://arbiscan.io/address/0x80a1e353259ab4560a27bc4b2fbfd13a52a7ae48) |
+| CodeStore | [`0x02a19e3d6a0db853f984069f7f0843816a8a7705`](https://arbiscan.io/address/0x02a19e3d6a0db853f984069f7f0843816a8a7705) |
+| CodeStore | [`0x35a69cca3c10d3d78bebdff9c84408fe87b9643a`](https://arbiscan.io/address/0x35a69cca3c10d3d78bebdff9c84408fe87b9643a) |
+| CodeStore | [`0x57540fde07ee9eed4867a6d32611737e17f8cf88`](https://arbiscan.io/address/0x57540fde07ee9eed4867a6d32611737e17f8cf88) |
+| CREATE3 proxy | [`0x26e0e22a33d4509eb8ba01adea776c8518c6d913`](https://arbiscan.io/address/0x26e0e22a33d4509eb8ba01adea776c8518c6d913) |
+| FundFactory | [`0x2cdb1f3fa95f8a65495d01d20ad53cf980728534`](https://arbiscan.io/address/0x2cdb1f3fa95f8a65495d01d20ad53cf980728534) |
+| TransitEscrow | [`0xffdc3ede1d43678dde55e98fb924a81dca26383f`](https://arbiscan.io/address/0xffdc3ede1d43678dde55e98fb924a81dca26383f) |
+| CREATE3 proxy | [`0x3d4e18d463c4d3ce5f7ddbe566884e72f2dab440`](https://arbiscan.io/address/0x3d4e18d463c4d3ce5f7ddbe566884e72f2dab440) |
+| UniswapV4Adapter | [`0x0e4350488f3147ac87bb2b82c134c0cc9f263e15`](https://arbiscan.io/address/0x0e4350488f3147ac87bb2b82c134c0cc9f263e15) |
+| CREATE3 proxy | [`0x9efa9b8318d0146708545e3095f65a0d93ee6cb5`](https://arbiscan.io/address/0x9efa9b8318d0146708545e3095f65a0d93ee6cb5) |
+| AaveV3Adapter | [`0x945bb8b37f2f89d6835ccc340412ea15bfebf121`](https://arbiscan.io/address/0x945bb8b37f2f89d6835ccc340412ea15bfebf121) |
+| CREATE3 proxy | [`0xe205d8078f397fb0d0cf2836e8410c4c35d090de`](https://arbiscan.io/address/0xe205d8078f397fb0d0cf2836e8410c4c35d090de) |
+| UniswapV3SwapAdapter | [`0x114f39055393a2c25ceced1b2e6340ec2181d573`](https://arbiscan.io/address/0x114f39055393a2c25ceced1b2e6340ec2181d573) |
+| CREATE3 proxy | [`0x3a38ccdd1c3321dd7e92751458ed69174e0c1a91`](https://arbiscan.io/address/0x3a38ccdd1c3321dd7e92751458ed69174e0c1a91) |
+| AcrossBridgeAdapter | [`0xf95203f011d28e1019f88beb858dcc5bf93cf7dc`](https://arbiscan.io/address/0xf95203f011d28e1019f88beb858dcc5bf93cf7dc) |
+| CREATE3 proxy | [`0xbfe6511b074cc2ed0da82b4bb0b3903d6b31c37b`](https://arbiscan.io/address/0xbfe6511b074cc2ed0da82b4bb0b3903d6b31c37b) |
+| SpokeVault | [`0x670ad828f64e87b8b305296ce50c5728de3b9f01`](https://arbiscan.io/address/0x670ad828f64e87b8b305296ce50c5728de3b9f01) |
+| CREATE3 proxy | [`0xb14c8a7cc153224f76b982f1f54dba68e82e4772`](https://arbiscan.io/address/0xb14c8a7cc153224f76b982f1f54dba68e82e4772) |
+| ValueReportReceiver | [`0x5dcab91f669303c4d653c3bfdb710d8d2c92ffa8`](https://arbiscan.io/address/0x5dcab91f669303c4d653c3bfdb710d8d2c92ffa8) |
+| CREATE3 proxy | [`0x24b2b86d0bba0b0142b40e20af811e4ccfb03a23`](https://arbiscan.io/address/0x24b2b86d0bba0b0142b40e20af811e4ccfb03a23) |
+| CoreVault | [`0x89625f9e4b3941e503a2f0982c81046d82143e1f`](https://arbiscan.io/address/0x89625f9e4b3941e503a2f0982c81046d82143e1f) |
+| ShareToken | [`0x8563aeed8db9c19e3b744029b863cfcfe650bdf7`](https://arbiscan.io/address/0x8563aeed8db9c19e3b744029b863cfcfe650bdf7) |
+| ManagerFeeVault | [`0x80690160a116a92be5b24845695a3b6e79e92c00`](https://arbiscan.io/address/0x80690160a116a92be5b24845695a3b6e79e92c00) |
+
+#### Robinhood Chain
+
+| Contract / record | Address and explorer |
+|---|---|
+| Create3Deployer | [`0x1da47ced247a6776329281836600283b033f8e41`](https://robinhoodchain.blockscout.com/address/0x1da47ced247a6776329281836600283b033f8e41) |
+| SpokeCrossChainLib | [`0x3341467fd9f8ce784d77348bea276ce80eb57693`](https://robinhoodchain.blockscout.com/address/0x3341467fd9f8ce784d77348bea276ce80eb57693) |
+| SpokeUnwindLib | [`0xfea626e44de1d2d7a01935a485399e992725351d`](https://robinhoodchain.blockscout.com/address/0xfea626e44de1d2d7a01935a485399e992725351d) |
+| SpokeCloseLib | [`0xfcadfa1b5bcd4edca95220e07661795efa883035`](https://robinhoodchain.blockscout.com/address/0xfcadfa1b5bcd4edca95220e07661795efa883035) |
+| SpokeIncomeLib | [`0xcb8ece6a3a1fcb80083ed1c8b7c7b6e85b14dc5b`](https://robinhoodchain.blockscout.com/address/0xcb8ece6a3a1fcb80083ed1c8b7c7b6e85b14dc5b) |
+| CodeStore | [`0x2e369b374857ac7e5df0bf1ebeaf7ce9ede2bbbc`](https://robinhoodchain.blockscout.com/address/0x2e369b374857ac7e5df0bf1ebeaf7ce9ede2bbbc) |
+| CodeStore | [`0xdf9391fb5dc2f28e90e96435a7c3a191ed548742`](https://robinhoodchain.blockscout.com/address/0xdf9391fb5dc2f28e90e96435a7c3a191ed548742) |
+| CodeStore | [`0x90a8e3cbe7ec8d8ed5c3d7d32f49ece5dd2d0d39`](https://robinhoodchain.blockscout.com/address/0x90a8e3cbe7ec8d8ed5c3d7d32f49ece5dd2d0d39) |
+| CodeStore | [`0xb693ef1a5db184fdf0362a1dfaca03795d4f726e`](https://robinhoodchain.blockscout.com/address/0xb693ef1a5db184fdf0362a1dfaca03795d4f726e) |
+| CodeStore | [`0x5ebfbc403b0b97c2fee9b77c7c7fd70a46ad65c4`](https://robinhoodchain.blockscout.com/address/0x5ebfbc403b0b97c2fee9b77c7c7fd70a46ad65c4) |
+| CREATE3 proxy | [`0x26e0e22a33d4509eb8ba01adea776c8518c6d913`](https://robinhoodchain.blockscout.com/address/0x26e0e22a33d4509eb8ba01adea776c8518c6d913) |
+| FundFactory | [`0x2cdb1f3fa95f8a65495d01d20ad53cf980728534`](https://robinhoodchain.blockscout.com/address/0x2cdb1f3fa95f8a65495d01d20ad53cf980728534) |
+| TransitEscrow | [`0xffdc3ede1d43678dde55e98fb924a81dca26383f`](https://robinhoodchain.blockscout.com/address/0xffdc3ede1d43678dde55e98fb924a81dca26383f) |
+| CREATE3 proxy | [`0x2459963d0de02b336fcf6179e9d8348adb765c4d`](https://robinhoodchain.blockscout.com/address/0x2459963d0de02b336fcf6179e9d8348adb765c4d) |
+| UniswapV4Adapter | [`0xd38ae81065205e9e34ab9031afc80d4cd5136486`](https://robinhoodchain.blockscout.com/address/0xd38ae81065205e9e34ab9031afc80d4cd5136486) |
+| CREATE3 proxy | [`0xac282006483933852d23bfb4082bbc983650942f`](https://robinhoodchain.blockscout.com/address/0xac282006483933852d23bfb4082bbc983650942f) |
+| UniswapV3SwapAdapter | [`0x24a75f965cfed106a8a8542ba5370e60d303c50a`](https://robinhoodchain.blockscout.com/address/0x24a75f965cfed106a8a8542ba5370e60d303c50a) |
+| CREATE3 proxy | [`0x3c3258dd3c9140ac4054e3cff7aa5b4fb4caf043`](https://robinhoodchain.blockscout.com/address/0x3c3258dd3c9140ac4054e3cff7aa5b4fb4caf043) |
+| AcrossBridgeAdapter | [`0xc5f451ccaffdf9e37223ba81fd532fb17337f899`](https://robinhoodchain.blockscout.com/address/0xc5f451ccaffdf9e37223ba81fd532fb17337f899) |
+| CREATE3 proxy | [`0x82baaff7e4a778293a712b02e404a62d4f9c887d`](https://robinhoodchain.blockscout.com/address/0x82baaff7e4a778293a712b02e404a62d4f9c887d) |
+| SpokeVault | [`0x214cd74f0331eb47daa1491a57990e415af2fa8a`](https://robinhoodchain.blockscout.com/address/0x214cd74f0331eb47daa1491a57990e415af2fa8a) |
+
+### Receipt-derived deployment costs
+
+For each script and chain, **actual ETH = sum(BigInt(gasUsed) × BigInt(effectiveGasPrice)) / 10^18**,
+using the hex fields in broadcast receipts, excluding dry-run directories. Hub creation includes the seed
+approval plus creation; Robinhood creation is one transaction. Estimates are the logged Foundry
+"Estimated amount required", not paid fees and not the earlier Anvil budget.
+
+| Chain | Script | Receipts | Actual gas | Actual ETH | Foundry estimated gas | Foundry estimated ETH |
+|---|---|---:|---:|---:|---:|---:|
+| Arbitrum | DeployFactory | 21 | 62,255,942 | 0.001249158913033942 | 76,086,015 | 0.003046788460746015 |
+| Arbitrum | CreateFund (including approval) | 2 | 24,502,457 | 0.000490054853144457 | 33,795,567 | 0.001352633807403567 |
+| Robinhood | DeployFactory | 11 | 32,971,733 | 0.000967340718486000 | 44,575,939 | 0.002608762298611939 |
+| Robinhood | CreateFund | 1 | 12,129,512 | 0.000355758586960000 | 17,738,994 | 0.001037660210762994 |
+
+Totals: **Arbitrum 0.001739213766178399 ETH**, versus **0.004399422268149582 ETH** estimated;
+**Robinhood 0.001323099305446000 ETH**, versus **0.003646422509374933 ETH** estimated.
+Both chains together **0.003062313071624399 ETH**, excluding seed capital, later smoke transactions,
+reports and investor funding. These receipt-based Network Costs are not a USD conversion or wallet-balance delta.
+
+### Deployment checks, verification and report timing
+
+`CheckAlphaDeployment` records **PASS on 42161 and 4663**: factory/fund/Mandate wiring and CodeStores
+were checked. Verification coverage is **24/24 Arbitrum** via Arbiscan and **11/11 Robinhood** via
+**Sourcify**. The public Robinhood Blockscout API returned a Cloudflare 403/challenge; its PRO API required
+a key. The verifier switched to Sourcify, whose matches Blockscout imports. Coverage is successful per-address
+verification, not merely submission; raw CodeStores and CREATE3 proxies remain outside those denominators.
+
+The first real guardian-signed **report v5, sequence 1**, was delivered on Arbitrum in **858 seconds**
+(`report-1.json`: `delivered: true`). Robinhood finalized-head lag was observed at **980–1,109 seconds**;
+the earlier observation also recorded Arbitrum lag around **1,107 seconds**. Finality lag and actual report
+end-to-end delivery are distinct measurements, not additive timings. Against the **1,588-second report
+lifetime**, 858 seconds leaves **730 seconds**; the observed Robinhood lag alone leaves only **479–608 seconds**
+for observation, signing, retrieval and Hub delivery. Later report cycles took roughly 19 minutes, not seconds.
+DEC-159/160 pre/post mint/burn reports therefore require synchronous waits, strict freshness checks and a stop
+on stale delivery. This proves a live delivery, not an SLA or a guarantee that every future report fits.
+
+### Live smoke in execution order
+
+Reports bracketed the money operations; the following are the capital/position/income receipts rather than
+an exhaustive report-transaction ledger. Gas is receipt gasUsed; creation gas includes the bundled fund deployment.
+
+| Step | Chain | Transaction hash | Gas | Result |
+|---|---|---|---:|---|
+| Seed approval | Arbitrum | `0x7acf462d26e456428b2e640199582bd1bcc457e1bb3ee5261c90562307e1de5b` | 55,771 | Approve seed transfer |
+| Create fund + seed | Arbitrum | `0x76b444d75a8516ee681429e053219ec736215c438f3891c6f6b4c22d7779c55e` | 24,446,686 | 5 USDC seed; fund #1 |
+| Create remote fund | Robinhood | `0x6842ca32de53580bff482e1d5263ee8725c6997d03b66157387f54e2d46c9c11` | 12,129,512 | Matching Spoke Vault |
+| Manager deposit approval | Arbitrum | `0x9f0b54b77e8ae3e27f26cfd69381b94dccc45706842b8015f9d5ab27e700ab11` | 55,726 | Approve 5 USDC |
+| Manager deposit | Arbitrum | `0x9a036e725581399323612f26ef5a50cdf1cbd0e1ac4681ea564e2cc4bf4eccea` | 650,882 | Deposit 5 USDC |
+| sendToSpoke | Arbitrum | `0x8a55d8868baa382aecfe2fba184144885f5e4f3dc8e19babe892fe220e7d4863` | 742,272 | Send 5 USDC; expected 4.966000 USDG |
+| Matched Across fill + TransitArrived | Robinhood | `0x2f1d58c9584795212bab134eea3c6d9aa89ae6e41c93f9d0d39161b9cde7749d` | 258,554 | Deposit ID 4711386; 4,966,000 base units received |
+| Manager Instant Payout | Arbitrum | `0x8ff989f205240c4fe52f9ff556f2006c592d42c4b66c07dd7586aa9476abb25c` | 844,113 | 1-share burn; 0.973346 USDC paid |
+| Spoke swap | Robinhood | `0x25cb4e4d2ee294251af5b62a448bbba5561bce16bb39af2ef4f4f091cf333c2c` | 1,154,745 | Output 925,757,908,345,888 wei WETH |
+| V4 openPosition | Robinhood | `0x80a46b594efacc7566eb4b9d25bc0f6419d237847b13a374cb0c55736ce5129c` | 764,581 | Token ID 0x365e57; 925,757,908,345,535 wei WETH + 2,479,218 USDG base units |
+| Aave allocation | Arbitrum | `0x78e4b388e94536a5793cbcb20305cd13716ae5f7a722d35e5ce8e1753fe37584` | 134,253 | Allocate 1 USDC to hub Spoke Vault |
+| Aave openPosition | Arbitrum | `0x35fbc7032251f26a33f1a0ceb5adbd7310f11927e363343470f67aa1a96d497c` | 488,121 | Supply 1 USDC |
+| Second investor approval | Arbitrum | `0xfec7bd8d528876d19f5636ad362a7b3acb829576b800b4e8df1168e9238069eb` | 55,723 | Approve deposit |
+| Second investor deposit | Arbitrum | `0x05599c50c2c03cee9742451fa818177f5904aa2850dbb696eef09e5e9eb959e2` | 744,679 | 1 share minted; 1.003370 USDC charged |
+| Second investor Instant Payout | Arbitrum | `0x67b85178e9c069883caccd90f5150b19cd62d4869b15a731b0ffec2b625816df` | 867,177 | Burn 1 share; 0.975878 USDC paid; zero outstanding |
+| collectIncome | Robinhood | `0x83a03f9f90415a110185cd42b607574887056eec73998433039b33e7330c2336` | 338,786 | 21 USDG base units retained; COLLECT deferred |
+
+Across matching checked chains, deposit ID, depositor/recipient, both tokens, amounts, deadlines, relayer,
+message hash and vault arrival. Transit ID
+`0xaccc9953f586ff761b128fd8c638b7d53f601c7fc23837aad3ae40495941bddd`;
+origin **42161**, kind **Principal**, received **4.966000 USDG**. The **0.034000** base-value difference
+is the adapter's selected send gap, not the API's suggested relayer fee (**0.013001 USDC**) in isolation.
+
+Manager Instant Payout: gross **0.995750**, Payout Fee **0.019915**, flow fee **0.002489**, paid
+**0.973346 USDC**. Second investor Instant Payout: requested **1.000000**, gross **0.998339**,
+Payout Fee **0.019966** (2%), flow fee **0.002495** (0.25%), paid **0.975878 USDC**;
+**998339 − 19966 − 2495 = 975878** base units. Receipt reports zero Market Costs, absorbed Market Costs,
+leaver cost, unwind proceeds and outstanding amount. Settlement Share Price was
+**0.998339125 USDC/share** (raw **998339125000000000000000**); shareAssets **7,986,713** base units,
+pre-burn supply **8e18**. These are real Instant Payouts from Idle, not Standard Payout/unwind tests.
+
+### Recorded state and income outcome
+
+The last complete state snapshot in `positions.jsonl`, **2026-10-03 13:30:19 UTC**, follows report sequence **12**:
+fund **Open** (state 0), Share Price **1.000921142857142857142857 USDC/share**
+(raw **1000921142857142857142857**, scale **1e24**); total supply **7e18** = **7 shares**;
+Core Vault Idle **1.044162 USDC**; Robinhood Unallocated Balance **0.003782 USDG**;
+**one Robinhood V4 position and one Arbitrum Aave position**. Manager holds all **7 shares**;
+second investor holds **0**; both recorded `incomeOwed` values are **0**.
+
+The later income-stage receipt collected **21 base units = 0.000021 USDG**, below the configured
+**500,000 base units = 0.50 USDG** minimum. Income stayed on the Spoke Chain; **no COLLECT, return bridge,
+conversion, Income Withdrawal or ACK was executed** in this stage. The state snapshot is pre-collection:
+the evidence does not include a fresh complete post-income Share Price/Idle/position valuation. Do not
+present its figures as a later live balance or add retained income to Share Assets without a new report.
+
+### Mainnet-only findings and tooling fixes
+
+- **300-second fetch headers timeout:** the first capital attempt stopped around 303 seconds with **zero
+  broadcasts**, although the report needed about 14 minutes. The shared Node HTTP report client waits up to
+  **35 minutes**; report lifetime remains 1,588 seconds and stale reports still fail closed.
+- **Across route parameters:** legacy `token` terms returned HTTP 400 for USDC → USDG. Requests now name
+  `inputToken` and `outputToken`; adapter fee constraints remain immutable (DEC-158/176).
+- **RPC log cap:** the provider's free tier rejects ranges over **10 blocks**. Smoke scans were bounded;
+  keeper now supports `ALPHA_LOG_RANGE` (default **1000**, minimum **1**), catches up in bounded windows
+  within a **20-second scan budget**, and stores an independent credited cursor plus matched totals in
+  durable keeper state. Legacy files backfill from the fund's Hub start; restarts do not recount completed
+  windows. Set **ALPHA_LOG_RANGE=10** on that tier, but use PAYG/another provider for continuous Robinhood
+  operation at roughly **10 blocks/second**. Budgeting stops between requests, not a hard RPC cancellation.
+- **Resume allow-list:** the explicit `bridge` mode resumes after the successful manager deposit without
+  repeating it; the command allow-list now accepts that phase. Reconcile receipt state before recovery.
+- **Robinhood verification:** Sourcify replaces the challenged public Blockscout endpoint; coverage is 11/11.
+
+No contract code changed for these findings. API-driven reports enabled the smoke despite keeper ticks failing;
+this is **not a passing continuous-keeper/order-relay demonstration**. Local API/keeper processes were stopped
+at the end of the smoke; preserve their state for an explicitly supervised restart.
+
+### Not exercised on mainnet
+
+- **Closure/frozen exits:** not run; the alpha intentionally remains Open with V4/Aave positions. Irreversible
+  closure requires a separately approved run and a working return/ACK relay.
+- **Standard Payout:** only Instant Payouts were requested; Idle funded them, so asynchronous unwind/settlement
+  was unnecessary. Historical fork lifecycle coverage is not substituted for a live Standard Payout.
+- **COLLECT above the minimum:** only 21 base units of income accrued, below 0.50. No artificial capital or
+  repeated deposit was used to manufacture bridgeable income; retry income only when real accrual qualifies.
+- **Keeper order relay:** no live UNWIND/CLOSE/COLLECT order path was exercised; the free-tier log cap stopped
+  keeper progress. The bounded-scan changes have mocked-client tests, not a new continuous live keeper run.
+
+This is internal-alpha evidence, not a full live closure/conservation certificate, external audit or public-capital approval.
