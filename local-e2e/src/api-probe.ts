@@ -6,7 +6,7 @@
 // adapters are the Mandate's (Mandate v2) and the API signs for them, every operation ends with an event a server can
 // index, and the Share Price history follows the mints. Each run writes a run report.
 // Run: `pnpm run up && pnpm api:probe; pnpm run down`.
-import { type Address, type Hex, type TransactionReceipt } from "viem";
+import { decodeFunctionData, type Address, type Hex, type TransactionReceipt } from "viem";
 import { coreVaultAbi, erc20Abi, spokeVaultAbi, uniswapV3SwapAdapterAbi } from "./abis.ts";
 import { explain, nodes, read, recordTransaction, send, simulateRevert, wallet, type Side } from "./chain.ts";
 import { actors, ARBITRUM, ROBINHOOD, isMain, type ActorName } from "./config.ts";
@@ -52,7 +52,7 @@ async function post<T = any>(path: string, payload: Record<string, string>): Pro
 async function signAndSend(side: Side, who: ActorName, txs: UnsignedTx[]): Promise<TransactionReceipt[]> {
   const receipts = [];
   for (const tx of txs) {
-    const hash = await wallet(side, who).sendTransaction({ to: tx.to, data: tx.data, account: actors[who], chain: nodes[side].chain } as never);
+    const hash = await wallet(side, who).sendTransaction({ to: tx.to, data: tx.data, value: BigInt(tx.value ?? 0), account: actors[who], chain: nodes[side].chain } as never);
     const receipt = await nodes[side].client.waitForTransactionReceipt({ hash, pollingInterval: 100 });
     if (receipt.status !== "success") throw new Error(`${tx.description} reverted (${hash})`);
     recordTransaction(side, tx.description, receipt);
@@ -353,6 +353,30 @@ export async function probe() {
     const anaEnd = await get(`/holders/${ana}`);
     const expectedValue = (BigInt(anaEnd.shares) * BigInt(fundView.sharePrice.raw)) / 10n ** 36n;
     record("holder value follows the Share Price", BigInt(anaEnd.value) === expectedValue, `${BigInt(anaEnd.shares) / 10n ** 18n} shares at ${fundView.sharePrice.usdcPerShare} = ${units(BigInt(anaEnd.value))} USDC`);
+
+    report.phase("MVP lifecycle API verbs");
+    const verbs: [string, string, Record<string, string>, readonly unknown[]][] = [
+      ["request", "requestPayout", { amount: "100000000", mode: "standard", maxLossBps: "37" }, [100000000n, 1, 37]],
+      ["claim", "claimPayout", { maxLossBps: "42" }, [42]],
+      ["settle-payout", "settlePayout", { holder: ana }, [ana]],
+      ["income-request", "requestIncomeWithdrawal", { maxLossBps: "33" }, [33]],
+      ["income-settle", "settleIncomeWithdrawal", { holder: ana }, [ana]],
+      ["income-withdraw", "withdrawIncome", {}, []],
+      ["close", "closeFund", {}, []],
+      ["closure-unwind", "unwindAllAfterDeadline", {}, []],
+      ["closure-finalize", "finalizeClosure", {}, []],
+      ["closed-exit", "exitClosedFund", { holder: ana }, [ana]],
+    ];
+    for (const [path, name, body, args] of verbs) {
+      const built = await post<UnsignedTx[]>(`/tx/${path}`, body);
+      const decoded = decodeFunctionData({ abi: coreVaultAbi, data: built.body[0].data });
+      record(`lifecycle builder ${name}`, built.status === 200 && built.body[0].to === core && decoded.functionName === name && String(decoded.args ?? []) === String(args), `${name}(${args.join(", ")}), value ${built.body[0].value ?? "0"}`);
+    }
+    const invalidLoss = await post("/tx/request", { amount: "1", mode: "instant", maxLossBps: "10001" });
+    const invalidMode = await post("/tx/request", { amount: "1", mode: "unknown" });
+    record("payout input validation", invalidLoss.status === 422 && invalidMode.status === 422, "invalid loss and mode rejected");
+    const closure = await get("/closure");
+    record("closure status", Number(closure.fundState) === 0 && BigInt(closure.closedSupply) === 0n && BigInt(closure.closedIdle) === 0n, "Open, frozen split unset");
   } catch (err) {
     failure = explain(err);
     throw err;

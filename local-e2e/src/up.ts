@@ -258,6 +258,11 @@ if (isMain(import.meta.url)) {
     console.log(`  next                 pnpm keeper --auto-report 600   (another terminal), then pnpm scenario`);
   } catch (err) {
     console.error(`\n${red(bold("up failed"))}: ${explain(err)}`);
+    await new Promise<void>((resolve) => {
+      const cleanup = spawn("bash", [join(HARNESS_DIR, "scripts/stop-forks.sh")], { stdio: "inherit" });
+      cleanup.on("close", () => resolve());
+      cleanup.on("error", () => resolve());
+    });
     process.exit(1);
   }
 }
