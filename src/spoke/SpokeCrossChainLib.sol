@@ -235,6 +235,7 @@ library SpokeCrossChainLib {
         uint256 held = token.balanceOf(escrow);
         amount = t.amountSent;
         t.state = TransitState.RefundRecognized;
+        s.recentRefunds[s.refundCount++ % SpokeVaultTypes.ARRIVAL_WINDOW] = transitId;
         _removeInFlight(s, transitId);
         if (t.kind == TransferKind.Principal) {
             s.unallocated[baseToken] += amount;
@@ -416,6 +417,11 @@ library SpokeCrossChainLib {
         // WP-07 D3 (report version 4): the order results the unwind and income books hold for the Hub, as they are.
         r.unwindResults = s.unwind.reportBlob;
         r.collectionResults = s.income.reportBlob;
+        n = Math.min(s.refundCount, SpokeVaultTypes.ARRIVAL_WINDOW);
+        r.refundedTransits = new bytes32[](n);
+        for (uint256 index; index < n; ++index) {
+            r.refundedTransits[index] = s.recentRefunds[(s.refundCount - n + index) % SpokeVaultTypes.ARRIVAL_WINDOW];
+        }
     }
 
     /// @dev `ReportCodec.PositionReport` is `IAdapter.PositionValue` prefixed by the adapter address, word for word, so
@@ -523,7 +529,7 @@ library SpokeCrossChainLib {
             t.state == TransitState.Sent && block.timestamp <= uint256(t.fillDeadline) + ReportCodec.HUB_BOUND_RETENTION;
     }
 
-    function _removeInFlight(SpokeVaultTypes.State storage s, bytes32 transitId) private {
+    function _removeInFlight(SpokeVaultTypes.State storage s, bytes32 transitId) internal {
         uint256 slot = s.inFlightSlot[transitId];
         if (slot == 0) return;
         uint256 last = s.inFlightIds.length;

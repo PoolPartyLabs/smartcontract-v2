@@ -606,7 +606,7 @@ library CoreVaultPayoutLogic {
         _settlementTransits(s, w, req, claim, true);
     }
 
-    /// @notice DEC-068/139: publish retirement only after Principal credit or accepted refund proof.
+    /// @notice DEC-066/068/093/139: publish retirement only after full credit or accepted refund proof, for every send.
     function acknowledgeSpokeTransit(
         CoreVaultState storage s,
         CoreVaultWiring memory w,
@@ -617,6 +617,9 @@ library CoreVaultPayoutLogic {
         bytes32 key = CoreVaultLogic.hubBoundKey(s.mandate.spokes[spokeIndex].chainId, transitId);
         bool refunded = s.payouts.transitResults[key].refunded;
         (ReportCodec.Report memory report,,) = IValueReportReceiver(w.reportReceiver).latestReport(spokeIndex);
+        for (uint256 index; index < report.refundedTransits.length; ++index) {
+            if (report.refundedTransits[index] == transitId) refunded = true;
+        }
         if (SpokeUnwindTypes.validResults(report.unwindResults)) {
             SpokeUnwindTypes.OrderResult[] memory results =
                 abi.decode(report.unwindResults, (SpokeUnwindTypes.OrderResult[]));
@@ -624,12 +627,7 @@ library CoreVaultPayoutLogic {
                 if (results[index].transitId == transitId && results[index].refunded) refunded = true;
             }
         }
-        if (
-            !refunded
-                && (s.hubBound[key].kind != TransferKind.Principal
-                    || s.hubBound[key].credited == 0
-                    || s.hubBound[key].credited < s.hubBound[key].listed)
-        ) {
+        if (!refunded && (s.hubBound[key].credited == 0 || s.hubBound[key].credited < s.hubBound[key].listed)) {
             revert ICoreVaultPayouts.SpokeUnwindNotCredited(spokeIndex, transitId);
         }
         OrderCodec.Order memory order;
