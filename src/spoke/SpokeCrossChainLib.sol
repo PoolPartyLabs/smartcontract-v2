@@ -286,7 +286,8 @@ library SpokeCrossChainLib {
     ///      its total first reaches `MIN_LISTED_ARRIVAL` and, security review S-13, again on every credit of at least
     ///      that minimum, so an id a stranger pre-listed (hub ids are predictable) and flushed out of the window comes
     ///      back with the real fill, while flushing the window still costs the minimum per entry. Income: the
-    ///      collected income bucket (DEC-092), never listed.
+    ///      collected income bucket (DEC-092), never listed. DEC-149/167: after CLOSE, unreserved terminal Principal
+    ///      below the closure threshold stays unledgered for sweepExcess; arrival proofs are still recorded.
     function creditArrival(
         SpokeVaultTypes.State storage s,
         address token,
@@ -299,6 +300,11 @@ library SpokeCrossChainLib {
             return;
         }
         s.unallocated[token] += amount;
+        if (s.unwind.closed && s.unwind.reservedBase == 0 && s.unallocated[token] < ClosureDust.threshold(token)) {
+            uint256 dust = s.unallocated[token];
+            s.unallocated[token] = 0;
+            emit ClosureDustExcluded(token, dust, TransferKind.Principal);
+        }
         s.cumulativeReceived += amount;
         uint256 before = s.arrivals[transitId];
         s.arrivals[transitId] = before + amount;

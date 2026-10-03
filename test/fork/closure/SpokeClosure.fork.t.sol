@@ -11,11 +11,12 @@ import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {SpokeUnwindTypes} from "../../../src/spoke/SpokeUnwindTypes.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {TransferKind, Transit} from "../../../src/interfaces/FundTypes.sol";
+import {ISpokeVault} from "../../../src/interfaces/ISpokeVault.sol";
 
 contract SpokeClosureForkTest is EndToEndScenario {
     using AdvancedWormholeOverride for ICoreBridge;
 
-    function test_B02_alphaFiveUsdcCloseExcludesPrincipalDustAndSweeps() public {
+    function test_B02_alphaFiveUsdcCloseExcludesLatePrincipalDustWithoutAnotherCloseAndSweeps() public {
         _createForks();
         _phase1CreateFund();
         _deliverFirstSpokeReport();
@@ -59,14 +60,19 @@ contract SpokeClosureForkTest is EndToEndScenario {
         );
         Transit memory home = spokeVault.hubBoundTransit(first.transitId);
         _advance(uint256(home.fillDeadline) + ReportCodec.HUB_BOUND_RETENTION + 1 - block.timestamp);
-        SpokeUnwindTypes.OrderResult memory second = _closeAttempt();
-        assertEq(second.excluded, 0);
+        _deliverFreshSpokeReport();
         core.requestIncomeWithdrawal(0);
         core.finalizeClosure();
         assertEq(uint256(core.fundState()), uint256(ICoreVaultLifecycle.FundState.Closed));
         _onRobinhood();
         assertEq(spokeVault.unallocatedBalance(RH_USDG), 0);
+        address recipient = spokeVault.excessRecipient();
+        uint256 beforeSweep = IERC20(RH_USDG).balanceOf(recipient);
+        vm.expectEmit(true, true, false, true, address(spokeVault));
+        emit ISpokeVault.ExcessSwept(RH_USDG, recipient, 20_000);
         assertEq(spokeVault.sweepExcess(RH_USDG), 20_000);
+        assertEq(IERC20(RH_USDG).balanceOf(recipient) - beforeSweep, 20_000);
+        assertEq(spokeVault.sweepExcess(RH_USDG), 0);
     }
 
     function _closeAttempt() internal returns (SpokeUnwindTypes.OrderResult memory result) {
