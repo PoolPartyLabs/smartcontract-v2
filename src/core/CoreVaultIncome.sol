@@ -24,6 +24,11 @@ abstract contract CoreVaultIncome is CoreVaultBase {
     using SafeERC20 for IERC20;
 
     /// @inheritdoc ICoreVaultIncome
+    function settleHolderIncome(address shareholder) external nonReentrant returns (bool complete) {
+        return CoreVaultIncomeLogic.settleHolderIncome(_s, _wiring(), shareholder);
+    }
+
+    /// @inheritdoc ICoreVaultIncome
     function requestIncomeWithdrawal(uint16 maxLossBps) external payable nonReentrant returns (uint64 round) {
         return CoreVaultIncomeCollectionLogic.requestIncomeWithdrawal(_s, _wiring(), msg.sender, maxLossBps, msg.value);
     }

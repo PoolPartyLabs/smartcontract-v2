@@ -36,6 +36,9 @@ contract CoreVaultIncomeTest is CoreVaultFixture {
         feeVault = ManagerFeeVault(vault.managerFeeVault());
         _deposit(manager, 99e6); // Ana: 100 shares with the seed's one
         _deposit(bruno, 100e6);
+        _deliver(_spokeReport(0, 0));
+        vm.warp(block.timestamp + 1);
+        _deliver(_spokeReport(0, 0));
         deal(address(usdc), protocol, 0);
     }
 

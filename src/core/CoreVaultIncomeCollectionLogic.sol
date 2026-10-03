@@ -163,6 +163,7 @@ library CoreVaultIncomeCollectionLogic {
         CoreVaultIncomeTypes.Source storage src = s.incomeBook.sources[source];
         uint16 feeBps = s.performanceFeeBps;
         uint256 supply = IERC20(w.shareToken).totalSupply();
+        if (source != CoreVaultIncomeTypes.HUB_SOURCE) supply -= src.index.waitingTotal;
         for (uint256 i; i < counters.length; ++i) {
             _recognize(src, source, counters[i].token, counters[i].amount, feeBps, supply);
         }

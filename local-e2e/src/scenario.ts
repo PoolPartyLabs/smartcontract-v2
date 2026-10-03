@@ -68,7 +68,7 @@ import { RunReport } from "./report.ts";
 import { readState, type DeploymentState, type FundRecord } from "./state.ts";
 import { FEE_TIERS } from "./swap-route.ts";
 import { centerTick, currentTick, generateFees, openParams, oracleAmounts, swapParams } from "./uniswap.ts";
-import { waitForDelivery, warp, type SpokeRef } from "./warp.ts";
+import { waitForDelivery, warp, warpClocks, type SpokeRef } from "./warp.ts";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Scenario parameters (test/fork/e2e/EndToEndBase.sol and EndToEnd.t.sol)
@@ -998,6 +998,10 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     await run.phase("Phase 9: Bruno deposits 11,000 USDC at the new Share Price (DEC-014, DEC-035, DEC-061)");
     await ensureFeedFresh(log.child("chainlink"), 600n);
     const priceBeforeBruno = await sharePrice();
+    const [intervalBeforeBruno] = await view<readonly [any, bigint, bigint]>("arbitrum", receiver, valueReportReceiverAbi, "latestReport", [0n]);
+    const priorSpokeCounter = await view<any>("arbitrum", core, coreVaultAbi, "incomeToken", [1n, ROBINHOOD.weth]);
+    await generateFees("robinhood", state.helpers.robinhoodSwapRouter, SPOKE_POOL_KEY, ROBINHOOD.v4StateView, SPOKE_POOL_ID, spokeCenter, SWING);
+    await warpClocks(1n, log.child("entry-time"));
     const anaUsdcIncome = await view<bigint>("arbitrum", core, coreVaultAbi, "incomeOwed", [A.ana.address]);
     const brunoUsdcBefore = await balance("arbitrum", ARBITRUM.usdc, A.bruno.address);
     await tx("arbitrum", "bruno", ARBITRUM.usdc, erc20Abi, "approve", [core, BRUNO_DEPOSIT]);
@@ -1029,6 +1033,17 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     run.eq(await view("arbitrum", core, coreVaultAbi, "unconvertedIncome", [A.bruno.address, 0n, ARBITRUM.weth]), 0n, "DEC-014: none of the WETH income");
     run.eq(await view("arbitrum", core, coreVaultAbi, "incomeOwed", [A.ana.address]), anaUsdcIncome, "DEC-014: Ana keeps hers");
     await run.ok(`Bruno deposits 11,000 USDC: ${units(brunoShares, 18, 0)} shares at ${price(priceBeforeBruno)}, charged ${units(brunoCharged)} USDC`);
+
+    await run.phase("Phase 9b: late entrant excludes prior spoke intervals (DEC-145, DEC-159)");
+    const entryBlock = await nodes.arbitrum.client.getBlock({ blockNumber: brunoDeposit.receipt.blockNumber });
+    run.true(intervalBeforeBruno.timestamp < entryBlock.timestamp, "the report interval starts before Bruno's entry");
+    const lateReport = await tx<readonly [bigint, bigint]>("robinhood", "stranger", spokeVault, spokeVaultAbi, "report");
+    await waitForDelivery(spokeRef, lateReport.result[1], WAIT_SECONDS);
+    const priorIntervalCounter = await view<any>("arbitrum", core, coreVaultAbi, "incomeToken", [1n, ROBINHOOD.weth]);
+    run.true(priorIntervalCounter.counter > priorSpokeCounter.counter, "a real fee-generating spoke interval was recognized after entry");
+    run.eq(await view("arbitrum", core, coreVaultAbi, "unconvertedIncome", [A.bruno.address, 1n, ROBINHOOD.weth]), 0n, "DEC-145: zero WETH income from the prior interval");
+    run.eq(await view("arbitrum", core, coreVaultAbi, "unconvertedIncome", [A.bruno.address, 1n, ROBINHOOD.usdg]), 0n, "DEC-145: zero USDG income from the prior interval");
+    await run.ok("late entrant receives zero prior-interval spoke income while existing holders retain the recognized income");
 
     // ------------------------------------------------------------------------------------------------------------
     // Phase 10: Ana's Income Withdrawal (DEC-025, DEC-073, DEC-109, LC-143)
@@ -1474,6 +1489,10 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
       await waitFor("final income collection", async () => {
         const collection = await view<any>("arbitrum", core, coreVaultAbi, "incomeCollection");
         return collection.pendingSpokes === 0n && collection.openResults === 0n;
+      });
+      await waitFor("final Income acknowledgement report", async () => {
+        const [report] = await view<readonly [any, bigint, bigint]>("arbitrum", receiver, valueReportReceiverAbi, "latestReport", [0n]);
+        return report.inFlightToHub.length === 0 && report.collectedIncome.every((entry: any) => entry.amount === 0n);
       });
       const finalized = await tx("arbitrum", "stranger", core, coreVaultAbi, "finalizeClosure");
       const [closed] = events(finalized.receipt, core, coreVaultAbi, "FundClosed");
