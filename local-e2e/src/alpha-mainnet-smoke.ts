@@ -60,6 +60,22 @@ async function main() {
       await new Promise((done) => setTimeout(done, 5000));
     }
   }
+  // Providers cap eth_getLogs ranges (Alchemy free tier: 10 blocks). Scan in bounded windows and keep a cursor so a
+  // polling wait only reads the blocks produced since its previous call.
+  const logRange = BigInt(process.env.ALPHA_LOG_RANGE ?? "10");
+  function logsSince(side: string, filter: object, fromBlock: bigint) {
+    let next = fromBlock;
+    const found: any[] = [];
+    return async () => {
+      const latest = await chains[side]!.client.getBlockNumber();
+      while (next <= latest) {
+        const toBlock = next + logRange - 1n < latest ? next + logRange - 1n : latest;
+        found.push(...await chains[side]!.client.getLogs({...filter, fromBlock: next, toBlock} as never) as any[]);
+        next = toBlock + 1n;
+      }
+      return found;
+    };
+  }
   const mandate = await read("hub", core, coreVaultAbi, "mandate");
   assert.equal(mandate.spokes.length, 1);
   assert.equal(Number(mandate.spokes[0].chainId), 4663);
@@ -98,9 +114,10 @@ async function main() {
     assert.equal(version, 1n);
     assert.equal(fundId, await read("hub", core, coreVaultAbi, "fundId"));
     assert.equal(originChainId, origin === "hub" ? 42161n : 4663n);
+    const fills = logsSince(destination, {address: config.acrossSpokePool, event,
+      args: {originChainId: origin === "hub" ? 42161n : 4663n, depositId: deposit.depositId}}, fromBlock);
     await wait(async () => {
-      const logs = await chains[destination]!.client.getLogs({address: config.acrossSpokePool, event, fromBlock,
-        args: {originChainId: origin === "hub" ? 42161n : 4663n, depositId: deposit.depositId}} as never) as any[];
+      const logs = await fills();
       const fill = logs.find((entry) => ["inputToken", "outputToken", "depositor", "recipient", "exclusiveRelayer"].every((key) => entry.args[key].toLowerCase() === deposit[key].toLowerCase())
         && ["inputAmount", "outputAmount", "fillDeadline", "exclusivityDeadline"].every((key) => BigInt(entry.args[key]) === BigInt(deposit[key])) && entry.args.messageHash === keccak256(deposit.message));
       if (!fill) return false;
@@ -151,8 +168,9 @@ async function main() {
     await send("hub", core, coreVaultAbi, "requestIncomeWithdrawal", [100], await fee());
     const depositEvent = acrossSpokePoolAbi.find((entry: any) => entry.name === "FundsDeposited") as any;
     let deposit: any;
+    const deposits = logsSince("spoke", {address: ROBINHOOD.acrossSpokePool, event: depositEvent}, head);
     await wait(async () => {
-      const logs = await chains.spoke!.client.getLogs({address: ROBINHOOD.acrossSpokePool, event: depositEvent, fromBlock: head}) as any[];
+      const logs = await deposits();
       deposit = logs.find((entry) => entry.args.recipient.toLowerCase().endsWith(core.slice(2).toLowerCase()))?.args;
       return !!deposit;
     }, "COLLECT bridge deposit");
@@ -167,11 +185,12 @@ async function main() {
     await send("hub", core, coreVaultAbi, "closeFund");
     await send("hub", core, coreVaultAbi, "unwindAllAfterDeadline", [], await fee());
     const event = spokeVaultAbi.find((entry: any) => entry.name === "OrderExecuted") as any;
-    await wait(async () => (await chains.spoke!.client.getLogs({address: spoke, event, fromBlock: head}) as any[]).some((entry) => Number(entry.args.kind) === 2), "CLOSE execution");
-    const deposits = await chains.spoke!.client.getLogs({address: ROBINHOOD.acrossSpokePool, event: acrossSpokePoolAbi.find((entry: any) => entry.name === "FundsDeposited") as any, fromBlock: head}) as any[];
+    const executed = logsSince("spoke", {address: spoke, event}, head);
+    await wait(async () => (await executed()).some((entry) => Number(entry.args.kind) === 2), "CLOSE execution");
+    const deposits = await logsSince("spoke", {address: ROBINHOOD.acrossSpokePool, event: acrossSpokePoolAbi.find((entry: any) => entry.name === "FundsDeposited") as any}, head)();
     for (const entry of deposits.filter((entry) => entry.args.recipient.toLowerCase().endsWith(core.slice(2).toLowerCase()))) await waitFill("spoke", entry.args, core, coreVaultAbi, "TransitReceived", hubHead);
     await report();
-    const returns = await chains.spoke!.client.getLogs({address: spoke, event: spokeVaultAbi.find((entry: any) => entry.name === "SentToHub") as any, fromBlock: head}) as any[];
+    const returns = await logsSince("spoke", {address: spoke, event: spokeVaultAbi.find((entry: any) => entry.name === "SentToHub") as any}, head)();
     for (const entry of returns.filter((entry) => Number(entry.args.transit.kind) === 0)) {
       await wait(async () => Number((await read("spoke", spoke, spokeVaultAbi, "hubBoundTransit", [entry.args.transitId])).state) === 2, "Principal acknowledgement delivered by durable keeper");
     }
