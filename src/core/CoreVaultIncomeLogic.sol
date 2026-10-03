@@ -137,8 +137,8 @@ library CoreVaultIncomeLogic {
         if (!_settle(s, holder, balanceBefore)) revert DollarIncomeIndex.HolderNotSettled(holder);
     }
 
-    /// @notice Called after every mint (deposit, seed): the `minted` shares take nothing of what the open intervals
-    ///         earned before them (DEC-014, doc 10 section 2).
+    /// @notice Called after every mint (deposit, seed): Hub shares exclude already recognized income; spoke shares
+    ///         enter one waiting lot until an interval starts at or after their entry (DEC-014, DEC-145).
     function afterMint(CoreVaultState storage s, CoreVaultWiring memory, address holder, uint256 minted) public {
         CoreVaultIncomeTypes.Book storage b = s.incomeBook;
         uint256 count = b.sourceCount;

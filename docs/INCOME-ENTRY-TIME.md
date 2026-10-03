@@ -30,6 +30,11 @@ Income Withdrawal returns zero and persists progress; repeat it before retrying 
 views still traverse collection history. FIFO and collection history storage grow over the fund lifetime, not the
 number of live waiting lots per holder.
 
+The cap measurement with 32 eligible entries and all 16 token baselines nonzero is **14,811,046 gas**, below the
+32 million gas budget. Empty token baselines cost 4,709,746 gas. Frozen-collection capture also carries its per-token
+adjustments within the step budget; it never calls an unlimited historical conversion loop from a state-changing
+holder path.
+
 Report timestamps come from the spoke and deposit timestamps from the Hub, never cross-chain block numbers. The
 receiver's existing future-clock tolerance is the Mandate `maxReportAge` (1,588 seconds in the alpha configuration).
 Deposits within that tolerated skew may be misclassified; this is the accepted bounded-clock-skew reading, **D-42**
