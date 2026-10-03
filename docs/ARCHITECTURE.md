@@ -1,6 +1,6 @@
 # Architecture: merged internal-alpha baseline
 
-Baseline: `main` at **`1db9a9d`**, 2026-10-02, through PR #15. Governing register: **DEC-001..DEC-187**;
+Baseline: `main` at **`f88b25b`**, 2026-10-03, through PR #23 and PR #21 (including #22). Governing register: **DEC-001..DEC-187**;
 see [DECISIONS](DECISIONS.md) for implemented/partial/deferred status and
 [OPEN-QUESTIONS](OPEN-QUESTIONS.md) for plan divergences. This describes code already on main, not the end-state plan.
 
@@ -30,22 +30,26 @@ not separately deployed contracts.
 
 | Runtime caller | Linked external libraries |
 |---|---|
-| CoreVault | CoreVaultLogic, CoreVaultTransitLogic, CoreVaultIncomeLogic, CoreVaultPayoutLogic |
+| CoreVault | CoreVaultLogic, CoreVaultTransitLogic, CoreVaultIncomeLogic, CoreVaultIncomeCollectionLogic, CoreVaultPayoutLogic, CoreVaultClosureLogic |
 | CoreVaultLogic | CoreVaultIncomeLogic |
-| CoreVaultTransitLogic | CoreVaultLogic, CoreVaultIncomeLogic, CoreVaultPayoutLogic |
+| CoreVaultTransitLogic | CoreVaultLogic, CoreVaultIncomeLogic, CoreVaultPayoutLogic, CoreVaultClosureLogic |
 | CoreVaultPayoutLogic | CoreVaultLogic, CoreVaultIncomeLogic |
-| SpokeVault | SpokeCrossChainLib, SpokeUnwindLib, SpokeIncomeLib |
+| CoreVaultClosureLogic | CoreVaultLogic, CoreVaultIncomeLogic, CoreVaultIncomeCollectionLogic |
+| CoreVaultIncomeLogic | CoreVaultIncomeCollectionLogic |
+| SpokeVault | SpokeCrossChainLib, SpokeUnwindLib, SpokeIncomeLib, SpokeCloseLib |
+| SpokeUnwindLib / SpokeIncomeLib | SpokeCrossChainLib |
+| SpokeCloseLib | SpokeUnwindLib |
 
-`CoreVaultIncomeLogic` has no linked-library dependency back into callers (`CoreVaultLogic.payFee` is internal/inlined).
-The dependency order avoids a circular CREATE2 address dependency. `SpokeLedger`, `OrderCodec`, `OrderVerifier`,
-`BridgeFeeRule`, `ReportCodec`, `IncomeAccumulator`, `ShareMath` and `DollarIncomeIndex` are internal/inlined libraries,
-not linked runtime deployments. **DollarIncomeIndex is not used by the live income book yet.**
+`CoreVaultIncomeCollectionLogic` has no external linked dependency back into its callers; dependencies deploy first.
+`SpokeLedger`, `OrderCodec`, `OrderVerifier`, `BridgeFeeRule`, `ReportCodec`, `IncomeAccumulator`, `ShareMath` and
+**live** `DollarIncomeIndex` are internal/inlined libraries. PR #21 fixed nested library linking in deployment;
+artifact `linkReferences` are authoritative, not only the vault's direct links.
 
 `FactoryDeployment` deploys libraries once per chain and links the vault creation code and dependent libraries.
 Their addresses/code are part of each immutable fund's trust surface. External library calls execute in vault storage
 and emit at the vault address; adapter calls do not delegatecall untrusted adapter code. There is no proxy or upgrade
 path (DEC-022/058/131/183). Changing linked code requires a new factory/fund version. Publish all library addresses
-and verify links on both chains; keep each runtime <=24,576 bytes. See [size baseline](security/BASELINE-2026-10-02.md).
+and verify links on both chains; keep each runtime <=24,576 bytes. See [current sizes](reports/2026-10-03-MVP-REPORT.md).
 
 ## 2. Mandate v2 and creation
 
@@ -83,37 +87,54 @@ not a permissioned deposit gate (DEC-134).
 
 Deposits are synchronous USDC receipt plus whole-share mint, leaving principal in Idle; they do not open positions.
 The Core Vault calls income hooks before/after share changes and on valuations/report acceptance/income arrivals,
-but the new hooks preserve collection-time behavior where no recognition previously existed (PR #15).
+and the live book recognizes per-token entitlement before changing balances (PR #18 via #23).
 
 Manager sends capital through a ranked Mandate bridge adapter to the fund's fixed destination. A spoke must first
 have an accepted report. Manager opens/increases/reduces/closes positions through allowed position adapters and pools.
 Principal returned on Hub can move to Core Vault Idle; spoke principal returns through Across. Ledger checks enforce
 actual input debit/output receipt around swaps, not merely adapter return values.
 
-Existing Payout Requests and payments remain in `CoreVaultPayout`/`CoreVaultPayoutLogic`; Idle is used first, then
-the interim Hub unwind in `SpokeUnwindLib`, with a 2% target buffer and legacy 5% floor against the higher of spot/oracle.
-Its payout sale still uses the position's own pool when paired with USDC, otherwise a caller-hinted Mandate pool,
-through `SpokeLedger.poolSwap` and the position adapter's `swapExactInput`, not the Mandate swap adapter.
-Migration to that swap adapter is pending WP-09, PR #19 (DEC-136/143/153).
-The legacy PAYOUT valuation fallback still uses cached values when a dependency fails. These are **not** the new
-DEC-137/140/141/148/160 behavior. **WP-09 proportional unwind — in progress.**
+Payouts use Idle first, then proportional Hub unwind (WP-09, PR #19 via #23):
+`min(1, (S - A/P) / (T - A/P) * 1.02)`, where S is served shares, T total shares, A available Idle and P Share Price.
+Positions and eligible Unallocated Balance use the same fraction; sales use the Mandate swap adapter, not position
+pools. The legacy mandatory 5% oracle floor and arbitrary caller pool hints are removed. Requester `maxLossBps`
+uses 0 or >=10,000 as no maximum; failed/over-limit positions are isolated, exclusions include reasons, and retries
+skip delivered work (DEC-137/140/148/151). Instant assigns all sale Market Costs to the leaver; Standard absorbs
+up to 1% of pre-sale spot value per sale in the fund, excess to the leaver (DEC-118/141). Pending requester costs
+survive proceeds-limited burns. A terminal sub-share debt may consume one whole share, retain rounding surplus
+in Idle and close the request rather than trap future payouts.
 
-Current income uses `CoreVaultIncomeTypes.Book.index: IncomeAccumulator.State`, a per-token Q128 collection-time index.
-Collected income reaching Hub is split: performance fee, protocol slice of that fee, and net holder income. Protocol
-fees pay Protocol Recipient, manager portion pays ManagerFeeVault, failed fee transfers become owed. Hub collection can
-still pay the collected token; the manager's `swapCollectedIncome` verb remains. This does not yet implement all-USDC
-cross-chain collection or recognition-time entitlement. **WP-10 income dollar index — in progress.**
+Insufficient Hub liquidity publishes UNWIND to spokes (WP-12, PR #22 inside #21). Proceeds are earmarked, returned
+through Across, then reserved at the Hub. `settlePayout(holder)` is permissionless and waits for reached spokes'
+post-unwind reports and known transit resolution, pricing a consolidated burn at one Share Price. Expired/retried
+claims use the same gate; partial fills/refunds cannot drop obligations or double-charge costs. Mint/burn freshness
+is enforced; cached dependency-price fallback is distinct from report freshness. No inactivity switch exists
+(DEC-157/160): a silent spoke blocks exits needing a fresh report. Standard Payout Wormhole fees are caller-funded.
 
-`closeFund` exists: it books management accrual, moves Open -> Closing and records timestamp. Closing refuses deposits,
-new requests and claims; income remains accessible. Finalization, Closed exits and a frozen record do not exist on this
-baseline. **WP-13 closure — in progress.**
+The live income book uses `DollarIncomeIndex`: per-token recognition intervals, sealed sold cohorts and a Hub-dollar
+index (WP-10, PR #18 via #23). Mint/burn changes do not transfer already recognized rights to entrants.
+`requestIncomeWithdrawal(maxLossBps)` collects Hub income and publishes COLLECT to spokes with income; position
+fees are sold through the swap adapter to local stablecoin. Authenticated collection results seal sold cohorts,
+independently of dollar arrival. Partial/out-of-order arrivals and aged refunds/resends preserve token-sale identity.
+Credited dollars convert at the collection's own rate; performance fees split to ManagerFeeVault and Protocol
+Recipient, failed transfers become owed. `settleIncomeWithdrawal` completes a round; `withdrawIncome()` pays USDC
+without burning shares or flow/Payout Fee. Collection/bridge costs are fund-borne; gas/message fees externally funded.
+DEC-145 entry-time filtering remains deferred; reports that first recognize old income after entry remain a risk.
+
+`closeFund` irreversibly enters Closing and stops management accrual (WP-13, PR #21). Manager closure unwind has
+72 hours; afterward anyone calls `unwindAllAfterDeadline` to unwind Hub and publish CLOSE to spokes. Manual and
+automatic sale costs are recorded: Standard absorption applies, excess reduces the manager's final payment.
+`finalizeClosure` requires empty Hub/spoke books, fresh post-Closing spoke reports, resolved transits, no unmatched
+arrivals and completed final income collection. It returns existing base-token Operating Cash, pays management
+liability and manager shares, freezes `closedSupply`/`closedIdle` and emits `FundClosed`. `exitClosedFund` pays
+`shares * closedIdle / closedSupply` immediately, no report or Payout Fee; flow fee remains. Late Closed value
+cannot increase frozen Idle and remains sweepable (DEC-167); native Operating Cash is not implemented.
 
 ## 4. Swap adapter and signed API routes
 
 `SpokeVault.swap(swapAdapter, tokenIn, tokenOut, amountIn, maxLossBps, route)` is manager-only and pins adapter/endpoints
-to the Mandate (PR #13). This manager entry point and `swapCollectedIncome` use the Mandate swap adapter,
-not a position adapter executing against the fund's own position pool. The interim payout-unwind sale is the
-exception described above; its migration remains pending WP-09, PR #19.
+to the Mandate (PR #13). Manager swaps, income conversion and payout-unwind sales all use the Mandate swap adapter,
+not a position adapter executing against the fund's own position pool (DEC-136/143/153).
 
 With empty route, `UniswapV3SwapAdapter` discovers direct-pair tiers 100, 500, 3000, 10000 through the V3 factory.
 It skips zero in-range liquidity, caps each quote at 1M gas and skips quotes that do not fill the whole input.
@@ -159,24 +180,29 @@ after fill deadline (2026-10-02 sample), not an SLA; retention is separate from 
 
 ## 6. Wormhole orders and report v4
 
-`OrderCodec` v1 encodes UNWIND, CLOSE or COLLECT, fund id, request id, attempt, deadline, fraction, maximum and Payout
-mode (320-byte static payload). Order id hashes kind/fund/request/attempt. Publishing uses instant consistency 200
-and overwrites deadline to publish time + 1 hour (engineering default). Destination is never a caller-selected wallet.
-`OrderVerifier` checks guardian validity, Hub emitter chain/address, fund id, newer sequence and deadline; gaps accepted,
-older/replayed orders rejected. Retry completion is not implemented merely because `attempt` is encoded.
+`OrderCodec` carries UNWIND, CLOSE, COLLECT and targeted ACKNOWLEDGE in a 320-byte static payload.
+CLOSE uses the closure identity in `requestId`; UNWIND/COLLECT use fund/request/attempt. Publishing uses instant
+consistency 200 and a publish-time + 1-hour deadline. Guardian, Hub emitter, fund, sequence and deadline checks
+precede dispatch; consumed UNWIND/CLOSE ids also block fresh-sequence replay. Successful `executeOrder` invokes
+the linked executor and publishes a report. Capital travels only via Across, never Wormhole.
 
-`SpokeVault.executeOrder` exists and verifies through linked `SpokeUnwindLib.acceptOrder`, then dispatches the kind.
-**All three executors currently revert `OrderKindNotSupported`**, including linked `SpokeIncomeLib` COLLECT stub;
-the transaction rolls back its cursor. It cannot unwind, collect, or close today. The successful-dispatch report/event
-path and `OrderPublished` declaration are foundations only. **WP-12 spoke orders — in progress.**
+Spoke unwind results/transit identities have capacity 16, a concurrency limit rather than lifetime-send cap.
+`acknowledgeSpokeTransit(spokeIndex, transitId)` is permissionless after full Principal credit or authenticated
+refund proof; delivering its targeted Hub ACKNOWLEDGE to spoke `executeOrder` retires the resolved identity.
+Hub credit alone does not reclaim capacity: sixteen undelivered acknowledgements can block later sends/exits.
+Anyone can republish/deliver them; the keeper must service the queue. Elapsed time alone is not the Hub publisher's
+expiry proof. PR #21 review L-1: retirement uses `abi.encode(records)` rather than the shared
+`SpokeUnwindTypes.encodeResults(records)`; identical bytes today, but bypasses the size assertion (docs-only carry-over).
 
-`ReportCodec.VERSION = 4` extends the quantities/principal/income/cumulative counters/Mandate hash/transit payload
-with `bytes unwindResults` and `bytes collectionResults`; these book blobs are empty on the baseline.
-Reports use finalized consistency 202. Receiver checks the authenticated report; hooks are called for accepted reports,
-but they do not implement result settlement or the dollar index. Rebuild off-chain decoders against v4; v3 payloads fail.
+`ReportCodec.VERSION = 4` carries principal/income/counters/Mandate/transits plus `unwindResults` and
+`collectionResults`. Current shared UNWIND/CLOSE results are 13 ABI words (416 bytes); PR #21 multi-result tests
+cover the shared stride. Reports use finalized consistency 202 and accepted-report hooks feed payout, closure
+and income books. Economic obligations are retained beyond bounded serialization windows. Rebuild off-chain
+decoders and include linked-library event ABIs; v3 payloads fail.
 
-Reporting is permissionless and the API helper requests reports after deposits; Core deposit itself does not atomically
-publish a new report. Burn-wide DEC-160 freshness is unfinished. No inactivity switch exists (DEC-157).
+Reporting is permissionless/operation-driven. The API requests reports after deposits; Core deposit does not
+atomically publish a cross-chain report (DEC-159 remains partial). Freshness/post-unwind gates are live; Closed
+frozen exits are the DEC-163 exception. A replacement relayer can recover keeper downtime, not a spoke that never reports.
 
 ## 7. Fees, management accrual and Operating Cash
 
@@ -190,7 +216,7 @@ Management liability is booked at valuations while Open:
 `increment = min((gross - booked) * managementFeeBps * dt / (10,000 * 365 days), gross - booked)`, rounding down.
 Here `gross` is the pre-management-fee Share Assets base used by this helper, not the aggregate Gross Assets view.
 The fee never charges its booked liability; net Share Assets/Share Price exclude what is owed. `closeFund` stops
-accrual; reductions book at the old rate first. Closure payment remains WP-13 in progress.
+accrual; reductions book at the old rate first. PR #21 pays the liability at finalization; failed transfers remain owed.
 
 **PR #12 L-2 rounding bound:** when a valuation books less than one base unit, the accrual clock is retained.
 An entrant can therefore bear less than `(new base / old base)` USDC base units for pre-entry time; at a 100-USDC
@@ -211,8 +237,10 @@ adapter/factory version; deployment defaults ManagerRegistry owner to that signe
 and registry ownership can transfer. Signer compromise remains a permanent route-signing risk for those adapters.
 Guardian pause/deprecation is immutable adapter wiring, not a guarantee of safe manager execution.
 
-Accepted/unfinished risks, including manager swaps, spot-reference manipulation, stale reports, missing dollar
-attribution/closure and zero-default Operating Cash, are in [KNOWN-LIMITATIONS](security/KNOWN-LIMITATIONS.md).
+Accepted/unfinished risks, including manager swaps, spot-reference manipulation, stale reports, deferred entry-time
+eligibility and zero-default Operating Cash, are in [KNOWN-LIMITATIONS](security/KNOWN-LIMITATIONS.md).
 Public gates follow unit tests -> invariants -> formal verification -> independent audit (DEC-133/134).
 Run build/sizes, format, size completeness and all non-fork tests; fork suites are required when affected.
-Baseline evidence and exact measured runtime margins are in [BASELINE-2026-10-02](security/BASELINE-2026-10-02.md).
+CI runs one non-fork job and five isolated fork shards; the scenario shard exactly matches `_createForks()` callers.
+Fresh counts, gas and margins: [MVP report](reports/2026-10-03-MVP-REPORT.md).
+[BASELINE-2026-10-02](security/BASELINE-2026-10-02.md) remains historical evidence only.
