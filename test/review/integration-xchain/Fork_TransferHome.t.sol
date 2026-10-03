@@ -22,7 +22,7 @@ import {XChainBase, LiveRelayData, ILiveSpokePool} from "./XChainBase.sol";
 contract Fork_TransferHome is XChainBase {
     uint256 internal constant ARRIVES = BRIDGE_AMOUNT - BRIDGE_FEE; // 3,996.77 USDG (DEC-162: 0.08% plus 0.03)
     /// @dev DEC-162: the Across adapter's fee on the 3,986.77 sent home: ceil(0.08%) plus 0.03.
-    uint256 internal constant HOME_FEE = 3_189_416 + 30_000;
+    uint256 internal constant HOME_FEE = 3_197_416 + 30_000;
 
     bytes4 internal constant EXPIRED_FILL_DEADLINE = bytes4(keccak256("ExpiredFillDeadline()"));
 
@@ -44,7 +44,7 @@ contract Fork_TransferHome is XChainBase {
         assertEq(HOME_FEE, _ruleFee(principal));
         _onArbitrum();
         assetsBefore = core.shareAssets();
-        assertEq(assetsBefore, MANAGER_SEED_IDLE + 9961.77e6);
+        assertEq(assetsBefore, MANAGER_SEED_IDLE + 9971.77e6);
     }
 
     /// @dev The manager sends the whole spoke principal home; a relayer fills it on Arbitrum two minutes later. Returns

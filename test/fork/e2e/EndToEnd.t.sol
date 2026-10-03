@@ -475,7 +475,9 @@ abstract contract EndToEndScenario is EndToEndBase {
         uint256 spokePrincipal = _principalValue(r);
         assertEq(spokeValue, spokePrincipal);
         assertEq(core.shareAssets(), assetsBefore - inFlightBefore + spokePrincipal, "DEC-083: the spoke value entered");
-        assertLt(spokePrincipal, amountToArrive, "DEC-096: Operating Cash and the swap's Market Costs left");
+        assertApproxEqAbs(
+            spokePrincipal, amountToArrive, amountToArrive / 100, "swap costs and live price movement only"
+        );
         assertGt(spokePrincipal, amountToArrive * 99 / 100);
         assertEq(core.shareAssets(), _sumOfBuckets(), "DEC-104: Share Assets is the sum of its buckets");
         assertGt(core.grossAssets(), core.shareAssets(), "DEC-098: Gross Assets add income and Operating Cash");

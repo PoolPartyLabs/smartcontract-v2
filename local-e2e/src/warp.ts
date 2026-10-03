@@ -10,7 +10,7 @@ import { fundFactoryAbi, spokeVaultAbi, valueReportReceiverAbi, wormholeCoreAbi 
 import { anvil, explain, latestTimestamp, nodes, read, send } from "./chain.ts";
 import { ARBITRUM, ROBINHOOD, WORMHOLE_ROBINHOOD, isMain, type ActorName } from "./config.ts";
 import { signVaa, universal } from "./guardian.ts";
-import { logger, type Logger } from "./log.ts";
+import { safeConsole as console, logger, type Logger } from "./log.ts";
 import { restampFeed } from "./price-feed.ts";
 import { readState, type DeploymentState } from "./state.ts";
 import { runningKeeperPid } from "./keeper.ts";

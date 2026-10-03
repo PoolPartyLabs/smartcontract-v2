@@ -93,7 +93,8 @@ contract CoreVaultClosureTest is CoreVaultFixture {
                     arrivedTransits: new ReportCodec.TransitAmount[](0),
                     inFlightToHub: new ReportCodec.HubBoundAmount[](0),
                     unwindResults: "",
-                    collectionResults: ""
+                    collectionResults: "",
+                    refundedTransits: new bytes32[](0)
                 })
             )
         );
@@ -218,7 +219,7 @@ contract CoreVaultClosureTest is CoreVaultFixture {
         vault.finalizeClosure();
         report.unallocated[0].amount = 0;
         report.collectedIncome = new ReportCodec.TokenAmount[](1);
-        report.collectedIncome[0] = ReportCodec.TokenAmount(address(usdg), 1);
+        report.collectedIncome[0] = ReportCodec.TokenAmount(address(usdg), 500_000);
         receiver.store(0, report);
         vm.expectRevert(ICoreVaultLifecycle.ClosureNotReady.selector);
         vault.finalizeClosure();
@@ -282,17 +283,12 @@ contract CoreVaultClosureTest is CoreVaultFixture {
     }
 
     function test_DEC096_operatingCashReturnsToFrozenIdle() public {
-        _deposit(alice, 1000e6);
+        _deposit(alice, 5e6);
         vm.prank(manager);
+        vm.expectRevert(bytes4(keccak256("OperatingCashNotSupported()")));
         vault.setOperatingCashParameters(1e6, 10e6);
-        _deposit(bob, 1000e6);
-        assertEq(vault.operatingCash(), 10e6);
-        uint256 available = vault.idle() + vault.operatingCash();
-        uint256 supply = shares.totalSupply();
-        uint256 managerGross = Math.mulDiv(shares.balanceOf(manager), available, supply);
         _ready();
         vault.finalizeClosure();
-        assertEq(vault.closedIdle(), available - managerGross);
         assertEq(vault.operatingCash(), 0);
         assertEq(vault.operatingCashTopUp(), 0);
     }

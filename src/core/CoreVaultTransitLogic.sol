@@ -119,6 +119,7 @@ library CoreVaultTransitLogic {
             uint256 recovered = s.incomeBook.recoveredIncome[spokeIndex][id];
             if (recovered != 0 && h.kind == TransferKind.Principal) {
                 delete s.incomeBook.recoveredIncome[spokeIndex][id];
+                s.incomeBook.recoveredDollars -= recovered;
                 s.incomeBook.heldDollars -= recovered;
                 s.idle += recovered;
             }
@@ -226,8 +227,16 @@ library CoreVaultTransitLogic {
         uint256 originChainId = spoke.chainId;
         HubBoundTransfer storage h = s.hubBound[CoreVaultLogic.hubBoundKey(originChainId, transitId)];
         amount = s.incomeBook.recoveredIncome[spokeIndex][transitId];
+        if (amount != 0 && s.fundState == ICoreVaultLifecycle.FundState.Closed) {
+            delete s.incomeBook.recoveredIncome[spokeIndex][transitId];
+            s.incomeBook.recoveredDollars -= amount;
+            s.incomeBook.heldDollars -= amount;
+            emit ICoreVault.UnlistedArrivalRecovered(transitId, originChainId, amount);
+            return amount;
+        }
         if (amount != 0 && CoreVaultIncomeLogic.finalCollectionDone(s, w)) {
             delete s.incomeBook.recoveredIncome[spokeIndex][transitId];
+            s.incomeBook.recoveredDollars -= amount;
             s.incomeBook.heldDollars -= amount;
             s.idle += amount;
             emit ICoreVault.UnlistedArrivalRecovered(transitId, originChainId, amount);
@@ -249,6 +258,7 @@ library CoreVaultTransitLogic {
         }
         if (_incomeRecoveryPending(s, spokeIndex, transitId)) {
             s.incomeBook.recoveredIncome[spokeIndex][transitId] += amount;
+            s.incomeBook.recoveredDollars += amount;
             s.incomeBook.heldDollars += amount;
         } else {
             s.idle += amount;

@@ -1,8 +1,32 @@
 # Known limitations: merged internal-alpha baseline
 
-Baseline: **`main` `f88b25b`**, 2026-10-03, through PR #23 and PR #21 (including #22), DEC-001..DEC-187.
+Baseline: **`origin/main` `334eae6`**, October 3, 2026, including merged PR #24/#25/#26/#28/#29.
+The conformance dispositions below supersede historical review snapshots.
 These are accepted risks and unfinished requirements, not a claim of public readiness. Historical review snapshots
 remain evidence for their original commits; current status is here and in [FINDINGS](FINDINGS.md).
+
+## Conformance alpha exceptions (2026-10-03)
+
+These are explicitly accepted **only for the protocol-owned internal alpha** by the conformance-fix task, not
+silently implemented or approved for third-party deposits. G-01 remains pending the founder (DEC-145).
+
+| Finding | Accepted scope and reason | Evidence |
+|---|---|---|
+| G-01 / DEC-145 | Remote entry-time eligibility is absent; WP-14 is deferred. Later spoke counter advances may include pre-deposit income. **Founder decision pending**; no claim of full DEC-014/145 conformance. Internal alpha operators must disclose this timing exception. | `src/core/CoreVaultIncomeLogic.sol` recognition hook; `src/libraries/DollarIncomeIndex.sol` mint adjustments |
+| G-02 / DEC-045/124/161 | An Open-fund full exit pays converted dollars; unconverted token rights survive zero shares and need later collection. Accepted because rights are preserved, not confiscated; disclose the later Income Withdrawal. Closed exits still require final collection. | `src/core/CoreVaultIncomeLogic.sol` balance-change and withdrawal hooks; `test/unit/core/CoreVaultIncome.t.sol` full-exit regression |
+| G-03 / DEC-092/098/104 | Gross Assets temporarily omits Income bridging home. Accepted as an informational aggregate defect, not authorization to count Income in Share Assets or a demonstrated payout loss. Telemetry must include Income return legs separately. | `src/core/CoreVaultLogic.sol` gross valuation; `src/spoke/SpokeCrossChainLib.sol` Income debit on send |
+| G-04 / DEC-066 C1 | Return Spoke Cap usage uses bridge output rather than amount sent, understating occupancy by the bridge fee. Accepted for small protocol-owned alpha balances; do not claim symmetric sent-base conformance. | `src/core/CoreVaultLogic.sol` return-leg valuation and cap usage |
+| G-06 / DEC-089/094/099 | Mandate report lifetime remains selectable within one day. Accepted only with the checked alpha value **1,588 seconds**; deployment validation is not protocol-wide per-network enforcement. | `src/mandate/Mandate.sol` spoke validation; `script/FundMandate.sol` report lifetime |
+| G-07 | Direct construction permits distinct Protocol Recipient and excess recipient. Accepted because the standard factory wires both to the same protocol destination; verify equality on the alpha deployment. | `src/core/CoreVaultTypes.sol` wiring; `src/factory/FundFactory.sol` constructor arguments |
+
+No G-01/G-02/G-03/G-04/G-06/G-07 behavior is changed by this patch. Other historical risk acceptance, including
+manager execution-price risk, is unchanged. This is not an external security audit or public-readiness certificate.
+
+Resolved deployment blockers: B-01 gates actual Hub Spoke Vault exposure on Core Fund State (only base-token
+unwind swaps while Closing); B-02 records terminal dust exclusions and leaves them to `sweepExcess` (see
+[CLOSURE-DUST](CLOSURE-DUST.md)); B-03 enforces zero Operating Cash (see [OPERATING-CASH-MVP](OPERATING-CASH-MVP.md));
+G-05 tracks recovered-dollar reservations and never credits Idle after Closed. B-04 is evidenced by the final
+build/test/private-port harness rehearsal, not by real production guardian or bridge liveness.
 
 ## 1. Accepted economics and remaining exposure
 

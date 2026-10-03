@@ -159,6 +159,9 @@ contract Create3Test is Test {
         address[] memory chunks = harness.write(data);
         assertEq(chunks.length, 3);
         assertEq(chunks[0].code.length, CodeStore.MAX_CHUNK + 1);
+        for (uint256 index; index < chunks.length; ++index) {
+            assertGe(24_576 - chunks[index].code.length, 1000);
+        }
         assertEq(chunks[2].code.length, 18);
         assertEq(uint8(chunks[0].code[0]), 0, "leading STOP");
         assertEq(keccak256(harness.read(chunks)), keccak256(data));

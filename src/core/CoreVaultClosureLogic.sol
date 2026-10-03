@@ -18,6 +18,7 @@ import {ShareMath} from "../libraries/ShareMath.sol";
 import {OrderCodec} from "../libraries/OrderCodec.sol";
 import {ReportCodec} from "../libraries/ReportCodec.sol";
 import {SpokeUnwindTypes} from "../spoke/SpokeUnwindTypes.sol";
+import {ClosureDust} from "../libraries/ClosureDust.sol";
 
 /// @notice Linked Core Vault closure implementation (DEC-114/147/149/150/163/167, ruling 2026-10-02).
 library CoreVaultClosureLogic {
@@ -141,21 +142,29 @@ library CoreVaultClosureLogic {
     function finalize(CoreVaultState storage state, CoreVaultWiring memory wiring) public {
         _requireClosing(state);
         ReportCodec.Report memory hub = ISpokeVault(wiring.hubSpokeVault).buildReport();
-        _requireEmpty(hub);
+        _requireEmpty(hub, address(0), 0, 0);
         uint256 excess = state.closureExcessCost + ISpokeVaultUnwind(wiring.hubSpokeVault).closureCost();
         IValueReportReceiver receiver = IValueReportReceiver(wiring.reportReceiver);
         for (uint256 index; index < state.mandate.spokes.length; ++index) {
             if (!receiver.isReportFresh(index)) revert ICoreVaultLifecycle.ClosureNotReady();
             (ReportCodec.Report memory report,,) = receiver.latestReport(index);
             if (report.timestamp < state.closingStartedAt) revert ICoreVaultLifecycle.ClosureNotReady();
-            _requireEmpty(report);
+            _requireEmpty(
+                report,
+                state.mandate.spokes[index].spokeToken,
+                state.mandate.spokes[index].chainId,
+                ClosureDust.threshold(wiring.usdc)
+            );
             if (state.spokeBooks[index].inFlightSent != 0 || state.spokeBooks[index].inFlightToArrive != 0) {
                 revert ICoreVaultLifecycle.ClosureNotReady();
             }
             excess += _spokeExcess(state, wiring, index, report.unwindResults);
         }
         CoreVaultIncomeLogic.onValuation(state, wiring, hub, true, false);
-        if (!CoreVaultIncomeLogic.finalCollectionDone(state, wiring) || state.unmatchedArrivals != 0) {
+        if (
+            !CoreVaultIncomeLogic.finalCollectionDone(state, wiring) || state.unmatchedArrivals != 0
+                || state.incomeBook.recoveredDollars != 0
+        ) {
             revert ICoreVaultLifecycle.ClosureNotReady();
         }
         state.idle += state.operatingCash;
@@ -238,12 +247,19 @@ library CoreVaultClosureLogic {
         }
     }
 
-    function _requireEmpty(ReportCodec.Report memory report) private pure {
+    function _requireEmpty(ReportCodec.Report memory report, address baseToken, uint256 chainId, uint256 threshold)
+        private
+    {
         if (report.positions.length != 0 || report.inFlightToHub.length != 0 || report.operatingCash != 0) {
             revert ICoreVaultLifecycle.ClosureNotReady();
         }
         for (uint256 index; index < report.unallocated.length; ++index) {
-            if (report.unallocated[index].amount != 0) revert ICoreVaultLifecycle.ClosureNotReady();
+            uint256 amount = report.unallocated[index].amount;
+            if (amount == 0) continue;
+            if (report.unallocated[index].token != baseToken || amount >= threshold) {
+                revert ICoreVaultLifecycle.ClosureNotReady();
+            }
+            emit ICoreVaultLifecycle.ClosureDustExcluded(chainId, amount, false);
         }
         for (uint256 index; index < report.collectedIncome.length; ++index) {
             if (report.collectedIncome[index].amount != 0) revert ICoreVaultLifecycle.ClosureNotReady();

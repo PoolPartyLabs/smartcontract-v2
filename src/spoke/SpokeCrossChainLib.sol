@@ -14,6 +14,12 @@ import {Transit, TransitState, TransferKind, ExpensePayer} from "../interfaces/F
 import {ReportCodec} from "../libraries/ReportCodec.sol";
 import {TransitMessage} from "../libraries/TransitMessage.sol";
 import {SpokeVaultTypes} from "./SpokeVaultTypes.sol";
+import {SpokeUnwindTypes} from "./SpokeUnwindTypes.sol";
+import {ISpokeVaultUnwind} from "../interfaces/ISpokeVaultUnwind.sol";
+import {ICoreVaultPayouts} from "../interfaces/ICoreVaultPayouts.sol";
+import {OrderCodec} from "../libraries/OrderCodec.sol";
+import {ClosureDust} from "../libraries/ClosureDust.sol";
+import {MandateLib} from "../mandate/Mandate.sol";
 
 /// @title SpokeCrossChainLib
 /// @notice The Spoke Chain half of the Spoke Vault: sends home, refund recognition, the hub-bound in-flight list and
@@ -22,6 +28,116 @@ import {SpokeVaultTypes} from "./SpokeVaultTypes.sol";
 /// @dev Split out of the vault only to keep the vault's runtime bytecode under EIP-170. Events and errors are the
 ///      vault's (ISpokeVault and SpokeVaultTypes), emitted from the vault's address.
 library SpokeCrossChainLib {
+    event ClosureDustExcluded(address indexed token, uint256 amount, TransferKind kind);
+    uint256 private constant BPS = 10_000;
+
+    function sendUnwindResult(
+        SpokeVaultTypes.State storage s,
+        SpokeVaultTypes.Config memory c,
+        OrderCodec.Order memory order,
+        ISpokeVaultUnwind.UnwindResult memory result,
+        SpokeUnwindTypes.Pending storage pending
+    ) public {
+        SpokeUnwindTypes.OrderResult memory record;
+        record.orderId = OrderCodec.orderId(order);
+        record.requestId = order.requestId;
+        record.attempt = order.attempt;
+        record.spotOut = pending.spotOut;
+        record.marketCost = pending.marketCost;
+        record.leaverCost = pending.leaverCost + pending.bridgeCost;
+        record.delivered = result.delivered;
+        record.excluded = result.excluded;
+        record.closureExcessCost = s.unwind.closureExcessCost;
+        uint256 amount = pending.proceeds;
+        if (order.kind == OrderCodec.CLOSE && amount != 0 && amount < ClosureDust.threshold(c.baseToken)) {
+            s.unallocated[c.baseToken] -= amount;
+            s.unwind.reservedBase -= amount;
+            pending.proceeds = 0;
+            emit ClosureDustExcluded(c.baseToken, amount, TransferKind.Principal);
+            amount = 0;
+        }
+        if (pending.transitId != bytes32(0)) {
+            record.transitId = pending.transitId;
+            record.amountSent = s.hubBoundTransits[pending.transitId].amountSent;
+            record.amountToArrive = s.hubBoundTransits[pending.transitId].amountToArrive;
+        }
+        if (amount != 0) {
+            uint256 arrival;
+            try IBridgeAdapter(s.bridgeAdapters[0]).quoteSend(c.baseToken, c.hubChainId, amount, "") returns (
+                uint256 quoted, uint256
+            ) {
+                arrival = quoted;
+            } catch (bytes memory reason) {
+                ++record.excluded;
+                emit ISpokeVaultUnwind.UnwindStepExcluded(order.requestId, s.bridgeAdapters[0], bytes32(0), reason);
+                _append(s, record);
+                return;
+            }
+            if (arrival == 0 || arrival > amount) {
+                ++record.excluded;
+                _append(s, record);
+                return;
+            }
+            if (order.maxLossBps != 0 && order.maxLossBps < BPS && (amount - arrival) * BPS > amount * order.maxLossBps)
+            {
+                ++record.excluded;
+                emit ISpokeVaultUnwind.UnwindBridgeExcluded(order.requestId, amount, arrival, order.maxLossBps);
+            } else {
+                try ISpokeVaultUnwind(address(this)).unwindSend(amount) returns (bytes32 transitId) {
+                    record.transitId = transitId;
+                } catch (bytes memory reason) {
+                    ++record.excluded;
+                    emit ISpokeVaultUnwind.UnwindStepExcluded(order.requestId, s.bridgeAdapters[0], bytes32(0), reason);
+                    _append(s, record);
+                    return;
+                }
+                record.amountSent = amount;
+                record.amountToArrive = s.hubBoundTransits[record.transitId].amountToArrive;
+                if (order.payoutMode == uint8(ICoreVaultPayouts.PayoutMode.Instant)) {
+                    record.leaverCost += amount - record.amountToArrive;
+                    pending.bridgeCost += amount - record.amountToArrive;
+                }
+                pending.proceeds = 0;
+                s.unwind.reservedBase -= amount;
+                pending.transitId = record.transitId;
+                s.unwind.transits[order.requestId].push(record.transitId);
+                s.unwind.transitRequest[record.transitId] = order.requestId;
+            }
+        }
+        _append(s, record);
+    }
+
+    function _append(SpokeVaultTypes.State storage s, SpokeUnwindTypes.OrderResult memory record) private {
+        SpokeUnwindTypes.OrderResult[] memory previous = s.unwind.reportBlob.length == 0
+            ? new SpokeUnwindTypes.OrderResult[](0)
+            : abi.decode(s.unwind.reportBlob, (SpokeUnwindTypes.OrderResult[]));
+        uint256 count = previous.length < SpokeUnwindTypes.REPORTED_RESULTS ? previous.length + 1 : previous.length;
+        SpokeUnwindTypes.OrderResult[] memory records = new SpokeUnwindTypes.OrderResult[](count);
+        uint256 offset = previous.length + 1 - count;
+        if (offset != 0) {
+            uint256 removable = type(uint256).max;
+            for (uint256 index; index < previous.length; ++index) {
+                if (
+                    previous[index].transitId == bytes32(0) || previous[index].transitId == record.transitId
+                        || s.unwind.retired[previous[index].transitId]
+                ) {
+                    removable = index;
+                    break;
+                }
+            }
+            if (removable == type(uint256).max) revert SpokeUnwindTypes.OrderResultCapacity();
+            for (uint256 index = removable; index + 1 < previous.length; ++index) {
+                previous[index] = previous[index + 1];
+            }
+            offset = 0;
+        }
+        for (uint256 index; index + 1 < count; ++index) {
+            records[index] = previous[index + offset];
+        }
+        records[count - 1] = record;
+        s.unwind.reportBlob = SpokeUnwindTypes.encodeResults(records);
+    }
+
     using SafeERC20 for IERC20;
 
     /// @dev Kind tag of the Operating Expense booked by an Operating Cash top-up; equals
@@ -119,6 +235,7 @@ library SpokeCrossChainLib {
         uint256 held = token.balanceOf(escrow);
         amount = t.amountSent;
         t.state = TransitState.RefundRecognized;
+        s.recentRefunds[s.refundCount++ % SpokeVaultTypes.ARRIVAL_WINDOW] = transitId;
         _removeInFlight(s, transitId);
         if (t.kind == TransferKind.Principal) {
             s.unallocated[baseToken] += amount;
@@ -170,7 +287,8 @@ library SpokeCrossChainLib {
     ///      its total first reaches `MIN_LISTED_ARRIVAL` and, security review S-13, again on every credit of at least
     ///      that minimum, so an id a stranger pre-listed (hub ids are predictable) and flushed out of the window comes
     ///      back with the real fill, while flushing the window still costs the minimum per entry. Income: the
-    ///      collected income bucket (DEC-092), never listed.
+    ///      collected income bucket (DEC-092), never listed. DEC-149/167: after CLOSE, unreserved terminal Principal
+    ///      below the closure threshold stays unledgered for sweepExcess; arrival proofs are still recorded.
     function creditArrival(
         SpokeVaultTypes.State storage s,
         address token,
@@ -183,6 +301,11 @@ library SpokeCrossChainLib {
             return;
         }
         s.unallocated[token] += amount;
+        if (s.unwind.closed && s.unwind.reservedBase == 0 && s.unallocated[token] < ClosureDust.threshold(token)) {
+            uint256 dust = s.unallocated[token];
+            s.unallocated[token] = 0;
+            emit ClosureDustExcluded(token, dust, TransferKind.Principal);
+        }
         s.cumulativeReceived += amount;
         uint256 before = s.arrivals[transitId];
         s.arrivals[transitId] = before + amount;
@@ -193,22 +316,9 @@ library SpokeCrossChainLib {
         }
     }
 
-    /// @notice The Operating Cash top-up of a Spoke Chain (body of `SpokeVault._topUpOperatingCash`).
-    /// @dev DEC-096, DEC-100: below the floor, the next value-moving operation adds `operatingCashTopUp` (or what
-    ///      Unallocated Balance of the base token holds, if less) to Operating Cash; the Share Price drop is accepted.
-    ///      DEC-041: the expense is booked with its payer, Share Assets. Never reverts, so it never blocks an exit
-    ///      (DEC-056).
-    function topUpOperatingCash(SpokeVaultTypes.State storage s, address baseToken, uint256 chainId) external {
-        uint256 cash = s.operatingCash;
-        if (cash >= s.operatingCashFloor) return;
-        uint256 amount = Math.min(s.operatingCashTopUp, s.unallocated[baseToken]);
-        if (amount == 0) return;
-        s.unallocated[baseToken] -= amount;
-        s.operatingCash = cash + amount;
-        emit ISpokeVault.OperatingCashToppedUp(amount, cash + amount);
-        emit ISpokeVault.OperatingExpensePaid(
-            chainId, address(0), OPERATING_CASH_TOP_UP, amount, ExpensePayer.ShareAssets
-        );
+    /// @notice Reserved native Operating Cash hook; disabled in the MVP (ruling 2026-10-02, DEC-187).
+    function topUpOperatingCash(SpokeVaultTypes.State storage, address, uint256) external pure {
+        revert MandateLib.OperatingCashNotSupported();
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -313,6 +423,11 @@ library SpokeCrossChainLib {
         // WP-07 D3 (report version 4): the order results the unwind and income books hold for the Hub, as they are.
         r.unwindResults = s.unwind.reportBlob;
         r.collectionResults = s.income.reportBlob;
+        n = Math.min(s.refundCount, SpokeVaultTypes.ARRIVAL_WINDOW);
+        r.refundedTransits = new bytes32[](n);
+        for (uint256 index; index < n; ++index) {
+            r.refundedTransits[index] = s.recentRefunds[(s.refundCount - n + index) % SpokeVaultTypes.ARRIVAL_WINDOW];
+        }
     }
 
     /// @dev `ReportCodec.PositionReport` is `IAdapter.PositionValue` prefixed by the adapter address, word for word, so
@@ -420,7 +535,7 @@ library SpokeCrossChainLib {
             t.state == TransitState.Sent && block.timestamp <= uint256(t.fillDeadline) + ReportCodec.HUB_BOUND_RETENTION;
     }
 
-    function _removeInFlight(SpokeVaultTypes.State storage s, bytes32 transitId) private {
+    function _removeInFlight(SpokeVaultTypes.State storage s, bytes32 transitId) internal {
         uint256 slot = s.inFlightSlot[transitId];
         if (slot == 0) return;
         uint256 last = s.inFlightIds.length;

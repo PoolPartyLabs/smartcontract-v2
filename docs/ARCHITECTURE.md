@@ -178,7 +178,7 @@ Capital travels USDC/USDG. Per-send TransitEscrow receives origin refunds; anyon
 vault checks. Reports reconcile arrival totals and hub-bound ids. Refund timing research observed 57–99 minutes
 after fill deadline (2026-10-02 sample), not an SLA; retention is separate from immediate deliverability.
 
-## 6. Wormhole orders and report v4
+## 6. Wormhole orders and report v5
 
 `OrderCodec` carries UNWIND, CLOSE, COLLECT and targeted ACKNOWLEDGE in a 320-byte static payload.
 CLOSE uses the closure identity in `requestId`; UNWIND/COLLECT use fund/request/attempt. Publishing uses instant
@@ -194,11 +194,19 @@ Anyone can republish/deliver them; the keeper must service the queue. Elapsed ti
 expiry proof. PR #21 review L-1: retirement uses `abi.encode(records)` rather than the shared
 `SpokeUnwindTypes.encodeResults(records)`; identical bytes today, but bypasses the size assertion (docs-only carry-over).
 
-`ReportCodec.VERSION = 4` carries principal/income/counters/Mandate/transits plus `unwindResults` and
-`collectionResults`. Current shared UNWIND/CLOSE results are 13 ABI words (416 bytes); PR #21 multi-result tests
-cover the shared stride. Reports use finalized consistency 202 and accepted-report hooks feed payout, closure
-and income books. Economic obligations are retained beyond bounded serialization windows. Rebuild off-chain
-decoders and include linked-library event ABIs; v3 payloads fail.
+`ReportCodec.VERSION = 5` extends the quantities/principal/income/cumulative counters/Mandate hash/transit payload
+with `bytes unwindResults`, `bytes collectionResults` and `bytes32[] refundedTransits`. The last field carries the
+last 256 locally recognized send-home refunds, including manual sends (DEC-066/093). It is authenticated by the
+same report channel; silence or elapsed time is not refund proof. Off-chain report decoders must use v5; earlier
+versions are rejected. The refund ring is informational and never credits a Hub bucket.
+
+`acknowledgeSpokeTransit` publishes an ACKNOWLEDGE order only after the Hub has fully credited the listed amount
+(Principal or Income), or accepted explicit refund proof. The spoke resolves any origin, immediately removes its
+In-flight Value slot, and ignores repeat acknowledgements. Only unwind/CLOSE sends update unwind result and retry
+books; collection result ownership is unchanged. In the current base, the shared send-home capacity is 64 slots
+and manual `sendToHub` remains Principal-only: Income is sent by COLLECT orders. Neither limit nor permission changes.
+Reports use finalized consistency 202. Receiver checks the authenticated report; hooks are called for accepted reports,
+but they do not implement result settlement or the dollar index. Rebuild off-chain decoders against v5.
 
 Reporting is permissionless/operation-driven. The API requests reports after deposits; Core deposit does not
 atomically publish a cross-chain report (DEC-159 remains partial). Freshness/post-unwind gates are live; Closed

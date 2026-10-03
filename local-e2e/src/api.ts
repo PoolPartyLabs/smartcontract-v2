@@ -24,6 +24,7 @@
 //   POST /report/after-deposit {txHash}                  DEC-159: a report published on every spoke and delivered
 //   GET  /events?fromBlock=                 Core Vault events, decoded (the indexer a server would run)
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import {SPOKE_REPORT_VERSION} from "./spoke-report.ts";
 import {
   decodeErrorResult,
   decodeEventLog,
@@ -45,11 +46,11 @@ import {
   valueReportReceiverAbi,
   wormholeCoreAbi,
 } from "./abis.ts";
-import { latestTimestamp, nodes, nodesUp, read, type Side } from "./chain.ts";
+import { latestTimestamp, nodes, nodesUp, read, runMain, type Side } from "./chain.ts";
 import { ARBITRUM, HUB_POOL_ID, ROBINHOOD, SWAP_ADAPTER_TOKENS, actors, isMain } from "./config.ts";
 import { sharePriceHistory } from "./history.ts";
 import { runningKeeperPid } from "./keeper.ts";
-import { redactUrls } from "./log.ts";
+import { safeConsole as console, redactUrls } from "./log.ts";
 import { readState, type DeploymentState, type FundRecord } from "./state.ts";
 import { encodeRoute, legsHash, quotePaths, signRoute } from "./swap-route.ts";
 import { deliverDirectly, publishReport, waitForDelivery, type SpokeRef } from "./warp.ts";
@@ -194,7 +195,7 @@ export async function health(state: DeploymentState) {
   return {
     nodes: up,
     clocks: now,
-    spokeReport: { hasReport, reportSequence, ageSeconds: reportAge, maxReportAge, fresh: reportFresh },
+    spokeReport: { version: SPOKE_REPORT_VERSION, hasReport, reportSequence, ageSeconds: reportAge, maxReportAge, fresh: reportFresh },
     wethPrice: { ageSeconds: priceAge, maxPriceAge, fresh: priceFresh },
     mintsOpen: reportFresh && priceFresh,
     payoutsOpen: reportFresh,
@@ -678,7 +679,7 @@ const routes: { method: string; pattern: RegExp; handler: Handler }[] = [
 
 function json(res: ServerResponse, status: number, payload: unknown) {
   res.writeHead(status, { "content-type": "application/json" });
-  res.end(JSON.stringify(payload, (_k, v) => (typeof v === "bigint" ? v.toString() : v), 2));
+  res.end(JSON.stringify(payload, (_k, v) => (typeof v === "bigint" ? v.toString() : typeof v === "string" ? redactUrls(v) : v), 2));
 }
 
 async function readBody(req: IncomingMessage): Promise<Record<string, string>> {
@@ -710,5 +711,8 @@ export function startApi(port = API_PORT, options: ApiOptions = {}) {
 }
 
 if (isMain(import.meta.url)) {
-  startApi().then(() => console.log(`local-e2e API on http://127.0.0.1:${API_PORT}`));
+  runMain(async () => {
+    await startApi();
+    console.log(`local-e2e API on http://127.0.0.1:${API_PORT}`);
+  });
 }

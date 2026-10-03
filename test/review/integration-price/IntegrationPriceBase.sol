@@ -241,8 +241,8 @@ abstract contract IntegrationPriceBase is EndToEndBase {
         plan.spokePool = _spokePoolKey();
         plan.spokeCap = spokeCap;
         plan.maxReportAge = ROBINHOOD_MAX_REPORT_AGE;
-        plan.spokeOperatingCashFloor = SPOKE_OPERATING_CASH_FLOOR;
-        plan.spokeOperatingCashTopUp = SPOKE_OPERATING_CASH_TOP_UP;
+        plan.spokeOperatingCashFloor = 0;
+        plan.spokeOperatingCashTopUp = 0;
         plan.minFirstDeposit = MIN_FIRST_DEPOSIT;
         plan.performanceFeeBps = PERFORMANCE_FEE_BPS;
     }

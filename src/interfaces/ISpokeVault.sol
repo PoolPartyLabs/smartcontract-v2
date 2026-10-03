@@ -246,8 +246,7 @@ interface ISpokeVault is IAcrossMessageHandler, ISpokeVaultUnwind, ISpokeVaultIn
         bytes calldata route
     ) external returns (uint256 amountOut);
 
-    /// @notice Sets the Operating Cash floor and top-up of this chain. Manager only (DEC-096; no protocol cap on the
-    ///         floor, DEC-100).
+    /// @notice Reserved post-buildathon setter; always reverts in the MVP (ruling 2026-10-02, DEC-187).
     function setOperatingCashParameters(uint256 floor, uint256 topUp) external;
 
     // ---------------------------------------------------------------------------------------------------------------

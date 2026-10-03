@@ -73,11 +73,13 @@ import {
 } from "./config.ts";
 import { mappingSlot, setTokenBalance } from "./fund-accounts.ts";
 import { guardianSetIndexOf, signVaa, universal } from "./guardian.ts";
-import { logger, units, type Logger } from "./log.ts";
+import { safeConsole as console, logger, units, type Logger } from "./log.ts";
 import { ORDER_KIND_NAME, decodeOrder, orderId } from "./orders.ts";
+import {decodeSpokeReport} from "./spoke-report.ts";
 import { ensureFeedFresh } from "./price-feed.ts";
 import { readState, type BalanceLayout, type DeploymentState } from "./state.ts";
-import { PendingTransits, type PendingTransit } from "./pending-transits.ts";
+import { PendingTransits } from "./pending-transits.ts";
+import {createKeeperTransitRetry, queueReportTransits} from "./keeper-transits.ts";
 
 export interface KeeperOptions {
   /** Seconds between a published report and its delivery (production: 15 to 20 minutes of finality). */
@@ -445,12 +447,9 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
 
   const transits = new PendingTransits(join(STATE_DIR, "pending-transits.json"), state.createdAt);
 
-  async function acknowledgePrincipal(fund: FundEntry) {
+  async function acknowledgeTransits(fund: FundEntry) {
     const [report] = await read<readonly [any, bigint, bigint]>("arbitrum", { address: fund.receiver, abi: valueReportReceiverAbi, functionName: "latestReport", args: [BigInt(fund.spokeIndex)] });
-    for (const transit of report.inFlightToHub) {
-      if (Number(transit.kind) !== 0) continue;
-      queueTransit(fund, transit.transitId);
-    }
+    queueReportTransits(report, (transitId) => queueTransit(fund, transitId as Hex));
   }
 
   function queueTransit(fund: FundEntry, transitId: Hex) {
@@ -458,50 +457,52 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
     transits.add({ key: `${fund.coreVault.toLowerCase()}:${transitId}`, coreVault: fund.coreVault, spokeVault: fund.spokeVault, receiver: fund.receiver, spokeIndex: fund.spokeIndex, transitId });
   }
 
-  async function retryTransit(entry: PendingTransit): Promise<boolean> {
-    const fund = byVault.get(entry.coreVault.toLowerCase());
-    if (!fund?.spokeVault) return false;
-    const transit = await read<any>("robinhood", { address: fund.spokeVault, abi: spokeVaultAbi, functionName: "hubBoundTransit", args: [entry.transitId] });
-    if ([2, 3].includes(Number(transit.state))) return true;
-    const currentBlock = await nodes.robinhood.client.getBlock();
-    if (Number(transit.state) === 1 && currentBlock.timestamp > BigInt(transit.fillDeadline) + 3n * 86_400n) return true;
-    if (!entry.acknowledgement) {
-      const value = await read<bigint>("arbitrum", { address: ARBITRUM.wormholeCore, abi: wormholeCoreAbi, functionName: "messageFee" });
-      const call = { address: fund.coreVault, abi: coreVaultAbi, functionName: "acknowledgeSpokeTransit", args: [BigInt(fund.spokeIndex), entry.transitId], value };
-      if (await simulateRevert("arbitrum", "keeper", call)) return false;
-      const sent = await send("arbitrum", "keeper", call);
-      const published = sent.receipt.logs.find((event) => event.address.toLowerCase() === ARBITRUM.wormholeCore.toLowerCase());
-      if (!published) throw new Error("ACK receipt has no Wormhole message");
-      const decoded = decodeEventLog({ abi: wormholeCoreAbi, ...published }) as any;
-      const block = await nodes.arbitrum.client.getBlock({ blockNumber: sent.receipt.blockNumber });
-      entry.acknowledgement = { payload: decoded.args.payload, sequence: String(decoded.args.sequence), nonce: Number(decoded.args.nonce), consistencyLevel: Number(decoded.args.consistencyLevel), timestamp: Number(block.timestamp) };
-      transits.save();
-    }
-    const acknowledgement = entry.acknowledgement;
-    const order = decodeOrder(acknowledgement.payload as Hex);
-    const block = await nodes.robinhood.client.getBlock();
-    if (order && block.timestamp > order.deadline) {
-      delete entry.acknowledgement;
-      return false;
-    }
-    const message = { args: { ...acknowledgement, sender: fund.coreVault, sequence: BigInt(acknowledgement.sequence) } };
-    const emitter = fund.coreVault.toLowerCase();
-    const previous = deliveryChains.get(emitter) ?? Promise.resolve();
-    const execution = previous.then(() => executeOrder(fund, message, acknowledgement.timestamp, true));
-    deliveryChains.set(emitter, execution.then(() => {}, () => {}));
-    let executed: boolean;
-    try {
-      executed = await execution;
-    } catch (error) {
-      if (["OrderSequenceTooLow", "OrderExpired"].includes(revertOf(error)?.name ?? "")) delete entry.acknowledgement;
-      throw error;
-    }
-    if (executed) handledOrders.add(orderKey(fund.coreVault, BigInt(acknowledgement.sequence)));
-    return executed;
-  }
+  const retryTransit = createKeeperTransitRetry({
+    state: async (entry) => {
+      const transit = await read<any>("robinhood", { address: entry.spokeVault as Address, abi: spokeVaultAbi, functionName: "hubBoundTransit", args: [entry.transitId] });
+      return Number(transit.state);
+    },
+    acknowledge: async (entry) => {
+      const fund = byVault.get(entry.coreVault.toLowerCase());
+      if (!fund?.spokeVault) return;
+      if (!entry.acknowledgement) {
+        const value = await read<bigint>("arbitrum", { address: ARBITRUM.wormholeCore, abi: wormholeCoreAbi, functionName: "messageFee" });
+        const call = { address: fund.coreVault, abi: coreVaultAbi, functionName: "acknowledgeSpokeTransit", args: [BigInt(fund.spokeIndex), entry.transitId], value };
+        if (await simulateRevert("arbitrum", "keeper", call)) return;
+        const sent = await send("arbitrum", "keeper", call);
+        const published = sent.receipt.logs.find((event) => event.address.toLowerCase() === ARBITRUM.wormholeCore.toLowerCase());
+        if (!published) throw new Error("ACK receipt has no Wormhole message");
+        const decoded = decodeEventLog({ abi: wormholeCoreAbi, ...published }) as any;
+        const block = await nodes.arbitrum.client.getBlock({ blockNumber: sent.receipt.blockNumber });
+        entry.acknowledgement = { payload: decoded.args.payload, sequence: String(decoded.args.sequence), nonce: Number(decoded.args.nonce), consistencyLevel: Number(decoded.args.consistencyLevel), timestamp: Number(block.timestamp) };
+        transits.save();
+      }
+      const acknowledgement = entry.acknowledgement;
+      const order = decodeOrder(acknowledgement.payload as Hex);
+      const block = await nodes.robinhood.client.getBlock();
+      if (order && block.timestamp > order.deadline) {
+        delete entry.acknowledgement;
+        return;
+      }
+      const message = { args: { ...acknowledgement, sender: fund.coreVault, sequence: BigInt(acknowledgement.sequence) } };
+      const emitter = fund.coreVault.toLowerCase();
+      const previous = deliveryChains.get(emitter) ?? Promise.resolve();
+      const execution = previous.then(() => executeOrder(fund, message, acknowledgement.timestamp, true));
+      deliveryChains.set(emitter, execution.then(() => {}, () => {}));
+      let executed: boolean;
+      try {
+        executed = await execution;
+      } catch (error) {
+        if (["OrderSequenceTooLow", "OrderExpired"].includes(revertOf(error)?.name ?? "")) delete entry.acknowledgement;
+        throw error;
+      }
+      if (executed) handledOrders.add(orderKey(fund.coreVault, BigInt(acknowledgement.sequence)));
+    },
+  });
 
   async function deliver(fund: FundEntry, message: DecodedLog, blockTimestamp: number) {
     const a = message.args;
+    decodeSpokeReport(a.payload);
     const sequence = a.sequence as bigint;
     const fields = { emitter: fund.spokeVault, sequence };
     const [hasReport, last] = await Promise.all([
@@ -510,7 +511,7 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
     ]);
     if (hasReport && last >= sequence) {
       wormholeLog.info("already delivered", fields);
-      await acknowledgePrincipal(fund);
+      await acknowledgeTransits(fund);
       return;
     }
     const hubHeader = await nodes.arbitrum.client.getBlock();
@@ -545,7 +546,7 @@ export async function startKeeper(state: DeploymentState, options: KeeperOptions
         receiver: fund.receiver,
         tx: sent.hash,
       });
-      await acknowledgePrincipal(fund);
+      await acknowledgeTransits(fund);
     } catch (err) {
       const revert = revertOf(err)?.name;
       if (revert === "SequenceNotIncreasing" || revert === "ReportSequenceNotIncreasing") {

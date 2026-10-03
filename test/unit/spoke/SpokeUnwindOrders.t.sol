@@ -299,9 +299,9 @@ contract SpokeUnwindOrdersTest is SpokeVaultTestBase {
 
     function test_DEC149_closeIncludesBaseOperatingCash() public {
         vm.prank(manager);
+        vm.expectRevert(bytes4(keccak256("OperatingCashNotSupported()")));
         vault.setOperatingCashParameters(10e6, 10e6);
         _arrive(100e6, keccak256("cash"), TransferKind.Principal);
-        assertEq(vault.operatingCash(), 10e6);
         SpokeUnwindTypes.OrderResult memory result = _execute(OrderCodec.CLOSE, 1, 0, false);
         assertEq(result.amountSent, 1100e6);
         assertEq(vault.operatingCash(), 0);

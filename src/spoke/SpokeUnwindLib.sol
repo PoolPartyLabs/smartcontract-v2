@@ -90,7 +90,7 @@ library SpokeUnwindLib {
         pending.marketCost += result.marketCost;
         pending.leaverCost += result.leaverCost;
         if (closing) s.unwind.closureExcessCost += result.leaverCost;
-        _sendResult(s, c, order, result, pending);
+        SpokeCrossChainLib.sendUnwindResult(s, c, order, result, pending);
     }
 
     function _recoverSend(
@@ -120,112 +120,12 @@ library SpokeUnwindLib {
         }
     }
 
-    function _sendResult(
-        SpokeVaultTypes.State storage s,
-        SpokeVaultTypes.Config memory c,
-        OrderCodec.Order memory order,
-        ISpokeVaultUnwind.UnwindResult memory result,
-        SpokeUnwindTypes.Pending storage pending
-    ) private {
-        SpokeUnwindTypes.OrderResult memory record;
-        record.orderId = OrderCodec.orderId(order);
-        record.requestId = order.requestId;
-        record.attempt = order.attempt;
-        record.spotOut = pending.spotOut;
-        record.marketCost = pending.marketCost;
-        record.leaverCost = pending.leaverCost + pending.bridgeCost;
-        record.delivered = result.delivered;
-        record.excluded = result.excluded;
-        record.closureExcessCost = s.unwind.closureExcessCost;
-        uint256 amount = pending.proceeds;
-        if (pending.transitId != bytes32(0)) {
-            record.transitId = pending.transitId;
-            record.amountSent = s.hubBoundTransits[pending.transitId].amountSent;
-            record.amountToArrive = s.hubBoundTransits[pending.transitId].amountToArrive;
-        }
-        if (amount != 0) {
-            uint256 arrival;
-            try IBridgeAdapter(s.bridgeAdapters[0]).quoteSend(c.baseToken, c.hubChainId, amount, "") returns (
-                uint256 quoted, uint256
-            ) {
-                arrival = quoted;
-            } catch (bytes memory reason) {
-                ++record.excluded;
-                emit ISpokeVaultUnwind.UnwindStepExcluded(order.requestId, s.bridgeAdapters[0], bytes32(0), reason);
-                _append(s, record);
-                return;
-            }
-            if (arrival == 0 || arrival > amount) {
-                ++record.excluded;
-                _append(s, record);
-                return;
-            }
-            if (order.maxLossBps != 0 && order.maxLossBps < BPS && (amount - arrival) * BPS > amount * order.maxLossBps)
-            {
-                ++record.excluded;
-                emit ISpokeVaultUnwind.UnwindBridgeExcluded(order.requestId, amount, arrival, order.maxLossBps);
-            } else {
-                try ISpokeVaultUnwind(address(this)).unwindSend(amount) returns (bytes32 transitId) {
-                    record.transitId = transitId;
-                } catch (bytes memory reason) {
-                    ++record.excluded;
-                    emit ISpokeVaultUnwind.UnwindStepExcluded(order.requestId, s.bridgeAdapters[0], bytes32(0), reason);
-                    _append(s, record);
-                    return;
-                }
-                record.amountSent = amount;
-                record.amountToArrive = s.hubBoundTransits[record.transitId].amountToArrive;
-                if (order.payoutMode == uint8(ICoreVaultPayouts.PayoutMode.Instant)) {
-                    record.leaverCost += amount - record.amountToArrive;
-                    pending.bridgeCost += amount - record.amountToArrive;
-                }
-                pending.proceeds = 0;
-                s.unwind.reservedBase -= amount;
-                pending.transitId = record.transitId;
-                s.unwind.transits[order.requestId].push(record.transitId);
-                s.unwind.transitRequest[record.transitId] = order.requestId;
-            }
-        }
-        _append(s, record);
-    }
-
-    function _append(SpokeVaultTypes.State storage s, SpokeUnwindTypes.OrderResult memory record) private {
-        SpokeUnwindTypes.OrderResult[] memory previous = s.unwind.reportBlob.length == 0
-            ? new SpokeUnwindTypes.OrderResult[](0)
-            : abi.decode(s.unwind.reportBlob, (SpokeUnwindTypes.OrderResult[]));
-        uint256 count = previous.length < SpokeUnwindTypes.REPORTED_RESULTS ? previous.length + 1 : previous.length;
-        SpokeUnwindTypes.OrderResult[] memory records = new SpokeUnwindTypes.OrderResult[](count);
-        uint256 offset = previous.length + 1 - count;
-        if (offset != 0) {
-            uint256 removable = type(uint256).max;
-            for (uint256 index; index < previous.length; ++index) {
-                if (
-                    previous[index].transitId == bytes32(0) || previous[index].transitId == record.transitId
-                        || s.unwind.retired[previous[index].transitId]
-                ) {
-                    removable = index;
-                    break;
-                }
-            }
-            if (removable == type(uint256).max) revert SpokeUnwindTypes.OrderResultCapacity();
-            for (uint256 index = removable; index + 1 < previous.length; ++index) {
-                previous[index] = previous[index + 1];
-            }
-            offset = 0;
-        }
-        for (uint256 index; index + 1 < count; ++index) {
-            records[index] = previous[index + offset];
-        }
-        records[count - 1] = record;
-        s.unwind.reportBlob = SpokeUnwindTypes.encodeResults(records);
-    }
-
     /// @notice DEC-068: a confirmed refund is reported as proof that this Principal send did not arrive.
     function onRefund(SpokeVaultTypes.State storage s, bytes32 transitId) external {
         _markRefunds(s, transitId);
     }
 
-    /// @notice DEC-068/139/151: retire only a transit the authenticated Hub has resolved, never by elapsed time.
+    /// @notice DEC-066/068/139/151: retire every authenticated Hub outcome; update unwind books only for their sends.
     function acknowledge(
         SpokeVaultTypes.State storage s,
         SpokeVaultTypes.Config memory config,
@@ -234,7 +134,7 @@ library SpokeUnwindLib {
         if (order.fracNum != config.chainId) return;
         bytes32 transitId = order.requestId;
         bytes32 requestId = s.unwind.transitRequest[transitId];
-        if (requestId == bytes32(0) || s.unwind.retired[transitId]) return;
+        if (s.unwind.retired[transitId]) return;
         Transit storage transit = s.hubBoundTransits[transitId];
         if (order.fracDen == uint256(TransitState.ArrivalConfirmed)) {
             if (transit.state != TransitState.Sent) revert SpokeUnwindTypes.InvalidTransitOutcome();
@@ -247,8 +147,10 @@ library SpokeUnwindLib {
         ) {
             revert SpokeUnwindTypes.InvalidTransitOutcome();
         }
-        _recoverSend(s, config.baseToken, requestId, s.unwind.pending[requestId]);
+        SpokeCrossChainLib._removeInFlight(s, transitId);
         s.unwind.retired[transitId] = true;
+        if (requestId == bytes32(0)) return;
+        _recoverSend(s, config.baseToken, requestId, s.unwind.pending[requestId]);
         if (s.unwind.pending[requestId].transitId == transitId) {
             s.unwind.pending[requestId].transitId = bytes32(0);
         }

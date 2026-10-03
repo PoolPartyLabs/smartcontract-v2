@@ -85,3 +85,12 @@ for entry in "${CONTRACTS[@]}"; do
     }
   ' "$artifact" "$OUT_DIR/$name.json" "$REPO/out"
 done
+node --input-type=module -e '
+  import fs from "node:fs";
+  const directory = process.argv[1];
+  for (const [name, functionName] of [["SpokeVault", "buildReport"], ["ValueReportReceiver", "latestReport"]]) {
+    const abi = JSON.parse(fs.readFileSync(`${directory}/${name}.json`, "utf8"));
+    const report = abi.find((entry) => entry.type === "function" && entry.name === functionName)?.outputs[0];
+    if (report?.components?.at(-1)?.name !== "refundedTransits") throw new Error(`${name} lacks the report v5 refund proof`);
+  }
+' "$OUT_DIR"

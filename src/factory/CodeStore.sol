@@ -10,8 +10,8 @@ pragma solidity 0.8.28;
 ///      layout of Solmate and Solady): the leading STOP makes it uncallable, and it has no SELFDESTRUCT, so the stored
 ///      bytes are immutable like every fund contract (DEC-022, DEC-058).
 library CodeStore {
-    /// @notice Largest chunk: the runtime limit minus the leading STOP byte.
-    uint256 internal constant MAX_CHUNK = 24_575;
+    /// @notice Largest chunk: runtime limit minus the leading STOP and the 1,000-byte reserve (DEC-131).
+    uint256 internal constant MAX_CHUNK = 23_575;
 
     /// @notice Nothing to store.
     error EmptyCode();

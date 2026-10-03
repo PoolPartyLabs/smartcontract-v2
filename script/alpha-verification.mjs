@@ -5,7 +5,8 @@ const names = [
   "AaveV3Adapter", "AcrossBridgeAdapter", "UniswapV3SwapAdapter", "UniswapV4Adapter", "CoreVault",
   "ManagerFeeVault", "ManagerRegistry", "ShareToken", "TransitEscrow", "Create3Deployer", "FundFactory",
   "ChainlinkPriceSource", "ValueReportReceiver", "SpokeVault", "CoreVaultLogic", "CoreVaultTransitLogic",
-  "CoreVaultIncomeLogic", "CoreVaultIncomeCollectionLogic", "CoreVaultPayoutLogic", "SpokeCrossChainLib", "SpokeUnwindLib", "SpokeIncomeLib",
+  "CoreVaultIncomeLogic", "CoreVaultIncomeCollectionLogic", "CoreVaultPayoutLogic", "CoreVaultClosureLogic",
+  "SpokeCrossChainLib", "SpokeUnwindLib", "SpokeCloseLib", "SpokeIncomeLib",
 ];
 const artifacts = names.map((name) => {
   const artifact = JSON.parse(readFileSync(`out/${name}.sol/${name}.json`, "utf8"));

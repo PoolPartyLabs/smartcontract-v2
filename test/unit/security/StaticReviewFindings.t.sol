@@ -136,29 +136,11 @@ contract StaticReviewFindingsTest is CoreVaultFixture {
     ///      cap. No verb ever decreases Operating Cash (spending it is OPEN, doc 30; fund closure does not exist), and
     ///      the contracts are immutable (DEC-058), so whatever enters it is locked for good. Two manager calls move all
     ///      Free Idle there.
-    function test_POC_SA03_managerParametersMoveAllFreeIdleIntoOperatingCashForGood() public {
-        uint256 free = vault.freeIdle();
-        assertEq(free, SEED_IDLE + 9975e6);
-        uint256 assetsBefore = vault.shareAssets();
-
-        vm.startPrank(manager);
-        vault.setOperatingCashParameters(type(uint256).max, free - 1e6);
-        vault.allocateToHubSpokeVault(1e6);
-        vm.stopPrank();
-
-        assertEq(vault.operatingCash(), free - 1e6, "all Free Idle but 1 USDC is now Operating Cash");
-        assertEq(vault.idle(), 0);
-        assertEq(vault.shareAssets(), 1e6, "Share Assets fell from 9,975 to 1 USDC");
-        assertLt(vault.shareAssets(), assetsBefore);
-        assertEq(vault.sweepExcess(address(usdc)), 0, "Operating Cash is ledger value, never swept");
-
-        // The holder's whole balance is now worth 1 USDC, which only the hub Spoke Vault's Unallocated USDC can pay
-        // (D-11): the claim takes it and stays open for the rest.
-        vm.prank(alice);
-        ICoreVault.PayoutReceipt memory r = vault.requestPayout(9975e6, ICoreVaultPayouts.PayoutMode.Instant, 0);
-        assertEq(r.unwindProceeds, 1e6);
-        assertLe(r.usdcGross, 1e6);
-        assertFalse(vault.payoutRequest(alice).open, "the balance cap closes the request");
+    function test_REGRESSION_SA03_managerParametersMoveAllFreeIdleIntoOperatingCashForGood() public {
+        vm.prank(manager);
+        vm.expectRevert(bytes4(keccak256("OperatingCashNotSupported()")));
+        vault.setOperatingCashParameters(type(uint256).max, type(uint256).max);
+        assertEq(vault.operatingCash(), 0);
     }
 
     /// @dev SA-03, fixed by DEC-144 (corrects DEC-102 items 2-4): the Payout Fee of an Instant Payout used to go
@@ -177,15 +159,9 @@ contract StaticReviewFindingsTest is CoreVaultFixture {
     ///      Share Price with the sink, have an ally mint at it and release the cash back, so it was removed; the sink is
     ///      one-way until the founder rules on a cap (SEC-OQ-2). Nothing returns the cash and it is never swept.
     function test_SEC_S63_operatingCashSinkHasNoReleaseVerb() public {
-        uint256 free = vault.freeIdle();
-        vm.startPrank(manager);
-        vault.setOperatingCashParameters(type(uint256).max, free - 1e6);
-        vault.allocateToHubSpokeVault(1e6);
-        vault.setOperatingCashParameters(3e6, 3e6);
-        (bool released,) = address(vault).call(abi.encodeWithSignature("releaseOperatingCash(uint256)", 1));
-        vm.stopPrank();
-        assertFalse(released, "no release verb");
-        assertEq(vault.operatingCash(), free - 1e6);
-        assertEq(vault.sweepExcess(address(usdc)), 0);
+        vm.prank(manager);
+        vm.expectRevert(bytes4(keccak256("OperatingCashNotSupported()")));
+        vault.setOperatingCashParameters(type(uint256).max, type(uint256).max);
+        assertEq(vault.operatingCash(), 0);
     }
 }

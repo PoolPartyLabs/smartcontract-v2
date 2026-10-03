@@ -274,7 +274,7 @@ interface ICoreVault is IAcrossMessageHandler, ICoreVaultLifecycle, ICoreVaultPa
         external
         returns (bytes32 transitId);
 
-    /// @notice Sets the hub Operating Cash floor and top-up. Manager only (DEC-096, DEC-100).
+    /// @notice Reserved post-buildathon setter; always reverts in the MVP (ruling 2026-10-02, DEC-187).
     function setOperatingCashParameters(uint256 floor, uint256 topUp) external;
 
     // ---------------------------------------------------------------------------------------------------------------

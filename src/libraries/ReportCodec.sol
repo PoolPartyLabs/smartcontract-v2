@@ -18,7 +18,7 @@ import {TransferKind} from "../interfaces/FundTypes.sol";
 ///      2) and `collectionResults` (DEC-122, DEC-161), opaque here. Nothing was ever deployed with versions 1 to 3.
 library ReportCodec {
     /// @notice Current payload version.
-    uint256 internal constant VERSION = 4;
+    uint256 internal constant VERSION = 5;
 
     /// @notice Most arrivals a report lists in `arrivedTransits` (OQ-09 stance; Spoke Vault verifier finding).
     /// @dev Shared by the Spoke Vault, which keeps a ring of this size, and the Core Vault, which accepts a report's
@@ -105,6 +105,7 @@ library ReportCodec {
     /// @param collectionResults What the Spoke Vault's income book holds for the Hub
     ///        (`SpokeIncomeTypes.Book.reportBlob`): the results of the collection orders it executed (DEC-122 item 5,
     ///        DEC-161). Opaque here: the income work owns the encoding; empty until it exists.
+    /// @param refundedTransits Last locally recognized send-home refunds, independent of order origin (DEC-066/093).
     struct Report {
         bytes32 fundId;
         bytes32 mandateHash;
@@ -123,6 +124,7 @@ library ReportCodec {
         HubBoundAmount[] inFlightToHub;
         bytes unwindResults;
         bytes collectionResults;
+        bytes32[] refundedTransits;
     }
 
     /// @notice The payload carries a version this code does not know.

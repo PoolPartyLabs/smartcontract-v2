@@ -140,8 +140,8 @@ contract MandateTest is Test {
         m.bridgeAdapters[2] = BridgeAdapterConfig(SPOKE, HUB, hubAcrossFallback);
 
         m.operatingCash = new OperatingCashConfig[](2);
-        m.operatingCash[0] = OperatingCashConfig(HUB, 1e6, 3e6);
-        m.operatingCash[1] = OperatingCashConfig(SPOKE, 5e6, 10e6);
+        m.operatingCash[0] = OperatingCashConfig(HUB, 0, 0);
+        m.operatingCash[1] = OperatingCashConfig(SPOKE, 0, 0);
 
         m.payoutFeeBps = MandateLib.DEFAULT_PAYOUT_FEE_BPS;
         m.minFirstDeposit = 100e6;
@@ -544,8 +544,8 @@ contract MandateTest is Test {
 
     function test_DEC096_operatingCashForReturnsCreationValues() public view {
         (uint256 floorHub, uint256 topUpHub) = h.operatingCashFor(_valid(), HUB);
-        assertEq(floorHub, 1e6);
-        assertEq(topUpHub, 3e6);
+        assertEq(floorHub, 0);
+        assertEq(topUpHub, 0);
         (uint256 floorOther, uint256 topUpOther) = h.operatingCashFor(_valid(), 1);
         assertEq(floorOther + topUpOther, 0);
     }

@@ -57,9 +57,10 @@ import {
   type ActorName,
 } from "./config.ts";
 import { freshFund } from "./deploy.ts";
+import {decodeSpokeReport} from "./spoke-report.ts";
 import { guardianSetIndexOf, signVaa, universal } from "./guardian.ts";
 import { DEFAULT_KEEPER_OPTIONS, runningKeeperPid, startKeeper, type Keeper } from "./keeper.ts";
-import { bold, dim, green, logger, red, units, type Logger } from "./log.ts";
+import { safeConsole as console, bold, dim, green, logger, red, units, type Logger } from "./log.ts";
 import { ORDER_CONSISTENCY, ORDER_KIND, ORDER_KIND_NAME, ORDER_LIFETIME, encodeOrder, orderId, type Order } from "./orders.ts";
 import { ensureFeedFresh } from "./price-feed.ts";
 import { linkedArrival, type DepositEvent, type LinkedArrival } from "./arrivals.ts";
@@ -477,18 +478,26 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     await run.phase("Phase 2: Ana deposits 10,000 USDC after the seed (DEC-035, DEC-106, DEC-127)");
     await tx("arbitrum", "ana", ARBITRUM.usdc, erc20Abi, "approve", [core, ANA_DEPOSIT]);
     const recipientBefore = await balance("arbitrum", ARBITRUM.usdc, recipient);
+    const anaUsdcBefore = await balance("arbitrum", ARBITRUM.usdc, A.ana.address);
     const anaDeposit = await tx<readonly [bigint, bigint]>("arbitrum", "ana", core, coreVaultAbi, "deposit", [ANA_DEPOSIT, 0n]);
     const [anaShares, anaCharged] = anaDeposit.result;
     const fee = bps(ANA_DEPOSIT, FLOW_FEE_BPS);
     run.eq(fee, 25n * USD, "flow fee 25 USDC");
     run.eq((await balance("arbitrum", ARBITRUM.usdc, recipient)) - recipientBefore, fee, "DEC-106: flow fee to the protocol");
-    run.eq(anaShares, 9_975n * WHOLE, "DEC-127: 9,975 whole shares at the seed's 1.00");
-    run.eq(anaCharged, ANA_DEPOSIT, "DEC-035: nothing left over at 1.00");
+    const [anaMinted] = events(anaDeposit.receipt, core, coreVaultAbi, "Deposited");
+    const anaMintPrice: bigint = anaMinted.sharePrice;
+    const expectedAnaShares = sharesFor(ANA_DEPOSIT - fee, anaMintPrice);
+    const anaForShares = usdcFor(expectedAnaShares, anaMintPrice);
+    run.eq(anaShares, expectedAnaShares, "DEC-035: whole shares at the transaction's Share Price");
+    run.eq(anaMinted.shares, anaShares, "mint event matches the deposit result");
+    run.eq(anaMinted.usdcForShares, anaForShares, "DEC-035: Idle receives the whole shares' cost");
+    run.eq(anaCharged, anaForShares + fee, "DEC-035: charge the shares' cost plus the flow fee");
+    run.eq(anaUsdcBefore - await balance("arbitrum", ARBITRUM.usdc, A.ana.address), anaCharged, "DEC-061: the remainder stays in Ana's wallet");
     run.eq(await balance("arbitrum", share, A.ana.address), anaShares, "Ana holds her shares");
-    run.eq(await idle(), seedIdle + ANA_DEPOSIT - fee, "Idle: the seed and Ana's deposit");
+    run.eq(await idle(), seedIdle + anaForShares, "Idle: the seed and Ana's actual deposit");
     await bucketsMatch("Share Assets deduct management fee accrual");
     run.true((await sharePrice()) <= INITIAL_SHARE_PRICE, "DEC-114: management fee reduces the initial Share Price");
-    await run.ok(`Ana deposits 10,000 USDC: 9,975 shares at 1.000000, 25.00 USDC flow fee to the Protocol Recipient (tx ${anaDeposit.hash.slice(0, 10)})`);
+    await run.ok(`Ana offers 10,000 USDC: ${units(anaShares, 18, 0)} whole shares, ${units(anaCharged)} USDC charged, 25.00 USDC flow fee to the Protocol Recipient (tx ${anaDeposit.hash.slice(0, 10)})`);
 
     // ------------------------------------------------------------------------------------------------------------
     // Phase 3: hub allocation, Aave supply, a Uniswap V4 position, income on both (DEC-017, DEC-068, DEC-079, DEC-092)
@@ -806,6 +815,9 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     const [reportSequence, wormholeSequence] = reported.result;
     const [published] = events(reported.receipt, ROBINHOOD.wormholeCore, wormholeCoreAbi, "LogMessagePublished");
     run.true(published !== undefined, "the real Robinhood Core published the report");
+    const decodedReport = decodeSpokeReport(published.payload);
+    run.eq(decodedReport.sequence, reportSequence, "v5 payload decodes the report sequence");
+    run.true(Array.isArray(decodedReport.refundedTransits), "v5 payload includes authenticated refund proofs");
     run.eq(published.sender, spokeVault, "DEC-086: the Spoke Vault is the emitter");
     run.eq(published.sequence, wormholeSequence, "Wormhole sequence");
     run.eq(Number(published.consistencyLevel), 1, "DEC-093: finalized");
@@ -923,6 +935,15 @@ export async function runScenario(options: ScenarioOptions, parentLog?: Logger):
     run.approx(assetsBeforeReturn - (await principalAssets()), returnFee, AAVE_ROUNDING, "DEC-085: principal drops by the bridge fee only");
     await bucketsMatch("DEC-104: Share Assets is the sum of its buckets");
     await run.ok(`the next report listed the transfer as Principal and the hub credited ${units(matchedTotal)} USDC to Idle`);
+    await waitFor("manual sendToHub acknowledgement", async () => {
+      const transit = await view<any>("robinhood", spokeVault, spokeVaultAbi, "hubBoundTransit", [returnId]);
+      return Number(transit.state) === 2;
+    });
+    const remainingTransits = await view<readonly Hex[]>("robinhood", spokeVault, spokeVaultAbi, "inFlightTransitIds");
+    run.true(!remainingTransits.includes(returnId), "acknowledged manual sendToHub frees its shared in-flight slot");
+    const afterAcknowledgement = await view<any>("robinhood", spokeVault, spokeVaultAbi, "buildReport");
+    run.true(!afterAcknowledgement.inFlightToHub.some((entry: any) => entry.transitId === returnId), "acknowledged manual transit leaves the v5 report");
+    await run.ok("the keeper acknowledged the manual sendToHub and freed its shared send slot");
 
     // ------------------------------------------------------------------------------------------------------------
     // Phase 8: hub income collected and split at collection (ruling 2026-09-29, DEC-106, DEC-107, DEC-109)

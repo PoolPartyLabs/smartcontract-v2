@@ -101,18 +101,29 @@ contract CheckAlphaDeployment is CreateFund {
         }
         _code("SpokeCrossChainLib", libraries.spokeCrossChainLib);
         _code("SpokeUnwindLib", libraries.spokeUnwindLib);
+        _code("SpokeCloseLib", libraries.spokeCloseLib);
         _code("SpokeIncomeLib", libraries.spokeIncomeLib);
+        _link(libraries.spokeUnwindLib, libraries.spokeCrossChainLib);
+        _link(libraries.spokeCloseLib, libraries.spokeUnwindLib);
+        _link(libraries.spokeIncomeLib, libraries.spokeCrossChainLib);
         if (block.chainid == ARBITRUM) {
             _code("CoreVaultLogic", libraries.coreVaultLogic);
             _code("CoreVaultTransitLogic", libraries.coreVaultTransitLogic);
             _code("CoreVaultIncomeLogic", libraries.coreVaultIncomeLogic);
             _code("CoreVaultPayoutLogic", libraries.coreVaultPayoutLogic);
+            _code("CoreVaultIncomeCollectionLogic", libraries.coreVaultIncomeCollectionLogic);
+            _code("CoreVaultClosureLogic", libraries.coreVaultClosureLogic);
+            _link(libraries.coreVaultIncomeLogic, libraries.coreVaultIncomeCollectionLogic);
+            _link(libraries.coreVaultClosureLogic, libraries.coreVaultLogic);
+            _link(libraries.coreVaultClosureLogic, libraries.coreVaultIncomeLogic);
+            _link(libraries.coreVaultClosureLogic, libraries.coreVaultIncomeCollectionLogic);
             _link(libraries.coreVaultLogic, libraries.coreVaultIncomeLogic);
             _link(libraries.coreVaultPayoutLogic, libraries.coreVaultLogic);
             _link(libraries.coreVaultPayoutLogic, libraries.coreVaultIncomeLogic);
             _link(libraries.coreVaultTransitLogic, libraries.coreVaultLogic);
             _link(libraries.coreVaultTransitLogic, libraries.coreVaultIncomeLogic);
             _link(libraries.coreVaultTransitLogic, libraries.coreVaultPayoutLogic);
+            _link(libraries.coreVaultTransitLogic, libraries.coreVaultClosureLogic);
         }
     }
 
@@ -160,6 +171,7 @@ contract CheckAlphaDeployment is CreateFund {
         _link(vault, libraries.spokeCrossChainLib);
         _link(vault, libraries.spokeUnwindLib);
         _link(vault, libraries.spokeIncomeLib);
+        _link(vault, libraries.spokeCloseLib);
         address adapter = _adapter(factory, fundId, "UniswapV4Adapter", vault, wiring.guardian);
         _addressGetter(adapter, "poolManager()", wiring.uniswapV4PoolManager);
         _addressGetter(adapter, "positionManager()", wiring.uniswapV4PositionManager);
@@ -219,6 +231,8 @@ contract CheckAlphaDeployment is CreateFund {
         _link(core, libraries.coreVaultTransitLogic);
         _link(core, libraries.coreVaultIncomeLogic);
         _link(core, libraries.coreVaultPayoutLogic);
+        _link(core, libraries.coreVaultIncomeCollectionLogic);
+        _link(core, libraries.coreVaultClosureLogic);
     }
 
     function _checkPrices(address source) internal view {

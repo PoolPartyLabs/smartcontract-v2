@@ -4,7 +4,7 @@ import { chainlinkAggregatorAbi, coreVaultAbi, erc20Abi, shareTokenAbi, valueRep
 import { anvil, explain, latestTimestamp, nodes, read, runMain, type Side } from "./chain.ts";
 import { ARBITRUM, ROBINHOOD, actors, isMain, type ActorName } from "./config.ts";
 import { runningKeeperPid } from "./keeper.ts";
-import { bold, dim, green, red, redactUrls, units, yellow } from "./log.ts";
+import { safeConsole as console, bold, dim, green, red, redactUrls, units, yellow } from "./log.ts";
 import { tryReadState } from "./state.ts";
 
 async function nodeLine(side: Side): Promise<boolean> {

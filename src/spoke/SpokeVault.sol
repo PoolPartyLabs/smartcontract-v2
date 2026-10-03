@@ -8,7 +8,7 @@ import {ICoreBridge} from "wormhole-sdk/interfaces/ICoreBridge.sol";
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {IAdapter} from "../interfaces/IAdapter.sol";
 import {Transit, TransferKind} from "../interfaces/FundTypes.sol";
-import {Mandate} from "../mandate/Mandate.sol";
+import {Mandate, MandateLib} from "../mandate/Mandate.sol";
 import {ReportCodec} from "../libraries/ReportCodec.sol";
 import {OrderCodec} from "../libraries/OrderCodec.sol";
 import {TransitMessage} from "../libraries/TransitMessage.sol";
@@ -190,7 +190,7 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
         uint16 maxLossBps,
         bytes calldata route
     ) external onlyManager nonReentrant returns (uint256 amountOut) {
-        _requireSpokeOpen();
+        _requireExposureOpen(tokenOut);
         _topUpOperatingCash();
         uint256 spotOut;
         uint256 minOut;
@@ -201,12 +201,9 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
     }
 
     /// @inheritdoc ISpokeVault
-    /// @dev DEC-096: the floor and top-up are the first Mandate numbers the manager may change on a live fund;
-    ///      DEC-100: no protocol cap on the floor. On the hub, Operating Cash lives in the Core Vault.
-    function setOperatingCashParameters(uint256 floor, uint256 topUp) external onlyOnSpokeChain onlyManager {
-        _s.operatingCashFloor = floor;
-        _s.operatingCashTopUp = topUp;
-        emit OperatingCashParametersSet(floor, topUp);
+    /// @dev Ruling 2026-10-02, DEC-187: Operating Cash is disabled in the MVP, including zero-value setter calls.
+    function setOperatingCashParameters(uint256, uint256) external view onlyOnSpokeChain onlyManager {
+        revert MandateLib.OperatingCashNotSupported();
     }
 
     // ---------------------------------------------------------------------------------------------------------------

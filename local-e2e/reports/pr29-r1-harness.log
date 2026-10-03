@@ -1,0 +1,387 @@
+$ tsx src/up.ts
+02:46:24 up        forge build
+starting the arbitrum fork: chain 42161, port 19945, upstream <redacted-url>, block 511007613
+starting the robinhood fork: chain 4663, port 19946, upstream <redacted-url>, block 78293056
+the arbitrum fork is ready on http://127.0.0.1:19945 (pid 32227)
+the robinhood fork is ready on http://127.0.0.1:19946 (pid 32235)
+02:46:25 up        forked arbitrumBlock=511007613 robinhoodBlock=78293056
+02:46:25 deploy    forge script script/DeployFactory.s.sol chain=4663 rpc=http://127.0.0.1:19946
+02:46:28 deploy    FundFactory deployed chain=4663 create3Deployer=0x1Da47CED247a6776329281836600283b033f8e41 spokeCrossChainLib=0x3341467fd9F8Ce784D77348bEa276cE80EB57693 spokeUnwindLib=0x6f6DE2Db989E95f34e8938b92Cd60997D5672b6D fundFactory=0x408EBd63EC5DdB000471452253A73DB682590E5c spokeIncomeLib=0x5F0A24Aeb8d00bd3183a220816779087ac879e38 spokeCloseLib=0xf9fAd4551c17eCCf96b29Dc6E6dc1165827D6314
+02:46:28 deploy    forge script script/DeployFactory.s.sol chain=42161 rpc=http://127.0.0.1:19945
+02:46:34 deploy    FundFactory deployed chain=42161 create3Deployer=0x1Da47CED247a6776329281836600283b033f8e41 coreVaultLogic=0x541c10eDB9F167Bc97Aa8fCA880441F6743CF1b0 coreVaultTransitLogic=0xE1B02264Cd97b4CA1913cb4A40110786762cB15a coreVaultIncomeLogic=0x5be01b3Ee685F5571d53774A2A044ae526d4558E coreVaultPayoutLogic=0xF0a168A53aFBeb99C59Ee9Fadc14665283F091C9 spokeCrossChainLib=0x3341467fd9F8Ce784D77348bEa276cE80EB57693 spokeUnwindLib=0x6f6DE2Db989E95f34e8938b92Cd60997D5672b6D managerRegistry=0x19b3317E15d2202639510992C13591bAd1E3365F priceSource=0xaDB9cFAd43287840EA1cf21C633b6f6E45Ffd348 fundFactory=0x408EBd63EC5DdB000471452253A73DB682590E5c spokeIncomeLib=0x5F0A24Aeb8d00bd3183a220816779087ac879e38 coreVaultIncomeCollectionLogic=0x1c0b09E45237DDca9911C7b28e69E04C65DCA3dD coreVaultClosureLogic=0xEdb295557bBcF6917a1cF99880B1a61607eF6bed spokeCloseLib=0xf9fAd4551c17eCCf96b29Dc6E6dc1165827D6314
+02:46:35 guardian  guardian set replaced side=arbitrum core=0xa5f208e072434bC67592E4C49C1B991BA79BCA46 previous=7 (19 guardians) index=8 guardian=0xbeFA429d57cD18b7F8A4d91A2da9AB4AF05d0FBe
+02:46:37 guardian  guardian set replaced side=robinhood core=0x141fBa8AD5D61bdaB45A047cF60b5Ad9784987FB previous=7 (19 guardians) index=8 guardian=0xbeFA429d57cD18b7F8A4d91A2da9AB4AF05d0FBe
+02:46:37 guardian  parseAndVerifyVM accepts VAAs signed by the local guardian side=arbitrum emitterChain=72 guardianSetIndex=8
+02:46:37 guardian  parseAndVerifyVM accepts VAAs signed by the local guardian side=robinhood emitterChain=23 guardianSetIndex=8
+02:46:37 chainlink Chainlink ETH / USD re-stamped answer=273764000000 updatedAt=1790950313
+02:46:39 up        storage layouts found usdcBalances=9 usdgBalances=1 fillStatuses=2162/2262
+02:46:40 up        trader swap routers deployed (test/mocks/v4/V4SwapRouter.sol) arbitrum=0xb3e7c0b2684f093754c7f45ad6ff764de989b4e7 robinhood=0x81ae7583f06c2bc141b9141fb9d701f0f2f59133
+02:46:40 up        swap adapters for the API's signed routes deployed (src/adapters/UniswapV3SwapAdapter.sol) arbitrum=0x9040509c5ccee8bf863b0b001b4f563413fb1821 robinhood=0xaa2a95a342b774512c64799597bd75389e7d3c7a routeSigner=0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f vault=0x70997970C51812dc3A010C7d01b50e0d17dc79C8
+02:46:40 funding   cleared the EIP-7702 delegations anvil's public keys carry on mainnet chain=42161 actors=operator,manager,ana,bruno,keeper,stranger,protocolRecipient,trader,apiSigner delegation=0xef01008a67b5020ee254ef48e3b6a04927f39baf7e408a
+02:46:40 funding   cleared the EIP-7702 delegations anvil's public keys carry on mainnet chain=4663 actors=operator,manager,ana,bruno,keeper,stranger,protocolRecipient,trader,apiSigner delegation=0xef01008a67b5020ee254ef48e3b6a04927f39baf7e408a
+02:46:40 funding   USDC 100,000 to ana
+02:46:40 funding   USDC 100,000 to bruno
+02:46:40 funding   USDC 10,000 to manager
+02:46:41 funding   USDC 10,000 to stranger
+02:46:41 funding   USDC 1,000,000 to keeper
+02:46:41 funding   USDC 50,000,000 to trader
+02:46:41 funding   USDG 10,000 to manager
+02:46:41 funding   USDG 10,000 to stranger
+02:46:41 funding   USDG 1,000,000 to keeper
+02:46:41 funding   USDG 50,000,000 to trader
+02:46:41 funding   WETH 10,000 to trader (hub)
+02:46:42 funding   WETH 10,000 to trader (spoke)
+02:46:43 funding   actors funded eth=10,000 actors=9
+02:46:43 deploy    forge script script/CreateFund.s.sol chain=42161 rpc=http://127.0.0.1:19945
+02:46:48 deploy    createFund creationNumber=1 fundId=0x6bd990bc05fc4bf19028b0f0c47cd6fac1f9d221fb076c2699dae83d90d185bf mandateHash=0x21ab32e9db678e4f848e5618b465023e3a8d0690397ad8d7cccd8124d40ffdd6 coreVault=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E
+02:46:48 deploy    forge script script/CreateFund.s.sol chain=4663 rpc=http://127.0.0.1:19946
+02:46:50 deploy    createSpoke spokeVault=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf
+02:46:50 up        deployed in 26s state=local-e2e/.state/deployment.json
+02:46:50 up        warm-up: running the scenario inside a snapshot of both nodes
+02:48:06 wormhole  warn report made stale by a harness warp; waiting for the fresh report emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=13
+02:48:24 up        warm-up scenario passed steps=55 assertions=321 fillsThroughSpokePool=2 simulatedFills=0
+02:48:57 up        fork cache re-filled chain=42161 contracts=63 reads=986
+02:49:33 up        fork cache re-filled chain=4663 contracts=41 reads=426
+02:49:33 up        warm-up done in 164s; both nodes back at the fresh deployment
+
+up: Arbitrum One fork http://127.0.0.1:19945 (chain 42161), Robinhood Chain fork http://127.0.0.1:19946 (chain 4663)
+  FundFactory          0x408EBd63EC5DdB000471452253A73DB682590E5c (both chains)
+  fund PP-1            Core Vault 0x3D010D998E19d52CE7be47021a3000e3eAa12F8E, Spoke Vault (Robinhood) 0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf
+  swap adapters        0x85021221cd17D5E003380290B1A22290EDD6e518 (hub), 0x5be6f4881bEb2bd5E3d7a6ef4c6011a32b8DB7fe (Robinhood)
+  state                local-e2e/.state/deployment.json
+  next                 pnpm keeper --auto-report 600   (another terminal), then pnpm scenario
+$ tsx src/scenario.ts --keeper inprocess
+
+== Phase 0: fund and keeper
+#01 ok  the deployed fund PP-1 is unused (Core Vault 0x3D010D998E19d52CE7be47021a3000e3eAa12F8E)
+02:50:32 keeper    watching fillMode=auto fillDelay=1s vaaDelay=3s orderDelay=1s autoReport=off relayer=0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65
+02:50:32 keeper    fund discovered on the hub fundId=0x6bd990bc05fc4bf19028b0f0c47cd6fac1f9d221fb076c2699dae83d90d185bf coreVault=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E
+02:50:32 keeper    spoke discovered on Robinhood fundId=0x6bd990bc05fc4bf19028b0f0c47cd6fac1f9d221fb076c2699dae83d90d185bf spokeVault=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf spokeIndex=0
+#02 ok  keeper started in-process (Across fills, Wormhole VAAs, Chainlink re-stamps)
+
+== Phase 1: the fund as created, with the manager's seed (DEC-053, DEC-054, DEC-127)
+#03 ok  one factory 0x408EBd63EC5DdB000471452253A73DB682590E5c on both chains; the Robinhood Spoke Vault carries the hub's Mandate 0x21ab32e9...
+#04 ok  Mandate: hub V4 WETH/USDC + Aave USDC, spoke V4 WETH/USDG, Across both ways (the adapter's fee rule, DEC-162), Spoke Cap 4,000 USDC, Payout Fee 2%, 72 h term, performance fee 20%, maxReportAge 1588 s; Mandate v2: tokens USDC/WETH and USDG/WETH, a V3 swap adapter per chain, Hub Wormhole chain 23; spoke Operating Cash floor 0.000000 and top-up 0.000000 USDG (ruling 2026-10-02: 0)
+#05 ok  the manager seeded 100.000000 USDC at creation: 99 shares at 1.000000, 0.250000 flow fee, 99.000000 in Idle (DEC-127)
+
+== Phase 2: Ana deposits 10,000 USDC after the seed (DEC-035, DEC-106, DEC-127)
+#06 ok  Ana offers 10,000 USDC: 9,975 whole shares, 9,999.999596 USDC charged, 25.00 USDC flow fee to the Protocol Recipient (tx 0xdf5ecf6b)
+
+== Phase 3: hub allocation, Aave supply, Uniswap V4 position, income (DEC-017, DEC-068, DEC-079, DEC-092)
+#07 ok  manager allocates 5,000 USDC of Free Idle to the hub Spoke Vault
+#08 ok  manager supplies 2,000 USDC to Aave V3 through the Aave adapter
+#09 ok  manager swaps 1,500 USDC for 0.5482 WETH through the fund's swap adapter, no API route: V3 tier 0.05%, minimum 0.5430 (mid less 100 bps); a 1 bp bound reverts InsufficientOutput
+#10 ok  manager opens a V4 range [-197370, -196970] with 0.5482 WETH + 1,403.306723 USDC
+02:50:33 warp      both clocks warped seconds=3600 hubFrom=1790950455 spokeFrom=1790950374 to=1790954055 iso=2026-10-02T15:14:15.000Z
+02:50:33 warp      Chainlink ETH / USD re-stamped answer=273764000000 updatedAt=1790954055
+02:50:33 warp      fresh report published spokeVault=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf reportSequence=1 wormholeSequence=0
+02:50:33 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=0 consistency=1 deliverIn=3s
+02:50:36 wormhole  VAA delivered to ValueReportReceiver emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=0 reportSequence=1 receiver=0xF90640a43acf3F7443fCf01891f1C9772A560b54 tx=0xe53deed2f6b1d733ad797da5f42df153da3aa0a6fbfab7f3a12523c31994eef2
+02:50:36 warp      the keeper delivered every fresh report reports=1
+#11 ok  both clocks warped 1 h (fresh spoke report delivered): Aave interest 0.008463 USDC is income, principal stays 2,000
+#12 ok  trader swings the hub pool to ticks -197211 / -197130 / -197171: the position earned 0.000097 WETH + 0.292084 USDC in fees, outside Share Assets
+
+== Phase 4: 4,000 USDC to Robinhood, the adapter fixing every term (DEC-037, DEC-066, DEC-085, DEC-158, DEC-162)
+#13 ok  the hub Across adapter quotes 3,996.770000 USDG to arrive for 4,000 USDC: rate 0.08%, fee 3.230000
+#14 ok  a send of 4,001 USDC, above the 4,000 USDC Spoke Cap, reverts SpokeCapExceeded
+#15 ok  a manager who passes his own quote in bridgeData is refused by the adapter (QuotesNotSupported, DEC-158)
+#16 ok  manager sends 4,000 USDC with no bridge parameter: Across deposit 4709278, 3,996.770000 USDG to arrive (fee 3.230000), escrow 0x4a6D9D87e2cc0bAB4136632D067d1b148F19d8bb as depositor, transit 0x0d7f5c34... Sent
+
+== Phase 5: Across fill on Robinhood, spoke position, fees (DEC-079, DEC-090, DEC-096, OQ-09)
+02:50:37 across    deposit seen origin=42161 destination=4663 depositId=4709278 recipient=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf output=3,996.770000 fillIn=1s
+02:50:38 across    filled through SpokePool.fillRelay origin=42161 depositId=4709278 relayHash=0x5b58c0e1413d81a1 chain=4663 tx=0x725f49621904e7b1677ba1ee8bf9fe46a0989930d63850c885907cc46d49debf
+#17 ok  the keeper filled deposit 4709278 through the Robinhood SpokePool's fillRelay; its FilledRelay links the Spoke Vault's TransitArrived in the same transaction (tx 0x725f4962) to transit 0x0d7f5c34...
+#18 ok  the Spoke Vault credited 3,996.770000 USDG to Unallocated Balance; Operating Cash 0.000000 is not below its floor 0.000000, so no top-up (ruling 2026-10-02: floor 0)
+#19 ok  manager swaps 1,500 USDG for 0.5479 WETH on a route the API signed (1 hop(s), fees 100; quoted 0.5479, signed minimum 0.5424)
+#20 ok  manager opens a V4 range around tick -197170 on Robinhood with 0.5479 WETH + 1,378.612697 USDG
+#21 ok  trader swings the spoke pool to ticks -197210 / -197130 / -197170: 0.000094 WETH + 0.289513 USDG fees
+
+== Phase 6: report on Robinhood, VAA delivered on Arbitrum (DEC-066, DEC-083, DEC-086, DEC-090, DEC-093)
+#22 ok  anyone calls report(): report 2, Wormhole sequence 1, finalized, on the Robinhood Core
+02:50:39 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=1 consistency=1 deliverIn=3s
+02:50:43 wormhole  VAA delivered to ValueReportReceiver emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=1 reportSequence=2 receiver=0xF90640a43acf3F7443fCf01891f1C9772A560b54 tx=0xd23f82169745494010a87677e23d562c0ae68de6c068341028aa9ea097f6ebfa
+#23 ok  the keeper signed the VAA with the local guardian and delivered it: the hub accepted report 2
+#24 ok  transit ArrivalConfirmed, In-flight Value 0, spoke principal 3,996.837367 USDC (WETH at Chainlink 2,737.64, USDG 1:1); Share Assets 10,071.764603, Share Price 0.999778
+
+== Phase 7: 500 USDG of Principal comes home through Across (DEC-085, DEC-104, DEC-162, OQ-01, CV-OQ-1)
+#25 ok  manager sends 500 USDG home with no bridge parameter: Across deposit 408167 from Robinhood, 499.570000 USDC to arrive (fee 0.430000, fixed by the spoke adapter)
+02:50:43 across    deposit seen origin=4663 destination=42161 depositId=408167 recipient=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E output=499.570000 fillIn=1s
+02:50:44 across    filled through SpokePool.fillRelay origin=4663 depositId=408167 relayHash=0xc7892745cbc0afb1 chain=42161 tx=0x9df43472e46dea2eb47968f82b4363542a592119c7a35e271b7cb57999a42443
+#26 ok  the keeper filled it through the Arbitrum SpokePool's fillRelay; its FilledRelay links the Core Vault's TransitReceived (499.570000 USDC, held until a report lists it) to transit 0x58dc2f19...
+02:50:45 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=2 consistency=1 deliverIn=3s
+02:50:48 wormhole  VAA delivered to ValueReportReceiver emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=2 reportSequence=3 receiver=0xF90640a43acf3F7443fCf01891f1C9772A560b54 tx=0x54ae3270aeb61517edb38048f4698baa2c7f36fb9c4a023cca8ef6bfe8ab11d3
+#27 ok  the next report listed the transfer as Principal and the hub credited 499.570000 USDC to Idle
+02:50:51 wormhole  Hub order executed on the Spoke Vault emitter=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E sequence=0 kind=ACKNOWLEDGE orderId=0x6d09ed1a91136faf spokeVault=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf reportSequence=4 tx=0xf3f0dad784930322a97005fd60d55838a41b7a1a05993379e6a2c7f9debe89b9
+#28 ok  the keeper acknowledged the manual sendToHub and freed its shared send slot
+
+== Phase 8: hub income collected and split (ruling 2026-09-29, DEC-092, DEC-106, DEC-107, DEC-109)
+#29 ok  manager collects 0.300582 USDC + 0.000097 WETH of hub income; Share Assets unchanged
+02:50:51 wormhole  Hub order published emitter=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E sequence=1 consistency=200 executeIn=1s
+02:50:51 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=3 consistency=1 deliverIn=3s
+02:50:52 wormhole  Hub order executed on the Spoke Vault emitter=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E sequence=1 kind=COLLECT orderId=0xe177075619d03703 spokeVault=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf reportSequence=5 tx=0x3fa43406acfbb7c91c9c3e75da8ca6b2456de929ce84d098c51f75f0066640be
+02:50:53 across    deposit seen origin=4663 destination=42161 depositId=408168 recipient=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E output=0.518030 fillIn=1s
+02:50:53 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=4 consistency=1 deliverIn=3s
+02:50:54 across    filled through SpokePool.fillRelay origin=4663 depositId=408168 relayHash=0xa622f7e45f064f0e chain=42161 tx=0xcebb5ed3b3ea190b6f48b121780fe602f2bd964d963e6e8bea95139a529340ef
+02:50:54 wormhole  VAA delivered to ValueReportReceiver emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=3 reportSequence=4 receiver=0xF90640a43acf3F7443fCf01891f1C9772A560b54 tx=0xd9bcd25a29f8e477bbfd5b91b65df54a57b65da39dfe3bc66b87d3d2533e9da8
+02:50:56 wormhole  VAA delivered to ValueReportReceiver emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=4 reportSequence=5 receiver=0xF90640a43acf3F7443fCf01891f1C9772A560b54 tx=0x8bbf898cc4a286d62e7688918b784d8d2cab6654056283891098b54b2e0a7199
+#30 ok  income collected on every chain, sold to dollars, and attributed at each collection's rate
+
+== Phase 9: Bruno deposits 11,000 USDC at the new Share Price (DEC-014, DEC-035, DEC-061)
+#31 ok  Bruno deposits 11,000 USDC: 10,975 shares at 0.999735, charged 10,999.596170 USDC
+
+== Phase 10: Ana withdraws her income (DEC-025, DEC-073, LC-143)
+#32 ok  Income Withdrawal pays only USDC and leaves the shares unchanged
+
+== Phase 11: Ana's Standard Payout of 3,000 USDC (DEC-060, DEC-067, DEC-072, DEC-077, DEC-105)
+#33 ok  Ana requests a Standard Payout of 3,000 USDC: reserved, term 72 h; claiming now reverts PayoutTermNotEnded
+02:50:56 warp      both clocks warped seconds=259200 hubFrom=1790954078 spokeFrom=1790954074 to=1791213278 iso=2026-10-05T15:14:38.000Z
+02:50:56 warp      Chainlink ETH / USD re-stamped answer=273764000000 updatedAt=1791213278
+02:50:56 warp      fresh report published spokeVault=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf reportSequence=6 wormholeSequence=5
+02:50:57 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=5 consistency=1 deliverIn=3s
+02:50:58 wormhole  Hub order executed on the Spoke Vault emitter=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E sequence=3 kind=ACKNOWLEDGE orderId=0x05096b540a71004f spokeVault=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf reportSequence=7 tx=0x851c0c580ef5d3f593f6928314b65d6ecd6a191def4644c56828b622e46b59e6
+02:50:59 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=6 consistency=1 deliverIn=3s
+02:51:00 warp      the keeper delivered every fresh report reports=1
+02:51:00 wormhole  VAA delivered to ValueReportReceiver emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=5 reportSequence=6 receiver=0xF90640a43acf3F7443fCf01891f1C9772A560b54 tx=0x7582960e982b1b436df066d333d66b479f91081dddfa3619941c980ee4c10354
+#34 ok  both clocks warped 72 h; Chainlink re-stamped; a fresh spoke report delivered by the keeper
+#35 ok  Ana claims: 3,001 shares burned at 0.999653, 2,992.459483 USDC paid, 7.499898 flow fee
+
+== Phase 12: Bruno's Instant Payout above Free Idle, with an unwind (DEC-069, DEC-081, DEC-102, DEC-105, DEC-144)
+#36 ok  Bruno's Instant Payout unwinds the Hub and awaits the spoke; no shares burned before its report
+02:51:01 wormhole  Hub order published emitter=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E sequence=4 consistency=200 executeIn=1s
+02:51:02 wormhole  VAA delivered to ValueReportReceiver emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=6 reportSequence=7 receiver=0xF90640a43acf3F7443fCf01891f1C9772A560b54 tx=0x960435df1949ca3fa740f537cb7c53221076274e3e70a6799104d2713e97992e
+02:51:02 wormhole  Hub order executed on the Spoke Vault emitter=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E sequence=4 kind=UNWIND orderId=0xe5f47b3ad3ad29f4 spokeVault=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf reportSequence=8 tx=0x372122f2d558bfe1e18720a423679e8f117719ec9c0f7d426f577a0901db313a
+02:51:02 across    deposit seen origin=4663 destination=42161 depositId=408169 recipient=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E output=383.057444 fillIn=1s
+02:51:02 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=7 consistency=1 deliverIn=3s
+02:51:03 across    filled through SpokePool.fillRelay origin=4663 depositId=408169 relayHash=0xaaa5e14766ce069d chain=42161 tx=0xb13368084da5c25f6ce9891de65070b0e332c77a9d7c28a0deccc34020164f3f
+02:51:05 wormhole  VAA delivered to ValueReportReceiver emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=7 reportSequence=8 receiver=0xF90640a43acf3F7443fCf01891f1C9772A560b54 tx=0x746985d2ce2f770cfc40d61d6850703c539481097f7eaf6002cefc5d6de47567
+#37 ok  Bruno exits inline: proportional Hub unwind, proceeds 1,017.255867; 10,549 shares burned at 0.999641, 10,307.532192 USDC paid, Payout Fee 210.904388 kept in Idle
+
+== Phase 12b: spoke UNWIND and post-report settlement (DEC-105, DEC-111, DEC-139, DEC-151, DEC-160)
+02:51:05 warp      both clocks warped seconds=259201 hubFrom=1791213287 spokeFrom=1791213284 to=1791472488 iso=2026-10-08T15:14:48.000Z
+02:51:05 warp      Chainlink ETH / USD re-stamped answer=273764000000 updatedAt=1791472488
+02:51:05 warp      fresh report published spokeVault=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf reportSequence=9 wormholeSequence=8
+02:51:06 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=8 consistency=1 deliverIn=3s
+02:51:06 wormhole  Hub order executed on the Spoke Vault emitter=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E sequence=5 kind=ACKNOWLEDGE orderId=0x6f700f67df752bb3 spokeVault=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf reportSequence=10 tx=0xa43a8c41f94eba515926d5ba0f5992426bbf93dec10378784ac0c27d15303751
+02:51:06 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=9 consistency=1 deliverIn=3s
+02:51:09 wormhole  VAA delivered to ValueReportReceiver emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=8 reportSequence=9 receiver=0xF90640a43acf3F7443fCf01891f1C9772A560b54 tx=0x910785dd559c970317e64c80ac145fc90a126fd35f5b5b14d68d04199118ee61
+02:51:09 warp      the keeper delivered every fresh report reports=1
+#38 ok  Ana requests 4,695.554528 USDC: Hub UNWIND 0x6cf57b8cccec40cb74bfb66c631aec5145709b83a16e2a864ea91be8a8558615, awaiting the spoke
+02:51:09 wormhole  VAA delivered to ValueReportReceiver emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=9 reportSequence=10 receiver=0xF90640a43acf3F7443fCf01891f1C9772A560b54 tx=0x086bbceec0cb7b8e130c96a48172ed9720956f31a9287f460710cb4f08fd90b1
+02:51:09 wormhole  Hub order published emitter=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E sequence=6 consistency=200 executeIn=1s
+02:51:10 wormhole  Hub order executed on the Spoke Vault emitter=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E sequence=6 kind=UNWIND orderId=0x6cf57b8cccec40cb spokeVault=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf reportSequence=11 tx=0x0988f6d8101756506d6d716e2ea8f76f68d17acde83b8e31ced7c92fed2ffae9
+02:51:11 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=10 consistency=1 deliverIn=3s
+02:51:14 wormhole  VAA delivered to ValueReportReceiver emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=10 reportSequence=11 receiver=0xF90640a43acf3F7443fCf01891f1C9772A560b54 tx=0x69ca8910dd363bafa921df789e2034a0ba22e2dfe8ef2594fa67d9d3f6cf79b0
+#39 ok  Standard Payout at maxLossBps=1 excludes 2 positions; stranger settles 1,310.093483 USDC, 3,382.177603 outstanding
+02:51:14 wormhole  Hub order published emitter=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E sequence=7 consistency=200 executeIn=1s
+02:51:16 wormhole  Hub order executed on the Spoke Vault emitter=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E sequence=7 kind=UNWIND orderId=0x64c0bcd7bd82d658 spokeVault=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf reportSequence=12 tx=0x06c9673670e4afbb6e1c94127cbe15a1c40b7c60510222c5e6e588268d3b809b
+02:51:16 across    deposit seen origin=4663 destination=42161 depositId=408170 recipient=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E output=1,895.120679 fillIn=1s
+02:51:16 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=11 consistency=1 deliverIn=3s
+02:51:17 across    filled through SpokePool.fillRelay origin=4663 depositId=408170 relayHash=0x1e723e615b47c37d chain=42161 tx=0xa12be4de91cab318a7a5f12b95cf3df035dea87ceae0b370762b1c4635035b1d
+02:51:19 wormhole  VAA delivered to ValueReportReceiver emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=11 reportSequence=12 receiver=0xF90640a43acf3F7443fCf01891f1C9772A560b54 tx=0xf5889c139d6126a0654782dc3001be15968f39dc0d5ae108010a160ff23ac95c
+#40 ok  maxLossBps=0 retry sells only undelivered positions; pays 3,373.071543 USDC, fund absorbs 0.000000 USDC Market Costs
+
+== Phase 13: value-base invariants and a swept donation (DEC-072, DEC-080, DEC-091, DEC-101, DEC-104)
+#41 ok  Payout Reserve <= Idle, totalSupply in whole shares, Share Assets = sum of buckets, nothing to sweep
+#42 ok  a stranger donates 1,234 USDC to the Core Vault: Share Price stays 1.027194, the donation is swept to the Protocol Recipient
+
+== Phase 14: the Hub-to-spoke order channel and executeOrder (DEC-093, DEC-111, DEC-120, DEC-139)
+02:51:19 warp      both clocks warped seconds=0 hubFrom=1791472502 spokeFrom=1791472499 to=1791472503 iso=2026-10-08T15:15:03.000Z
+02:51:19 warp      Chainlink ETH / USD re-stamped answer=273764000000 updatedAt=1791472503
+02:51:19 warp      fresh report published spokeVault=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf reportSequence=13 wormholeSequence=12
+02:51:20 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=12 consistency=1 deliverIn=3s
+02:51:20 wormhole  Hub order executed on the Spoke Vault emitter=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E sequence=8 kind=ACKNOWLEDGE orderId=0xc66929601b959536 spokeVault=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf reportSequence=14 tx=0xa87d4f2b94868dd878efed8590b6cefed24b40512b4f935e68a494aae099d4fc
+02:51:20 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=13 consistency=1 deliverIn=3s
+02:51:23 wormhole  VAA delivered to ValueReportReceiver emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=12 reportSequence=13 receiver=0xF90640a43acf3F7443fCf01891f1C9772A560b54 tx=0xd44bf6579bcf884e6dbeb51a9446836dc047ebbca320fdeeb8c745314bf8768f
+02:51:23 warp      the keeper delivered every fresh report reports=1
+#43 ok  executeOrder probed with one order of each kind for the Core Vault's next sequence 9: none refused; UNWIND, CLOSE, COLLECT executed (left to the phases that publish them)
+    every order kind executes on the Spoke Vault: the Core Vault's own orders exercise the channel in the payout, income and closure phases
+
+== Phase 15: the manager's base and the fund's closure (DEC-117, DEC-146, DEC-147, DEC-149)
+#44 ok  a manager request of 51.873338 USDC would leave him under half of his 99-share peak: ManagerMustCloseFund; 50.332546 USDC is allowed
+#45 ok  the manager calls closeFund: the fund is Closing since 2026-10-08T15:15:07.000Z
+#46 ok  while Closing: deposits, new requests, claims and a second closeFund revert FundNotOpen; the manager still withdraws 0.008534 USDC of his seed's income
+
+== Phase 16: full closure and frozen exits (DEC-114, DEC-135, DEC-149, DEC-150, DEC-163, DEC-167)
+#47 ok  manager closes the remaining Hub Aave position during the 72-hour closure window; premature stranger unwind is refused
+02:51:23 warp      both clocks warped seconds=259201 hubFrom=1791472507 spokeFrom=1791472504 to=1791731708 iso=2026-10-11T15:15:08.000Z
+02:51:23 warp      Chainlink ETH / USD re-stamped answer=273764000000 updatedAt=1791731708
+02:51:23 warp      fresh report published spokeVault=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf reportSequence=15 wormholeSequence=14
+02:51:23 wormhole  warn report made stale by a harness warp; waiting for the fresh report emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=13
+02:51:23 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=14 consistency=1 deliverIn=3s
+02:51:26 wormhole  VAA delivered to ValueReportReceiver emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=14 reportSequence=15 receiver=0xF90640a43acf3F7443fCf01891f1C9772A560b54 tx=0xa198b774404855a446f26384687f6f7e7a014ebff6dbb395d50c4a82ff357814
+02:51:27 warp      the keeper delivered every fresh report reports=1
+#48 ok  stranger unwinds the Hub after the deadline and publishes CLOSE 0x703b0a21e74e253db15abebf6b6bad9dfe3c20907272d0ca8e6605388d0d3150
+02:51:27 wormhole  Hub order published emitter=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E sequence=9 consistency=200 executeIn=1s
+02:51:28 wormhole  Hub order executed on the Spoke Vault emitter=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E sequence=9 kind=CLOSE orderId=0x703b0a21e74e253d spokeVault=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf reportSequence=16 tx=0xfd9a91aabbf56b5b8dbafd0be9d343402a7a6710a2afab770173409f197c6ab2
+02:51:28 across    deposit seen origin=4663 destination=42161 depositId=408171 recipient=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E output=1,215.404457 fillIn=1s
+02:51:28 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=15 consistency=1 deliverIn=3s
+02:51:29 across    filled through SpokePool.fillRelay origin=4663 depositId=408171 relayHash=0xceaa84076d5df68b chain=42161 tx=0x7742f708468bfced8452c32a7b9c7996ef3b5235e857b78c1b676ee6ebf48a0f
+02:51:31 wormhole  VAA delivered to ValueReportReceiver emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=15 reportSequence=16 receiver=0xF90640a43acf3F7443fCf01891f1C9772A560b54 tx=0xf66f9f718270e9d3fd0da66f42f91c2e13e05268a8f89222f9b35e4cbb47fbc1
+#49 ok  CLOSE executes on Robinhood; its Principal fill and empty post-close report arrive before any further warp
+02:51:32 wormhole  Hub order executed on the Spoke Vault emitter=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E sequence=10 kind=ACKNOWLEDGE orderId=0x2b74ac31ecb8e790 spokeVault=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf reportSequence=17 tx=0xc09f720b37b786719395ebef8e22f797d19da29d753f5ccb2f7fce0fa76b13c4
+02:51:33 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=16 consistency=1 deliverIn=3s
+02:51:36 wormhole  VAA delivered to ValueReportReceiver emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=16 reportSequence=17 receiver=0xF90640a43acf3F7443fCf01891f1C9772A560b54 tx=0x3c02f6e30bbdbd67536fdacb60030cf90055f1c72f9fbacc47410efe5a042b69
+#50 ok  Hub ACKNOWLEDGE orders retire resolved Principal sends; final report has no In-flight Value
+02:51:36 wormhole  Hub order published emitter=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E sequence=11 consistency=200 executeIn=1s
+02:51:37 wormhole  Hub order executed on the Spoke Vault emitter=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E sequence=11 kind=CLOSE orderId=0xb3fcb9452c334060 spokeVault=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf reportSequence=18 tx=0xf20618adca1adfab2b55f0d4e64ad660f10dbc8e132a7bf8206419f2b7a374f0
+02:51:38 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=17 consistency=1 deliverIn=3s
+02:51:41 wormhole  VAA delivered to ValueReportReceiver emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=17 reportSequence=18 receiver=0xF90640a43acf3F7443fCf01891f1C9772A560b54 tx=0xb334950fc0de47f4bb2e096131cbd90f49f64d0885ba42ea141cc104e212602e
+#51 ok  finalizeClosure freezes 2,904.434669 USDC / 2,830 shares; management fee 2.374733 USDC
+02:51:41 warp      both clocks warped seconds=1589 hubFrom=1791731726 spokeFrom=1791731722 to=1791733315 iso=2026-10-11T15:41:55.000Z
+02:51:41 warp      Chainlink ETH / USD re-stamped answer=273764000000 updatedAt=1791733315
+#52 ok  manager exits at finalization; Ana and Bruno's frozen exits need no fresh report after a 1,589-second warp
+#53 ok  ana exits Closed at the frozen split: 2,461.061940 USDC, no report or Payout Fee
+#54 ok  bruno exits Closed at the frozen split: 436.111642 USDC, no report or Payout Fee
+#55 ok  zero-supply garbage collection sweeps remaining USDC to the Protocol Recipient
+#56 ok  fund-wide conservation residual 0 USDC base units; bridge costs 6.577617 USDC
+
+PASS 56 steps, 326 assertions; Across fills: 2 through SpokePool.fillRelay, each linked to its deposit by FilledRelay; keeper inprocess; fund PP-1 0x3D010D998E19d52CE7be47021a3000e3eAa12F8E
+run report: local-e2e/reports/2026-10-03T02-50-31Z-scenario.md (and .json)
+02:51:42 keeper    stopped fills=6 simulatedFills=0 deliveries=17 orders=11 ordersUnsupported=0 reports=0 errors=0
+$ tsx src/api-probe.ts
+02:51:42 deploy    forge script script/CreateFund.s.sol chain=42161 rpc=http://127.0.0.1:19945
+02:51:46 deploy    createFund creationNumber=2 fundId=0xeca320944f53b75dd77c48a33913ed646dc87d829e4625536f4b29214e4d28ab mandateHash=0xd3064f095125e1489cce8c6aedb34a370f364d71b91f5a2a8442ee21297daa45 coreVault=0x18fa5d0be5EdedB600b7E528b887F496839F42fF
+02:51:46 deploy    forge script script/CreateFund.s.sol chain=4663 rpc=http://127.0.0.1:19946
+02:51:47 deploy    createSpoke spokeVault=0x772d26fc86CD5a19Ce11bCb90a61489EeCfCE6aF
+the deployed fund was used: fresh fund PP-2 (Core Vault 0x18fa5d0be5EdedB600b7E528b887F496839F42fF)
+02:51:47 keeper    watching fillMode=auto fillDelay=1s vaaDelay=3s orderDelay=1s autoReport=off relayer=0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65
+02:51:47 keeper    fund discovered on the hub fundId=0x6bd990bc05fc4bf19028b0f0c47cd6fac1f9d221fb076c2699dae83d90d185bf coreVault=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E
+02:51:47 keeper    fund discovered on the hub fundId=0xeca320944f53b75dd77c48a33913ed646dc87d829e4625536f4b29214e4d28ab coreVault=0x18fa5d0be5EdedB600b7E528b887F496839F42fF
+02:51:47 keeper    spoke discovered on Robinhood fundId=0x6bd990bc05fc4bf19028b0f0c47cd6fac1f9d221fb076c2699dae83d90d185bf spokeVault=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf spokeIndex=0
+02:51:47 keeper    spoke discovered on Robinhood fundId=0xeca320944f53b75dd77c48a33913ed646dc87d829e4625536f4b29214e4d28ab spokeVault=0x772d26fc86CD5a19Ce11bCb90a61489EeCfCE6aF spokeIndex=0
+02:51:47 across    deposit seen origin=42161 destination=4663 depositId=4709278 recipient=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf output=3,996.770000 fillIn=1s
+02:51:47 wormhole  Hub order published emitter=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E sequence=1 consistency=200 executeIn=1s
+02:51:47 wormhole  Hub order published emitter=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E sequence=4 consistency=200 executeIn=1s
+ok   health: nodes up, report v5 none yet, mints open
+02:51:47 wormhole  Hub order published emitter=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E sequence=6 consistency=200 executeIn=1s
+02:51:47 wormhole  Hub order published emitter=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E sequence=7 consistency=200 executeIn=1s
+02:51:47 wormhole  Hub order published emitter=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E sequence=9 consistency=200 executeIn=1s
+02:51:47 wormhole  Hub order published emitter=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E sequence=11 consistency=200 executeIn=1s
+02:51:47 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=0 consistency=1 deliverIn=3s
+02:51:47 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=1 consistency=1 deliverIn=3s
+02:51:47 across    deposit seen origin=4663 destination=42161 depositId=408167 recipient=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E output=499.570000 fillIn=1s
+02:51:47 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=2 consistency=1 deliverIn=3s
+02:51:47 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=3 consistency=1 deliverIn=3s
+02:51:47 across    deposit seen origin=4663 destination=42161 depositId=408168 recipient=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E output=0.518030 fillIn=1s
+02:51:47 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=4 consistency=1 deliverIn=3s
+02:51:47 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=5 consistency=1 deliverIn=3s
+02:51:47 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=6 consistency=1 deliverIn=3s
+02:51:47 across    deposit seen origin=4663 destination=42161 depositId=408169 recipient=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E output=383.057444 fillIn=1s
+02:51:47 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=7 consistency=1 deliverIn=3s
+02:51:47 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=8 consistency=1 deliverIn=3s
+02:51:47 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=9 consistency=1 deliverIn=3s
+02:51:47 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=10 consistency=1 deliverIn=3s
+02:51:47 across    deposit seen origin=4663 destination=42161 depositId=408170 recipient=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E output=1,895.120679 fillIn=1s
+02:51:47 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=11 consistency=1 deliverIn=3s
+02:51:47 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=12 consistency=1 deliverIn=3s
+02:51:47 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=13 consistency=1 deliverIn=3s
+02:51:47 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=14 consistency=1 deliverIn=3s
+02:51:47 across    deposit seen origin=4663 destination=42161 depositId=408171 recipient=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E output=1,215.404457 fillIn=1s
+02:51:47 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=15 consistency=1 deliverIn=3s
+02:51:47 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=16 consistency=1 deliverIn=3s
+02:51:47 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=17 consistency=1 deliverIn=3s
+ok   deposit quote is exact: quoted 4987 shares for 4,999.500000 USDC, minted 4987
+02:51:48 wormhole  report published emitter=0x772d26fc86CD5a19Ce11bCb90a61489EeCfCE6aF sequence=0 consistency=1 deliverIn=3s
+02:51:48 across    already filled origin=42161 depositId=4709278 relayHash=0x5b58c0e1413d81a1
+02:51:48 wormhole  order already executed or superseded by a later one emitter=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E sequence=1 kind=COLLECT orderId=0xe177075619d03703 spokeVault=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf
+02:51:48 across    already filled origin=4663 depositId=408167 relayHash=0xc7892745cbc0afb1
+02:51:48 across    already filled origin=4663 depositId=408168 relayHash=0xa622f7e45f064f0e
+02:51:48 across    already filled origin=4663 depositId=408170 relayHash=0x1e723e615b47c37d
+02:51:48 across    already filled origin=4663 depositId=408169 relayHash=0xaaa5e14766ce069d
+02:51:48 across    already filled origin=4663 depositId=408171 relayHash=0xceaa84076d5df68b
+02:51:48 wormhole  order already executed or superseded by a later one emitter=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E sequence=4 kind=UNWIND orderId=0xe5f47b3ad3ad29f4 spokeVault=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf
+02:51:48 wormhole  order already executed or superseded by a later one emitter=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E sequence=6 kind=UNWIND orderId=0x6cf57b8cccec40cb spokeVault=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf
+02:51:48 wormhole  order already executed or superseded by a later one emitter=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E sequence=7 kind=UNWIND orderId=0x64c0bcd7bd82d658 spokeVault=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf
+02:51:48 wormhole  order already executed or superseded by a later one emitter=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E sequence=9 kind=CLOSE orderId=0x703b0a21e74e253d spokeVault=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf
+02:51:48 wormhole  order already executed or superseded by a later one emitter=0x3D010D998E19d52CE7be47021a3000e3eAa12F8E sequence=11 kind=CLOSE orderId=0xb3fcb9452c334060 spokeVault=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf
+02:51:50 wormhole  already delivered emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=0
+02:51:50 wormhole  already delivered emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=1
+02:51:50 wormhole  already delivered emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=2
+02:51:50 wormhole  already delivered emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=3
+02:51:50 wormhole  already delivered emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=4
+02:51:50 wormhole  already delivered emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=5
+02:51:50 wormhole  already delivered emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=6
+02:51:50 wormhole  already delivered emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=7
+02:51:50 wormhole  already delivered emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=8
+02:51:50 wormhole  already delivered emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=9
+02:51:50 wormhole  already delivered emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=10
+02:51:50 wormhole  already delivered emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=11
+02:51:50 wormhole  already delivered emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=12
+02:51:50 wormhole  already delivered emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=13
+02:51:50 wormhole  already delivered emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=14
+02:51:50 wormhole  already delivered emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=15
+02:51:50 wormhole  already delivered emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=16
+02:51:50 wormhole  already delivered emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=17
+02:51:51 wormhole  VAA delivered to ValueReportReceiver emitter=0x772d26fc86CD5a19Ce11bCb90a61489EeCfCE6aF sequence=0 reportSequence=1 receiver=0xce60dCaCcAacc13ca0423035248047E44384eaf4 tx=0x9e6c47ac514758924045aab4d8f0ac0a7ef9bc6fde65d6cdd96bd190db6d2e07
+ok   a report after each deposit (DEC-159): report 1 published by the API signer after deposit block 511007720, delivered by the keeper; the Hub holds report 1
+ok   one report per deposit: a replay of the deposit answers report 1 again; the spoke's report sequence stays 1
+02:51:51 warp      both clocks warped seconds=1589 hubFrom=1791733325 spokeFrom=1791733321 to=1791734914 iso=2026-10-11T16:08:34.000Z
+02:51:51 warp      Chainlink ETH / USD re-stamped answer=273764000000 updatedAt=1791734914
+ok   stale report closes mints: health mintsOpen=false; chain says StaleSpokeReport; API answers 409
+ok   stale report blocks burns: StaleSpokeReport
+02:51:51 warp      both clocks warped seconds=0 hubFrom=1791734914 spokeFrom=1791734914 to=1791734915 iso=2026-10-11T16:08:35.000Z
+02:51:51 warp      Chainlink ETH / USD re-stamped answer=273764000000 updatedAt=1791734915
+02:51:51 warp      fresh report published spokeVault=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf reportSequence=19 wormholeSequence=18
+02:51:51 warp      fresh report published spokeVault=0x772d26fc86CD5a19Ce11bCb90a61489EeCfCE6aF reportSequence=2 wormholeSequence=1
+02:51:51 warp      no keeper running: VAA signed and delivered directly spokeVault=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf tx=0x8e018d579295bc50989e32254dd237f485cd36fd40745134b8e4f67bbfb66116
+02:51:51 warp      no keeper running: VAA signed and delivered directly spokeVault=0x772d26fc86CD5a19Ce11bCb90a61489EeCfCE6aF tx=0x34ec59c1755989333ad0a2884a8e9d1333beb384618acc3e2fdde89494a39906
+02:51:51 warp      both clocks warped seconds=259200 hubFrom=1791734915 spokeFrom=1791734915 to=1791994115 iso=2026-10-14T16:08:35.000Z
+02:51:51 warp      Chainlink ETH / USD re-stamped answer=273764000000 updatedAt=1791994115
+02:51:51 warp      fresh report published spokeVault=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf reportSequence=20 wormholeSequence=19
+02:51:51 warp      fresh report published spokeVault=0x772d26fc86CD5a19Ce11bCb90a61489EeCfCE6aF reportSequence=3 wormholeSequence=2
+02:51:51 warp      no keeper running: VAA signed and delivered directly spokeVault=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf tx=0x1b369daac72bc2b0c219a7bcaa416531c4611b04109c62b6d7c12a90d6a651b6
+02:51:51 warp      no keeper running: VAA signed and delivered directly spokeVault=0x772d26fc86CD5a19Ce11bCb90a61489EeCfCE6aF tx=0xee8ce5482d588fc391d61bf422a91fa8b730184e385a7f6bc006def8d6b29ae3
+02:51:51 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=18 consistency=1 deliverIn=3s
+02:51:51 wormhole  report published emitter=0x772d26fc86CD5a19Ce11bCb90a61489EeCfCE6aF sequence=1 consistency=1 deliverIn=3s
+02:51:51 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=19 consistency=1 deliverIn=3s
+02:51:51 wormhole  report published emitter=0x772d26fc86CD5a19Ce11bCb90a61489EeCfCE6aF sequence=2 consistency=1 deliverIn=3s
+ok   fresh report permits payout; quote is exact: Standard Payout after its term and a fresh report
+02:51:51 warp      both clocks warped seconds=30 hubFrom=1791994115 spokeFrom=1791994115 to=1791994145 iso=2026-10-14T16:09:05.000Z
+02:51:51 warp      Chainlink ETH / USD re-stamped answer=273764000000 updatedAt=1791994145
+02:51:51 warp      fresh report published spokeVault=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf reportSequence=21 wormholeSequence=20
+02:51:51 warp      fresh report published spokeVault=0x772d26fc86CD5a19Ce11bCb90a61489EeCfCE6aF reportSequence=4 wormholeSequence=3
+02:51:52 wormhole  report published emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=20 consistency=1 deliverIn=3s
+02:51:52 wormhole  report published emitter=0x772d26fc86CD5a19Ce11bCb90a61489EeCfCE6aF sequence=3 consistency=1 deliverIn=3s
+02:51:54 wormhole  already delivered emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=18
+02:51:54 wormhole  already delivered emitter=0x772d26fc86CD5a19Ce11bCb90a61489EeCfCE6aF sequence=1
+02:51:54 wormhole  already delivered emitter=0x772d26fc86CD5a19Ce11bCb90a61489EeCfCE6aF sequence=2
+02:51:54 wormhole  already delivered emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=19
+02:51:55 wormhole  VAA delivered to ValueReportReceiver emitter=0x3a0Ef4d68EDDd9821593472ac84a75741bBcf3cf sequence=20 reportSequence=21 receiver=0xF90640a43acf3F7443fCf01891f1C9772A560b54 tx=0x9d528c534c828fc887ea1ff922c64d941f48c0ea58fa8a12aec483b91349d623
+02:51:55 wormhole  VAA delivered to ValueReportReceiver emitter=0x772d26fc86CD5a19Ce11bCb90a61489EeCfCE6aF sequence=3 reportSequence=4 receiver=0xce60dCaCcAacc13ca0423035248047E44384eaf4 tx=0x6db411023f2ad8f3599ce3cca49173ef931b3af3e2e697e06ee2234f26653d11
+02:51:55 warp      the keeper delivered every fresh report reports=2
+ok   a fresh report reopens mints: report 4, age 4s
+ok   swap guard off chain: 1,000 USDC -> 0.365507 WETH, API minimum 0.361625 (oracle 0.365278); at a 1 bps loss bound without an API route the swap reverts InsufficientOutput
+02:51:58 across    deposit seen origin=42161 destination=4663 depositId=4709279 recipient=0x772d26fc86CD5a19Ce11bCb90a61489EeCfCE6aF output=999.170000 fillIn=1s
+02:51:59 across    filled through SpokePool.fillRelay origin=42161 depositId=4709279 relayHash=0xd4accb50b665a3cb chain=4663 tx=0x77cc78b3025c4e4c22632693cf2238a20a330ae302b9ec1bec8298945972b1aa
+ok   the bridge quote is what the adapter fixes: to Robinhood: quoted 999.170000 for 1,000 USDC (rate 0.080%), sent 999.170000; home: quoted 199.810000 for 200 USDG, sent 199.810000; unsigned until WP-11
+ok   the API signs routes only within its limits: slippageBps 10000 (a zero minimum) answers 400; an adapter the API does not serve answers 422
+ok   signed swap route (Arbitrum USDC -> WETH): best of 2 quoted paths (0 through another Mandate token): 1 hop(s), fees 500; executed 365503866956518696 for a quote of 365503866956518696 (minimum 361848828286953509); a tampered minimum reverts InvalidRouteSignature
+02:52:00 across    deposit seen origin=4663 destination=42161 depositId=408172 recipient=0x18fa5d0be5EdedB600b7E528b887F496839F42fF output=199.810000 fillIn=1s
+02:52:01 across    filled through SpokePool.fillRelay origin=4663 depositId=408172 relayHash=0x4ddfcb370a7e8d46 chain=42161 tx=0x8dbe7ccaf3efc4333237fb11965a6ed3e0a4c26f86ea497e7b5d839a4577a97e
+ok   signed swap route (Robinhood USDG -> WETH): best of 6 quoted paths (2 through another Mandate token): 1 hop(s), fees 100; executed 365299135972843179 for a quote of 365299135972843179 (minimum 361646144613114747); a tampered minimum reverts InvalidRouteSignature
+ok   signed swap route (Robinhood USDG -> NVDA, direct or through WETH): best of 9 quoted paths (8 through another Mandate token): 1 hop(s), fees 500; executed 4218175906644309448 for a quote of 4218175906644309448 (minimum 4175994147577866353); a tampered minimum reverts InvalidRouteSignature
+ok   signed swap route (Robinhood USDG -> WETH -> NVDA, two hops): best of 9 quoted paths (8 through another Mandate token): 2 hop(s), fees 100/500; executed 4217268343652329650 for a quote of 4217268343652329650 (minimum 4175095660215806353); a tampered minimum reverts InvalidRouteSignature
+ok   the fund's swap adapters are the Mandate's (Mandate v2): arbitrum 0xdaBb4468CAE8d2A8b46490fE6D95fB6c1D3510d2: vault its Spoke Vault, signer the API key, pinned 0xdaBb4468CAE8d2A8b46490fE6D95fB6c1D3510d2; robinhood 0x30a348929F721610eE3757771A7E311B4cbAE5F5: vault its Spoke Vault, signer the API key, pinned 0x30a348929F721610eE3757771A7E311B4cbAE5F5; the API signed USDG -> WETH for the fund's Robinhood adapter (100) and answers 422 for NVDA, outside its Mandate
+ok   indexer sees every operation: 17 Core Vault events (IncomeTokenAdded, FundSeeded, Deposited, ReportAccepted, ManagementFeeAccrued, PayoutRequested, PayoutExecuted, AllocatedToHubSpokeVault, SentToSpoke, TransitReceived)
+ok   Share Price history follows the mints: 11 points from block 511007718; 2 mints at their price (seed at 1.000000)
+ok   holder value follows the Share Price: 3987 shares at 0.999867 = 3,986.473091 USDC
+ok   lifecycle builder requestPayout: requestPayout(100000000, 1, 37), value 0
+ok   lifecycle builder claimPayout: claimPayout(42), value 0
+ok   lifecycle builder settlePayout: settlePayout(0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC), value 0
+ok   lifecycle builder requestIncomeWithdrawal: requestIncomeWithdrawal(33), value 0
+ok   lifecycle builder settleIncomeWithdrawal: settleIncomeWithdrawal(0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC), value 0
+ok   lifecycle builder withdrawIncome: withdrawIncome(), value 0
+ok   lifecycle builder closeFund: closeFund(), value 0
+ok   lifecycle builder unwindAllAfterDeadline: unwindAllAfterDeadline(), value 0
+ok   lifecycle builder finalizeClosure: finalizeClosure(), value 0
+ok   lifecycle builder exitClosedFund: exitClosedFund(0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC), value 0
+ok   payout input validation: invalid loss and mode rejected
+ok   closure status: Open, frozen split unset
+02:52:03 keeper    stopped fills=2 simulatedFills=0 deliveries=3 orders=0 ordersUnsupported=0 reports=0 errors=0
+run report: local-e2e/reports/2026-10-03T02-51-47Z-api-probe.md (and .json)
+PASS 31 concepts
+VALIDATION_EXIT=0
+$ bash scripts/stop-forks.sh
+keeper: not running (no pid file)
+arbitrum: stopped (pid 32227)
+robinhood: stopped (pid 32235)

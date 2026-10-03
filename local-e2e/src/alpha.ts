@@ -1,3 +1,4 @@
+import { safeConsole as console } from "./log.ts";
 import {createServer} from "node:http";
 import {mkdirSync, readFileSync, writeFileSync, renameSync, existsSync} from "node:fs";
 import {dirname, resolve} from "node:path";
@@ -11,6 +12,8 @@ import {coreVaultAbi, spokeVaultAbi, valueReportReceiverAbi, wormholeCoreAbi} fr
 import {ROUTE_TYPES, encodeRoute, legsHash} from "./swap-route.ts";
 import {actors, guardian} from "./config.ts";
 import {createAlphaDelivery, drainAlphaPending, type AlphaMessage} from "./alpha-relay.ts";
+import {collectAllowed, createAlphaTransitResolver, drainAlphaWork, type AlphaWork} from "./alpha-work.ts";
+import {decodeSpokeReport, SPOKE_REPORT_VERSION} from "./spoke-report.ts";
 
 function required(name: string): string {
   const value = process.env[name];
@@ -33,6 +36,8 @@ const share = getAddress(required("ALPHA_SHARE_TOKEN"));
 const stateFile = resolve(process.env.ALPHA_STATE_FILE ?? ".state/alpha-keeper.json");
 const pollMs = Number(process.env.ALPHA_POLL_MS ?? "5000");
 const reportSeconds = Number(process.env.ALPHA_REPORT_SECONDS ?? "300");
+const collectMinimum = BigInt(process.env.ALPHA_MIN_COLLECT_USDC ?? "500000");
+if (collectMinimum < 500000n) throw new Error("COLLECT minimum must be at least 0.50 USDC");
 if (!Number.isInteger(pollMs) || pollMs < 1000 || !Number.isInteger(reportSeconds) || reportSeconds < 10 || reportSeconds > 600) {
   throw new Error("Invalid polling/report interval");
 }
@@ -101,9 +106,10 @@ if (mode === "api") {
 }
 
 type Message = AlphaMessage;
-interface Cursor {core: Address; spokeVault: Address; hub: string; spoke: string; pending: Message[]; lastReport: number}
-const initial: Cursor = {core, spokeVault: spoke, hub: required("ALPHA_HUB_START_BLOCK"), spoke: required("ALPHA_SPOKE_START_BLOCK"), pending: [], lastReport: 0};
+interface Cursor {core: Address; spokeVault: Address; hub: string; spoke: string; pending: Message[]; work: AlphaWork[]; lastReport: number}
+const initial: Cursor = {core, spokeVault: spoke, hub: required("ALPHA_HUB_START_BLOCK"), spoke: required("ALPHA_SPOKE_START_BLOCK"), pending: [], work: [], lastReport: 0};
 let cursor: Cursor = existsSync(stateFile) ? JSON.parse(readFileSync(stateFile, "utf8")) : initial;
+cursor.work ??= [];
 if (cursor.core !== core || cursor.spokeVault !== spoke) throw new Error("Cursor belongs to another fund");
 function save() {
   mkdirSync(dirname(stateFile), {recursive: true});
@@ -111,7 +117,42 @@ function save() {
   renameSync(`${stateFile}.tmp`, stateFile);
 }
 
-const deliver = createAlphaDelivery({sides, bridges, receiver, spoke, vaaBase, read, send});
+let fetchVaa: typeof fetch | undefined;
+if (process.env.ALPHA_REHEARSAL_LOCAL_VAA === "1") {
+  if (process.env.ALPHA_ALLOW_LOCAL_TEST_KEYS !== "1") throw new Error("Local VAAs require rehearsal mode");
+  for (const side of ["hub", "spoke"] as const) {
+    if (new URL(sides[side].rpc).hostname !== "127.0.0.1") throw new Error("Local VAAs require loopback Anvil");
+  }
+  const {signVaa, universal, guardianSetIndexOf} = await import("./guardian.ts");
+  fetchVaa = async (input) => {
+    const parts = String(input).split("/");
+    const sequence = BigInt(parts.at(-1)!);
+    const side: Side = Number(parts.at(-3)) === sides.hub.wormhole ? "hub" : "spoke";
+    const logs = await nodes[side].client.getLogs({address: bridges[side], event: wormholeCoreAbi.find((entry: any) => entry.type === "event") as any, fromBlock: BigInt(required(side === "hub" ? "ALPHA_HUB_START_BLOCK" : "ALPHA_SPOKE_START_BLOCK"))});
+    const message = (logs as any[]).find((entry) => getAddress(entry.args.sender) === sides[side].emitter && entry.args.sequence === sequence);
+    if (!message) return new Response(null, {status: 404});
+    const block = await nodes[side].client.getBlock({blockNumber: message.blockNumber});
+    const destination = side === "hub" ? "robinhood" : "arbitrum";
+    const vaa = await signVaa({timestamp: Number(block.timestamp), nonce: message.args.nonce, emitterChainId: sides[side].wormhole, emitterAddress: universal(sides[side].emitter), sequence, consistencyLevel: message.args.consistencyLevel, payload: message.args.payload}, await guardianSetIndexOf(destination));
+    return Response.json({data: {vaa: Buffer.from(vaa.slice(2), "hex").toString("base64")}});
+  };
+}
+const deliver = createAlphaDelivery({sides, bridges, receiver, spoke, vaaBase, read, send, fetchVaa});
+
+const resolveTransit = createAlphaTransitResolver({
+  state: async (work) => Number((await read("spoke", spoke, "hubBoundTransit", [work.transitId], spokeVaultAbi)).state),
+  credited: async (work) => {
+    const events = await nodes.hub.client.getLogs({address: core, event: coreVaultAbi.find((entry: any) => entry.name === "TransitReceived") as any,
+      fromBlock: BigInt(required("ALPHA_HUB_START_BLOCK")), toBlock: (await nodes.hub.client.getBlock({blockTag: process.env.ALPHA_REHEARSAL_LOCAL_VAA === "1" ? "latest" : "finalized"})).number!});
+    return (events as any[]).filter((entry) => entry.args.transitId === work.transitId && entry.args.originChainId === 4663n && entry.args.matched)
+      .reduce((total, entry) => total + entry.args.amount, 0n);
+  },
+  acknowledge: async (work) => {
+    const fee = await read("hub", bridges.hub, "messageFee", [], wormholeCoreAbi);
+    await send("hub", core, coreVaultAbi, "acknowledgeSpokeTransit", [0n, work.transitId], fee);
+  },
+  save,
+});
 
 async function publish(): Promise<Message> {
   const fee = await read("spoke", bridges.spoke, "messageFee", [], wormholeCoreAbi);
@@ -121,6 +162,7 @@ async function publish(): Promise<Message> {
     try {
       const event = decodeEventLog({abi: wormholeCoreAbi, ...log}) as any;
       if (event.eventName === "LogMessagePublished" && getAddress(event.args.sender) === spoke) {
+        decodeSpokeReport(event.args.payload);
         return {side: "spoke", sequence: event.args.sequence.toString(), payload: event.args.payload};
       }
     } catch {}
@@ -132,20 +174,28 @@ async function keeperTick() {
   let balanceChanged = false;
   for (const side of ["hub", "spoke"] as const) {
     const fromBlock = BigInt(cursor[side]);
-    const head = (await nodes[side].client.getBlock({blockTag: "finalized"})).number!;
+    const head = (await nodes[side].client.getBlock({blockTag: process.env.ALPHA_REHEARSAL_LOCAL_VAA === "1" ? "latest" : "finalized"})).number!;
     if (fromBlock > head) continue;
     const toBlock = fromBlock + 999n < head ? fromBlock + 999n : head;
     const logs = await nodes[side].client.getLogs({address: bridges[side], event: wormholeCoreAbi.find((item: any) => item.type === "event") as any, fromBlock, toBlock});
     for (const log of logs as any[]) {
       if (getAddress(log.args.sender) === sides[side].emitter && !cursor.pending.some((entry) => entry.side === side && entry.sequence === log.args.sequence.toString())) {
+        if (side === "spoke") decodeSpokeReport(log.args.payload);
         cursor.pending.push({side, sequence: log.args.sequence.toString(), payload: log.args.payload});
       }
     }
     if (side === "hub") {
       const transfers = await nodes.hub.client.getLogs({address: share, event: parseAbi(["event Transfer(address indexed from, address indexed to, uint256 value)"])[0] as any, fromBlock, toBlock});
       balanceChanged ||= transfers.some((log: any) => log.args.from === zeroAddress || log.args.to === zeroAddress);
+    } else {
+      const transits = await nodes.spoke.client.getLogs({address: spoke, event: spokeVaultAbi.find((entry: any) => entry.name === "SentToHub") as any, fromBlock, toBlock});
+      for (const log of transits as any[]) {
+        if (!cursor.work.some((work) => work.transitId === log.args.transitId)) cursor.work.push({transitId: log.args.transitId,
+          kind: Number(log.args.transit.kind), expected: log.args.transit.amountToArrive.toString(), attempts: 0, retryAt: 0});
+      }
     }
     cursor[side] = (toBlock + 1n).toString();
+    save();
   }
   if (balanceChanged || Date.now() - cursor.lastReport >= reportSeconds * 1000) {
     await publish();
@@ -154,7 +204,8 @@ async function keeperTick() {
   save();
   await drainAlphaPending(cursor, deliver, save, (message) => {
     console.error(`Relay pending: ${message.side} sequence ${message.sequence}; inspect VAA/expiry and fund state.`);
-  });
+  }, Date.now());
+  await drainAlphaWork(cursor, resolveTransit, save);
 }
 
 async function route(input: any) {
@@ -190,7 +241,11 @@ async function route(input: any) {
 
 if (mode === "keeper") {
   while (true) {
-    try {await keeperTick();} catch {console.error("Alpha keeper tick failed; inspect on-chain state before retrying.");}
+    try {await keeperTick();} catch {
+      console.error("Alpha keeper tick failed; inspect on-chain state before retrying.");
+      await drainAlphaPending(cursor, deliver, save, () => {}, Date.now());
+      await drainAlphaWork(cursor, resolveTransit, save);
+    }
     await new Promise((done) => setTimeout(done, pollMs));
   }
 } else {
@@ -198,7 +253,7 @@ if (mode === "keeper") {
   let busy = false;
   createServer(async (request, response) => {
     if (request.headers.authorization !== `Bearer ${token}`) {response.writeHead(401).end(); return;}
-    if (request.method !== "POST" || !["/report", "/swap-route"].includes(request.url ?? "")) {response.writeHead(404).end(); return;}
+    if (request.method !== "POST" || !["/report", "/swap-route", "/income"].includes(request.url ?? "")) {response.writeHead(404).end(); return;}
     if (busy) {response.writeHead(409).end(); return;}
     busy = true;
     try {
@@ -212,7 +267,23 @@ if (mode === "keeper") {
           if (Date.now() > deadline) throw new Error("VAA timeout; keeper must retry");
           await new Promise((done) => setTimeout(done, pollMs));
         }
-        result = {delivered: true, sequence: message.sequence};
+        result = {delivered: true, sequence: message.sequence, reportVersion: SPOKE_REPORT_VERSION.toString()};
+      } else if (request.url === "/income") {
+        const report = await read("spoke", spoke, "buildReport", [], spokeVaultAbi);
+        const mandate = await read("hub", core, "mandate", [], coreVaultAbi);
+        const base = mandate.spokes[0].spokeToken as Address;
+        const adapter = mandate.bridgeAdapters.find((entry: any) => Number(entry.chainId) === 4663)?.adapter as Address;
+        const value = report.collectedIncome.filter((entry: any) => getAddress(entry.token) === getAddress(base))
+          .reduce((total: bigint, entry: any) => total + entry.amount, 0n);
+        let arrival = 0n;
+        try {arrival = (await read("spoke", adapter, "quoteSend", [base, 42161n, value, "0x"], parseAbi(["function quoteSend(address,uint256,uint256,bytes) view returns (uint256,uint256)"])))[0];} catch {}
+        if (!collectAllowed(value, collectMinimum, arrival)) {
+          response.writeHead(409).end(JSON.stringify({deferred: true, collectedBase: value.toString(), minimum: collectMinimum.toString()}));
+          return;
+        }
+        const fee = await read("hub", bridges.hub, "messageFee", [], wormholeCoreAbi);
+        const receipt = await send("hub", core, coreVaultAbi, "requestIncomeWithdrawal", [100], fee);
+        result = {requested: true, transactionHash: receipt.transactionHash, shareholder: account.address};
       } else {result = await route(JSON.parse(body));}
       response.setHeader("Content-Type", "application/json");
       response.end(JSON.stringify(result));

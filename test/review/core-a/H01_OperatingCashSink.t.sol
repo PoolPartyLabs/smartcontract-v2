@@ -16,65 +16,19 @@ import {CoreVaultFixture} from "../../unit/core/CoreVaultFixture.sol";
 contract H01_OperatingCashSink is CoreVaultFixture {
     address internal stranger = makeAddr("stranger");
 
-    function test_POC_REVIEW_H08_managerMovesAllFreeIdleIntoOperatingCash() public {
-        _deposit(alice, 500_000e6);
-        _deposit(bob, 500_000e6);
-        // Bob asks a Standard Payout of his whole position; his reserve is fully funded (DEC-072).
-        _request(bob, 498_750e6, ICoreVaultPayouts.PayoutMode.Standard);
-        uint256 fairPrice = vault.sharePrice();
-        assertEq(vault.payoutReserve(), 498_750e6);
-
-        // Manager: floor = max, top-up = Free Idle - 1, then any top-up-running verb.
-        uint256 free = vault.freeIdle();
-        assertEq(free, SEED_IDLE + 498_750e6, "alice's value and the manager's seed");
-        vm.startPrank(manager);
-        vault.setOperatingCashParameters(type(uint256).max, free - 1);
-        vault.allocateToHubSpokeVault(1);
-        vm.stopPrank();
-
-        console2.log("operating cash (USDC 6d)", vault.operatingCash());
-        console2.log("share price fair / after", fairPrice, vault.sharePrice());
-        assertEq(vault.operatingCash(), free - 1, "all of Free Idle moved to Operating Cash");
-        assertEq(vault.freeIdle(), 0);
-        assertEq(fairPrice, 1e24, "1.00 USDC per share before");
-        assertEq(vault.sharePrice(), ShareMath.sharePrice(498_750e6 + 1, 997_501e18), "0.50 USDC per share after");
-
-        // No verb returns Operating Cash any more (S-63): the sink is one-way.
+    function test_REGRESSION_REVIEW_H08_managerMovesAllFreeIdleIntoOperatingCash() public {
         vm.prank(manager);
-        (bool released,) = address(vault).call(abi.encodeWithSignature("releaseOperatingCash(uint256)", 1));
-        assertFalse(released, "no release verb");
-
-        // Bob's reserved Standard Payout is paid at the collapsed price.
-        vm.warp(block.timestamp + 72 hours + 1);
-        ICoreVault.PayoutReceipt memory r = _claim(bob);
-        console2.log("bob paid (USDC 6d)", r.usdcPaid);
-        assertEq(r.usdcPaid, 248_751_313_125, "Bob receives about half of what his shares were worth");
-        assertEq(shares.balanceOf(bob), 0, "and all his shares are burned");
-
-        assertEq(vault.sweepExcess(address(usdc)), 0, "not sweepable");
-        assertEq(vault.operatingCash(), free - 1, "498,751 USDC outside Share Assets");
+        vm.expectRevert(bytes4(keccak256("OperatingCashNotSupported()")));
+        vault.setOperatingCashParameters(type(uint256).max, type(uint256).max);
+        assertEq(vault.operatingCash(), 0);
     }
 
     /// @dev The drain also runs from a third party's verb once the parameters are set: the next deposit tops up first
     ///      (the entrant is priced after it), so every existing holder is diluted by the whole Free Idle.
-    function test_POC_REVIEW_H08_nextDepositRunsTheDrainForTheManager() public {
-        _deposit(alice, 1_000_000e6);
-        // Some value outside Idle so the mint can still be priced after the drain (hub position of 100,000 USDC).
+    function test_REGRESSION_REVIEW_H08_nextDepositRunsTheDrainForTheManager() public {
         vm.prank(manager);
-        vault.allocateToHubSpokeVault(100_000e6);
-        hubVault.moveToPosition(100_000e6);
-        uint256 aliceValueBefore = shares.balanceOf(alice) * vault.sharePrice() / 1e36;
-
-        vm.prank(manager);
+        vm.expectRevert(bytes4(keccak256("OperatingCashNotSupported()")));
         vault.setOperatingCashParameters(type(uint256).max, type(uint256).max);
-        _deposit(bob, 1000e6);
-
-        uint256 aliceValueAfter = shares.balanceOf(alice) * vault.sharePrice() / 1e36;
-        console2.log("alice value before / after (USDC 6d)", aliceValueBefore, aliceValueAfter);
-        console2.log("operating cash", vault.operatingCash());
-        assertEq(aliceValueBefore, 997_500e6);
-        // 100,000 left for alice's 997,500 shares and the manager's seed share.
-        assertEq(aliceValueAfter, 99_999_899_749, "alice lost 90% of her value to Operating Cash");
-        assertEq(vault.operatingCash(), SEED_IDLE + 897_500e6);
+        assertEq(vault.operatingCash(), 0);
     }
 }
