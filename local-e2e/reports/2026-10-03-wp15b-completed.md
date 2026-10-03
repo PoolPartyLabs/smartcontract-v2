@@ -1,5 +1,82 @@
 # WP-15b completion: PASS
 
+## Round-1 fixes and authoritative rerun (October 3, 2026)
+
+This section supersedes the earlier run's counts and conservation methodology below.
+Merged `origin/main` at `2b04b28` first (`8185c85`); fixes are `d92fb60` (durable
+Principal ACK recovery) and `4eba29e` (evidence-based conservation and recovery runner).
+
+- Pending transits and published ACK payloads persist atomically in
+  `.state/pending-transits.json`, scoped to the deployment. Every poll reconstructs
+  candidates from `SentToHub`, independently of new/accepted reports, and retries
+  with exponential backoff (500 ms to 30 s, no attempt limit). ACKs share the emitter's
+  delivery sequence; failed delivery remains pending, and expired/superseded ACKs
+  are republished. Confirmed arrival/expiry or the existing three-day post-deadline
+  retention resolves candidates; refunds remain pending until their ACK executes.
+- All boundary outflows require transaction-, token-, sender-, recipient- and
+  amount-bounded evidence. Position inputs/unused returns use calldata and measured
+  `used` amounts; investment exits use principal/income events and pinned protocol
+  counterparties. Swap sales use vault events plus canonical V3 pool receipt events.
+  Payouts, fees, closure and sweeps use their own events. Across arrivals match
+  `FilledRelay` recipient, token, relayer and actual output, not transit IDs alone.
+  Unmatched flows never become investment losses or Market Costs and fail the run,
+  even below rounding tolerance. Physical Core Vault cash and bridge checks remain separate.
+- Seven deterministic harness tests pass: report-before-fill, transient ACK send,
+  transient ACK delivery, restart/backoff/no retry limit, unrelated 10 USDC outflow,
+  wrong transaction/token/counterparty/amount and sub-tolerance unknown flow. The
+  100 USDC deposit / 10 USDC unexplained outflow / 90 USDC cash negative control
+  has **10 USDC residual and fails**.
+
+Reproduction (source the RPC helper in this same shell before starting forks):
+
+```sh
+export LOCAL_E2E_ARBITRUM_PORT=59645 LOCAL_E2E_ROBINHOOD_PORT=59646 LOCAL_E2E_API_PORT=59687
+pnpm run up --warm-up none
+KEEPER_FILL_DELAY_SECONDS=5 KEEPER_VAA_DELAY_SECONDS=1 pnpm check:recovery
+pnpm down
+```
+
+The committed-code run started **2026-10-03 00:44:44 UTC**, at the fixed archive pins
+511007613 / 78293056, on code `4eba29e`. Raw artifacts:
+`2026-10-03T00-44-44Z-scenario.{json,md}` and
+`2026-10-03T00-44-01Z-api-probe.{json,md}`. The runner injects exactly one temporary
+ACK-send RPC failure after a successful preflight. Reports arrive at least four
+seconds before the later order-return fills; polling completes their ACKs without
+another report being needed for credit/retry. The persisted pending queue is empty
+after completion (four resolved Principal candidates).
+
+| Check | Round-1 result |
+|---|---|
+| Full recovery scenario | PASS, 55 steps / 319 assertions, 82 seconds |
+| Receipt-derived transactions / gas | 103 / 99,813,982 |
+| Keeper | 6 real fills, 0 simulations, 22 report deliveries, 10 orders |
+| Keeper errors | Exactly 1 intentionally injected RPC failure, recovered |
+| API probe | PASS, 31 concepts |
+| Conservation | 22,332.667340 = 20,983.402203 + 1,349.265129 + 0.000008 USDC |
+| Unexplained flows / residual | None / 0 USDC |
+| Bridge costs / event ledger | Both 6.577616 USDC |
+| Remaining positions / In-flight Value | 0 / 0 |
+| Frozen-split cash dust | 8 USDC base units, still ledgered |
+| Foundry build / formatting | PASS / PASS |
+| Size suite | 3/3, 1 suite |
+| Non-fork suite | 1,433/1,433, 183 suites |
+| Fork suite | 222/222, 56 suites, `-j 4` |
+| Frozen pnpm install / typecheck | PASS / PASS |
+| Harness regressions / alpha relay | 7/7 / 6/6 |
+| Lifecycle / URL checks | 24 assertions / 8 synthetic cases |
+| Cleanup | `pnpm down` PASS; no listener on 59645, 59646 or 59687 |
+
+The main merge reduces SpokeUnwindLib from 23,473 to **23,449 bytes** (margin
+**1,127 bytes**); all other production sizes in the table below are unchanged.
+No margin is below 1,000 bytes. The fix commits change no Solidity or fork fixtures;
+the merged main encoder regression accounts for the additional non-fork test.
+No new plan deviation or spec divergence was found. Existing closure gas budget,
+terminal CLOSE-after-ACK, static price-feed and positive-cost-absorption limitations
+remain as disclosed below. The API probe remains a builder/probe check, not a second
+HTTP-driven full lifecycle.
+
+## Original run (historical)
+
 Verified October 3, 2026 (Europe/Lisbon). Raw filenames use UTC: the scenario began
 October 2 at 23:59:32 UTC, which is October 3 at 00:59:32 in Lisbon.
 Branch `test/pp-sc-test-harness-e2e-v2`; parent `0146fb3` merged with merge commit `e65f40d`.

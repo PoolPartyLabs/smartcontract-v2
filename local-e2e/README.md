@@ -176,6 +176,14 @@ manager keys: an app can hard-code them for local development, and the factory a
 
 `pnpm keeper` replaces four off-chain parties on the two forks:
 
+Principal transit acknowledgements persist in `.state/pending-transits.json`, scoped
+to the current deployment. Every poll reconstructs candidates from sends and retries
+uncredited transits and failed ACK publication/delivery with 500 ms–30 s exponential
+backoff, without an attempt limit or a new-report requirement. ACKs preserve emitter
+sequence order; expired/superseded ACKs are republished. Refunds require ACK delivery;
+confirmed arrivals/expiries and the protocol's post-deadline retention end tracking.
+Do not delete this queue while its deployment is running.
+
 1. **Across relayer.** Watches `FundsDeposited` on both SpokePools; for a deposit whose recipient is a known fund's vault
    on the other node (its Spoke Vault on Robinhood, its Core Vault on the hub) it builds the relay data from the event
    (bytes32 fields, origin chain id, the deposit id, fill and exclusivity deadlines, message), waits
