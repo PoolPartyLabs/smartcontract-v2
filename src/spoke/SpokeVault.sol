@@ -190,7 +190,7 @@ contract SpokeVault is SpokeVaultUnwind, SpokeVaultIncome {
         uint16 maxLossBps,
         bytes calldata route
     ) external onlyManager nonReentrant returns (uint256 amountOut) {
-        _requireSpokeOpen();
+        _requireExposureOpen(tokenOut);
         _topUpOperatingCash();
         uint256 spotOut;
         uint256 minOut;
