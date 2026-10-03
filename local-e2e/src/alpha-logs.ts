@@ -11,6 +11,27 @@ export function logWindow(fromBlock: bigint, head: bigint, range: bigint) {
   return {fromBlock, toBlock: end < head ? end : head};
 }
 
+export interface AlphaCredits {
+  credited: string;
+  credits: Record<string, string>;
+}
+
+export function initializeAlphaCredits<Cursor extends object>(cursor: Cursor, startBlock: string): asserts cursor is Cursor & AlphaCredits {
+  const state = cursor as Cursor & Partial<AlphaCredits>;
+  state.credited ??= startBlock;
+  state.credits ??= {};
+}
+
+export function recordAlphaCredits(cursor: AlphaCredits, events: readonly {
+  args: {transitId?: string; originChainId?: bigint; matched?: boolean; amount?: bigint};
+}[]) {
+  for (const {args} of events) {
+    if (args.originChainId !== 4663n || !args.matched || !args.transitId || args.amount === undefined) continue;
+    const transitId = args.transitId.toLowerCase();
+    cursor.credits[transitId] = (BigInt(cursor.credits[transitId] ?? "0") + args.amount).toString();
+  }
+}
+
 export async function scanAlphaLogs<Side extends string>(dependencies: {
   sides: readonly Side[];
   cursor: Record<Side, string>;

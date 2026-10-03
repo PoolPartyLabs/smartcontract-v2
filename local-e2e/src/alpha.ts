@@ -14,7 +14,7 @@ import {actors, guardian} from "./config.ts";
 import {createAlphaDelivery, drainAlphaPending, type AlphaMessage} from "./alpha-relay.ts";
 import {collectAllowed, createAlphaTransitResolver, drainAlphaWork, type AlphaWork} from "./alpha-work.ts";
 import {decodeSpokeReport, SPOKE_REPORT_VERSION} from "./spoke-report.ts";
-import {alphaLogRange, scanAlphaLogs} from "./alpha-logs.ts";
+import {alphaLogRange, initializeAlphaCredits, recordAlphaCredits, scanAlphaLogs, type AlphaCredits} from "./alpha-logs.ts";
 
 function required(name: string): string {
   const value = process.env[name];
@@ -108,10 +108,11 @@ if (mode === "api") {
 }
 
 type Message = AlphaMessage;
-interface Cursor {core: Address; spokeVault: Address; hub: string; spoke: string; pending: Message[]; work: AlphaWork[]; lastReport: number}
-const initial: Cursor = {core, spokeVault: spoke, hub: required("ALPHA_HUB_START_BLOCK"), spoke: required("ALPHA_SPOKE_START_BLOCK"), pending: [], work: [], lastReport: 0};
+interface Cursor extends AlphaCredits {core: Address; spokeVault: Address; hub: string; spoke: string; pending: Message[]; work: AlphaWork[]; lastReport: number}
+const initial: Cursor = {core, spokeVault: spoke, hub: required("ALPHA_HUB_START_BLOCK"), spoke: required("ALPHA_SPOKE_START_BLOCK"), credited: required("ALPHA_HUB_START_BLOCK"), credits: {}, pending: [], work: [], lastReport: 0};
 let cursor: Cursor = existsSync(stateFile) ? JSON.parse(readFileSync(stateFile, "utf8")) : initial;
 cursor.work ??= [];
+initializeAlphaCredits(cursor, initial.credited);
 if (cursor.core !== core || cursor.spokeVault !== spoke) throw new Error("Cursor belongs to another fund");
 function save() {
   mkdirSync(dirname(stateFile), {recursive: true});
@@ -143,12 +144,7 @@ const deliver = createAlphaDelivery({sides, bridges, receiver, spoke, vaaBase, r
 
 const resolveTransit = createAlphaTransitResolver({
   state: async (work) => Number((await read("spoke", spoke, "hubBoundTransit", [work.transitId], spokeVaultAbi)).state),
-  credited: async (work) => {
-    const events = await nodes.hub.client.getLogs({address: core, event: coreVaultAbi.find((entry: any) => entry.name === "TransitReceived") as any,
-      fromBlock: BigInt(required("ALPHA_HUB_START_BLOCK")), toBlock: (await nodes.hub.client.getBlock({blockTag: process.env.ALPHA_REHEARSAL_LOCAL_VAA === "1" ? "latest" : "finalized"})).number!});
-    return (events as any[]).filter((entry) => entry.args.transitId === work.transitId && entry.args.originChainId === 4663n && entry.args.matched)
-      .reduce((total, entry) => total + entry.args.amount, 0n);
-  },
+  credited: async (work) => BigInt(cursor.credits[work.transitId.toLowerCase()] ?? "0"),
   acknowledge: async (work) => {
     const fee = await read("hub", bridges.hub, "messageFee", [], wormholeCoreAbi);
     await send("hub", core, coreVaultAbi, "acknowledgeSpokeTransit", [0n, work.transitId], fee);
@@ -174,9 +170,14 @@ async function publish(): Promise<Message> {
 
 async function keeperTick() {
   let balanceChanged = false;
-  await scanAlphaLogs({sides: ["hub", "spoke"] as const, cursor, range: logRange, deadline: Date.now() + 20000,
-    head: async (side) => (await nodes[side].client.getBlock({blockTag: process.env.ALPHA_REHEARSAL_LOCAL_VAA === "1" ? "latest" : "finalized"})).number!,
+  await scanAlphaLogs({sides: ["hub", "spoke", "credited"] as const, cursor, range: logRange, deadline: Date.now() + 20000,
+    head: async (side) => (await nodes[side === "credited" ? "hub" : side].client.getBlock({blockTag: process.env.ALPHA_REHEARSAL_LOCAL_VAA === "1" ? "latest" : "finalized"})).number!,
     save, scan: async (side, {fromBlock, toBlock}) => {
+    if (side === "credited") {
+      const events = await nodes.hub.client.getLogs({address: core, event: coreVaultAbi.find((entry: any) => entry.name === "TransitReceived") as any, fromBlock, toBlock});
+      recordAlphaCredits(cursor, events as any[]);
+      return;
+    }
     const logs = await nodes[side].client.getLogs({address: bridges[side], event: wormholeCoreAbi.find((item: any) => item.type === "event") as any, fromBlock, toBlock});
     for (const log of logs as any[]) {
       if (getAddress(log.args.sender) === sides[side].emitter && !cursor.pending.some((entry) => entry.side === side && entry.sequence === log.args.sequence.toString())) {
