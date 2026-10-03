@@ -32,39 +32,10 @@ import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 ///   manager verb that returns Operating Cash above the floor to Idle (it is the fund's money). Until spending exists,
 ///   the top-up serves nothing and could be disabled entirely on the hub.
 contract POC_OperatingCashFreeze is CoreVaultFixture {
-    function test_POC_operatingCashTopUpMovesFreeIdleIntoADeadBucket() public {
-        _deposit(alice, 100_000e6);
-        uint256 assetsBefore = vault.shareAssets();
-        assertEq(assetsBefore, SEED_IDLE + 99_750e6); // 25 bps flow fee left the fund
+    function test_REGRESSION_operatingCashTopUpMovesFreeIdleIntoADeadBucket() public {
+        vm.prank(manager);
+        vm.expectRevert(bytes4(keccak256("OperatingCashNotSupported()")));
+        vault.setOperatingCashParameters(type(uint256).max, type(uint256).max);
         assertEq(vault.operatingCash(), 0);
-
-        // The manager (or an agent with a bug) sets a top-up worth half the fund; nothing bounds it.
-        vm.prank(manager);
-        vault.setOperatingCashParameters(50_000e6, 50_000e6);
-
-        // Any routine operation executes the move: here a stranger's small deposit.
-        _deposit(bob, 1000e6);
-
-        // Half of the fund left Share Assets for good.
-        assertEq(vault.operatingCash(), 50_000e6);
-        uint256 assetsAfter = vault.shareAssets();
-        // What is left plus bob's net deposit, less his whole-share rounding at the halved price.
-        assertApproxEqAbs(assetsAfter, SEED_IDLE + 49_750e6 + 997_500_000, 1e6);
-        assertLt(assetsAfter, assetsBefore);
-
-        // Alice's full exit is priced at the reduced Share Assets: her 100,000 USDC deposit pays back under half.
-        ICoreVault.PayoutReceipt memory r = _request(alice, 200_000e6, ICoreVaultPayouts.PayoutMode.Instant);
-        assertEq(r.sharesBurned, 99_750e18);
-        assertLt(r.usdcGross, 50_000e6);
-        assertEq(r.usdcOutstanding, 0);
-        emit log_named_uint("alice paid for a 100,000 USDC deposit", r.usdcPaid);
-
-        // No verb returns Operating Cash to Idle: the ABI of the Core Vault has no such function, and the fund's own
-        // ledger keeps the amount out of everything sweepable. Resetting the parameters does not move it back either.
-        vm.prank(manager);
-        vault.setOperatingCashParameters(0, 0);
-        assertEq(vault.operatingCash(), 50_000e6); // DEC-144: the Payout Fee stays in Idle, never in this bucket
-        assertEq(vault.sweepExcess(address(usdc)), 0);
-        assertEq(usdc.balanceOf(address(vault)), vault.idle() + vault.operatingCash());
     }
 }

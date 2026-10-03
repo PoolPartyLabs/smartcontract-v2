@@ -23,10 +23,6 @@ contract FundSystemPoCTest is FundSystemFixture {
     function setUp() public {
         _deploySystem();
         // Operating Cash off, so every number below is exact.
-        vm.startPrank(manager);
-        sys.core.setOperatingCashParameters(0, 0);
-        sys.spokeVault.setOperatingCashParameters(0, 0);
-        vm.stopPrank();
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -154,51 +150,20 @@ contract FundSystemPoCTest is FundSystemFixture {
     /// DEC-096 / DEC-100 ("floor configurable by the Manager", "no protocol cap on the floor") with an uncapped top-up
     /// and no verb that spends or returns Operating Cash in the MVP: one parameter change and one 1-unit allocation
     /// move all Free Idle into Operating Cash, outside Share Assets, for good.
-    function test_POC_managerMovesAllFreeIdleIntoOperatingCash() public {
-        _deposit(ana, 100_250e6);
-        uint256 idle = sys.core.idle();
-        assertEq(idle, SYSTEM_SEED_IDLE + 99_999e6);
-
-        vm.startPrank(manager);
-        sys.core.setOperatingCashParameters(type(uint256).max, idle - 1);
-        sys.core.allocateToHubSpokeVault(1);
-        vm.stopPrank();
-
-        assertEq(sys.core.idle(), 0);
-        assertEq(sys.core.operatingCash(), idle - 1, "all Free Idle is Operating Cash now");
-        assertEq(sys.core.shareAssets(), 1, "Share Assets: one base unit");
-        assertEq(sys.core.sweepExcess(address(sys.usdc)), 0, "not sweepable: it is ledger value");
-
-        // Ana's 99,999 shares, bought for 99,999 USDC, are worth nothing: a payout burns them all and pays zero.
-        assertEq(ShareMath.usdcFor(sys.shares.balanceOf(ana), sys.core.sharePrice()), 0);
-        vm.startPrank(ana);
-        ICoreVault.PayoutReceipt memory receipt =
-            sys.core.requestPayout(99_999e6, ICoreVaultPayouts.PayoutMode.Instant, 0);
-        vm.stopPrank();
-        assertEq(receipt.sharesBurned, 99_999e18);
-        assertEq(receipt.usdcPaid, 0);
-        assertEq(sys.usdc.balanceOf(address(sys.core)), idle - 1, "while the USDC is still in the Core Vault");
+    function test_REGRESSION_managerMovesAllFreeIdleIntoOperatingCash() public {
+        vm.prank(manager);
+        vm.expectRevert(bytes4(keccak256("OperatingCashNotSupported()")));
+        sys.core.setOperatingCashParameters(type(uint256).max, type(uint256).max);
+        assertEq(sys.core.operatingCash(), 0);
     }
 
     /// The same on a spoke, where the top-up also runs on an arrival: after the manager's parameter change, a
     /// stranger's one-unit Across deposit is enough to move the whole Unallocated Balance into Operating Cash.
-    function test_POC_managerMovesAllSpokePrincipalIntoOperatingCash() public {
-        _fundWithSpokeBalance(50_000e6);
+    function test_REGRESSION_managerMovesAllSpokePrincipalIntoOperatingCash() public {
         vm.prank(manager);
+        vm.expectRevert(bytes4(keccak256("OperatingCashNotSupported()")));
         sys.spokeVault.setOperatingCashParameters(type(uint256).max, type(uint256).max);
-
-        sys.spokePool
-            .fill(
-                address(sys.spokeVault),
-                address(sys.usdg),
-                1,
-                abi.encode(uint256(1), FUND_ID, HUB, keccak256("any id"), TransferKind.Principal)
-            );
-        assertEq(sys.spokeVault.unallocatedBalance(address(sys.usdg)), 0);
-        assertEq(sys.spokeVault.operatingCash(), 50_000e6 + 1);
-        _report();
-        // Half of the fund left Share Assets for good (and the stranger's unit is deducted as unknown value, DEC-080).
-        assertEq(sys.core.shareAssets(), SYSTEM_SEED_IDLE + 99_999e6 - 50_000e6 - 1);
+        assertEq(sys.spokeVault.operatingCash(), 0);
     }
 
     // ---------------------------------------------------------------------------------------------------------------

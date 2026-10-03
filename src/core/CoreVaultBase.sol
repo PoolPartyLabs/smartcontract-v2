@@ -302,41 +302,12 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
     // Operating Cash (DEC-041, DEC-096, DEC-100, DEC-102)
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @inheritdoc ICoreVault
-    /// @dev DEC-096: the manager may adjust floor and top-up on a live fund; DEC-100: no protocol cap on the floor.
-    /// @dev Security review S-5 (open, SEC-OQ-2): without a cap the top-up can move Free Idle into Operating Cash, which
-    ///      nothing spends or returns in the MVP. The sweep's interim `releaseOperatingCash` was removed after the
-    ///      cross-check of 2026-10-01: a reversible sink let a manager depress the Share Price, have an ally mint at it
-    ///      and release the cash back to Share Assets (the ally took 19,900 for a 10,000 deposit). A release is safe only
-    ///      together with a cap on the floor and top-up, which is the founder's ruling.
-    function setOperatingCashParameters(uint256 floor, uint256 topUp) external onlyManager {
-        _s.operatingCashFloor = floor;
-        _s.operatingCashTopUp = topUp;
-        emit OperatingCashParametersSet(floor, topUp);
+    /// @notice Operating Cash is disabled in the MVP (ruling 2026-10-02, DEC-187).
+    function setOperatingCashParameters(uint256, uint256) external view onlyManager {
+        revert MandateLib.OperatingCashNotSupported();
     }
 
-    /// @notice DEC-096, DEC-100, DEC-041: when hub Operating Cash is below its floor, the value-moving operation that
-    ///         calls this tops it up by `operatingCashTopUp` from Free Idle (never the Payout Reserve, DEC-072). The
-    ///         top-up is an Operating Expense paid by Share Assets (accepted effect on Share Price, DEC-100).
-    /// @dev DEC-041 "insufficient cash" state (Core Vault verifier finding): `OperatingCashInsufficient` is emitted only
-    ///      when Free Idle cannot fund the whole top-up, i.e. Operating Cash stays unable to pay and the next expense
-    ///      falls through to Share Assets; a routine top-up emits only `OperatingCashToppedUp` and
-    ///      `OperatingExpensePaid`. The top-up is the only hub Operating Expense in the MVP (spending Operating Cash is
-    ///      OPEN, doc 30), so a short top-up is the only way cash can fail to pay.
-    function _topUpOperatingCash() internal {
-        uint256 cash = _s.operatingCash;
-        uint256 floor = _s.operatingCashFloor;
-        if (cash >= floor) return;
-        uint256 topUp = _s.operatingCashTopUp;
-        uint256 free = freeIdle();
-        uint256 amount = topUp > free ? free : topUp;
-        if (amount < topUp) emit OperatingCashInsufficient(cash, floor, amount);
-        if (amount == 0) return;
-        _s.idle -= amount;
-        _s.operatingCash = cash + amount;
-        emit OperatingCashToppedUp(amount, cash + amount);
-        emit OperatingExpensePaid(_hubChainId, address(0), OPERATING_CASH_TOP_UP, amount, ExpensePayer.ShareAssets);
-    }
+    function _topUpOperatingCash() internal pure {}
 
     // ---------------------------------------------------------------------------------------------------------------
     // Helpers

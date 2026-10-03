@@ -19,6 +19,7 @@ import {ISpokeVaultUnwind} from "../interfaces/ISpokeVaultUnwind.sol";
 import {ICoreVaultPayouts} from "../interfaces/ICoreVaultPayouts.sol";
 import {OrderCodec} from "../libraries/OrderCodec.sol";
 import {ClosureDust} from "../libraries/ClosureDust.sol";
+import {MandateLib} from "../mandate/Mandate.sol";
 
 /// @title SpokeCrossChainLib
 /// @notice The Spoke Chain half of the Spoke Vault: sends home, refund recognition, the hub-bound in-flight list and
@@ -308,22 +309,9 @@ library SpokeCrossChainLib {
         }
     }
 
-    /// @notice The Operating Cash top-up of a Spoke Chain (body of `SpokeVault._topUpOperatingCash`).
-    /// @dev DEC-096, DEC-100: below the floor, the next value-moving operation adds `operatingCashTopUp` (or what
-    ///      Unallocated Balance of the base token holds, if less) to Operating Cash; the Share Price drop is accepted.
-    ///      DEC-041: the expense is booked with its payer, Share Assets. Never reverts, so it never blocks an exit
-    ///      (DEC-056).
-    function topUpOperatingCash(SpokeVaultTypes.State storage s, address baseToken, uint256 chainId) external {
-        uint256 cash = s.operatingCash;
-        if (cash >= s.operatingCashFloor) return;
-        uint256 amount = Math.min(s.operatingCashTopUp, s.unallocated[baseToken]);
-        if (amount == 0) return;
-        s.unallocated[baseToken] -= amount;
-        s.operatingCash = cash + amount;
-        emit ISpokeVault.OperatingCashToppedUp(amount, cash + amount);
-        emit ISpokeVault.OperatingExpensePaid(
-            chainId, address(0), OPERATING_CASH_TOP_UP, amount, ExpensePayer.ShareAssets
-        );
+    /// @notice Reserved native Operating Cash hook; disabled in the MVP (ruling 2026-10-02, DEC-187).
+    function topUpOperatingCash(SpokeVaultTypes.State storage, address, uint256) external pure {
+        revert MandateLib.OperatingCashNotSupported();
     }
 
     // ---------------------------------------------------------------------------------------------------------------

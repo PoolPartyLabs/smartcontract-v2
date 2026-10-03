@@ -75,7 +75,7 @@ contract UnmatchedReturnLegPoC is AccessFundFixture {
         assertEq(core.unmatchedArrivals(), 0, "S-4: credited on the report after the outage");
         assertEq(core.idle(), SEED_IDLE + 198_750e6 + ARRIVES_HOME, "S-4: in Idle");
         // The spoke keeps the arrival less its 10 USDG Operating Cash top-up and the send home.
-        uint256 spokeLeft = ARRIVES - 10e6 - SENT_HOME;
+        uint256 spokeLeft = ARRIVES - SENT_HOME;
         assertEq(
             core.shareAssets(),
             SEED_IDLE + 198_750e6 + spokeLeft + ARRIVES_HOME,

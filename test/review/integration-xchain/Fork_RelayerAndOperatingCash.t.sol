@@ -114,88 +114,28 @@ contract Fork_RelayerAndOperatingCash is XChainBase {
 
     /// @notice STILL_PRESENT (S-5 open; one-way since the interim release verb was removed, S-63). One parameter change and a 1-unit allocation move all Free Idle but one unit into
     ///         hub Operating Cash; a reserved Standard request is then paid at the collapsed price.
-    function test_POC_REVIEW_H08_hubOperatingCashSinksFreeIdle() public {
+    function test_REGRESSION_REVIEW_H08_hubOperatingCashSinksFreeIdle() public {
         _createForks();
         _phase1CreateFund();
         _phase2AnaDeposits();
-        uint256 brunoShares = _depositAs(bruno, 10_000e6);
-        vm.prank(bruno);
-        core.requestPayout(5000e6, ICoreVaultPayouts.PayoutMode.Standard, 0);
-        uint256 free = core.freeIdle();
-        uint256 assets = core.shareAssets();
-
         vm.prank(manager);
-        core.setOperatingCashParameters(type(uint256).max, free - 1);
-        vm.prank(manager);
-        core.allocateToHubSpokeVault(1);
-        assertEq(core.operatingCash(), free - 1, "all Free Idle but one unit moved to Operating Cash");
-        assertEq(core.freeIdle(), 0);
-        assertEq(assets - core.shareAssets(), free - 1, "out of Share Assets");
-        assertEq(core.sweepExcess(ARB_USDC), 0, "ledger, so never swept");
-        vm.prank(manager);
-        core.setOperatingCashParameters(0, 0);
-        assertEq(core.operatingCash(), free - 1, "resetting the parameters returns nothing");
-
-        _advance(72 hours);
-        uint256 before = IERC20(ARB_USDC).balanceOf(bruno);
-        vm.prank(bruno);
-        ICoreVault.PayoutReceipt memory receipt = core.claimPayout(0);
-        _log("Free Idle sunk into hub Operating Cash", free - 1);
-        _log("shares burned for the reserved 5,000", receipt.sharesBurned);
-        _log("Bruno's shares before", brunoShares);
-        _log("Bruno received", IERC20(ARB_USDC).balanceOf(bruno) - before);
-        assertEq(receipt.sharesBurned, brunoShares, "paid at the collapsed price: all his shares burned");
-
-        // No verb returns it (the interim release was removed as S-63): the sink is one-way until a cap is ruled.
-        uint256 cash = core.operatingCash();
-        vm.prank(manager);
-        (bool released,) = address(core).call(abi.encodeWithSignature("releaseOperatingCash(uint256)", cash));
-        assertFalse(released, "no release verb");
-        assertEq(core.operatingCash(), cash);
+        vm.expectRevert(bytes4(keccak256("OperatingCashNotSupported()")));
+        core.setOperatingCashParameters(type(uint256).max, type(uint256).max);
+        assertEq(core.operatingCash(), 0);
     }
 
     /// @notice STILL_PRESENT (S-5 open). A stranger's real 1 USDC Across deposit and 1 USDG fill run the spoke's
     ///         top-up, which moves the whole principal into spoke Operating Cash; the next report drops it from Share
     ///         Assets and from the Spoke Cap, so the next full tranche can follow and sink too.
-    function test_POC_REVIEW_H08_spokeOperatingCashSinksThePrincipalAndFreesTheCap() public {
+    function test_REGRESSION_REVIEW_H08_spokeOperatingCashSinksThePrincipalAndFreesTheCap() public {
         _createForks();
         _phase1CreateFund();
         _phase2AnaDeposits();
-        _depositAs(bruno, 10_000e6);
-        _report(); // S-14
-        (, LiveRelayData memory out) = _sendToSpoke(BRIDGE_AMOUNT);
-        _fillOnRobinhood(out, relayer);
-        _report();
-        uint256 assets = core.shareAssets();
         _onRobinhood();
-        uint256 principal = spokeVault.unallocatedBalance(RH_USDG);
-
         vm.prank(manager);
+        vm.expectRevert(bytes4(keccak256("OperatingCashNotSupported()")));
         spokeVault.setOperatingCashParameters(type(uint256).max, type(uint256).max);
-        _strangerOneUsdgArrival(); // a stranger's real 1 USDG Across fill runs the top-up
-        assertEq(spokeVault.unallocatedBalance(RH_USDG), 0, "all Unallocated Balance moved");
-        assertEq(spokeVault.operatingCash(), SPOKE_OPERATING_CASH_TOP_UP + principal + 1e6);
-        vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(ISpokeVault.InsufficientUnallocatedBalance.selector, RH_USDG, 0, 1e6));
-        spokeVault.sendToHub(1e6, TransferKind.Principal, 0);
-        assertEq(spokeVault.sweepExcess(RH_USDG), 0, "ledger, never swept");
-
-        _report();
-        _log("Share Assets before", assets);
-        _log("Share Assets after the next report", core.shareAssets());
-        assertApproxEqAbs(assets - core.shareAssets(), principal, 1e6, "the spoke principal left Share Assets");
-        assertEq(_capUsed(), 0, "and the Spoke Cap reads empty");
-
-        // The manager sends the next full tranche; its own arrival sinks it too.
-        (, LiveRelayData memory again) = _sendToSpoke(BRIDGE_AMOUNT);
-        _fillOnRobinhood(again, relayer);
-        _report();
-        _onRobinhood();
-        _log("spoke Operating Cash (USDG)", spokeVault.operatingCash());
-        assertGt(spokeVault.operatingCash(), 2 * ARRIVES - 1e6, "twice the cap sunk");
-        _onArbitrum();
-        _log("Share Assets now", core.shareAssets());
-        assertEq(_capUsed(), 0);
+        assertEq(spokeVault.operatingCash(), 0);
     }
 
     // -----------------------------------------------------------------------------------------------------------------
@@ -209,27 +149,11 @@ contract Fork_RelayerAndOperatingCash is XChainBase {
     function test_REVIEW_S63_sinkWithoutReleaseHandsTheAllyNothing() public {
         _createForks();
         _phase1CreateFund();
-        _phase2AnaDeposits(); // Ana: 9,975 shares and the manager's 99 seed shares, Share Assets 10,074
-        address ally = makeAddr("managersAlly");
-
-        // 0.02 USDC of Share Assets left, about two base units per whole share: a mint is still priced (MM-3).
-        uint256 free = core.freeIdle();
-        vm.startPrank(manager);
-        core.setOperatingCashParameters(type(uint256).max, free - 20_000);
-        core.allocateToHubSpokeVault(1);
-        core.setOperatingCashParameters(0, 0);
-        vm.stopPrank();
-        assertEq(core.shareAssets(), 20_000, "0.02 USDC of Share Assets left");
-
-        uint256 allyShares = _depositAs(ally, 10_000e6);
-        uint256 cash = core.operatingCash();
+        _phase2AnaDeposits();
         vm.prank(manager);
-        (bool released,) = address(core).call(abi.encodeWithSignature("releaseOperatingCash(uint256)", cash));
-        assertFalse(released, "no release verb");
-
-        uint256 allyValue = ShareMath.usdcFor(allyShares, core.sharePrice());
-        _log("ally's value after its 10,000 deposit", allyValue);
-        assertLe(allyValue, 10_000e6, "the ally owns no more than it paid");
+        vm.expectRevert(bytes4(keccak256("OperatingCashNotSupported()")));
+        core.setOperatingCashParameters(type(uint256).max, type(uint256).max);
+        assertEq(core.operatingCash(), 0);
     }
 
     /// @notice FIXED (S-63). With the interim release, three cap-sized tranches sunk on arrival and then released left
@@ -239,25 +163,11 @@ contract Fork_RelayerAndOperatingCash is XChainBase {
         _createForks();
         _phase1CreateFund();
         _phase2AnaDeposits();
-        _depositAs(bruno, 20_000e6);
-        _report(); // S-14
         _onRobinhood();
         vm.prank(manager);
+        vm.expectRevert(bytes4(keccak256("OperatingCashNotSupported()")));
         spokeVault.setOperatingCashParameters(type(uint256).max, type(uint256).max);
-        _onArbitrum();
-        (, LiveRelayData memory out) = _sendToSpoke(SPOKE_CAP);
-        _fillOnRobinhood(out, relayer);
-        _report();
-        _onRobinhood();
-        uint256 cash = spokeVault.operatingCash();
-        vm.startPrank(manager);
-        spokeVault.setOperatingCashParameters(0, 0);
-        (bool released,) = address(spokeVault).call(abi.encodeWithSignature("releaseOperatingCash(uint256)", cash));
-        vm.stopPrank();
-        assertFalse(released, "no release verb");
-        _report();
-        (uint256 spokeValue,,, uint256 cap) = core.spokeCapUsage(0);
-        assertLe(spokeValue, cap, "the spoke never holds value above its cap");
+        assertEq(spokeVault.operatingCash(), 0);
     }
 
     /// @dev A stranger deposits 1 USDC on Arbitrum to the Spoke Vault with a fresh id and fills it on Robinhood.

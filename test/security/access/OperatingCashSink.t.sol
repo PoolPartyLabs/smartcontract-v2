@@ -35,71 +35,27 @@ import {AccessFundFixture} from "./AccessFundFixture.sol";
 ///         returns it to Idle or to Unallocated Balance (DEC-096 already says it belongs to shareholders at fund
 ///         close), for example a permissionless "release above floor" that moves `operatingCash - floor` back.
 contract OperatingCashSinkPoC is AccessFundFixture {
-    function test_POC_managerSinksFreeIdleIntoOperatingCash() public {
-        (IFundFactory.FundAddresses memory a,) = _createFund(_plan());
-        CoreVault core = CoreVault(a.coreVault);
-        _deposit(core, alice, 600_000e6);
-        _deposit(core, bob, 400_000e6);
-        uint256 idleBefore = core.idle();
-        assertEq(idleBefore, SEED_IDLE + 997_500e6, "both deposits, net of the flow fee, sit in Idle");
-        assertEq(core.sharePrice(), 1e24, "1.00 USDC per share");
-
-        // The manager: one setter call, then any guarded verb. Everything but 1 USDC of Free Idle becomes Operating
-        // Cash.
-        vm.startPrank(manager);
-        core.setOperatingCashParameters(type(uint256).max, idleBefore - 1e6);
-        core.allocateToHubSpokeVault(1e6);
-        vm.stopPrank();
-
-        assertEq(core.operatingCash(), idleBefore - 1e6, "997,499 USDC of customer money is now Operating Cash");
-        assertEq(core.idle(), 0);
-        assertEq(core.shareAssets(), 1e6, "Share Assets: the 1 USDC that reached the hub Spoke Vault");
-        assertLt(core.sharePrice(), uint256(1e24) / 900_000, "Share Price fell by more than 99.9998%");
-
-        // Nothing brings it back: not the manager lowering the parameters again, not the garbage collector.
+    function test_REGRESSION_managerSinksFreeIdleIntoOperatingCash() public {
+        (IFundFactory.FundAddresses memory addresses,) = _createFund(_plan());
+        CoreVault core = CoreVault(addresses.coreVault);
         vm.prank(manager);
-        core.setOperatingCashParameters(0, 0);
-        assertEq(core.sweepExcess(address(usdc)), 0, "Operating Cash is ledger value, never swept");
-        assertEq(core.operatingCash(), idleBefore - 1e6);
-
-        // Both shareholders exit in full. They burn every share and receive less than 1 USDC together.
-        uint256 alicePaid = _exitAll(core, alice);
-        uint256 bobPaid = _exitAll(core, bob);
-        assertLt(alicePaid + bobPaid, 1e6, "1,000,000 USDC deposited, under 1 USDC paid out");
-        assertEq(_shares(core, alice) + _shares(core, bob), 0, "no share is left");
-
-        // The customers' USDC is still in the Core Vault, owned by nobody, reachable by no function.
-        assertGe(core.operatingCash(), 997_499e6);
-        assertGe(_balance(usdc, address(core)), 997_499e6);
-        assertLt(core.shareAssets(), 1e6, "under 1 USDC of Share Assets is left");
+        vm.expectRevert(bytes4(keccak256("OperatingCashNotSupported()")));
+        core.setOperatingCashParameters(type(uint256).max, type(uint256).max);
+        assertEq(core.operatingCash(), 0);
     }
 
-    function test_POC_anyArrivalSinksSpokeUnallocatedBalanceIntoOperatingCash() public {
-        // The fund's spoke, created by the real spoke factory from the hub's Mandate.
+    function test_REGRESSION_anyArrivalSinksSpokeUnallocatedBalanceIntoOperatingCash() public {
         FundFactory spokeFactory = _spokeFactory();
         bytes32 fundId = spokeFactory.fundIdOf(HUB, 1, manager);
-        Mandate memory m = _buildMandate(spokeFactory, fundId, _plan());
+        Mandate memory mandate = _buildMandate(spokeFactory, fundId, _plan());
         vm.prank(manager);
-        IFundFactory.ChainAddresses memory c = spokeFactory.createSpoke(1, m, _spokeParams(MandateLib.hash(m), _plan()));
-        SpokeVault spoke = SpokeVault(c.spokeVault);
-
-        // 500,000 USDG of fund principal arrives from the hub (the Mandate's creation values top up 10 USDG).
-        _arrive(spoke, fundId, 500_000e6, keccak256("hub transit 1"));
-        assertEq(spoke.unallocatedBalance(address(usdg)), 499_990e6);
-        assertEq(spoke.operatingCash(), 10e6);
-
-        // One manager transaction...
+        IFundFactory.ChainAddresses memory addresses =
+            spokeFactory.createSpoke(1, mandate, _spokeParams(MandateLib.hash(mandate), _plan()));
+        SpokeVault spoke = SpokeVault(addresses.spokeVault);
         vm.prank(manager);
+        vm.expectRevert(bytes4(keccak256("OperatingCashNotSupported()")));
         spoke.setOperatingCashParameters(type(uint256).max, type(uint256).max);
-        // ...then any arrival, here a stranger's 1 USDG Across fill (Across passes no depositor, OQ-01).
-        _arrive(spoke, fundId, 1e6, keccak256("a stranger's dust"));
-
-        assertEq(spoke.unallocatedBalance(address(usdg)), 0, "the whole Unallocated Balance is gone");
-        assertEq(spoke.operatingCash(), 500_001e6, "frozen as Operating Cash: outside Share Assets, no exit");
-        assertEq(spoke.sweepExcess(address(usdg)), 0);
-        // The value report the hub prices Share Assets from now carries no principal for this spoke.
-        assertEq(spoke.buildReport().unallocated[0].amount, 0);
-        assertEq(spoke.buildReport().operatingCash, 500_001e6);
+        assertEq(spoke.operatingCash(), 0);
     }
 
     /// @dev An Instant Payout Request for everything `who` deposited, claimed at once; returns the USDC received.

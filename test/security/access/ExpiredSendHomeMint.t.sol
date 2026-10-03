@@ -29,7 +29,7 @@ contract ExpiredSendHomeMintPoC is AccessFundFixture {
     uint256 internal constant HOME_SEND = 299_000e6;
     uint256 internal constant HOME_ARRIVES = HOME_SEND - 239.2e6 - 30_000; // 298,760.77
     /// @dev What stays on the spoke: the arrival less the 10 USDG Operating Cash top-up and the send home.
-    uint256 internal constant SPOKE_LEFT = HUB_ARRIVES - 10e6 - HOME_SEND; // 749.97
+    uint256 internal constant SPOKE_LEFT = HUB_ARRIVES - HOME_SEND;
 
     /// @dev What the spoke chain produced, carried across the chain switch in memory.
     struct SpokeSide {

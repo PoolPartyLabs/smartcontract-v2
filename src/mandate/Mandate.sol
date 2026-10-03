@@ -61,8 +61,7 @@ struct BridgeAdapterConfig {
 }
 
 /// @notice Initial Operating Cash parameters of one chain, in the base units of the chain's base token.
-/// @dev DEC-096, DEC-100: per-chain floor and top-up; the manager may adjust them on a live fund, so the live values
-///      live in the vaults and these are only the creation values.
+/// @dev Ruling 2026-10-02, DEC-187: both values must be zero in the MVP; native Operating Cash is post-buildathon.
 struct OperatingCashConfig {
     uint256 chainId;
     uint256 floor;
@@ -180,6 +179,7 @@ library MandateLib {
     error BridgeAdapterSideInvalid(uint256 spokeChainId, uint256 chainId);
     error MissingBridgeAdapter(uint256 spokeChainId, uint256 chainId);
     error DuplicateOperatingCashChain(uint256 chainId);
+    error OperatingCashNotSupported();
     error BpsAboveMax(uint256 bps, uint256 maxBps);
     error BpsBelowMin(uint256 bps, uint256 minBps);
     error NoBridgeAdapter(uint256 spokeChainId, uint256 chainId, uint256 rank);
@@ -476,6 +476,7 @@ library MandateLib {
         for (uint256 i; i < m.operatingCash.length; ++i) {
             uint256 chainId = m.operatingCash[i].chainId;
             if (!isFundChain(m, chainId)) revert UnknownChain(chainId);
+            if (m.operatingCash[i].floor != 0 || m.operatingCash[i].topUp != 0) revert OperatingCashNotSupported();
             for (uint256 j; j < i; ++j) {
                 if (m.operatingCash[j].chainId == chainId) revert DuplicateOperatingCashChain(chainId);
             }

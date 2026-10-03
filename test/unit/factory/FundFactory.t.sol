@@ -127,8 +127,8 @@ contract FundFactoryTest is Test, FactoryDeployment, FundMandate, FundSeed {
         plan.spokePool = _poolKey(address(spokeWeth), address(usdg), 500, 10);
         plan.spokeCap = 1_000_000e6;
         plan.maxReportAge = 1588;
-        plan.spokeOperatingCashFloor = 5e6;
-        plan.spokeOperatingCashTopUp = 10e6;
+        plan.spokeOperatingCashFloor = 0;
+        plan.spokeOperatingCashTopUp = 0;
         plan.minFirstDeposit = 100e6;
         plan.performanceFeeBps = 2000;
     }

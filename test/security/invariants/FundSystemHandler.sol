@@ -400,6 +400,7 @@ contract FundSystemHandler is Test {
         floor = bound(floor, 0, 50e6);
         topUp = bound(topUp, 0, 20e6);
         vm.prank(s.manager);
+        vm.expectRevert(MandateLib.OperatingCashNotSupported.selector);
         if (onSpoke) s.spokeVault.setOperatingCashParameters(floor, topUp);
         else s.core.setOperatingCashParameters(floor, topUp);
         _observe();

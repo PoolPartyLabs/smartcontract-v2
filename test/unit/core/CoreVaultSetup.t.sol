@@ -122,85 +122,48 @@ contract CoreVaultSetupTest is CoreVaultFixture {
     // ---------------------------------------------------------------------------------------------------------------
 
     function test_DEC096_initialParametersFromMandate() public {
-        Mandate memory m = _mandate(2000);
-        m.operatingCash = new OperatingCashConfig[](1);
-        m.operatingCash[0] = OperatingCashConfig(HUB, 1e6, 3e6);
-        _deploy(m, _config(25));
-        assertEq(vault.operatingCashFloor(), 1e6);
-        assertEq(vault.operatingCashTopUp(), 3e6);
+        _deposit(alice, 5e6);
+        assertEq(vault.operatingCashFloor(), 0);
+        assertEq(vault.operatingCashTopUp(), 0);
     }
 
     function test_DEC096_parametersManagerOnly() public {
         vm.expectRevert(abi.encodeWithSelector(ICoreVault.NotManager.selector, address(this)));
         vault.setOperatingCashParameters(1e6, 3e6);
-        vm.expectEmit(address(vault));
-        emit ICoreVault.OperatingCashParametersSet(1e6, 3e6);
         vm.prank(manager);
+        vm.expectRevert(MandateLib.OperatingCashNotSupported.selector);
         vault.setOperatingCashParameters(1e6, 3e6);
     }
 
     function test_DEC096_belowFloorTopsUpFromShareAssetsOnNextOperation() public {
-        _deposit(alice, 1000e6);
-        vm.prank(manager);
-        vault.setOperatingCashParameters(1e6, 3e6);
-        uint256 idleBefore = vault.idle();
-        usdc.mint(bob, 100e6);
-        vm.startPrank(bob);
-        usdc.approve(address(vault), 100e6);
-        vm.expectEmit(address(vault));
-        emit ICoreVault.OperatingCashToppedUp(3e6, 3e6);
-        vm.expectEmit(address(vault));
-        emit ICoreVault.OperatingExpensePaid(
-            HUB, address(0), keccak256("OPERATING_CASH_TOP_UP"), 3e6, ExpensePayer.ShareAssets
-        );
-        (uint256 minted, uint256 charged) = vault.deposit(100e6, 0);
-        vm.stopPrank();
-        assertEq(vault.operatingCash(), 3e6);
-        // DEC-100: the top-up lowers Share Price before the entrant is priced (994 over 997 shares).
-        uint256 price = uint256(994e6) * 1e36 / 997e18;
-        assertEq(minted, ShareMath.sharesForDeposit(99.75e6, price));
-        assertEq(vault.idle(), idleBefore - 3e6 + charged - 0.25e6);
-        // Operating Cash is back at the floor: the next operation does not top up again.
-        _deposit(bob, 100e6);
-        assertEq(vault.operatingCash(), 3e6);
+        _deposit(alice, 5e6);
+        uint256 beforeIdle = vault.idle();
+        _deposit(bob, 5e6);
+        assertGt(vault.idle(), beforeIdle);
+        assertEq(vault.operatingCash(), 0);
     }
 
     function test_DEC041_routineTopUpIsNotInsufficientCash() public {
-        _deposit(alice, 1000e6);
+        _deposit(alice, 5e6);
         vm.prank(manager);
-        vault.setOperatingCashParameters(1e6, 3e6);
-        vm.recordLogs();
-        _deposit(bob, 100e6);
-        assertEq(vault.operatingCash(), 3e6);
-        Vm.Log[] memory logs = vm.getRecordedLogs();
-        for (uint256 i; i < logs.length; ++i) {
-            assertTrue(logs[i].topics[0] != ICoreVault.OperatingCashInsufficient.selector, "routine top-up");
-        }
+        vault.allocateToHubSpokeVault(1e6);
+        assertEq(vault.operatingCash(), 0);
     }
 
     function test_DEC041_shortTopUpIsInsufficientCash() public {
-        _deposit(alice, 1000e6);
+        _deposit(alice, 5e6);
         vm.prank(manager);
-        vault.allocateToHubSpokeVault(996e6 + SEED_IDLE); // Free Idle 1
-        vm.prank(manager);
+        vm.expectRevert(MandateLib.OperatingCashNotSupported.selector);
         vault.setOperatingCashParameters(5e6, 10e6);
-        _request(alice, 1e6, ICoreVaultPayouts.PayoutMode.Standard); // reserves the last unit
-        vm.warp(block.timestamp + 72 hours);
-        // Operating Cash 0, floor 5, top-up 10, Free Idle 0: cash cannot be restored.
-        vm.expectEmit(address(vault));
-        emit ICoreVault.OperatingCashInsufficient(0, 5e6, 0);
-        _claim(alice);
         assertEq(vault.operatingCash(), 0);
     }
 
     function test_DEC072_topUpNeverTakesThePayoutReserve() public {
         _deposit(alice, 1000e6);
-        _request(alice, 5000e6, ICoreVaultPayouts.PayoutMode.Standard); // reserves all Idle
+        _request(alice, 5000e6, ICoreVaultPayouts.PayoutMode.Standard);
         vm.prank(manager);
+        vm.expectRevert(MandateLib.OperatingCashNotSupported.selector);
         vault.setOperatingCashParameters(1e6, 3e6);
-        vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(ICoreVault.InsufficientFreeIdle.selector, 1, 0));
-        vault.allocateToHubSpokeVault(1);
         assertEq(vault.operatingCash(), 0);
         assertLe(vault.payoutReserve(), vault.idle());
     }
@@ -208,12 +171,9 @@ contract CoreVaultSetupTest is CoreVaultFixture {
     /// @dev DEC-144: the top-up is a logic of its own; the Payout Fee stays in Idle.
     function test_DEC144_payoutFeeStaysOutOfOperatingCash() public {
         _deposit(alice, 1000e6);
-        vm.prank(manager);
-        vault.setOperatingCashParameters(1e6, 3e6);
-        ICoreVault.PayoutReceipt memory r = _request(alice, 100e6, ICoreVaultPayouts.PayoutMode.Instant);
-        // Topped up 3 first (below floor); the 2% Payout Fee of the amount paid out stays in Idle.
-        assertEq(r.payoutFee, r.usdcGross * 200 / 10_000);
-        assertEq(vault.operatingCash(), 3e6);
+        ICoreVault.PayoutReceipt memory receipt = _request(alice, 100e6, ICoreVaultPayouts.PayoutMode.Instant);
+        assertEq(receipt.payoutFee, receipt.usdcGross * 200 / 10_000);
+        assertEq(vault.operatingCash(), 0);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -259,11 +219,9 @@ contract CoreVaultSetupTest is CoreVaultFixture {
 
     function test_DEC098_grossAssetsAddsCashAndIncome() public {
         _deposit(alice, 1000e6);
-        _hubIncomeCollected(address(usdc), 100e6); // 80 net to holders at 20% performance
+        _hubIncomeCollected(address(usdc), 100e6);
         hubVault.setPositionIncome(7e6);
-        vm.prank(manager);
-        vault.setOperatingCashParameters(1e6, 2e6);
         _request(alice, 10e6, ICoreVaultPayouts.PayoutMode.Instant);
-        assertEq(vault.grossAssets(), vault.shareAssets() + vault.operatingCash() + 80e6 + 7e6);
+        assertEq(vault.grossAssets(), vault.shareAssets() + 80e6 + 7e6);
     }
 }

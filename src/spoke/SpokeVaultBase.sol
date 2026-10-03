@@ -247,13 +247,6 @@ abstract contract SpokeVaultBase is ISpokeVault, ReentrancyGuard {
         });
     }
 
-    /// @dev DEC-096, DEC-100: below the floor, the next value-moving operation adds `operatingCashTopUp` (or what
-    ///      Unallocated Balance of the base token holds, if less) to Operating Cash; the Share Price drop is accepted.
-    ///      DEC-041: the expense is booked with its payer, Share Assets. Spoke Chains only (on the hub, Operating Cash
-    ///      lives in the Core Vault). Never reverts, so it never blocks an exit (DEC-056).
-    function _topUpOperatingCash() internal {
-        if (!onHubChain && !_s.unwind.closed && _s.unwind.reservedBase == 0) {
-            SpokeCrossChainLib.topUpOperatingCash(_s, baseToken, chainId);
-        }
-    }
+    /// @notice Reserved native Operating Cash hook; disabled in the MVP (ruling 2026-10-02, DEC-187).
+    function _topUpOperatingCash() internal pure {}
 }

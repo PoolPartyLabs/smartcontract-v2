@@ -282,17 +282,12 @@ contract CoreVaultClosureTest is CoreVaultFixture {
     }
 
     function test_DEC096_operatingCashReturnsToFrozenIdle() public {
-        _deposit(alice, 1000e6);
+        _deposit(alice, 5e6);
         vm.prank(manager);
+        vm.expectRevert(bytes4(keccak256("OperatingCashNotSupported()")));
         vault.setOperatingCashParameters(1e6, 10e6);
-        _deposit(bob, 1000e6);
-        assertEq(vault.operatingCash(), 10e6);
-        uint256 available = vault.idle() + vault.operatingCash();
-        uint256 supply = shares.totalSupply();
-        uint256 managerGross = Math.mulDiv(shares.balanceOf(manager), available, supply);
         _ready();
         vault.finalizeClosure();
-        assertEq(vault.closedIdle(), available - managerGross);
         assertEq(vault.operatingCash(), 0);
         assertEq(vault.operatingCashTopUp(), 0);
     }

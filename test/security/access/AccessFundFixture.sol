@@ -176,8 +176,8 @@ abstract contract AccessFundFixture is Test, FactoryDeployment, FundMandate, Fun
         plan.spokePool = _poolKey(address(spokeWeth), address(usdg), 500, 10);
         plan.spokeCap = 1_000_000e6;
         plan.maxReportAge = MAX_REPORT_AGE;
-        plan.spokeOperatingCashFloor = 5e6;
-        plan.spokeOperatingCashTopUp = 10e6;
+        plan.spokeOperatingCashFloor = 0;
+        plan.spokeOperatingCashTopUp = 0;
         plan.minFirstDeposit = FIXTURE_MIN_FIRST_DEPOSIT;
         plan.performanceFeeBps = 2000;
         // DEC-127: the manager seeds one share at creation (FundSeed).

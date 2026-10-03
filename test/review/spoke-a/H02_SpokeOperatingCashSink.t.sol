@@ -20,52 +20,21 @@ contract H02_SpokeOperatingCashSink is SpokeVaultTestBase {
     }
 
     /// @dev Pin (STILL_PRESENT): unbounded parameters and a stranger-triggered top-up sink all spoke principal.
-    function test_POC_REVIEW_H08_managerMovesAllSpokePrincipalIntoOperatingCash() public {
-        _sink();
-
-        // The next report carries no principal for the hub's Share Assets (Operating Cash is Gross Assets only).
-        ReportCodec.Report memory r = vault.buildReport();
-        assertEq(r.unallocated[0].token, address(usdg));
-        assertEq(r.unallocated[0].amount, 0);
-        assertEq(r.operatingCash, 100_000e6 + 1);
-
-        // The sweep counts it as ledger, a send home finds no Unallocated Balance, and resetting the parameters alone
-        // leaves the cash where it is.
-        assertEq(vault.sweepExcess(address(usdg)), 0);
-        _willArrive(1e6);
+    function test_REGRESSION_REVIEW_H08_managerMovesAllSpokePrincipalIntoOperatingCash() public {
         vm.prank(manager);
-        vm.expectRevert(
-            abi.encodeWithSelector(ISpokeVault.InsufficientUnallocatedBalance.selector, address(usdg), 0, 1e6)
-        );
-        vault.sendToHub(1e6, TransferKind.Principal, 0);
-        vm.prank(manager);
-        vault.setOperatingCashParameters(0, 0);
-        assertEq(vault.operatingCash(), 100_000e6 + 1);
-
-        // While the parameters stay at max, every later hub-to-spoke arrival is swallowed on arrival.
-        vm.prank(manager);
+        vm.expectRevert(bytes4(keccak256("OperatingCashNotSupported()")));
         vault.setOperatingCashParameters(type(uint256).max, type(uint256).max);
-        _arrive(50_000e6, keccak256("hub send 2"), TransferKind.Principal);
-        assertEq(vault.unallocatedBalance(address(usdg)), 0);
-        assertEq(vault.operatingCash(), 150_000e6 + 1);
-        console2.log("spoke Operating Cash (USDG, 1e6)", vault.operatingCash());
+        assertEq(vault.operatingCash(), 0);
     }
 
     /// @dev The sweep's interim release verb was removed on 2026-10-01 (S-63: a reversible sink let a manager and an
     ///      ally extract the fund). The sink is one-way again until the founder rules on a cap (SEC-OQ-2): nothing
     ///      returns the cash, and the report keeps it out of the spoke's principal.
     function test_REVIEW_H08_noVerbReturnsTheSinkSinceS63() public {
-        _sink();
-        uint256 cash = vault.operatingCash();
-        vm.startPrank(manager);
-        vault.setOperatingCashParameters(SPOKE_FLOOR, SPOKE_TOP_UP);
-        (bool released,) =
-            address(vault).call(abi.encodeWithSignature("releaseOperatingCash(uint256)", cash - SPOKE_FLOOR));
-        vm.stopPrank();
-        assertFalse(released, "no release verb");
-        assertEq(vault.operatingCash(), cash);
-        ReportCodec.Report memory r = vault.buildReport();
-        assertEq(r.unallocated[0].amount, 0, "the principal stays outside the report");
+        vm.prank(manager);
+        vm.expectRevert(bytes4(keccak256("OperatingCashNotSupported()")));
+        vault.setOperatingCashParameters(type(uint256).max, type(uint256).max);
+        assertEq(vault.operatingCash(), 0);
     }
 
     function _sink() internal {
