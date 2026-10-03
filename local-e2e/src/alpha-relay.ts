@@ -2,7 +2,7 @@ import {type Abi, type Address, type Hex} from "viem";
 import {orderChannelAbi, valueReportReceiverAbi, wormholeCoreAbi} from "./abis.ts";
 
 type Side = "hub" | "spoke";
-export interface AlphaMessage {side: Side; sequence: string; payload: Hex}
+export interface AlphaMessage {side: Side; sequence: string; payload: Hex; attempts?: number; retryAt?: number}
 interface RelayDependencies {
   sides: Record<Side, {wormhole: number; emitter: Address}>;
   bridges: Record<Side, Address>;
@@ -51,13 +51,22 @@ export async function drainAlphaPending(
   deliver: (message: AlphaMessage) => Promise<boolean>,
   save: () => void,
   onError: (message: AlphaMessage) => void,
+  now?: number,
 ) {
   for (const message of [...cursor.pending]) {
+    if (now !== undefined && (message.retryAt ?? 0) > now) continue;
+    let completed = false;
     try {
       if (await deliver(message)) {
         cursor.pending = cursor.pending.filter((entry) => entry !== message);
         save();
+        completed = true;
       }
     } catch {onError(message);}
+    if (!completed && now !== undefined) {
+      message.attempts = (message.attempts ?? 0) + 1;
+      message.retryAt = now + Math.min(60000, 1000 * 2 ** Math.min(message.attempts, 6));
+      save();
+    }
   }
 }

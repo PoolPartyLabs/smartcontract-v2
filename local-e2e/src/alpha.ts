@@ -11,6 +11,7 @@ import {coreVaultAbi, spokeVaultAbi, valueReportReceiverAbi, wormholeCoreAbi} fr
 import {ROUTE_TYPES, encodeRoute, legsHash} from "./swap-route.ts";
 import {actors, guardian} from "./config.ts";
 import {createAlphaDelivery, drainAlphaPending, type AlphaMessage} from "./alpha-relay.ts";
+import {drainAlphaWork, type AlphaWork} from "./alpha-work.ts";
 
 function required(name: string): string {
   const value = process.env[name];
@@ -101,9 +102,10 @@ if (mode === "api") {
 }
 
 type Message = AlphaMessage;
-interface Cursor {core: Address; spokeVault: Address; hub: string; spoke: string; pending: Message[]; lastReport: number}
-const initial: Cursor = {core, spokeVault: spoke, hub: required("ALPHA_HUB_START_BLOCK"), spoke: required("ALPHA_SPOKE_START_BLOCK"), pending: [], lastReport: 0};
+interface Cursor {core: Address; spokeVault: Address; hub: string; spoke: string; pending: Message[]; work: AlphaWork[]; lastReport: number}
+const initial: Cursor = {core, spokeVault: spoke, hub: required("ALPHA_HUB_START_BLOCK"), spoke: required("ALPHA_SPOKE_START_BLOCK"), pending: [], work: [], lastReport: 0};
 let cursor: Cursor = existsSync(stateFile) ? JSON.parse(readFileSync(stateFile, "utf8")) : initial;
+cursor.work ??= [];
 if (cursor.core !== core || cursor.spokeVault !== spoke) throw new Error("Cursor belongs to another fund");
 function save() {
   mkdirSync(dirname(stateFile), {recursive: true});
@@ -132,6 +134,24 @@ if (process.env.ALPHA_REHEARSAL_LOCAL_VAA === "1") {
   };
 }
 const deliver = createAlphaDelivery({sides, bridges, receiver, spoke, vaaBase, read, send, fetchVaa});
+
+async function resolveTransit(work: AlphaWork) {
+  const transit = await read("spoke", spoke, "hubBoundTransit", [work.transitId], spokeVaultAbi);
+  if (Number(transit.state) === 2 || Number(transit.state) === 4) return true;
+  const events = await nodes.hub.client.getLogs({address: core, event: coreVaultAbi.find((entry: any) => entry.name === "TransitReceived") as any,
+    fromBlock: BigInt(required("ALPHA_HUB_START_BLOCK")), toBlock: (await nodes.hub.client.getBlock({blockTag: process.env.ALPHA_REHEARSAL_LOCAL_VAA === "1" ? "latest" : "finalized"})).number!});
+  const credited = (events as any[]).filter((entry) => entry.args.transitId === work.transitId && entry.args.originChainId === 4663n && entry.args.matched)
+    .reduce((total, entry) => total + entry.args.amount, 0n);
+  if (credited < BigInt(work.expected)) return false;
+  if (work.kind === 1) return true;
+  if (!work.acknowledged) {
+    const fee = await read("hub", bridges.hub, "messageFee", [], wormholeCoreAbi);
+    await send("hub", core, coreVaultAbi, "acknowledgeSpokeTransit", [0n, work.transitId], fee);
+    work.acknowledged = true;
+    save();
+  }
+  return false;
+}
 
 async function publish(): Promise<Message> {
   const fee = await read("spoke", bridges.spoke, "messageFee", [], wormholeCoreAbi);
@@ -164,8 +184,15 @@ async function keeperTick() {
     if (side === "hub") {
       const transfers = await nodes.hub.client.getLogs({address: share, event: parseAbi(["event Transfer(address indexed from, address indexed to, uint256 value)"])[0] as any, fromBlock, toBlock});
       balanceChanged ||= transfers.some((log: any) => log.args.from === zeroAddress || log.args.to === zeroAddress);
+    } else {
+      const transits = await nodes.spoke.client.getLogs({address: spoke, event: spokeVaultAbi.find((entry: any) => entry.name === "SentToHub") as any, fromBlock, toBlock});
+      for (const log of transits as any[]) {
+        if (!cursor.work.some((work) => work.transitId === log.args.transitId)) cursor.work.push({transitId: log.args.transitId,
+          kind: Number(log.args.transit.kind), expected: log.args.transit.amountToArrive.toString(), attempts: 0, retryAt: 0});
+      }
     }
     cursor[side] = (toBlock + 1n).toString();
+    save();
   }
   if (balanceChanged || Date.now() - cursor.lastReport >= reportSeconds * 1000) {
     await publish();
@@ -174,7 +201,8 @@ async function keeperTick() {
   save();
   await drainAlphaPending(cursor, deliver, save, (message) => {
     console.error(`Relay pending: ${message.side} sequence ${message.sequence}; inspect VAA/expiry and fund state.`);
-  });
+  }, Date.now());
+  await drainAlphaWork(cursor, resolveTransit, save);
 }
 
 async function route(input: any) {
@@ -210,7 +238,11 @@ async function route(input: any) {
 
 if (mode === "keeper") {
   while (true) {
-    try {await keeperTick();} catch {console.error("Alpha keeper tick failed; inspect on-chain state before retrying.");}
+    try {await keeperTick();} catch {
+      console.error("Alpha keeper tick failed; inspect on-chain state before retrying.");
+      await drainAlphaPending(cursor, deliver, save, () => {}, Date.now());
+      await drainAlphaWork(cursor, resolveTransit, save);
+    }
     await new Promise((done) => setTimeout(done, pollMs));
   }
 } else {
