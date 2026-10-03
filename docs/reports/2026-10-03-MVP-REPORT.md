@@ -2,21 +2,24 @@
 
 ## Executive status and evidence boundary
 
-**Code measured:** merged main `7cea87d`, including PR #24 and shared result-encoder PR #25.
+**Code measured:** merged main `334eae6` (October 3, 2026), including PR #24/#25/#26/#28/#29;
+merged into this docs branch as `8e5755b`. #30 is OPEN at `c36da24`: DEC-145 is
+**in PR #30, landing before the deploy**, not implemented on this measured main.
 This WP-19b update is docs only: no executable, compiler, fixture, ABI or deployment change. Fresh validation
 runs in this worktree against that merged contract tree. The completed PR #24 lifecycle is reported in section 7
 with its own executed SHA; it is not a mainnet broadcast or a conformance certificate.
 
-**Fresh local results:** 1,433 non-fork tests in 183 suites; 222 fork tests in 56 suites; zero failures/skips.
+**Fresh local results:** 1,548 non-fork tests in 190 suites; 227 fork tests in 57 suites; zero failures/skips.
 The 3/3 size tests are included in the non-fork total, not three additional tests. Every listed production
-contract/linked library fits 24,576 bytes. Tightest: SpokeUnwindLib 23,449 bytes, **1,127 bytes headroom**.
-No margin below 1,000; that library is only 127 bytes above the warning threshold.
+contract/linked library fits 24,576 bytes. Tightest: SpokeVault 22,907 bytes, **1,669 bytes headroom**.
+No margin below 1,000; the complete fresh 24-executable inventory is in section 5.
 
-**End-to-end:** PASS, 55 steps / 319 assertions, 103 receipts, 6 real fills / 0 simulated, API 31 concepts.
+**Historical PR #24 end-to-end:** PASS, 55 steps / 319 assertions, 103 receipts, 6 real fills / 0 simulated, API 31 concepts.
 Zero conservation residual; 6.577616-USDC bridge costs and 0.000008-USDC ledgered dust remain explicit.
-**Conformance:** B-01..B-03 and G-05 require the separate fix PR; G-01/DEC-145 awaits founder disposition.
+**Conformance:** merged #28 resolves B-01/B-02/B-03/G-05; DEC-145 is in PR #30, landing before the deploy.
 G-02/G-03/G-04/G-06/G-07 are accepted for internal alpha only (section 8), not full-spec conformance.
-Manual Principal returns are forbidden until the separate `sendToHub` acknowledgement fix lands.
+Merged #29 ships report v5, manual Principal ACKs and **64 shared send slots with acknowledgement-driven reuse**.
+Its committed replay has **56 steps / 326 assertions**, zero residual (distinct from #24’s historical figures).
 
 **Readiness:** feature-complete for the landed proportional unwind, dollar income, spoke orders and closure
 scope, subject to explicit deferrals/limitations. Internal alpha preparation is not a public release, external
@@ -54,10 +57,12 @@ DEC-187 (manager pays own gas) are Slack-only. [DECISIONS](../DECISIONS.md) maps
 | DEC-133/134/159/160/187 | CI fork isolation, harness/API ports and secret redaction, alpha rehearsal/checker/executable verification manifest, funded runtime roles; no actual production broadcast | [#8](https://github.com/PoolPartyLabs/smartcontract-v2/pull/8), [#9](https://github.com/PoolPartyLabs/smartcontract-v2/pull/9), [#11](https://github.com/PoolPartyLabs/smartcontract-v2/pull/11), [#16](https://github.com/PoolPartyLabs/smartcontract-v2/pull/16), [#20](https://github.com/PoolPartyLabs/smartcontract-v2/pull/20) |
 | DEC-111..187 documentation | English merged-code status digest and explicit deferrals, without claiming standalone libraries/stubs as completed features | [#17](https://github.com/PoolPartyLabs/smartcontract-v2/pull/17) |
 
-GitHub metadata was freshly queried with `gh pr list --state merged --limit 100 --json number,title,url,mergedAt,mergeCommit,body`.
+GitHub metadata and every review/fix comment on #24/#25/#26/#28/#29/#30 were freshly queried using
+`gh pr view <number> --comments` and `--json number,state,mergedAt,mergeCommit,headRefOid,comments`.
 #18/#19 landed through #23; #22 landed through the containing #21 rather than a separate conflicting merge.
-PR #24 was still **OPEN / draft**, head `b10f60b2b7ad24aecb0ba6c34171f31dd1ccac05`, when checked on October 3.
-This report does not claim its stale “deployment blocked” title describes current main: #21 fixed nested linking.
+PR #24 **MERGED on October 3, 2026 at 01:03:52 UTC**, merge `7cea87d`. #25 merged at 00:13:31 UTC
+(`2b04b28`); #26 at 01:48:46 UTC (`096df96`); #28 at 01:49:57 UTC (`e90e6a6`); #29 at 03:17:51 UTC
+(`334eae6`). #30 remains OPEN at `c36da24`; its evidence is not counted in this measured main run.
 
 ## 3. Review history: findings caught, fixes and residuals
 
@@ -97,9 +102,16 @@ Internal September 30 sweep/model reports remain historical, not release certifi
 3 then awaiting decisions, 25 acknowledged. Current disclosure is [KNOWN-LIMITATIONS](../security/KNOWN-LIMITATIONS.md).
 No public-audit claim follows from independent agent reviews.
 
+| [#24](https://github.com/PoolPartyLabs/smartcontract-v2/pull/24) | Rounds 1–2. [comment 1](https://github.com/PoolPartyLabs/smartcontract-v2/pull/24#issuecomment-5963513579); [comment 2](https://github.com/PoolPartyLabs/smartcontract-v2/pull/24#issuecomment-5963781347); [comment 3](https://github.com/PoolPartyLabs/smartcontract-v2/pull/24#issuecomment-5963829282) | Round 1: report-before-fill/temporary-send failures lost Principal ACK retries; arbitrary outflow could be hidden as strategy P&L. Durable ACK retries and independently measured position P&L/conservation fixed both. Round 2 approved ONLY the fix/regression scope, not a new full contract-conformance audit. |
+| [#25](https://github.com/PoolPartyLabs/smartcontract-v2/pull/25) | One orchestrator check; no numbered independent round. [comment 1](https://github.com/PoolPartyLabs/smartcontract-v2/pull/25#issuecomment-5963485898) | Approved the one-line shared-result encoder fix from #21 round-3 L-1 with append/refund/retirement/CLOSE regression; CI green. |
+| [#26](https://github.com/PoolPartyLabs/smartcontract-v2/pull/26) | Rounds 1–3 plus fix replies; no final numbered approval comment visible. [comment 1](https://github.com/PoolPartyLabs/smartcontract-v2/pull/26#issuecomment-5963535568); [comment 2](https://github.com/PoolPartyLabs/smartcontract-v2/pull/26#issuecomment-5963760912); [comment 3](https://github.com/PoolPartyLabs/smartcontract-v2/pull/26#issuecomment-5963839481); [comment 4](https://github.com/PoolPartyLabs/smartcontract-v2/pull/26#issuecomment-5963911614); [comment 5](https://github.com/PoolPartyLabs/smartcontract-v2/pull/26#issuecomment-5963975875); [comment 6](https://github.com/PoolPartyLabs/smartcontract-v2/pull/26#issuecomment-5964048024) | Round 1: credential leakage, oversized alpha rehearsal/sub-minimum Income assumptions, incomplete executable runbook, stale executable/seed-minimum facts. Round 2: parenthesized URL redaction leakage and submitted hashes lost on receipt errors. Round 3: unsupported/encoded/Unicode host fallback retained userinfo. Fix replies record fail-closed authority stripping/regressions, fsynced journal/reconciliation, alpha-sized executable smoke and verification inventory. Merged status does not establish a separately visible round-4 approval. |
+| [#28](https://github.com/PoolPartyLabs/smartcontract-v2/pull/28) | Rounds 1–2. [comment 1](https://github.com/PoolPartyLabs/smartcontract-v2/pull/28#issuecomment-5964072863); [comment 2](https://github.com/PoolPartyLabs/smartcontract-v2/pull/28#issuecomment-5964132093); [comment 3](https://github.com/PoolPartyLabs/smartcontract-v2/pull/28#issuecomment-5964163311) | Round 1: B-02 late Principal dust finalized but stayed ledgered/unsweepable. Arrival-path exclusion preserves credits and permits sweeping without a second CLOSE. Round 2 approved ONLY that fix commit/regression, including the two-fork ordinary-report-after-late-arrival case. B-01/B-03/G-05 checks recorded in round 1. |
+| [#29](https://github.com/PoolPartyLabs/smartcontract-v2/pull/29) | Rounds 1–2. [comment 1](https://github.com/PoolPartyLabs/smartcontract-v2/pull/29#issuecomment-5964522295); [comment 2](https://github.com/PoolPartyLabs/smartcontract-v2/pull/29#issuecomment-5964615006); [comment 3](https://github.com/PoolPartyLabs/smartcontract-v2/pull/29#issuecomment-5964841756); [comment 4](https://github.com/PoolPartyLabs/smartcontract-v2/pull/29#issuecomment-5964911497) | Round 1: alpha keeper silently completed Income work without ACK, exhausting slots. Durable all-kind work stays until terminal spoke confirmation; retry/republish, 65 on-chain collection sends and 130-send runtime regressions, snapshot rollback and mined mint-price assertions. Round 2 approved the fix scope and independently reproduced default warm-up/replay and alpha Income/manual slot release. |
+| [#30](https://github.com/PoolPartyLabs/smartcontract-v2/pull/30) | Rounds 1–2 plus fix replies; pending landing. [comment 1](https://github.com/PoolPartyLabs/smartcontract-v2/pull/30#issuecomment-5964884845); [comment 2](https://github.com/PoolPartyLabs/smartcontract-v2/pull/30#issuecomment-5965066647); [comment 3](https://github.com/PoolPartyLabs/smartcontract-v2/pull/30#issuecomment-5965106507); [comment 4](https://github.com/PoolPartyLabs/smartcontract-v2/pull/30#issuecomment-5965160148) | Round 1 high: activated waiting-lot settlement exceeded transaction gas, blocking withdrawals/live/Closed exits. Fixed with shared 64-token-operation budget, persisted checkpoints and permissionless continuation. Round 2 reproduced 2,038,401 gas in 90 calls and verified settlement, but found medium: test-only SettlementCoreVault 31,536 B broke exact size build/CI. Fix c36da24 links history preparation into a test library, fixture 22,927 B / 1,649 margin; clean exact build/regressions pass in fix reply, production unchanged. No later independent approving comment visible; not merged-main evidence. |
+
 ## 4. Fresh verification and reproducibility
 
-Measured October 3 in this docs worktree after merging origin/main `7cea87d`, with shared dependency/RPC
+Measured October 3 in this docs worktree after merging origin/main `334eae6`, with shared dependency/RPC
 configuration and no source edits.
 Foundry **1.7.1**, commit `4072e48705af9d93e3c0f6e29e93b5e9a40caed8`; Solidity **0.8.28**, optimizer **800**,
 `via_ir = false`, Cancun. Default fuzz 512; invariants 256 runs/depth 32. No statistical gas confidence interval implied.
@@ -115,8 +127,8 @@ forge test --match-path 'test/{fork/**,review/**/*Fork*}' -j 4
 
 | Run | Suites | Passed | Failed | Skipped |
 |---|---:|---:|---:|---:|
-| Non-fork, including size | 183 | 1,433 | 0 | 0 |
-| Fork including review Fork suites | 56 | 222 | 0 | 0 |
+| Non-fork, including size | 190 | 1,548 | 0 | 0 |
+| Fork including review Fork suites | 57 | 227 | 0 | 0 |
 | Size, separately rerun (already included above) | 1 | 3 | 0 | 0 |
 | Historical f88b25b unit gas suites (repeated subset) | 9 | 198 | 0 | 0 |
 | Historical f88b25b fork gas suites (repeated subset) | 4 | 5 | 0 | 0 |
@@ -133,13 +145,70 @@ this local report uses the fixed archive pins, not an assertion of identical pro
 
 ### Counts per suite from the fresh run
 
-The merged encoder regression adds one test to `SpokeUnwindRoundTwoTest` (24 -> 25); all other suite counts
-are unchanged from the earlier f88b25b measurement. Gas subsets in section 6 remain historical measurements.
+Every row below is regenerated from the fresh merged-branch run, including conformance and manual/Income
+ACK regressions. Gas subsets in section 6 remain explicitly historical measurements.
 
 These are executed test counts, not declared-function counts (fuzz/invariant runs do not inflate test totals).
 
 | Category | File : suite | Passed |
 |---|---|---:|
+| fork | `test/fork/aave/AaveV3Adapter.fork.t.sol:AaveV3AdapterForkTest` | 7 |
+| fork | `test/fork/aave/AaveV3AdapterAdversarial.fork.t.sol:AaveV3AdapterAdversarialForkTest` | 3 |
+| fork | `test/fork/across/AcrossBridgeAdapter.fork.t.sol:AcrossBridgeAdapterForkTest` | 7 |
+| fork | `test/fork/across/AcrossFeeRuleLive.fork.t.sol:AcrossFeeRuleLiveForkTest` | 4 |
+| fork | `test/fork/across/AcrossFill.fork.t.sol:AcrossFillForkTest` | 4 |
+| fork | `test/fork/across/AcrossSpokePoolReadability.fork.t.sol:AcrossSpokePoolReadabilityForkTest` | 15 |
+| fork | `test/fork/closure/FundClosure.fork.t.sol:FundClosureForkTest` | 1 |
+| fork | `test/fork/closure/SpokeClosure.fork.t.sol:SpokeClosureForkTest` | 2 |
+| fork | `test/fork/core/CoreVaultAcross.t.sol:CoreVaultAcrossForkTest` | 2 |
+| fork | `test/fork/e2e/EndToEnd.t.sol:EndToEndForkTest` | 1 |
+| fork | `test/fork/e2e/EndToEndAdversarial.t.sol:EndToEndAdversarialForkTest` | 3 |
+| fork | `test/fork/e2e/SpokeUnwindOrder.fork.t.sol:SpokeUnwindOrderForkTest` | 1 |
+| fork | `test/fork/factory/AlphaDeploymentCheckFork.t.sol:AlphaDeploymentCheckForkTest` | 1 |
+| fork | `test/fork/factory/FactoryWiringCheckFork.t.sol:FactoryWiringCheckForkTest` | 3 |
+| fork | `test/fork/factory/FundFactoryFork.t.sol:FundFactoryForkTest` | 3 |
+| fork | `test/fork/receiver/ChainlinkPriceSourceFork.t.sol:ChainlinkPriceSourceForkTest` | 2 |
+| fork | `test/fork/receiver/ValueReportReceiverFork.t.sol:ValueReportReceiverForkTest` | 8 |
+| fork | `test/fork/security/SpotCompositionInflation.t.sol:SpotCompositionInflationForkTest` | 1 |
+| fork | `test/fork/spoke/ManualSendAcknowledgement.fork.t.sol:ManualSendAcknowledgementForkTest` | 4 |
+| fork | `test/fork/spoke/ProportionalUnwind.fork.t.sol:ProportionalUnwindForkTest` | 2 |
+| fork | `test/fork/spoke/SpokeVaultArbitrumFork.t.sol:SpokeVaultArbitrumForkTest` | 3 |
+| fork | `test/fork/spoke/SpokeVaultRobinhoodFork.t.sol:SpokeVaultRobinhoodForkTest` | 3 |
+| fork | `test/fork/spoke/SwapAdapterVault.fork.t.sol:SwapAdapterVaultFork` | 5 |
+| fork | `test/fork/swap/UniswapV3SwapAdapter.fork.t.sol:UniswapV3SwapAdapterForkTest` | 27 |
+| fork | `test/fork/swap/V3ApiRoute.fork.t.sol:V3ApiRouteForkTest` | 3 |
+| fork | `test/fork/swap/V3Deployments.fork.t.sol:V3DeploymentsForkTest` | 5 |
+| fork | `test/fork/swap/V3TierQuoteGas.fork.t.sol:V3TierQuoteGasForkTest` | 11 |
+| fork | `test/fork/Toolchain.t.sol:ToolchainForkTest` | 2 |
+| fork | `test/fork/v4/UniswapV4AdapterFork.t.sol:UniswapV4AdapterArbitrumForkTest` | 3 |
+| fork | `test/fork/v4/UniswapV4AdapterFork.t.sol:UniswapV4AdapterRobinhoodForkTest` | 3 |
+| fork | `test/fork/wormhole/OrderChannel.fork.t.sol:OrderChannelForkTest` | 10 |
+| fork | `test/review/adapters/AaveLiveReserveFork.t.sol:AaveLiveReserveFork` | 2 |
+| fork | `test/review/adapters/HighFeePoolIncomeFork.t.sol:HighFeePoolIncomeFork` | 1 |
+| fork | `test/review/adapters/HighFeePoolIncomeFork.t.sol:OnePercentPoolWashFork` | 1 |
+| fork | `test/review/adapters/UnwindSwapDepthFork.t.sol:UnwindSwapDepthFork` | 1 |
+| fork | `test/review/adapters/WashTradeIncomeFork.t.sol:WashTradeIncomeFork` | 1 |
+| fork | `test/review/factory/Fork_AcrossFillToCodelessSpokeVault.t.sol:Fork_AcrossFillToCodelessSpokeVault` | 1 |
+| fork | `test/review/integration-price/DeprecatedAdapterFork.t.sol:DeprecatedAdapterFork` | 2 |
+| fork | `test/review/integration-price/DepthProbeFork.t.sol:DepthProbeFork` | 2 |
+| fork | `test/review/integration-price/FallbackPoisonFork.t.sol:FallbackPoisonFork` | 2 |
+| fork | `test/review/integration-price/FeeTierFork.t.sol:FeeTierFork` | 2 |
+| fork | `test/review/integration-price/IntegrationFactsFork.t.sol:IntegrationFactsFork` | 1 |
+| fork | `test/review/integration-price/SharePriceSpotFork.t.sol:SharePriceSpotFork` | 5 |
+| fork | `test/review/integration-price/SpokeReportSpotFork.t.sol:SpokeReportSpotFork` | 1 |
+| fork | `test/review/integration-price/UnwindAttackFork.t.sol:UnwindAttackFork` | 26 |
+| fork | `test/review/integration-xchain/Fork_ConservationWalk.t.sol:Fork_ConservationWalk` | 1 |
+| fork | `test/review/integration-xchain/Fork_RelayerAndOperatingCash.t.sol:Fork_RelayerAndOperatingCash` | 6 |
+| fork | `test/review/integration-xchain/Fork_ReportBloat.t.sol:Fork_ReportBloat` | 4 |
+| fork | `test/review/integration-xchain/Fork_SpokeCapBypass.t.sol:Fork_SpokeCapBypass` | 2 |
+| fork | `test/review/integration-xchain/Fork_SpokeCreation.t.sol:Fork_SpokeCreation` | 2 |
+| fork | `test/review/integration-xchain/Fork_TransferHome.t.sol:Fork_TransferHome` | 6 |
+| fork | `test/review/spoke-a/C01_UnwindAtManipulatedSpotFork.t.sol:C01_UnwindAtManipulatedSpotFork` | 1 |
+| fork | `test/review/spoke-a/L01_UnwindGasPerPositionFork.t.sol:L01_UnwindGasPerPositionFork` | 2 |
+| fork | `test/review/spoke-a/M01_ManagerSwapExtractionFork.t.sol:M01_ManagerSwapExtractionFork` | 1 |
+| fork | `test/review/spoke-a/PoolDepthProbeFork.t.sol:PoolDepthProbe` | 1 |
+| fork | `test/review/spoke-b/Fork_AcrossDeadlineAndDustSends.t.sol:Fork_AcrossDeadlineAndDustSends` | 2 |
+| fork | `test/review/wp07c/HopTokenReentrantMintFork.t.sol:HopTokenReentrantMintFork` | 2 |
 | non-fork | `test/review/adapters/AaveIncomeBurnUnderflow.t.sol:AaveIncomeBurnUnderflowTest` | 3 |
 | non-fork | `test/review/adapters/AaveNonUsdcReserveUnwind.t.sol:AaveNonUsdcReserveUnwindTest` | 1 |
 | non-fork | `test/review/adapters/AcrossBufferReduction.t.sol:AcrossBufferReductionTest` | 1 |
@@ -224,22 +293,6 @@ These are executed test counts, not declared-function counts (fuzz/invariant run
 | non-fork | `test/security/liveness/POC_ReturnLegValuationGap.t.sol:POC_ReturnLegValuationGap` | 1 |
 | non-fork | `test/security/mutation/LibraryMutationKill.t.sol:LibraryMutationKillTest` | 16 |
 | non-fork | `test/size/ContractSizes.t.sol:ContractSizesTest` | 3 |
-| non-fork | `test/unit/AdapterGuard.t.sol:AdapterGuardTest` | 4 |
-| non-fork | `test/unit/DollarIncomeIndex.t.sol:DollarIncomeIndexTest` | 34 |
-| non-fork | `test/unit/DollarIncomeIndexModel.t.sol:DollarIncomeIndexLatestRateTest` | 2 |
-| non-fork | `test/unit/DollarIncomeIndexModel.t.sol:DollarIncomeIndexModelInvariantTest` | 2 |
-| non-fork | `test/unit/DollarIncomeIndexModel.t.sol:DollarIncomeIndexModelTest` | 1 |
-| non-fork | `test/unit/IncomeAccumulator.t.sol:IncomeAccumulatorInvariantTest` | 2 |
-| non-fork | `test/unit/IncomeAccumulator.t.sol:IncomeAccumulatorTest` | 29 |
-| non-fork | `test/unit/Mandate.t.sol:MandateTest` | 51 |
-| non-fork | `test/unit/OrderCodec.t.sol:OrderCodecTest` | 18 |
-| non-fork | `test/unit/OrderVerifier.t.sol:OrderVerifierTest` | 23 |
-| non-fork | `test/unit/ReportCodec.t.sol:ReportCodecTest` | 8 |
-| non-fork | `test/unit/ShareMath.t.sol:ShareMathTest` | 28 |
-| non-fork | `test/unit/ShareToken.t.sol:ShareTokenInvariantTest` | 2 |
-| non-fork | `test/unit/ShareToken.t.sol:ShareTokenTest` | 13 |
-| non-fork | `test/unit/TransitEscrow.t.sol:TransitEscrowTest` | 5 |
-| non-fork | `test/unit/TransitMessage.t.sol:TransitMessageTest` | 3 |
 | non-fork | `test/unit/aave/AaveV3Adapter.t.sol:AaveV3AdapterHalfUpRoundingTest` | 24 |
 | non-fork | `test/unit/aave/AaveV3Adapter.t.sol:AaveV3AdapterTest` | 24 |
 | non-fork | `test/unit/aave/AaveV3AdapterAdversarial.t.sol:AaveV3AdapterAdversarialTest` | 13 |
@@ -252,6 +305,8 @@ These are executed test counts, not declared-function counts (fuzz/invariant run
 | non-fork | `test/unit/across/AcrossFeeRule.t.sol:AcrossFeeRuleTest` | 12 |
 | non-fork | `test/unit/across/AcrossSendFlow.t.sol:AcrossSendFlowTest` | 6 |
 | non-fork | `test/unit/across/BridgeFeeRule.t.sol:BridgeFeeRuleTest` | 9 |
+| non-fork | `test/unit/AdapterGuard.t.sol:AdapterGuardTest` | 4 |
+| non-fork | `test/unit/core/ClosureIncomeDust.t.sol:ClosureIncomeDustTest` | 31 |
 | non-fork | `test/unit/core/CoreVaultAdversarial.t.sol:CoreVaultAdversarialTest` | 11 |
 | non-fork | `test/unit/core/CoreVaultAdversarialRound2.t.sol:CoreVaultAdversarialRound2Test` | 8 |
 | non-fork | `test/unit/core/CoreVaultClosure.t.sol:CoreVaultClosureTest` | 29 |
@@ -282,9 +337,15 @@ These are executed test counts, not declared-function counts (fuzz/invariant run
 | non-fork | `test/unit/core/CoreVaultTransit.t.sol:CoreVaultTransitTest` | 46 |
 | non-fork | `test/unit/core/CoreVaultUnwindingFlag.t.sol:CoreVaultUnwindingFlagTest` | 4 |
 | non-fork | `test/unit/core/DelayedIncomeCollection.t.sol:DelayedIncomeCollectionTest` | 38 |
-| non-fork | `test/unit/core/ExpiredPrincipalRecovery.t.sol:ExpiredPrincipalRecoveryTest` | 33 |
+| non-fork | `test/unit/core/ExpiredPrincipalRecovery.t.sol:ExpiredPrincipalRecoveryTest` | 35 |
 | non-fork | `test/unit/core/ManagementFee.t.sol:ManagementFeeTest` | 10 |
 | non-fork | `test/unit/core/ManagerFeeVault.t.sol:ManagerFeeVaultTest` | 4 |
+| non-fork | `test/unit/core/ManualSendAcknowledgement.t.sol:CoreManualSendAcknowledgementTest` | 13 |
+| non-fork | `test/unit/core/OperatingCashMvp.t.sol:OperatingCashMvpTest` | 2 |
+| non-fork | `test/unit/DollarIncomeIndex.t.sol:DollarIncomeIndexTest` | 34 |
+| non-fork | `test/unit/DollarIncomeIndexModel.t.sol:DollarIncomeIndexLatestRateTest` | 2 |
+| non-fork | `test/unit/DollarIncomeIndexModel.t.sol:DollarIncomeIndexModelInvariantTest` | 2 |
+| non-fork | `test/unit/DollarIncomeIndexModel.t.sol:DollarIncomeIndexModelTest` | 1 |
 | non-fork | `test/unit/factory/AlphaDeploymentCheck.t.sol:AlphaDeploymentCheckTest` | 5 |
 | non-fork | `test/unit/factory/Create3.t.sol:Create3Test` | 17 |
 | non-fork | `test/unit/factory/FactoryDeploymentLinking.t.sol:FactoryDeploymentLinkingTest` | 8 |
@@ -293,15 +354,28 @@ These are executed test counts, not declared-function counts (fuzz/invariant run
 | non-fork | `test/unit/factory/FundFactorySwapAdapter.t.sol:FundFactorySwapAdapterTest` | 7 |
 | non-fork | `test/unit/factory/FundFactoryVerify.t.sol:FundFactoryVerifyTest` | 3 |
 | non-fork | `test/unit/factory/FundFactoryVerifyRound2.t.sol:FundFactoryVerifyRound2Test` | 4 |
+| non-fork | `test/unit/IncomeAccumulator.t.sol:IncomeAccumulatorInvariantTest` | 2 |
+| non-fork | `test/unit/IncomeAccumulator.t.sol:IncomeAccumulatorTest` | 29 |
+| non-fork | `test/unit/Mandate.t.sol:MandateTest` | 51 |
+| non-fork | `test/unit/OrderCodec.t.sol:OrderCodecTest` | 18 |
+| non-fork | `test/unit/OrderVerifier.t.sol:OrderVerifierTest` | 23 |
 | non-fork | `test/unit/receiver/ChainlinkPriceSource.t.sol:ChainlinkPriceSourceTest` | 10 |
 | non-fork | `test/unit/receiver/ChainlinkPriceSourceAdversarial.t.sol:ChainlinkPriceSourceAdversarialTest` | 9 |
 | non-fork | `test/unit/receiver/ManagerRegistry.t.sol:ManagerRegistryTest` | 10 |
 | non-fork | `test/unit/receiver/ManagerRegistryAdversarial.t.sol:ManagerRegistryAdversarialTest` | 3 |
 | non-fork | `test/unit/receiver/ValueReportReceiver.t.sol:ValueReportReceiverTest` | 32 |
 | non-fork | `test/unit/receiver/ValueReportReceiverAdversarial.t.sol:ValueReportReceiverAdversarialTest` | 9 |
+| non-fork | `test/unit/ReportCodec.t.sol:ReportCodecTest` | 8 |
 | non-fork | `test/unit/security/StaticReviewFindings.t.sol:StaticReviewFindingsTest` | 6 |
+| non-fork | `test/unit/ShareMath.t.sol:ShareMathTest` | 28 |
+| non-fork | `test/unit/ShareToken.t.sol:ShareTokenInvariantTest` | 2 |
+| non-fork | `test/unit/ShareToken.t.sol:ShareTokenTest` | 13 |
 | non-fork | `test/unit/spoke/AgedIncomeRefund.t.sol:AgedIncomeRefundTest` | 8 |
+| non-fork | `test/unit/spoke/ClosureDust.t.sol:ClosureIncomeDustTest` | 7 |
+| non-fork | `test/unit/spoke/ClosureDust.t.sol:ClosurePrincipalDustTest` | 24 |
 | non-fork | `test/unit/spoke/ExecuteOrder.t.sol:ExecuteOrderTest` | 18 |
+| non-fork | `test/unit/spoke/HubClosureExposure.t.sol:HubClosureExposureTest` | 3 |
+| non-fork | `test/unit/spoke/ManualSendAcknowledgement.t.sol:ManualSendAcknowledgementTest` | 33 |
 | non-fork | `test/unit/spoke/OrderResultEncoding.t.sol:OrderResultEncodingTest` | 2 |
 | non-fork | `test/unit/spoke/SpokeIncomeCollection.t.sol:SpokeIncomeCollectionTest` | 6 |
 | non-fork | `test/unit/spoke/SpokeUnwindOrders.t.sol:SpokeUnwindOrdersTest` | 18 |
@@ -321,93 +395,39 @@ These are executed test counts, not declared-function counts (fuzz/invariant run
 | non-fork | `test/unit/spoke/SpokeVaultSwap.t.sol:SpokeVaultSwapTest` | 16 |
 | non-fork | `test/unit/swap/UniswapV3SwapAdapter.t.sol:UniswapV3SwapAdapterTest` | 40 |
 | non-fork | `test/unit/swap/UniswapV3SwapAdapterRoutes.t.sol:UniswapV3SwapAdapterRoutesTest` | 24 |
+| non-fork | `test/unit/TransitEscrow.t.sol:TransitEscrowTest` | 5 |
+| non-fork | `test/unit/TransitMessage.t.sol:TransitMessageTest` | 3 |
 | non-fork | `test/unit/v4/UniswapV4Adapter.t.sol:UniswapV4AdapterTest` | 27 |
 | non-fork | `test/unit/v4/UniswapV4AdapterAdversarial.t.sol:UniswapV4AdapterAdversarialTest` | 5 |
-| fork | `test/fork/Toolchain.t.sol:ToolchainForkTest` | 2 |
-| fork | `test/fork/aave/AaveV3Adapter.fork.t.sol:AaveV3AdapterForkTest` | 7 |
-| fork | `test/fork/aave/AaveV3AdapterAdversarial.fork.t.sol:AaveV3AdapterAdversarialForkTest` | 3 |
-| fork | `test/fork/across/AcrossBridgeAdapter.fork.t.sol:AcrossBridgeAdapterForkTest` | 7 |
-| fork | `test/fork/across/AcrossFeeRuleLive.fork.t.sol:AcrossFeeRuleLiveForkTest` | 4 |
-| fork | `test/fork/across/AcrossFill.fork.t.sol:AcrossFillForkTest` | 4 |
-| fork | `test/fork/across/AcrossSpokePoolReadability.fork.t.sol:AcrossSpokePoolReadabilityForkTest` | 15 |
-| fork | `test/fork/closure/FundClosure.fork.t.sol:FundClosureForkTest` | 1 |
-| fork | `test/fork/closure/SpokeClosure.fork.t.sol:SpokeClosureForkTest` | 1 |
-| fork | `test/fork/core/CoreVaultAcross.t.sol:CoreVaultAcrossForkTest` | 2 |
-| fork | `test/fork/e2e/EndToEnd.t.sol:EndToEndForkTest` | 1 |
-| fork | `test/fork/e2e/EndToEndAdversarial.t.sol:EndToEndAdversarialForkTest` | 3 |
-| fork | `test/fork/e2e/SpokeUnwindOrder.fork.t.sol:SpokeUnwindOrderForkTest` | 1 |
-| fork | `test/fork/factory/AlphaDeploymentCheckFork.t.sol:AlphaDeploymentCheckForkTest` | 1 |
-| fork | `test/fork/factory/FactoryWiringCheckFork.t.sol:FactoryWiringCheckForkTest` | 3 |
-| fork | `test/fork/factory/FundFactoryFork.t.sol:FundFactoryForkTest` | 3 |
-| fork | `test/fork/receiver/ChainlinkPriceSourceFork.t.sol:ChainlinkPriceSourceForkTest` | 2 |
-| fork | `test/fork/receiver/ValueReportReceiverFork.t.sol:ValueReportReceiverForkTest` | 8 |
-| fork | `test/fork/security/SpotCompositionInflation.t.sol:SpotCompositionInflationForkTest` | 1 |
-| fork | `test/fork/spoke/ProportionalUnwind.fork.t.sol:ProportionalUnwindForkTest` | 2 |
-| fork | `test/fork/spoke/SpokeVaultArbitrumFork.t.sol:SpokeVaultArbitrumForkTest` | 3 |
-| fork | `test/fork/spoke/SpokeVaultRobinhoodFork.t.sol:SpokeVaultRobinhoodForkTest` | 3 |
-| fork | `test/fork/spoke/SwapAdapterVault.fork.t.sol:SwapAdapterVaultFork` | 5 |
-| fork | `test/fork/swap/UniswapV3SwapAdapter.fork.t.sol:UniswapV3SwapAdapterForkTest` | 27 |
-| fork | `test/fork/swap/V3ApiRoute.fork.t.sol:V3ApiRouteForkTest` | 3 |
-| fork | `test/fork/swap/V3Deployments.fork.t.sol:V3DeploymentsForkTest` | 5 |
-| fork | `test/fork/swap/V3TierQuoteGas.fork.t.sol:V3TierQuoteGasForkTest` | 11 |
-| fork | `test/fork/v4/UniswapV4AdapterFork.t.sol:UniswapV4AdapterArbitrumForkTest` | 3 |
-| fork | `test/fork/v4/UniswapV4AdapterFork.t.sol:UniswapV4AdapterRobinhoodForkTest` | 3 |
-| fork | `test/fork/wormhole/OrderChannel.fork.t.sol:OrderChannelForkTest` | 10 |
-| fork | `test/review/adapters/AaveLiveReserveFork.t.sol:AaveLiveReserveFork` | 2 |
-| fork | `test/review/adapters/HighFeePoolIncomeFork.t.sol:HighFeePoolIncomeFork` | 1 |
-| fork | `test/review/adapters/HighFeePoolIncomeFork.t.sol:OnePercentPoolWashFork` | 1 |
-| fork | `test/review/adapters/UnwindSwapDepthFork.t.sol:UnwindSwapDepthFork` | 1 |
-| fork | `test/review/adapters/WashTradeIncomeFork.t.sol:WashTradeIncomeFork` | 1 |
-| fork | `test/review/factory/Fork_AcrossFillToCodelessSpokeVault.t.sol:Fork_AcrossFillToCodelessSpokeVault` | 1 |
-| fork | `test/review/integration-price/DeprecatedAdapterFork.t.sol:DeprecatedAdapterFork` | 2 |
-| fork | `test/review/integration-price/DepthProbeFork.t.sol:DepthProbeFork` | 2 |
-| fork | `test/review/integration-price/FallbackPoisonFork.t.sol:FallbackPoisonFork` | 2 |
-| fork | `test/review/integration-price/FeeTierFork.t.sol:FeeTierFork` | 2 |
-| fork | `test/review/integration-price/IntegrationFactsFork.t.sol:IntegrationFactsFork` | 1 |
-| fork | `test/review/integration-price/SharePriceSpotFork.t.sol:SharePriceSpotFork` | 5 |
-| fork | `test/review/integration-price/SpokeReportSpotFork.t.sol:SpokeReportSpotFork` | 1 |
-| fork | `test/review/integration-price/UnwindAttackFork.t.sol:UnwindAttackFork` | 26 |
-| fork | `test/review/integration-xchain/Fork_ConservationWalk.t.sol:Fork_ConservationWalk` | 1 |
-| fork | `test/review/integration-xchain/Fork_RelayerAndOperatingCash.t.sol:Fork_RelayerAndOperatingCash` | 6 |
-| fork | `test/review/integration-xchain/Fork_ReportBloat.t.sol:Fork_ReportBloat` | 4 |
-| fork | `test/review/integration-xchain/Fork_SpokeCapBypass.t.sol:Fork_SpokeCapBypass` | 2 |
-| fork | `test/review/integration-xchain/Fork_SpokeCreation.t.sol:Fork_SpokeCreation` | 2 |
-| fork | `test/review/integration-xchain/Fork_TransferHome.t.sol:Fork_TransferHome` | 6 |
-| fork | `test/review/spoke-a/C01_UnwindAtManipulatedSpotFork.t.sol:C01_UnwindAtManipulatedSpotFork` | 1 |
-| fork | `test/review/spoke-a/L01_UnwindGasPerPositionFork.t.sol:L01_UnwindGasPerPositionFork` | 2 |
-| fork | `test/review/spoke-a/M01_ManagerSwapExtractionFork.t.sol:M01_ManagerSwapExtractionFork` | 1 |
-| fork | `test/review/spoke-a/PoolDepthProbeFork.t.sol:PoolDepthProbe` | 1 |
-| fork | `test/review/spoke-b/Fork_AcrossDeadlineAndDustSends.t.sol:Fork_AcrossDeadlineAndDustSends` | 2 |
-| fork | `test/review/wp07c/HopTokenReentrantMintFork.t.sol:HopTokenReentrantMintFork` | 2 |
 
 ## 5. Bytecode sizes and margins
 
 Fresh `forge build --sizes`, cross-checked by the 3-test completeness/limit suite. Before/after columns refer
 **to docs edits on merged main** and are identical. PR #25 reduced SpokeUnwindLib by 24 bytes
-(23,473 -> 23,449); this documentation does not change runtime size. This is not a claim wave-3/4 sizes equal
-the old #17 baseline.
+(historical 23,473 -> 23,449); #28/#29 further change the runtime inventory below. This documentation does not
+change runtime size. This is not a claim wave-3/4 sizes equal the old #17 baseline.
 EIP-170/smallest supported-chain limit **24,576 bytes** for every production contract and linked library.
-Inlined library artifact stubs are not deployed executables; CodeStore byte chunks are data, full chunks may use
-24,576 bytes intentionally. Complete deployment verification still includes every executable and creation-code link.
+Inlined library artifact stubs are not deployed executables; CodeStore byte chunks are data. #28 reserves
+1,000 bytes: full chunk runtime is at most 23,576 bytes, not the old 24,576-byte full-limit size. Complete deployment verification still includes every executable and creation-code link.
 
 | Production contract / linked library | Before B | After B | Margin B |
 |---|---:|---:|---:|
-| SpokeUnwindLib | 23,449 | 23,449 | 1,127 |
-| SpokeVault | 22,887 | 22,887 | 1,689 |
-| CoreVault | 22,862 | 22,862 | 1,714 |
-| CoreVaultPayoutLogic | 22,256 | 22,256 | 2,320 |
+| SpokeVault | 22,907 | 22,907 | 1,669 |
+| CoreVaultPayoutLogic | 22,547 | 22,547 | 2,029 |
+| CoreVault | 22,358 | 22,358 | 2,218 |
+| SpokeUnwindLib | 21,594 | 21,594 | 2,982 |
 | FundFactory | 18,347 | 18,347 | 6,229 |
-| CoreVaultIncomeCollectionLogic | 16,816 | 16,816 | 7,760 |
-| CoreVaultClosureLogic | 16,085 | 16,085 | 8,491 |
-| CoreVaultTransitLogic | 15,596 | 15,596 | 8,980 |
+| CoreVaultIncomeCollectionLogic | 17,689 | 17,689 | 6,887 |
+| CoreVaultClosureLogic | 17,052 | 17,052 | 7,524 |
+| SpokeCrossChainLib | 16,953 | 16,953 | 7,623 |
+| CoreVaultTransitLogic | 16,005 | 16,005 | 8,571 |
 | UniswapV4Adapter | 14,369 | 14,369 | 10,207 |
-| CoreVaultLogic | 13,684 | 13,684 | 10,892 |
-| SpokeCrossChainLib | 12,199 | 12,199 | 12,377 |
-| CoreVaultIncomeLogic | 12,101 | 12,101 | 12,475 |
-| SpokeIncomeLib | 11,631 | 11,631 | 12,945 |
+| CoreVaultLogic | 13,612 | 13,612 | 10,964 |
+| SpokeIncomeLib | 12,563 | 12,563 | 12,013 |
+| CoreVaultIncomeLogic | 12,236 | 12,236 | 12,340 |
 | UniswapV3SwapAdapter | 10,586 | 10,586 | 13,990 |
 | AaveV3Adapter | 9,893 | 9,893 | 14,683 |
-| ValueReportReceiver | 8,080 | 8,080 | 16,496 |
+| ValueReportReceiver | 8,309 | 8,309 | 16,267 |
 | AcrossBridgeAdapter | 6,713 | 6,713 | 17,863 |
 | SpokeCloseLib | 5,875 | 5,875 | 18,701 |
 | ShareToken | 1,822 | 1,822 | 22,754 |
@@ -417,8 +437,8 @@ Inlined library artifact stubs are not deployed executables; CodeStore byte chun
 | ManagerFeeVault | 1,077 | 1,077 | 23,499 |
 | TransitEscrow | 894 | 894 | 23,682 |
 
-**No margin under 1,000 bytes.** SpokeUnwindLib 1,127 is the growth bottleneck; SpokeVault 1,689 and CoreVault
-1,714 also warrant monitoring. CoreVaultClosureLogic and SpokeCloseLib splits plus linked income collection
+**No margin under 1,000 bytes.** SpokeVault 1,669 is the growth bottleneck; CoreVaultPayoutLogic 2,029 and CoreVault
+2,218 also warrant monitoring. CoreVaultClosureLogic and SpokeCloseLib splits plus linked income collection
 keep each executable legal without via-IR/compiler changes. The old #17 SpokeVault 22,304/2,272 is historical.
 
 ## 6. Gas of the main operations
@@ -808,52 +828,83 @@ The following dispositions are the instructions for this report update, not waiv
 
 | ID | Finding / alpha consequence | Current disposition |
 |---|---|---|
-| B-01 | Hub Spoke Vault exposure remains callable during/after Core closure because its local Closed gate is not synchronized with Core Fund State | Being fixed in a separate contract PR; not claimed resolved here |
-| B-02 | Tiny terminal Principal/Income cannot cover the fixed bridge component and can prevent permissionless closure indefinitely | Being fixed in the separate contract PR; no guaranteed absent-manager terminal dust recovery claimed |
-| B-03 | Operating Cash = 0 is a deployment/manager convention; nonzero creation/setters remain callable | Being fixed in the separate contract PR; keep every alpha floor/top-up at 0 pending enforcement |
+| B-01 | Historical finding: Hub Spoke Vault exposure callable during/after Core closure | **Resolved by merged #28:** Core Fund State gates Hub exposure during Closing/Closed; unwind-to-base remains available in Closing |
+| B-02 | Historical finding: terminal Principal/Income too small to bridge could block closure | **Resolved by merged #28**, including round-1 fix: terminal dust strictly below 0.50 recorded/excluded/sweepable; late Principal needs no second CLOSE. Alpha exception to literal DEC-163 |
+| B-03 | Historical finding: zero Operating Cash was only a deployment/manager convention | **Resolved by merged #28:** nonzero Mandate floor/top-up rejected; setters disabled, internal hooks inert |
 | B-04 | Exact frozen-release deployment rehearsal, real new-emitter guardian/bridge evidence and explorer verification are not certified by this review | PR #24 supplies the local full lifecycle; production/final-SHA evidence remains a release gate |
-| G-01 / DEC-145 | Deposit/report timestamp eligibility is absent; a later report can attribute pre-entry remote income to new shares | **Pending the founder**; WP-14 deferral is not a founder acceptance or implementation claim |
+| G-01 / DEC-145 | Deposit/report timestamp eligibility is absent; a later report can attribute pre-entry remote income to new shares | **In PR #30, landing before the deploy:** waiting lots/resumable checkpoints, reported max-config peak 2.04M gas; not implemented on measured main |
 | G-02 | Full Open-fund exit pays converted dollars; unconverted income rights survive zero shares and require later collection | **Accepted for internal alpha**; rights preserved, not immediate complete income cash-out; Closed exits require final collection |
 | G-03 | Gross Assets omits Income bridging home | **Accepted for internal alpha**; informational view gap, not evidence that Share Assets include income or principal is lost |
 | G-04 | Spoke Cap return occupancy uses bridge output rather than amount sent, understating usage by bridge cost | **Accepted for internal alpha**; DEC-066 sent-base symmetry remains incomplete |
-| G-05 | Previously reserved unlisted Principal recovery can credit live Idle after Closed while frozen closedIdle is unchanged | Being fixed in the separate contract PR; not a demonstrated increase in frozen holder entitlements |
+| G-05 | Historical finding: reserved unlisted Principal recovery credited live Idle after Closed | **Resolved by merged #28:** Closed handling precedes recovered-Principal Idle credit; reservations gate finalization, frozen entitlements unchanged |
 | G-06 | Report lifetime is selectable within one day, not enforced per supported network | **Accepted for internal alpha** with the checked 1,588-second Mandate value; not protocol-wide conformance |
 | G-07 | Direct constructors permit different Protocol Recipient and excess recipient | **Accepted for internal alpha** with equality verified in standard factory wiring |
 
 B-01/B-02 are static code-path findings, B-03 a configuration/trusted-manager gate, B-04 an evidence gate;
-do not call them executed exploits. B-01..B-03/G-05 fixes require independent review, tests and a new frozen
-release rehearsal after landing. The accepted G findings are **internal-alpha limitations**, not permission
-for public capital, and G-01 remains undecided. Existing deferrals/operating risks below remain in addition.
+do not call them executed exploits. B-01..B-03/G-05 fixes are merged in reviewed #28, including the late-dust
+round-2 regression verification. A frozen post-#30 release-SHA rehearsal remains required before production.
+Accepted G findings are **internal-alpha limitations**, not permission for public capital. DEC-145 is in PR #30,
+landing before the deploy; the earlier WP-14 deferral is superseded by this pre-deploy work.
 
-### Open manual Principal acknowledgement issue
+### Manual and Income acknowledgements: merged PR #29
 
-A manual `SpokeVault.sendToHub(amount, Principal, bridgeRank)` remains **Sent after its Hub acknowledgement**.
-The retirement fix is in progress in a separate contract change. The runbook therefore **forbids manual
-Principal returns until the fix lands and is reviewed/retested**; use only the reviewed order-driven return
-paths and their documented ACK/CLOSE procedure. Historical steps 25–27 above prove cash arrival/credit,
-not correct terminal retirement of that manual record. Four resolved order-linked Principal candidates and
-an empty keeper queue do not prove the manual send's on-chain state is terminal.
-See the [alpha runbook restriction](../DEPLOYMENT-ALPHA.md#manual-principal-returns-blocked).
+The Sent-after-ACK manual Principal limitation is **fixed by merged #29**. Report v5 carries authenticated
+`refundedTransits`; credit/refund-backed Hub ACKs resolve manual and order-driven sends, remove the In-flight
+Value slot and ignore repeats. Manual Income remains forbidden: Income is sent through COLLECT orders.
+The **64 shared send slots** are reused only after delivered terminal ACKs; **16 unwind result entries** is
+separate. Alpha/harness keepers persist all-kind work and retry/republish until `ArrivalConfirmed` or
+`RefundRecognized` is observed on the spoke. Hub credit, ACK publication or an empty local queue alone is not
+terminal retirement. Collection ownership is unchanged; time alone is never refund proof.
+
+#29 round 2 approved its fix scope and reproduced manual/Income slot release, default warm-up/replay and
+alpha closure smoke. See [ACK report](2026-10-03-MANUAL-SEND-ACK.md),
+[round-1 evidence](../../local-e2e/reports/2026-10-03-pr29-round1.md), and
+[committed full replay](../../local-e2e/reports/2026-10-03T02-50-31Z-scenario.md).
+The committed replay records **56 steps / 326 assertions**, six real fills / zero simulated,
+**zero conservation residual** and **6.577617 USDC bridge costs**, with API **31 concepts**.
+These are committed #29 evidence, not a fresh harness run by this docs WP. The independent reporting-disabled
+warm-up/replay was **55 / 321**; its review explicitly did not rerun the report-only conservation step.
+Section 7’s #24 figures remain a separate historical run.
+
+### DEC-145: in PR #30, landing before the deploy
+
+PR #30 head `c36da24` implements report/deposit timestamp eligibility using per-source FIFO waiting lots,
+waiting-first burns and resumable frozen capture/payment/merge checkpoints. One shared **64-token-operation
+budget** covers sources, active and activated waiting shares; permissionless `settleHolderIncome(holder)`
+progresses in Open/Closing/Closed without a collection request. Balance hooks retry after completion;
+separate conservative credit/debit totals preserve exact split-call equivalence.
+
+Round 1 found a high gas-liveness blocker; the fix reply reports cold maximum legal configuration of
+**15 spoke tokens, 64 finalized collections and one activated waiting lot per holder/source**, calls capped
+at 14M gas, peak **2,038,401 gas (2.04M)** with persisted progress. Income Withdrawal, Payout burn, closure
+finalization and Closed exit tests stay below 15M including continuation. Its integrated replay is
+**57 steps / 330 assertions**, zero residual; default warm-up **56 / 325**. These are #30’s reported evidence,
+not rerun/merged-main counts or sizes here. Round 2 independently reproduced the 2.04M peak in **90 continuation
+calls** and verified the settlement fix, but found a test-only fixture breaking the exact size build: 31,536 bytes,
+6,960 over EIP-170. Its fix reply at `c36da24` moves history preparation into a linked test-only library:
+fixture **22,927 / 1,649 B margin**, helper **9,494 / 15,082**. A clean unqualified build and existing path
+regressions pass in that reply; production code and prior harness evidence are unchanged. No later independent
+approving comment is visible at this check. Landing #30 and frozen-release validation remain pre-deploy gates.
 
 ### Other retained limitations
 
 - **Silent spoke:** DEC-157/160 have no inactivity escape; exits needing its fresh report and closure cannot
   finish if a spoke never answers. Permissionless relay replaces a keeper, not the report source.
-- **ACK delivery:** spoke capacity is reclaimed only when Hub acknowledgements are delivered. Sixteen undelivered
+- **ACK delivery:** spoke capacity is reclaimed only when Hub acknowledgements are delivered. Sixty-four undelivered
   ACKs can block later sends/exits; anyone can republish/deliver them, the keeper must. Full Hub credit alone
   is insufficient. Elapsed time is not accepted as the Hub publisher's expiry proof.
 - **External transaction funding:** Standard Payout Wormhole fees are caller-funded for now. Manager pays own
   gas (DEC-187); keeper/API/callers pay gas and message fees. Accounting for fund collection/bridge costs is
   not gas reimbursement. DEC-164/165 refund and DEC-171 executor-gas absorption are deferred.
 - **Deferred:** DEC-185 spoke gas top-up; native Operating Cash WP-16 (including native cap/unwrap); WP-11 signed
-  bridge quotes DEC-168/176; WP-14 entry-time filter DEC-145. Confirmed future refund caps are 0.5 gwei,
-  0.001 ETH/call and /day/vault, no minimum interval. Existing base-token Operating Cash defaults 0 but can
-  be changed by manager; zero defaults are not enforced globally.
+  bridge quotes DEC-168/176; **WP-17 deferred by Rafael**. DEC-145 is in PR #30, landing before the deploy. Confirmed future refund caps are 0.5 gwei,
+  0.001 ETH/call and /day/vault, no minimum interval. MVP Operating Cash is enforced at 0 by #28:
+  nonzero Mandate parameters rejected, manager setters disabled, no native spend/refund/top-up implemented.
 - **Economics:** manager no-floor swaps (S-8/DEC-129), pre-sale spot manipulation/empty-route reference residual
   (C-01/#7) remain accepted only for internal alpha. Optional signed/caller minima are not independent market-price
   guarantees; flow fee is not an attack brake. Partial intermediate V3 route residue can be sweepable.
-- **Income:** recognition cohorts are implemented, but missing DEC-145 timestamp filter leaves old income first
-  recognized after entry exposed to stale-report attribution. No external incentive collector distribution.
+- **Income:** recognition cohorts implemented on main; DEC-145 is in PR #30, landing before the deploy,
+  replacing the timestamp-filter gap with waiting lots/checkpoints. No external incentive collector distribution.
 - **Pricing/bridge:** incomplete DEC-123 reliable-source hierarchy/cache initialization; 1:1 USDG ignores depeg.
   Adapter cap is 1% rate plus fixed 0.03 token, not total 1% gap. Mean is own sends, expiry may mean downtime/limits;
   Across refunds observed 57–99 minutes after deadline in research, not an SLA. Native token fixed fee/window
@@ -873,16 +924,16 @@ See the [alpha runbook restriction](../DEPLOYMENT-ALPHA.md#manual-principal-retu
 **Ready evidence:** #20 dual-chain deploy/checker rehearsal and executable verification extraction; #21 fixed
 nested library linking with deployment regressions; fresh green tests/sizes/format.
 **Completed lifecycle evidence:** merged PR #24 recovery run, section 7. **Still not ready:** conformance
-B-01..B-03/G-05 fixes, founder G-01 disposition, manual-send ACK fix, final frozen-SHA deployment rehearsal,
+DEC-145 PR #30 landing, final frozen-SHA deployment rehearsal,
 production guardian service, live Across route confirmation,
 explorer source verification, approved real keys/ETH budgets and internal risk acceptance. No mainnet deployment here.
 
 Use [DEPLOYMENT-ALPHA](../DEPLOYMENT-ALPHA.md) for the input sheet/broadcast procedure; its October 2 feature-gap
 warnings are historical and superseded by this report, but its final-SHA/mainnet gates still apply. Generic
 DEPLOYMENT/INTEGRATIONS historical snapshots are not a substitute for the current artifact-derived link graph.
-Rehearse on the final frozen release and update manifests after every bytecode change. Alpha runtime #20 predates
-ACK retirement: **verify/add keeper ACK publication/delivery coverage before relying on it**, even if manual
-permissionless delivery is available. This docs WP does not certify that older runtime handles the new queue.
+Rehearse on the final frozen release and update manifests after every bytecode change. #26 supplies durable
+transaction/redaction tooling; #29 supplies all-kind ACK persistence/retry and independent slot-release evidence.
+Do not run an older #20 runtime against the new queue/codec. This docs WP starts no services.
 
 | Rafael provides / explicitly approves | Required choice or gate |
 |---|---|
@@ -894,7 +945,7 @@ permissionless delivery is available. This docs WP does not certify that older r
 | SEED_AMOUNT / MIN_FIRST_DEPOSIT | USDC base units, default minimum 100 USDC; inspect actual charged seed/whole-share receipt |
 | SPOKE_CAP / maximum alpha exposure | Hub-USDC base units, default 10,000 USDC spoke cap; no fund-wide on-chain TVL cap or depositor allowlist |
 | Mandate investment venues | Initialized/liquid hookless V4 pool keys, ordered WETH/stablecoin tokens, fee/tick spacing (default 500/10), optional usable Aave USDC reserve on Hub |
-| Operating Cash | Both floor/top-up explicitly 0 and operator monitors manager changes; no native spend/refund/top-up promised |
+| Operating Cash | Floor/top-up enforced at 0 by #28, setters disabled; no native spend/refund/top-up promised |
 | Keeper/API service | Separate funded ALPHA_KEEPER_KEY, ALPHA_API_SIGNER_KEY matching API_SIGNER, secret bearer ALPHA_API_TOKEN; loopback authenticated tunnel, durable queue, supervisor/incident contact |
 | RPC/VAA/explorer credentials | Archive helper without URL/key logs; real new-emitter guardian VAAs accepted/delivered in time; live Across tiny fill/refund; Arbiscan credential and Robinhood explorer access (prior 403 unresolved) |
 | Final manifest / approval | Release SHA/build, factory salts, all linked addresses/stores, fund creation number/Mandate hash, scanning start blocks, fees/seed/receipts, internal-only risk acceptance and no audited/public marketing |
@@ -912,8 +963,18 @@ This update reruns build/format/size/non-fork and the full fork suite without ch
 
 Existing divergences are not resolved by documentation: native Operating Cash/refunds/DEC-185 MVP top-up versus
 ruling 2026-10-02 delivery scope; DEC-171 fund executor gas versus external funding; Standard Wormhole fee caller
-funding; DEC-145 absent timestamp eligibility; DEC-159 off-chain reporting versus atomic publication; DEC-123
+funding; DEC-145 in PR #30, landing before the deploy (FIFO/waiting-first and bounded timestamp-skew reading); DEC-159 off-chain reporting versus atomic publication; DEC-123
 incomplete source hierarchy. DEC-186 Slack cap overrides register's older 10%; registry Ownable2Step/override can
 separate owner from immutable API signer; 1% rate plus fixed fee differs from a 1% total gap; shared result retirement
 encoder follow-up was fixed by PR #25; it is no longer an open divergence. ACK delivery and silent-spoke liveness are implementation/operating prerequisites,
 not new waivers. Full dispositions: [OPEN-QUESTIONS](../OPEN-QUESTIONS.md).
+
+## Mainnet alpha deployment
+
+**Placeholder — fill after the deploy. No mainnet deployment is attested by this docs PR.**
+
+Record the final post-#30 release SHA/compiler/build; both chain IDs and factory/fund/vault/linked-library
+addresses/dependency links; Mandate hash/deployment blocks; transaction hashes/receipts/gas/costs; approved
+roles and budgets (no keys/RPC URLs); explorer verification coverage/status; real guardian VAA/live Across
+fill/refund evidence; keeper/API health and ACK-driven slot release; final lifecycle/closure/frozen-exit/
+conservation checks and alpha-only risk acceptance.
