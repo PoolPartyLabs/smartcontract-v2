@@ -241,8 +241,8 @@ async function route(input: any) {
 
 if (mode === "keeper") {
   while (true) {
-    try {await keeperTick();} catch {
-      console.error("Alpha keeper tick failed; inspect on-chain state before retrying.");
+    try {await keeperTick();} catch (error: any) {
+      console.error("Alpha keeper tick failed; inspect on-chain state before retrying.", String(error?.shortMessage ?? error?.message ?? error).slice(0, 400));
       await drainAlphaPending(cursor, deliver, save, () => {}, Date.now());
       await drainAlphaWork(cursor, resolveTransit, save);
     }
