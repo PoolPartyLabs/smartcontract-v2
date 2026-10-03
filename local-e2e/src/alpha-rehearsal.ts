@@ -35,7 +35,7 @@ if (process.argv[2] === "fund") {
   const vaa = await signVaa({timestamp: Number(block.timestamp), nonce: event.args.nonce, emitterChainId: 72, emitterAddress: universal(spoke), sequence: event.args.sequence, consistencyLevel: event.args.consistencyLevel, payload: event.args.payload}, await guardianSetIndexOf("arbitrum"));
   const delivered = await send("arbitrum", "keeper", {address: receiver, abi: valueReportReceiverAbi, functionName: "deliver", args: [vaa]});
   console.log("Report publication/delivery", sent.hash, delivered.hash);
-  const paid = await send("arbitrum", "manager", {address: core, abi: coreVaultAbi, functionName: "requestPayout", args: [1000000n, 0]});
+  const paid = await send("arbitrum", "manager", {address: core, abi: coreVaultAbi, functionName: "requestPayout", args: [1000000n, 0, 100]});
   console.log("Instant Payout 1 USDC", paid.hash, "gas", paid.receipt.gasUsed.toString());
   console.log("Idle", (await read<bigint>("arbitrum", {address: core, abi: coreVaultAbi, functionName: "idle"})).toString());
 } else if (process.argv[2] === "runtime") {
