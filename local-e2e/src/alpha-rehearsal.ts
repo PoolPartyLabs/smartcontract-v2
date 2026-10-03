@@ -9,6 +9,7 @@ import {spawn} from "node:child_process";
 import {once} from "node:events";
 import {existsSync, readFileSync} from "node:fs";
 import {ACTOR_KEYS} from "./config.ts";
+import {alphaAmounts} from "./alpha-amounts.ts";
 
 for (const side of ["arbitrum", "robinhood"] as const) {
   const version = await nodes[side].client.request({method: "web3_clientVersion"});
@@ -19,8 +20,8 @@ for (const side of ["arbitrum", "robinhood"] as const) {
 
 if (process.argv[2] === "fund") {
   const layout = await discoverBalanceLayout("arbitrum", ARBITRUM.usdc, actors.manager.address);
-  await setTokenBalance("arbitrum", layout, actors.manager.address, 1000000000n);
-  console.log("Funded throwaway manager with 1000 USDC; balance slot", layout.mappingSlot);
+  await setTokenBalance("arbitrum", layout, actors.manager.address, 2n * BigInt(process.env.SEED_AMOUNT ?? "5000000") + alphaAmounts.deposit);
+  console.log("Funded throwaway manager for two alpha seeds and the parameterized deposit; balance slot", layout.mappingSlot);
 } else if (process.argv[2] === "smoke") {
   const core = getAddress(process.env.ALPHA_CORE_VAULT!);
   const spoke = getAddress(process.env.ALPHA_SPOKE_VAULT!);

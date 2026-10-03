@@ -7,6 +7,7 @@ export interface AlphaWork {
   attempts: number;
   retryAt: number;
   acknowledged?: boolean;
+  acknowledgedAt?: number;
 }
 
 export async function drainAlphaWork(

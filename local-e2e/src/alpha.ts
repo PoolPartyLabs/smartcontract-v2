@@ -11,7 +11,7 @@ import {coreVaultAbi, spokeVaultAbi, valueReportReceiverAbi, wormholeCoreAbi} fr
 import {ROUTE_TYPES, encodeRoute, legsHash} from "./swap-route.ts";
 import {actors, guardian} from "./config.ts";
 import {createAlphaDelivery, drainAlphaPending, type AlphaMessage} from "./alpha-relay.ts";
-import {drainAlphaWork, type AlphaWork} from "./alpha-work.ts";
+import {collectAllowed, drainAlphaWork, type AlphaWork} from "./alpha-work.ts";
 
 function required(name: string): string {
   const value = process.env[name];
@@ -34,6 +34,8 @@ const share = getAddress(required("ALPHA_SHARE_TOKEN"));
 const stateFile = resolve(process.env.ALPHA_STATE_FILE ?? ".state/alpha-keeper.json");
 const pollMs = Number(process.env.ALPHA_POLL_MS ?? "5000");
 const reportSeconds = Number(process.env.ALPHA_REPORT_SECONDS ?? "300");
+const collectMinimum = BigInt(process.env.ALPHA_MIN_COLLECT_USDC ?? "500000");
+if (collectMinimum < 500000n) throw new Error("COLLECT minimum must be at least 0.50 USDC");
 if (!Number.isInteger(pollMs) || pollMs < 1000 || !Number.isInteger(reportSeconds) || reportSeconds < 10 || reportSeconds > 600) {
   throw new Error("Invalid polling/report interval");
 }
@@ -144,10 +146,11 @@ async function resolveTransit(work: AlphaWork) {
     .reduce((total, entry) => total + entry.args.amount, 0n);
   if (credited < BigInt(work.expected)) return false;
   if (work.kind === 1) return true;
-  if (!work.acknowledged) {
+  if (!work.acknowledged || Date.now() - (work.acknowledgedAt ?? 0) >= 60000) {
     const fee = await read("hub", bridges.hub, "messageFee", [], wormholeCoreAbi);
     await send("hub", core, coreVaultAbi, "acknowledgeSpokeTransit", [0n, work.transitId], fee);
     work.acknowledged = true;
+    work.acknowledgedAt = Date.now();
     save();
   }
   return false;
@@ -250,7 +253,7 @@ if (mode === "keeper") {
   let busy = false;
   createServer(async (request, response) => {
     if (request.headers.authorization !== `Bearer ${token}`) {response.writeHead(401).end(); return;}
-    if (request.method !== "POST" || !["/report", "/swap-route"].includes(request.url ?? "")) {response.writeHead(404).end(); return;}
+    if (request.method !== "POST" || !["/report", "/swap-route", "/income"].includes(request.url ?? "")) {response.writeHead(404).end(); return;}
     if (busy) {response.writeHead(409).end(); return;}
     busy = true;
     try {
@@ -265,6 +268,22 @@ if (mode === "keeper") {
           await new Promise((done) => setTimeout(done, pollMs));
         }
         result = {delivered: true, sequence: message.sequence};
+      } else if (request.url === "/income") {
+        const report = await read("spoke", spoke, "buildReport", [], spokeVaultAbi);
+        const mandate = await read("hub", core, "mandate", [], coreVaultAbi);
+        const base = mandate.spokes[0].spokeToken as Address;
+        const adapter = mandate.bridgeAdapters.find((entry: any) => Number(entry.chainId) === 4663)?.adapter as Address;
+        const value = report.collectedIncome.filter((entry: any) => getAddress(entry.token) === getAddress(base))
+          .reduce((total: bigint, entry: any) => total + entry.amount, 0n);
+        let arrival = 0n;
+        try {arrival = (await read("spoke", adapter, "quoteSend", [base, 42161n, value, "0x"], parseAbi(["function quoteSend(address,uint256,uint256,bytes) view returns (uint256,uint256)"])))[0];} catch {}
+        if (!collectAllowed(value, collectMinimum, arrival)) {
+          response.writeHead(409).end(JSON.stringify({deferred: true, collectedBase: value.toString(), minimum: collectMinimum.toString()}));
+          return;
+        }
+        const fee = await read("hub", bridges.hub, "messageFee", [], wormholeCoreAbi);
+        const receipt = await send("hub", core, coreVaultAbi, "requestIncomeWithdrawal", [100], fee);
+        result = {requested: true, transactionHash: receipt.transactionHash, shareholder: account.address};
       } else {result = await route(JSON.parse(body));}
       response.setHeader("Content-Type", "application/json");
       response.end(JSON.stringify(result));
