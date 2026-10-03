@@ -13,7 +13,7 @@ import {postReport} from "./alpha-report-client.ts";
 
 async function main() {
   const mode = process.argv[2];
-  assert.ok(["capital", "income", "closure", "reconcile"].includes(mode!));
+  assert.ok(["capital", "bridge", "income", "closure", "reconcile"].includes(mode!));
   const account = privateKeyToAccount(process.env.ALPHA_MANAGER_KEY as Hex);
   assert.equal(account.address, getAddress(process.env.MANAGER!));
   assert.ok(![...Object.values(actors), guardian].some((entry) => entry.address === account.address), "Public test keys refused");
@@ -135,11 +135,14 @@ async function main() {
     }, "full relay-data match and vault arrival");
   }
   await report();
-  if (mode === "capital") {
+  if (mode === "capital" || mode === "bridge") {
+    // `bridge` resumes a capital phase that deposited but stopped before the spoke send (its own phase guard).
     assert.ok(BigInt(process.env.SEED_AMOUNT!) <= 5000000n && BigInt(process.env.SPOKE_CAP!) <= 100000000n);
-    await send("hub", ARBITRUM.usdc, erc20Abi, "approve", [core, alphaAmounts.deposit]);
-    await send("hub", core, coreVaultAbi, "deposit", [alphaAmounts.deposit, 1n]);
-    await report();
+    if (mode === "capital") {
+      await send("hub", ARBITRUM.usdc, erc20Abi, "approve", [core, alphaAmounts.deposit]);
+      await send("hub", core, coreVaultAbi, "deposit", [alphaAmounts.deposit, 1n]);
+      await report();
+    }
     const arrival = await terms("hub", alphaAmounts.send);
     const head = await chains.spoke!.client.getBlockNumber();
     const receipt = await send("hub", core, coreVaultAbi, "sendToSpoke", [0n, alphaAmounts.send, 0n, "0x"]);
