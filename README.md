@@ -12,28 +12,33 @@ recorded in the handoff; management cap is 500 bps (5%), manager pays own gas in
 
 ## Status
 
-Buildathon MVP, **internal-alpha baseline `main` at `1db9a9d` (2026-10-02), through PR #15**. This snapshot does
-not attest to a production deployment or public readiness. `docs/ARCHITECTURE.md` describes merged code only.
-WP-09 proportional unwind, WP-10 income dollar index, WP-12 spoke orders and WP-13 closure are **in progress**.
+Buildathon MVP, **internal-alpha code baseline `origin/main` at `334eae6` (October 3, 2026)**. WP-09 proportional Hub
+unwind and WP-10 live income dollar index landed via PR #23 (#19/#18); WP-12 spoke orders and WP-13 closure
+landed via PR #21 (including #22). PR #20 prepares/checks dual-chain deployment, not a production broadcast.
+No public-readiness claim: [founder MVP report](docs/reports/2026-10-03-MVP-REPORT.md) contains fresh tests,
+sizes, gas, reviews and release inputs. PR #24’s completed lifecycle is merged; #28 closes the conformance
+blockers and #29 ships report v5/manual-send acknowledgements. DEC-145 is **in PR #30, landing before the deploy**.
 
 ## Scope of the buildathon MVP
 
 | In scope now | Next | Not planned for now |
 |---|---|---|
-| Arbitrum One as Hub Chain, Robinhood Chain as Spoke Chain | More spokes (Base, Ethereum) with CCTP as primary bridge | Borrowing, leverage, perps |
-| Uniswap V4 position adapter on both chains; Aave V3 supply-only adapter on Arbitrum | Collectors for reward campaigns (Merkl) | Share transfers between owners |
-| Across bridge adapter (USDC on Arbitrum, USDG on Robinhood) | Collectors for reward campaigns (Merkl) | Auto-compounding inside the contract |
-| Wormhole report v4, finalized consistency; authenticated order channel/executeOrder foundation only | Multi-spoke report scheduling | ZK proofs of value |
-| UniswapV3SwapAdapter: direct tier discovery or API-signed V3 split/multihop route | V4/mixed API swap routes | V3 position adapter |
-| Deposit, allocate, report, Instant and Standard Payouts, Income Withdrawal | Autonomous-manager guardrails, emergency runbook | CCTP on Robinhood Chain, Solana |
+| Arbitrum One Hub, Robinhood Chain spoke; Across USDC/USDG | More spokes and CCTP routes | Borrowing, leverage, perps |
+| Uniswap V4 positions; Aave V3 supply-only on Arbitrum | External reward collectors | Share transfers between owners |
+| Mandate swap adapter: direct V3 discovery or signed split/multihop | V4/mixed API routes | V3 position adapter |
+| Finalized report v5; UNWIND, CLOSE, COLLECT, ACKNOWLEDGE orders | Multi-spoke report scheduling | ZK proofs of value |
+| Deposit, allocate, report, proportional Hub/spoke payouts, USDC Income Withdrawal | Entry-time filter, signed bridge quotes | Auto-compounding |
+| Irreversible closure, final management payment and frozen Closed exits | Native Operating Cash, refunds, gas top-up | Solana / CCTP on Robinhood |
 
-The specification's MVP names Uniswap V4 plus Aave V3 without borrowing (DEC-018, DEC-028); the founder confirmed
-that position scope on 2026-09-29. **V3 swaps are implemented**, separately from fund position pools, through
-Mandate v2's per-fund swap adapter. Core Vault links four libraries, Spoke Vault three, all immutable (DEC-131).
-Performance is 10–90%; management 0–5%, accrual is live but closure payment unfinished; Payout Fee <=10% stays in
-Idle. Across fixes its own send terms (1% rate cap plus fixed fee); no signed bridge quote in MVP (DEC-176).
-All order executors currently revert `OrderKindNotSupported`; the channel is not a completed recovery path.
-Native Operating Cash, refunds and gas bridge top-up are deferred by ruling 2026-10-02; creation defaults are 0.
+Core Vault directly links six libraries, Spoke Vault four; nested links are immutable and deployed dependency-first
+(DEC-131). Performance fee is 10–90%; management 0–5%, accrued while Open and paid at finalization;
+Instant Payout Fee <=10% stays in Idle. Standard sale Market Costs are fund-absorbed up to 1% per sale, excess
+belongs to the leaver; closure excess belongs to the manager. Across fixes send terms (1% rate cap plus fixed fee),
+no signed bridge quote in MVP (DEC-176). Standard Payout Wormhole fees are caller-funded for now.
+A silent spoke blocks exits needing a fresh report (DEC-157/160); the keeper must deliver Hub acknowledgements
+to reclaim spoke send capacity (anyone may republish/deliver). Native Operating Cash/refunds/DEC-185 gas top-up
+are deferred by ruling 2026-10-02; MVP Operating Cash is enforced at 0 by #28, setters disabled.
+DEC-145 is in PR #30, landing before the deploy (waiting lots, resumable checkpoints, reported max-config peak 2.04M gas).
 
 ## Layout
 
@@ -107,11 +112,13 @@ troubleshooting (public RPCs serve fork state for minutes only; an archive RPC i
 **Not audited by a third party.** One internal security sweep (static, dynamic, symbolic, mutation and five manual
 lenses) ran on 2026-09-30: 44 findings, 16 fixed with regression tests, 3 waiting for a founder decision, 25
 acknowledged. An independent model-driven review and a verification plan (2026-09-30) were cross-checked against the
-code on 2026-10-01 (`docs/security/CROSS-CHECK-2026-10-01.md`; their proofs of concept run in `test/review/`). The
-Historical sweep counts are not current release certification: S-8 is accepted by DEC-129, S-5's native cap and
-S-15's attribution are answered but unfinished. Fresh baseline: **1,173 non-fork tests / 166 suites, 3/3 size tests**;
-SpokeVault **22,304 B, 2,272 B margin**, all runtime margins >1,000 B. Fork baseline: PR #15's 216 tests, not
-rerun for this docs-only sync. Full sizes/evidence: `docs/security/BASELINE-2026-10-02.md`. The
+code on 2026-10-01 (`docs/security/CROSS-CHECK-2026-10-01.md`; their proofs of concept run in `test/review/`).
+Historical sweep counts are not current release certification: S-8 is accepted by DEC-129; S-5's native cap and
+S-15’s DEC-145 entry-time rule is in PR #30, landing before the deploy; Operating Cash is enforced at 0 by #28.
+Fresh baseline: **1,548 non-fork tests / 190 suites; 227 fork tests / 57 suites; 3/3 size tests**
+(size suite included in non-fork total). Every production runtime fits 24,576 B; tightest SpokeVault is
+**22,907 B / 1,669 B margin**. Fresh complete sizes, per-suite counts and gas are in
+`docs/reports/2026-10-03-MVP-REPORT.md`; `docs/security/BASELINE-2026-10-02.md` is historical only. The
 Mandate fixes where a manager may trade and where tokens may go, not the price of a manager's trade
 (`docs/security/THREAT-MODEL.md`). Read `SECURITY.md` for the disclosure policy and `docs/security/` for the threat
 model, the register, the invariants, the tooling and the pre-mainnet checklist.
@@ -132,7 +139,7 @@ matter most:
 | Unallocated Balance, In-flight Value, Spoke Cap | Value in a Spoke Vault not yet in a position; value moving between chains; how much may be sent to a spoke |
 | Payout Request, Payout, Instant Payout, Standard Payout, Payout Fee | The exit flow and its two speeds |
 | Attributed Income, Income Withdrawal | Income that belongs to holders who held while it was earned; taking it out without burning shares |
-| Unwind | Turning positions into USDC; live interim Hub path walks position registry order after Idle, with a 2% margin; proportional replacement in progress |
+| Unwind | Turning positions into USDC; Idle first, proportional Hub/spoke sale fraction with a 2% buffer and delivered-position retry memory |
 | Adapter, Bridge Adapter, Collector, Transport Route | Integration code per protocol; the bridge as an adapter; receive-only code; the bridge route |
 | Operating Cash, Operating Expense, Network Costs, Market Costs | Per-chain gas budget; a fund expense with its funding source; gas and bridge fees; swap fees, impact, slippage |
 
