@@ -5,8 +5,74 @@ import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
+import {ICoreVaultLifecycle} from "../../../src/interfaces/ICoreVaultLifecycle.sol";
+import {stdStorage, StdStorage} from "forge-std/StdStorage.sol";
+import {SpokeUnwindTypes} from "../../../src/spoke/SpokeUnwindTypes.sol";
+import {OrderCodec} from "../../../src/libraries/OrderCodec.sol";
 
 contract ExpiredPrincipalRecoveryTest is CoreVaultIncomeTest {
+    using stdStorage for StdStorage;
+
+    function test_G05_finalizeWaitsForReservedPrincipalRecovery() public {
+        _deliver(_spokeIncomeReport(0.1e18, 0.1e18));
+        _request(manager);
+        bytes32 principal = keccak256("closing-reservation");
+        pool.fill(
+            address(vault),
+            address(usdc),
+            100e6,
+            TransitMessage.encode(FUND_ID, SPOKE, principal, TransferKind.Principal)
+        );
+        vm.warp(block.timestamp + 5 days);
+        _deliver(_spokeIncomeReport(0.1e18, 0));
+        vault.recoverUnlistedArrival(0, principal);
+        _deliver(_collectionReport(0.1e18, 1, 1, HOME, 0.1e18, 266e6, 265e6));
+        _fillIncome(HOME, 265e6);
+        vault.settleIncomeWithdrawal(manager);
+        _withdraw(bruno);
+        vm.prank(manager);
+        vault.closeFund();
+        vm.prank(manager);
+        vault.unwindAllAfterDeadline();
+        ReportCodec.Report memory report = _spokeIncomeReport(0.1e18, 0);
+        SpokeUnwindTypes.OrderResult[] memory results = new SpokeUnwindTypes.OrderResult[](1);
+        results[0].requestId = vault.closureRequestId();
+        results[0].attempt = 1;
+        results[0].orderId = keccak256(abi.encode(OrderCodec.CLOSE, FUND_ID, results[0].requestId, uint32(1)));
+        report.unwindResults = abi.encode(results);
+        _deliver(report);
+        vm.expectRevert(ICoreVaultLifecycle.ClosureNotReady.selector);
+        vault.finalizeClosure();
+        assertEq(vault.recoverUnlistedArrival(0, principal), 100e6);
+        vault.finalizeClosure();
+        assertEq(uint256(vault.fundState()), uint256(ICoreVaultLifecycle.FundState.Closed));
+    }
+
+    function test_G05_reservedRecoveryCannotCreditIdleAfterClosed() public {
+        _deliver(_spokeIncomeReport(0.1e18, 0.1e18));
+        _request(manager);
+        bytes32 principal = keccak256("closed-reservation");
+        pool.fill(
+            address(vault),
+            address(usdc),
+            100e6,
+            TransitMessage.encode(FUND_ID, SPOKE, principal, TransferKind.Principal)
+        );
+        vm.warp(block.timestamp + 5 days);
+        _deliver(_spokeIncomeReport(0.1e18, 0));
+        vault.recoverUnlistedArrival(0, principal);
+        _deliver(_collectionReport(0.1e18, 1, 1, HOME, 0.1e18, 266e6, 265e6));
+        _fillIncome(HOME, 265e6);
+        vault.settleIncomeWithdrawal(manager);
+        _withdraw(bruno);
+        stdstore.target(address(vault)).sig("fundState()").checked_write(uint256(ICoreVaultLifecycle.FundState.Closed));
+        uint256 before = vault.idle();
+        uint256 held = vault.incomeCollection().heldDollars;
+        assertEq(vault.recoverUnlistedArrival(0, principal), 100e6);
+        assertEq(vault.idle(), before);
+        assertEq(vault.incomeCollection().heldDollars, held - 100e6);
+    }
+
     function test_principalRecoveryMustNotStayReservedAfterUnrelatedIncomeCloses() public {
         _deliver(_spokeIncomeReport(0.1e18, 0.1e18));
         _request(manager);

@@ -155,7 +155,10 @@ library CoreVaultClosureLogic {
             excess += _spokeExcess(state, wiring, index, report.unwindResults);
         }
         CoreVaultIncomeLogic.onValuation(state, wiring, hub, true, false);
-        if (!CoreVaultIncomeLogic.finalCollectionDone(state, wiring) || state.unmatchedArrivals != 0) {
+        if (
+            !CoreVaultIncomeLogic.finalCollectionDone(state, wiring) || state.unmatchedArrivals != 0
+                || state.incomeBook.recoveredDollars != 0
+        ) {
             revert ICoreVaultLifecycle.ClosureNotReady();
         }
         state.idle += state.operatingCash;

@@ -364,6 +364,7 @@ library CoreVaultIncomeCollectionLogic {
         uint256 listed = s.hubBound[key].listed;
         if (listed == 0) return;
         delete book.recoveredIncome[spokeIndex][transitId];
+        book.recoveredDollars -= recovered;
         uint256 credited = recovered < listed ? recovered : listed;
         book.credited[spokeIndex][transitId] += credited;
         if (recovered > credited) {
