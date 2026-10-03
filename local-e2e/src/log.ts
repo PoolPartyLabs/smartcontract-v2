@@ -52,9 +52,8 @@ export function logger(component: string, quiet = false): Logger {
 }
 
 export function redactUrls(text: string): string {
-  return text.replace(/(https?:\/\/)([^/?#\s"'`)]+)([/?#][^\s"'`)]*)?/gi, (_, scheme: string, authority: string, suffix?: string) =>
-    `${scheme}${authority.slice(authority.lastIndexOf("@") + 1)}${suffix ? "/..." : ""}`,
-  );
+  return text.replace(/([a-z][a-z0-9+.-]*:\/\/)([^/?#\s]*@)?(\[[0-9a-f:.%]+\]|[a-z0-9_.-]+)(:\d+)?[^\s]*/gi,
+    (_, scheme: string, _userinfo: string, host: string, port?: string) => `${scheme}${host}${port ?? ""}`);
 }
 
 /** USDC-style fixed point for logs: 6 decimals by default. */

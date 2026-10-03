@@ -7,17 +7,22 @@ import { fileURLToPath } from "node:url";
 import { logger, redactUrls } from "../src/log.ts";
 
 const cases = [
-  ["https://rpc.example.invalid/v2/SYNTHETIC_PATH", "https://rpc.example.invalid/..."],
-  ["https://rpc.example.invalid?apiKey=SYNTHETIC_QUERY", "https://rpc.example.invalid/..."],
-  ["https://rpc.example.invalid#SYNTHETIC_FRAGMENT", "https://rpc.example.invalid/..."],
-  ["https://SYNTHETIC_USER:SYNTHETIC_PASSWORD@rpc.example.invalid/rpc?apiKey=SYNTHETIC_QUERY", "https://rpc.example.invalid/..."],
+  ["https://rpc.example.invalid/v2/SYNTHETIC_PATH", "https://rpc.example.invalid"],
+  ["https://rpc.example.invalid?apiKey=SYNTHETIC_QUERY", "https://rpc.example.invalid"],
+  ["https://rpc.example.invalid#SYNTHETIC_FRAGMENT", "https://rpc.example.invalid"],
+  ["https://SYNTHETIC_USER:SYNTHETIC_PASSWORD@rpc.example.invalid/rpc?apiKey=SYNTHETIC_QUERY", "https://rpc.example.invalid"],
   ["https://SYNTHETIC_USER:SYNTHETIC_PASSWORD@rpc.example.invalid", "https://rpc.example.invalid"],
   ["http://SYNTHETIC_USER:p%40SYNTHETIC_PASSWORD@[::1]:8545", "http://[::1]:8545"],
-  ["HTTPS://SYNTHETIC_USER:SYNTHETIC_PASSWORD@rpc.example.invalid:443#SYNTHETIC_FRAGMENT", "HTTPS://rpc.example.invalid:443/..."],
+  ["HTTPS://SYNTHETIC_USER:SYNTHETIC_PASSWORD@rpc.example.invalid:443#SYNTHETIC_FRAGMENT", "HTTPS://rpc.example.invalid:443"],
   ["http://127.0.0.1:8545", "http://127.0.0.1:8545"],
+  ["https://rpc.example.invalid/rpc(foo)?apiKey=SYNTHETIC_QUERY", "https://rpc.example.invalid"],
+  ["https://rpc.example.invalid/rpc'foo\"bar`baz?apiKey=SYNTHETIC_QUERY", "https://rpc.example.invalid"],
+  ["https://rpc.example.invalid/rpc[foo]{bar}?apiKey=SYNTHETIC_QUERY", "https://rpc.example.invalid"],
+  ["https://rpc.example.invalid/rpc(foo)?apiKey=SYNTHETIC_QUERY#SYNTHETIC_FRAGMENT).,;!", "https://rpc.example.invalid"],
+  ["wss://SYNTHETIC_USER:SYNTHETIC_PASSWORD@[::1]:8545/rpc(foo)?key=SYNTHETIC_QUERY", "wss://[::1]:8545"],
 ] as const;
 const input = cases.map(([url]) => `Endpoint: '${url}' (${url}) "${url}"`).join("\n") + "\n";
-const expected = cases.map(([, url]) => `Endpoint: '${url}' (${url}) "${url}"`).join("\n") + "\n";
+const expected = cases.map(([, url]) => `Endpoint: '${url} (${url} "${url}`).join("\n") + "\n";
 assert.equal(redactUrls(input), expected);
 assert.equal(redactUrls(expected), expected);
 
@@ -37,9 +42,11 @@ try {
   assert.equal(failed.status, 17);
   assert.equal(failed.stdout, expected + "\n" + expected + "\n");
   assert.equal(failed.stderr, "");
-  const castFailure = spawnSync("bash", [wrapper, "cast", "chain-id", "--rpc-url", "http://SYNTHETIC_USER:SYNTHETIC_PASSWORD@127.0.0.1:1/v2/SYNTHETIC_PATH?key=SYNTHETIC_QUERY"], {encoding: "utf8"});
-  assert.notEqual(castFailure.status, 0);
-  assert.ok(!`${castFailure.stdout}${castFailure.stderr}`.includes("SYNTHETIC_"));
+  for (const path of ["/v2/SYNTHETIC_PATH", "/rpc(foo)", "/rpc'foo\"bar", "/rpc[foo]", "/rpc(foo).,;!"]) {
+    const castFailure = spawnSync("bash", [wrapper, "cast", "chain-id", "--rpc-url", `http://SYNTHETIC_USER:SYNTHETIC_PASSWORD@127.0.0.1:1${path}?key=SYNTHETIC_QUERY#SYNTHETIC_FRAGMENT`], {encoding: "utf8"});
+    assert.notEqual(castFailure.status, 0);
+    assert.ok(!`${castFailure.stdout}${castFailure.stderr}`.includes("SYNTHETIC_"));
+  }
 } finally {
   rmSync(directory, { recursive: true, force: true });
 }
