@@ -459,11 +459,24 @@ executes the lifecycle directly against the same contracts.
 Each scenario step captures transactions/gas, Share Price, Share Assets, Gross Assets,
 management fee accrual, paid fees, and every actor's token/share balance, share value and
 Attributed Income. JSON contains full hashes; Markdown includes per-step tables and totals.
-The conservation check currently proves **Core Vault USDC cash conservation**, including
-bridge/Hub transfers and excess sweeps. It is explicitly not fund-wide economic conservation;
-that additionally needs realized market P&L, bridge costs and external pool value changes.
+The fund-wide conservation check reconciles external capital plus independently summed
+realized investment cash flows with investor payments, external fees/sweeps, bridge costs,
+and physical vault cash plus remaining positions/transits across both chains. Bridge sends
+match transit events; arrivals match `FilledRelay` transactions. USDG is valued at 1:1;
+the fixed scenario ETH/USD feed values WETH. The final closed-fund check has no remaining
+positions or transits. Payout Fee stays in fund value; manager/keeper native gas is external
+(DEC-187). A separate Core Vault USDC transfer reconciliation also runs.
 
-**Verification is blocked, not green:** see `reports/2026-10-02-wp15b-blocked.md`.
-No successful WP-15b scenario report or gas claim is available until the parent deployment
-linking bug is fixed and these new phases are exercised. Max-loss exclusion/retry scenario
-coverage and full fund-wide economic conservation remain unfinished.
+**Verified on October 3, 2026:** 55 steps, 319 assertions, 100 transactions; 31 API concepts.
+See `reports/2026-10-03-wp15b-completed.md` and the linked full JSON/Markdown run reports.
+The historical deployment blocker report is superseded. The scenario includes a Standard
+Payout with a 1 bp maximum, two excluded positions and an unbounded retry that leaves the
+already-delivered Aave position unchanged, plus Instant Hub/spoke settlement.
+
+The keeper publishes and relays `ACKNOWLEDGE` orders for resolved Principal transits.
+Without them, 16 unresolved send records exhaust spoke capacity and closure reports retain
+In-flight Value. Closure uses a 15,000,000 gas budget: gas estimation can choose an inner
+out-of-gas unwind that the Core Vault catches. After the final closure send is acknowledged,
+publish another CLOSE to restore the terminal result removed by acknowledgement before
+final income collection and `finalizeClosure`. These implementation limitations are recorded
+in the completion report; no contract changes are made by WP-15b.
