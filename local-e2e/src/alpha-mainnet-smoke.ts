@@ -76,8 +76,10 @@ async function main() {
     const originChainId = side === "hub" ? 42161 : 4663;
     const destinationChainId = side === "hub" ? 4663 : 42161;
     const token = side === "hub" ? ARBITRUM.usdc : ROBINHOOD.usdg;
+    const outputToken = side === "hub" ? ROBINHOOD.usdg : ARBITRUM.usdc;
     const url = new URL("https://app.across.to/api/suggested-fees");
-    for (const [key, value] of Object.entries({originChainId, destinationChainId, token, amount: amount.toString()})) url.searchParams.set(key, String(value));
+    // USDC -> USDG is a cross-token route: the legacy `token` parameter implies the same token on both sides (HTTP 400).
+    for (const [key, value] of Object.entries({originChainId, destinationChainId, inputToken: token, outputToken, amount: amount.toString()})) url.searchParams.set(key, String(value));
     const response = await fetch(url, {signal: AbortSignal.timeout(15000)});
     assert.ok(response.ok, "Across route terms unavailable: STOP");
     const terms = await response.json() as any;
