@@ -10,7 +10,7 @@ This is an operator runbook, **not authorization to broadcast on mainnet**. No m
    This rehearsal adds COLLECT/CLOSE through the alpha runtime, capital arrival and Instant Payout; it does not
    replace the full strategy/Standard Payout scenario. Re-run on the frozen commit: library addresses and creation
    code hashes depend on the build.
-2. Pass `forge build --sizes`, `forge fmt --check`, the size suite, all non-fork and all fork tests, and the final
+2. Pass `bash script/alpha-safe.sh forge build --sizes`, `bash script/alpha-safe.sh forge fmt --check`, the size suite, all non-fork and all fork tests, and the final
    `local-e2e` scenario/API probe required by HANDOFF section 6. This branch's smoke is not that final scenario.
 3. Obtain Rafael's signed-off input sheet, maximum alpha exposure, funded wallets, incident contact and process
    supervisor. Keep the API loopback-only, behind an authenticated internal tunnel; do not expose the ordinary
@@ -40,7 +40,7 @@ them in shell history, files, logs or a PR. The runtime takes signer keys throug
 a secret manager or hidden prompt. Disable shell tracing and terminal recording. Never print RPC URLs: they include
 provider credentials. Do not source the worktree's shared `.env` for an alpha run: it belongs to other sessions.
 
-For **every fork test, cast call or runtime start**, source the RPC helper in the **same shell invocation**:
+For **every fork test, bash script/alpha-safe.sh cast call or runtime start**, source the RPC helper in the **same shell invocation**:
 
 ```bash
 . /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
@@ -119,12 +119,12 @@ twice on a chain after success: registry/price-source/stores are CREATE deployme
 salt is already occupied. A failed broadcast needs receipt-by-receipt reconciliation, not a blind rerun.
 
 ```bash
-forge build --sizes
-forge fmt --check
-forge test --match-path test/size/ContractSizes.t.sol -vv
-forge test --no-match-path 'test/{fork/**,review/**/*Fork*}'
+bash script/alpha-safe.sh forge build --sizes
+bash script/alpha-safe.sh forge fmt --check
+bash script/alpha-safe.sh forge test --match-path test/size/ContractSizes.t.sol -vv
+bash script/alpha-safe.sh forge test --no-match-path 'test/{fork/**,review/**/*Fork*}'
 . /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
-forge test --match-path 'test/{fork/**,review/**/*Fork*}' -j 4
+bash script/alpha-safe.sh forge test --match-path 'test/{fork/**,review/**/*Fork*}' -j 4
 CI=true pnpm --dir local-e2e install --frozen-lockfile
 bash script/rehearse-alpha.sh
 ```
@@ -133,13 +133,13 @@ Then load Rafael's approved nonsecret inputs into the shell explicitly, and unlo
 
 ```bash
 . /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
-test "$(cast chain-id --rpc-url "$ARBITRUM_RPC_URL")" = 42161
-test "$(cast chain-id --rpc-url "$ROBINHOOD_RPC_URL")" = 4663
-cast balance "$DEPLOYER_ADDRESS" --rpc-url "$ARBITRUM_RPC_URL"
-cast balance "$DEPLOYER_ADDRESS" --rpc-url "$ROBINHOOD_RPC_URL"
-cast call 0xaf88d065e77c8cC2239327C5EDb3A432268e5831 'balanceOf(address)(uint256)' "$MANAGER" --rpc-url "$ARBITRUM_RPC_URL"
-forge script script/DeployFactory.s.sol --rpc-url "$ARBITRUM_RPC_URL" --sender "$DEPLOYER_ADDRESS"
-forge script script/DeployFactory.s.sol --rpc-url "$ROBINHOOD_RPC_URL" --sender "$DEPLOYER_ADDRESS"
+test "$(bash script/alpha-safe.sh cast chain-id --rpc-url "$ARBITRUM_RPC_URL")" = 42161
+test "$(bash script/alpha-safe.sh cast chain-id --rpc-url "$ROBINHOOD_RPC_URL")" = 4663
+bash script/alpha-safe.sh cast balance "$DEPLOYER_ADDRESS" --rpc-url "$ARBITRUM_RPC_URL"
+bash script/alpha-safe.sh cast balance "$DEPLOYER_ADDRESS" --rpc-url "$ROBINHOOD_RPC_URL"
+bash script/alpha-safe.sh cast call 0xaf88d065e77c8cC2239327C5EDb3A432268e5831 'balanceOf(address)(uint256)' "$MANAGER" --rpc-url "$ARBITRUM_RPC_URL"
+bash script/alpha-safe.sh forge script script/DeployFactory.s.sol --rpc-url "$ARBITRUM_RPC_URL" --sender "$DEPLOYER_ADDRESS"
+bash script/alpha-safe.sh forge script script/DeployFactory.s.sol --rpc-url "$ROBINHOOD_RPC_URL" --sender "$DEPLOYER_ADDRESS"
 ```
 
 These two are simulations. Compare predicted factory, Create3Deployer, all **four spoke libraries**, and spoke
@@ -151,8 +151,8 @@ themselves differ across chains because their salts include the chain id.
 
 ```bash
 . /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
-forge script script/DeployFactory.s.sol --rpc-url "$ARBITRUM_RPC_URL" --account alpha-operator --sender "$DEPLOYER_ADDRESS" --broadcast --slow
-forge script script/DeployFactory.s.sol --rpc-url "$ROBINHOOD_RPC_URL" --account alpha-operator --sender "$DEPLOYER_ADDRESS" --broadcast --slow
+bash script/alpha-safe.sh forge script script/DeployFactory.s.sol --rpc-url "$ARBITRUM_RPC_URL" --account alpha-operator --sender "$DEPLOYER_ADDRESS" --broadcast --slow
+bash script/alpha-safe.sh forge script script/DeployFactory.s.sol --rpc-url "$ROBINHOOD_RPC_URL" --account alpha-operator --sender "$DEPLOYER_ADDRESS" --broadcast --slow
 ```
 
 On each chain: wiring validation; hub-only ManagerRegistry and ChainlinkPriceSource; deterministic Create3Deployer;
@@ -174,9 +174,9 @@ advance it between simulation and broadcast. Do not assume number 1.
 
 ```bash
 . /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
-cast call "$FUND_FACTORY" 'nextCreationNumber()(uint256)' --rpc-url "$ARBITRUM_RPC_URL"
-forge script script/CreateFund.s.sol --rpc-url "$ARBITRUM_RPC_URL" --sender "$MANAGER"
-forge script script/CreateFund.s.sol --rpc-url "$ARBITRUM_RPC_URL" --account alpha-manager --sender "$MANAGER" --broadcast --slow
+bash script/alpha-safe.sh cast call "$FUND_FACTORY" 'nextCreationNumber()(uint256)' --rpc-url "$ARBITRUM_RPC_URL"
+bash script/alpha-safe.sh forge script script/CreateFund.s.sol --rpc-url "$ARBITRUM_RPC_URL" --sender "$MANAGER"
+bash script/alpha-safe.sh forge script script/CreateFund.s.sol --rpc-url "$ARBITRUM_RPC_URL" --account alpha-manager --sender "$MANAGER" --broadcast --slow
 ```
 
 CreateFund approves the seed and creates the fund; no separate factory allowance transaction is needed. Copy
@@ -185,10 +185,10 @@ and use **exactly the same pool/fee/cap/minimum/Operating Cash inputs** on Robin
 
 ```bash
 . /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
-forge script script/CreateFund.s.sol --rpc-url "$ROBINHOOD_RPC_URL" --sender "$MANAGER"
-forge script script/CreateFund.s.sol --rpc-url "$ROBINHOOD_RPC_URL" --account alpha-manager --sender "$MANAGER" --broadcast --slow
-forge script script/CheckAlphaDeployment.s.sol --rpc-url "$ARBITRUM_RPC_URL"
-forge script script/CheckAlphaDeployment.s.sol --rpc-url "$ROBINHOOD_RPC_URL"
+bash script/alpha-safe.sh forge script script/CreateFund.s.sol --rpc-url "$ROBINHOOD_RPC_URL" --sender "$MANAGER"
+bash script/alpha-safe.sh forge script script/CreateFund.s.sol --rpc-url "$ROBINHOOD_RPC_URL" --account alpha-manager --sender "$MANAGER" --broadcast --slow
+bash script/alpha-safe.sh forge script script/CheckAlphaDeployment.s.sol --rpc-url "$ARBITRUM_RPC_URL"
+bash script/alpha-safe.sh forge script script/CheckAlphaDeployment.s.sol --rpc-url "$ROBINHOOD_RPC_URL"
 ```
 
 Checker has no `startBroadcast`, `send` or write calls: contract reads are `staticcall`, storage reads are `vm.load`.
@@ -196,7 +196,7 @@ It rebuilds the approved Mandate with `FundMandate`, compares its hash, checks f
 hub registry owner and price source, code at active roles and every CodeStore/library/external integration, stored
 creation-code hashes, CodeStore contents, runtime library links, adapter custody/guardian/API signer, receiver and
 Core Vault wiring, and ShareToken/ManagerFeeVault CREATE nonce predictions. Factory storage slot 4 for CodeStores
-is build-specific; re-check `forge inspect FundFactory storage-layout --json` if the frozen factory layout changes.
+is build-specific; re-check `bash script/alpha-safe.sh forge inspect FundFactory storage-layout --json` if the frozen factory layout changes.
 Robinhood intentionally has no Core Vault, ShareToken, price source, registry, Aave or Core libraries, so those
 addresses are checked on the hub only. The hub's Spoke Vault intentionally has `wormholeCore() == 0`.
 
@@ -249,8 +249,8 @@ array from its `libraries` list (one `--libraries "src/path.sol:Name:0x..."` pai
 an empty array; libraries with no constructor use `CTOR_ARGS=0x`:
 
 ```bash
-forge verify-contract "$ADDRESS" "$CONTRACT" --chain-id 42161 --verifier etherscan --etherscan-api-key "$ARBISCAN_API_KEY" --compiler-version v0.8.28+commit.7893614a --num-of-optimizations 800 --constructor-args "$CTOR_ARGS" "${LINK_ARGS[@]}" --watch
-forge verify-contract "$ADDRESS" "$CONTRACT" --chain-id 4663 --verifier blockscout --verifier-url 'https://robinhoodchain.blockscout.com/api/' --compiler-version v0.8.28+commit.7893614a --num-of-optimizations 800 --constructor-args "$CTOR_ARGS" "${LINK_ARGS[@]}" --watch
+bash script/alpha-safe.sh forge verify-contract "$ADDRESS" "$CONTRACT" --chain-id 42161 --verifier etherscan --etherscan-api-key "$ARBISCAN_API_KEY" --compiler-version v0.8.28+commit.7893614a --num-of-optimizations 800 --constructor-args "$CTOR_ARGS" "${LINK_ARGS[@]}" --watch
+bash script/alpha-safe.sh forge verify-contract "$ADDRESS" "$CONTRACT" --chain-id 4663 --verifier blockscout --verifier-url 'https://robinhoodchain.blockscout.com/api/' --compiler-version v0.8.28+commit.7893614a --num-of-optimizations 800 --constructor-args "$CTOR_ARGS" "${LINK_ARGS[@]}" --watch
 ```
 
 Execute only the command for the record's chain. Check successful verified status on the explorer, not only a
@@ -258,7 +258,7 @@ submission GUID. Save the linked-library map and verification receipts with the 
 rejects ABI argument flags, use its standard-JSON browser verifier with the exact linked settings:
 
 ```bash
-forge verify-contract "$ADDRESS" "$CONTRACT" --chain-id 4663 "${LINK_ARGS[@]}" --show-standard-json-input > alpha-standard-input.json
+bash script/alpha-safe.sh forge verify-contract "$ADDRESS" "$CONTRACT" --chain-id 4663 "${LINK_ARGS[@]}" --show-standard-json-input > alpha-standard-input.json
 ```
 
 Coverage inventory: Create3Deployer, all applicable linked libraries, ManagerRegistry, ChainlinkPriceSource,
@@ -355,15 +355,15 @@ Example calls (Bash; keep bearer token out of process command arguments by passi
 ```bash
 printf 'header = "Authorization: Bearer %s"\n' "$ALPHA_API_TOKEN" | curl --config - --fail-with-body -X POST "http://127.0.0.1:${ALPHA_API_PORT:-8787}/report"
 . /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
-cast send 0xaf88d065e77c8cC2239327C5EDb3A432268e5831 'approve(address,uint256)' "$ALPHA_CORE_VAULT" 2000000 --account alpha-manager --rpc-url "$ARBITRUM_RPC_URL"
-cast call "$ALPHA_CORE_VAULT" 'deposit(uint256,uint256)' 2000000 1 --from "$MANAGER" --rpc-url "$ARBITRUM_RPC_URL"
-cast send "$ALPHA_CORE_VAULT" 'deposit(uint256,uint256)' 2000000 1 --account alpha-manager --rpc-url "$ARBITRUM_RPC_URL"
+bash script/alpha-safe.sh cast send 0xaf88d065e77c8cC2239327C5EDb3A432268e5831 'approve(address,uint256)' "$ALPHA_CORE_VAULT" 2000000 --account alpha-manager --rpc-url "$ARBITRUM_RPC_URL"
+bash script/alpha-safe.sh cast call "$ALPHA_CORE_VAULT" 'deposit(uint256,uint256)' 2000000 1 --from "$MANAGER" --rpc-url "$ARBITRUM_RPC_URL"
+bash script/alpha-safe.sh cast send "$ALPHA_CORE_VAULT" 'deposit(uint256,uint256)' 2000000 1 --account alpha-manager --rpc-url "$ARBITRUM_RPC_URL"
 # /report after deposit, then /report immediately before payout (same authenticated call as above).
-cast send "$ALPHA_CORE_VAULT" 'requestPayout(uint256,uint8,uint16)' 1000000 0 100 --account alpha-manager --rpc-url "$ARBITRUM_RPC_URL"
+bash script/alpha-safe.sh cast send "$ALPHA_CORE_VAULT" 'requestPayout(uint256,uint8,uint16)' 1000000 0 100 --account alpha-manager --rpc-url "$ARBITRUM_RPC_URL"
 # /report after burn; check the receipt and state, not only transaction submission.
-cast call "$ALPHA_CORE_VAULT" 'idle()(uint256)' --rpc-url "$ARBITRUM_RPC_URL"
-cast call "$ALPHA_CORE_VAULT" 'fundState()(uint8)' --rpc-url "$ARBITRUM_RPC_URL"
-cast call "$ALPHA_REPORT_RECEIVER" 'lastReportSequence(uint256)(uint64)' 0 --rpc-url "$ARBITRUM_RPC_URL"
+bash script/alpha-safe.sh cast call "$ALPHA_CORE_VAULT" 'idle()(uint256)' --rpc-url "$ARBITRUM_RPC_URL"
+bash script/alpha-safe.sh cast call "$ALPHA_CORE_VAULT" 'fundState()(uint8)' --rpc-url "$ARBITRUM_RPC_URL"
+bash script/alpha-safe.sh cast call "$ALPHA_REPORT_RECEIVER" 'lastReportSequence(uint256)(uint64)' 0 --rpc-url "$ARBITRUM_RPC_URL"
 ```
 
 For bridging after smoke, simulate `quoteSend` from the actual adapter and `sendToSpoke(0,amount,0,0x)` from the
@@ -385,13 +385,13 @@ from factory `addressOf(fundId,role,chainId)` and the manifest; never pause an i
 
 ```bash
 . /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
-cast send "$ADAPTER" 'setPaused(bool)' true --account alpha-guardian --rpc-url "$CHAIN_RPC"
-cast call "$ADAPTER" 'paused()(bool)' --rpc-url "$CHAIN_RPC"
+bash script/alpha-safe.sh cast send "$ADAPTER" 'setPaused(bool)' true --account alpha-guardian --rpc-url "$CHAIN_RPC"
+bash script/alpha-safe.sh cast call "$ADAPTER" 'paused()(bool)' --rpc-url "$CHAIN_RPC"
 # Only after root cause/review: reversible quarantine release.
-cast send "$ADAPTER" 'setPaused(bool)' false --account alpha-guardian --rpc-url "$CHAIN_RPC"
+bash script/alpha-safe.sh cast send "$ADAPTER" 'setPaused(bool)' false --account alpha-guardian --rpc-url "$CHAIN_RPC"
 # Irreversible retirement, separate explicit approval:
-cast send "$ADAPTER" 'deprecate()' --account alpha-guardian --rpc-url "$CHAIN_RPC"
-cast call "$ADAPTER" 'deprecated()(bool)' --rpc-url "$CHAIN_RPC"
+bash script/alpha-safe.sh cast send "$ADAPTER" 'deprecate()' --account alpha-guardian --rpc-url "$CHAIN_RPC"
+bash script/alpha-safe.sh cast call "$ADAPTER" 'deprecated()(bool)' --rpc-url "$CHAIN_RPC"
 ```
 
 Pause/deprecation blocks risk-increasing entries; exits/collection remain usable, and V3 swaps into base token
@@ -411,10 +411,10 @@ then broadcast only after the documented expiry/refund evidence is confirmed:
 
 ```bash
 . /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
-cast call "$ALPHA_CORE_VAULT" 'attestExpiry(bytes32)' "$TRANSIT_ID" --from "$KEEPER_ADDRESS" --rpc-url "$ARBITRUM_RPC_URL"
-cast send "$ALPHA_CORE_VAULT" 'attestExpiry(bytes32)' "$TRANSIT_ID" --account alpha-keeper --rpc-url "$ARBITRUM_RPC_URL"
-cast call "$ALPHA_CORE_VAULT" 'recognizeRefund(bytes32)(uint256)' "$TRANSIT_ID" --from "$KEEPER_ADDRESS" --rpc-url "$ARBITRUM_RPC_URL"
-cast send "$ALPHA_CORE_VAULT" 'recognizeRefund(bytes32)' "$TRANSIT_ID" --account alpha-keeper --rpc-url "$ARBITRUM_RPC_URL"
+bash script/alpha-safe.sh cast call "$ALPHA_CORE_VAULT" 'attestExpiry(bytes32)' "$TRANSIT_ID" --from "$KEEPER_ADDRESS" --rpc-url "$ARBITRUM_RPC_URL"
+bash script/alpha-safe.sh cast send "$ALPHA_CORE_VAULT" 'attestExpiry(bytes32)' "$TRANSIT_ID" --account alpha-keeper --rpc-url "$ARBITRUM_RPC_URL"
+bash script/alpha-safe.sh cast call "$ALPHA_CORE_VAULT" 'recognizeRefund(bytes32)(uint256)' "$TRANSIT_ID" --from "$KEEPER_ADDRESS" --rpc-url "$ARBITRUM_RPC_URL"
+bash script/alpha-safe.sh cast send "$ALPHA_CORE_VAULT" 'recognizeRefund(bytes32)' "$TRANSIT_ID" --account alpha-keeper --rpc-url "$ARBITRUM_RPC_URL"
 # A spoke-origin refund uses the actual spoke vault and Robinhood RPC, not the hub Core Vault.
 ```
 
@@ -436,12 +436,12 @@ CI=true pnpm --dir local-e2e install --frozen-lockfile
 pnpm --dir local-e2e exec tsc --noEmit
 . /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
 ALPHA_REHEARSAL_HUB_PORT=18745 ALPHA_REHEARSAL_SPOKE_PORT=18746 ALPHA_REHEARSAL_API_PORT=18787 bash script/rehearse-alpha.sh
-forge build --sizes
-forge fmt --check
-forge test --match-path test/size/ContractSizes.t.sol -vv
-forge test --no-match-path 'test/{fork/**,review/**/*Fork*}'
+bash script/alpha-safe.sh forge build --sizes
+bash script/alpha-safe.sh forge fmt --check
+bash script/alpha-safe.sh forge test --match-path test/size/ContractSizes.t.sol -vv
+bash script/alpha-safe.sh forge test --no-match-path 'test/{fork/**,review/**/*Fork*}'
 . /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
-forge test --match-path 'test/{fork/**,review/**/*Fork*}' -j 4
+bash script/alpha-safe.sh forge test --match-path 'test/{fork/**,review/**/*Fork*}' -j 4
 pnpm --dir local-e2e test:alpha
 pnpm --dir local-e2e check:urls
 node --test script/alpha-verification.test.mjs

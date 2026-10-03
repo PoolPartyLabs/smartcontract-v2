@@ -32,6 +32,14 @@ try {
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, expected);
   assert.equal(readFileSync(logfile, "utf8"), expected);
+  const wrapper = fileURLToPath(new URL("../../script/alpha-safe.sh", import.meta.url));
+  const failed = spawnSync("bash", [wrapper, "node", "-e", `console.log(${JSON.stringify(input)}); console.error(${JSON.stringify(input)}); process.exit(17)`], {encoding: "utf8"});
+  assert.equal(failed.status, 17);
+  assert.equal(failed.stdout, expected + "\n" + expected + "\n");
+  assert.equal(failed.stderr, "");
+  const castFailure = spawnSync("bash", [wrapper, "cast", "chain-id", "--rpc-url", "http://SYNTHETIC_USER:SYNTHETIC_PASSWORD@127.0.0.1:1/v2/SYNTHETIC_PATH?key=SYNTHETIC_QUERY"], {encoding: "utf8"});
+  assert.notEqual(castFailure.status, 0);
+  assert.ok(!`${castFailure.stdout}${castFailure.stderr}`.includes("SYNTHETIC_"));
 } finally {
   rmSync(directory, { recursive: true, force: true });
 }
