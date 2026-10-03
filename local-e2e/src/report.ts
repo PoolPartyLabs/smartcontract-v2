@@ -5,13 +5,14 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import type { Address } from "viem";
-import { acrossSpokePoolAbi, chainlinkPriceSourceAbi, coreVaultAbi, erc20Abi, shareTokenAbi, spokeVaultAbi } from "./abis.ts";
+import { decodeEventLog, decodeFunctionData, parseAbi, type Address, type Hex } from "viem";
+import { aaveV3AdapterAbi, acrossSpokePoolAbi, chainlinkPriceSourceAbi, coreVaultAbi, erc20Abi, shareTokenAbi, spokeVaultAbi, uniswapV4AdapterAbi } from "./abis.ts";
 import { nodes, read, transactionLog, type TxRecord } from "./chain.ts";
 import { ACTOR_NAMES, ARBITRUM, HARNESS_DIR, REPO_DIR, REPORTS_DIR, ROBINHOOD, actors } from "./config.ts";
 import { feeLedger, sharePriceHistory, type FeeLedger, type SharePricePoint } from "./history.ts";
 import { redactUrls, units } from "./log.ts";
 import type { DeploymentState, FundRecord } from "./state.ts";
+import { conservationResult, ExplainedFlows } from "./conservation.ts";
 
 export interface ReportStep {
   n: number;
@@ -132,16 +133,115 @@ export class RunReport {
     let bridgeNet = 0n;
     let remainingVaultCash = 0n;
     let remainingPositions = 0n;
-    const marketFlows: { side: string; token: Address; transaction: string; direction: string; amount: bigint; dollars: bigint }[] = [];
+    let unexplainedAmount = 0n;
+    const unexplainedFlows: unknown[] = [];
+    const marketFlows: { side: string; token: Address; transaction: string; direction: string; amount: bigint; dollars: bigint; evidence: string }[] = [];
     for (const side of ["arbitrum", "robinhood"] as const) {
       const base = side === "arbitrum" ? ARBITRUM.usdc : ROBINHOOD.usdg;
       const weth = side === "arbitrum" ? ARBITRUM.weth : ROBINHOOD.weth;
       const fromBlock = BigInt(side === "arbitrum" ? this.fund.hub.createdInBlock : this.fund.spoke.createdInBlock);
       const originVault = side === "arbitrum" ? this.fund.hub.coreVault : this.fund.spoke.spokeVault;
       const sends = await nodes[side].client.getContractEvents({ address: originVault, abi: side === "arbitrum" ? coreVaultAbi : spokeVaultAbi, eventName: side === "arbitrum" ? "SentToSpoke" : "SentToHub", fromBlock });
-      const bridgeSends = new Set(sends.map((entry) => `${entry.transactionHash}:${(entry.args as any).transit.amountSent}`));
       const fills = await nodes[side].client.getContractEvents({ address: side === "arbitrum" ? ARBITRUM.acrossSpokePool : ROBINHOOD.acrossSpokePool, abi: acrossSpokePoolAbi, eventName: "FilledRelay", fromBlock });
-      const fillTransactions = new Set(fills.map((entry) => entry.transactionHash));
+      const evidence = new ExplainedFlows();
+      const pool = side === "arbitrum" ? ARBITRUM.acrossSpokePool : ROBINHOOD.acrossSpokePool;
+      const add = (transaction: string, token: string, sender: string, receiver: string, amount: bigint, cause: "capital" | "market" | "payment" | "fee" | "bridge", event: string) => evidence.add({ transaction, token, sender, receiver, amount, cause, event });
+      for (const sent of sends) add(sent.transactionHash, base, originVault, pool, (sent.args as any).transit.amountSent, "bridge", "SentToSpoke/SentToHub");
+      for (const fill of fills) {
+        const args = fill.args as any;
+        const receiver = `0x${args.recipient.slice(-40)}`;
+        if (vaults.has(receiver.toLowerCase())) add(fill.transactionHash, `0x${args.outputToken.slice(-40)}`, `0x${args.relayer.slice(-40)}`, receiver, args.relayExecutionInfo.updatedOutputAmount, "bridge", "FilledRelay");
+      }
+      const spokeAddresses = side === "arbitrum" ? [this.fund.hub.spokeVault] : [this.fund.spoke.spokeVault];
+      const positionPools = new Map<string, Hex>();
+      for (const vault of spokeAddresses) {
+        const events = await nodes[side].client.getContractEvents({ address: vault, abi: spokeVaultAbi, fromBlock });
+        const adapters = side === "arbitrum" ? [this.fund.hub.aaveV3Adapter, this.fund.hub.uniswapV4Adapter] : [this.fund.spoke.uniswapV4Adapter];
+        for (const event of events) {
+          const args = event.args as any;
+          const name = (event as any).eventName as string;
+          if (name === "PositionOpened" && adapters.some((adapter) => adapter.toLowerCase() === args.adapter.toLowerCase())) positionPools.set(`${args.adapter.toLowerCase()}:${args.positionKey}`, args.poolKey);
+        }
+        for (const event of events) {
+          const args = event.args as any;
+          const name = (event as any).eventName as string;
+          if (name === "Swapped" || name === "IncomeSold") {
+            const swapAdapter = side === "arbitrum" ? this.fund.hub.uniswapV3SwapAdapter : this.fund.spoke.uniswapV3SwapAdapter;
+            const adapter = name === "IncomeSold" ? args.swapAdapter : args.adapter;
+            const tokenIn = name === "IncomeSold" ? args.token : args.tokenIn;
+            const tokenOut = name === "IncomeSold" ? base : args.tokenOut;
+            if (adapter.toLowerCase() !== swapAdapter.toLowerCase()) continue;
+            add(event.transactionHash, tokenIn, vault, swapAdapter, args.amountIn, "market", name);
+            const receipt = await nodes[side].client.getTransactionReceipt({ hash: event.transactionHash });
+            const swapAbi = parseAbi(["event Swap(address indexed sender, address indexed recipient, int256 amount0, int256 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick)"]);
+            const poolAbi = parseAbi(["function factory() view returns (address)", "function token0() view returns (address)", "function token1() view returns (address)"]);
+            for (const log of receipt.logs) {
+              let swap: any;
+              try { swap = decodeEventLog({ abi: swapAbi, ...log }); } catch { continue; }
+              if (swap.args.recipient.toLowerCase() !== vault.toLowerCase()) continue;
+              const factory = await read<Address>(side, { address: log.address, abi: poolAbi, functionName: "factory" });
+              if (factory.toLowerCase() !== (side === "arbitrum" ? ARBITRUM.v3Factory : ROBINHOOD.v3Factory).toLowerCase()) continue;
+              for (const index of [0, 1]) {
+                const amount = swap.args[`amount${index}`] as bigint;
+                if (amount >= 0n) continue;
+                const token = await read<Address>(side, { address: log.address, abi: poolAbi, functionName: `token${index}` });
+                if (token.toLowerCase() === tokenOut.toLowerCase()) add(event.transactionHash, token, log.address, vault, -amount, "market", "Swap sale + canonical V3 pool Swap");
+              }
+            }
+          } else if (["PositionOpened", "PositionIncreased", "PositionDecreased", "PositionClosed", "IncomeCollected"].includes(name) && adapters.some((adapter) => adapter.toLowerCase() === args.adapter.toLowerCase())) {
+            const poolKey = positionPools.get(`${args.adapter.toLowerCase()}:${args.positionKey}`);
+            if (!poolKey) continue;
+            const isAave = side === "arbitrum" && args.adapter.toLowerCase() === this.fund.hub.aaveV3Adapter.toLowerCase();
+            const abi = isAave ? aaveV3AdapterAbi : uniswapV4AdapterAbi;
+            const tokens = await read<readonly [Address, Address]>(side, { address: args.adapter, abi, functionName: "poolTokens", args: [poolKey] });
+            const incoming = !["PositionOpened", "PositionIncreased"].includes(name);
+            const sender = isAave ? ARBITRUM.aUsdc : side === "arbitrum" ? ARBITRUM.v4PoolManager : ROBINHOOD.v4PoolManager;
+            let inputAmounts: readonly unknown[] | undefined;
+            if (!incoming) {
+              const transaction = await nodes[side].client.getTransaction({ hash: event.transactionHash });
+              const decoded = decodeFunctionData({ abi: spokeVaultAbi, data: transaction.input });
+              if (!["openPosition", "increasePosition"].includes(decoded.functionName)) continue;
+              inputAmounts = decoded.args;
+            }
+            for (const index of [0, 1]) {
+              const amount = incoming ? name === "IncomeCollected" ? args[`income${index}`] : args.amounts[`principal${index}`] + args.amounts[`income${index}`] : args[`used${index}`];
+              if (incoming) add(event.transactionHash, tokens[index]!, sender, vault, amount, "market", name);
+              else {
+                const input = inputAmounts![index + 2] as bigint;
+                add(event.transactionHash, tokens[index]!, vault, args.adapter, input, "market", `${name} calldata input`);
+                add(event.transactionHash, tokens[index]!, args.adapter, vault, input - amount, "market", `${name} unused input (calldata minus used)`);
+              }
+            }
+          }
+        }
+      }
+      const coreEvents = side === "arbitrum" ? await nodes.arbitrum.client.getContractEvents({ address: this.fund.hub.coreVault, abi: coreVaultAbi, fromBlock }) : [];
+      const feeBudgets = new Map<string, bigint>();
+      const flowBps = side === "arbitrum" ? BigInt(await read<number>("arbitrum", { address: this.fund.hub.coreVault, abi: coreVaultAbi, functionName: "flowFeeBps" })) : 0n;
+      for (const event of coreEvents) {
+        const args = event.args as any;
+        const name = (event as any).eventName;
+        let fee = 0n;
+        if (["PayoutExecuted", "PartialPayoutExecuted"].includes(name)) {
+          add(event.transactionHash, base, core, args.shareholder, args.receipt.usdcPaid, "payment", name);
+          fee = args.receipt.flowFee;
+        } else if (name === "ClosedFundExited") {
+          add(event.transactionHash, base, core, args.holder, args.paid, "payment", name);
+          fee = args.flowFee;
+        } else if (name === "IncomeWithdrawn") add(event.transactionHash, args.token, core, args.shareholder, args.amount, "payment", name);
+        else if (["FundSeeded", "Deposited"].includes(name)) {
+          fee = args.flowFee;
+          if (name === "FundSeeded") add(event.transactionHash, base, this.state.protocol.arbitrum.fundFactory, core, args.usdcAmount + args.flowFee, "capital", name);
+        }
+        else if (name === "IncomeCollectionClosed") fee = args.fee;
+        else if (name === "FundClosed") {
+          const gross = (args.managerSharesBurned as bigint) * (args.closingSharePrice as bigint) / 10n ** 36n;
+          const flowFee = gross * flowBps / 10_000n;
+          add(event.transactionHash, base, core, actors.manager.address, gross - flowFee, "payment", name);
+          fee = args.managementFeePaid + flowFee;
+        } else if (name === "ExcessSwept") add(event.transactionHash, args.token, core, args.recipient, args.amount, "fee", name);
+        feeBudgets.set(event.transactionHash, (feeBudgets.get(event.transactionHash) ?? 0n) + fee);
+      }
       const dollarValue = async (token: Address, amount: bigint, block?: bigint) => {
         if (token.toLowerCase() === base.toLowerCase()) return amount;
         const [tokenPrice] = await read<readonly [bigint, bigint]>("arbitrum", { address: this.state.protocol.arbitrum.priceSource, abi: chainlinkPriceSourceAbi, functionName: "priceInUsdc", args: [token] }, undefined, side === "arbitrum" ? block : undefined);
@@ -157,13 +257,22 @@ export class RunReport {
           const incoming = vaults.has(receiver);
           const counterparty = incoming ? sender : receiver;
           const dollars = await dollarValue(token, entry.value, transfer.blockNumber);
-          if (incoming && (investors.has(counterparty) || counterparty === actors.stranger.address.toLowerCase())) externalCapital += dollars;
-          else if (!incoming && investors.has(counterparty)) investorPayments += dollars;
-          else if (!incoming && feeRecipients.has(counterparty)) externalFeesAndSweeps += dollars;
-          else if (token === base && ((!incoming && bridgeSends.has(`${transfer.transactionHash}:${entry.value}`)) || (incoming && fillTransactions.has(transfer.transactionHash)))) bridgeNet += incoming ? dollars : -dollars;
-          else {
+          const flow = { transaction: transfer.transactionHash, token, sender, receiver, amount: entry.value };
+          const matched = evidence.match(flow);
+          const feeBudget = feeBudgets.get(transfer.transactionHash) ?? 0n;
+          if (matched?.cause === "capital" || incoming && (investors.has(counterparty) || counterparty === actors.stranger.address.toLowerCase())) externalCapital += dollars;
+          else if (matched?.cause === "payment") investorPayments += dollars;
+          else if (matched?.cause === "fee") externalFeesAndSweeps += dollars;
+          else if (!incoming && token === base && feeRecipients.has(counterparty) && feeBudget >= entry.value) {
+            feeBudgets.set(transfer.transactionHash, feeBudget - entry.value);
+            externalFeesAndSweeps += dollars;
+          } else if (matched?.cause === "bridge") bridgeNet += incoming ? dollars : -dollars;
+          else if (matched?.cause === "market") {
             marketNet += incoming ? dollars : -dollars;
-            marketFlows.push({ side, token, transaction: transfer.transactionHash, direction: incoming ? "in" : "out", amount: entry.value, dollars });
+            marketFlows.push({ side, token, transaction: transfer.transactionHash, direction: incoming ? "in" : "out", amount: entry.value, dollars, evidence: matched.event });
+          } else {
+            unexplainedAmount += dollars;
+            unexplainedFlows.push({ side, ...flow, direction: incoming ? "in" : "out", dollars });
           }
         }
         const holders = side === "arbitrum" ? [this.fund.hub.coreVault, this.fund.hub.spokeVault] : [this.fund.spoke.spokeVault];
@@ -184,8 +293,8 @@ export class RunReport {
     const fundRemaining = remainingVaultCash + remainingPositions + inFlight + returnInFlight;
     const fundValueIn = externalCapital + marketNet;
     const fundFees = externalFeesAndSweeps + bridgeFees;
-    const fundResidual = fundValueIn - investorPayments - fundFees - fundRemaining;
-    return { scope: "Fund-wide USDC value across both vault chains; USDG at 1:1, WETH at the price source (hub transaction block, current Hub rate for spoke WETH; unchanged feed asserted by the scenario)", methodology: "External capital plus independently summed net investment/swap cash flows equals investor payments plus external fees/sweeps plus bridge costs plus physical vault cash and remaining positions/transits. Sends match vault transit events; arrivals match FilledRelay transactions. Internal vault transfers cancel. Payout Fee remains fund value, never an external expense. Native gas is manager/keeper-paid (DEC-187).", externalCapital, realizedMarketPnlAndIncome: marketNet, valueIn: fundValueIn, valueOut: investorPayments, fees: fundFees, externalFeesAndSweeps, bridgeFees, recordedBridgeFees, remaining: fundRemaining, remainingVaultCash, remainingPositions, inFlight: inFlight + returnInFlight, residual: fundResidual, tolerance: 20n, passed: fundResidual >= -20n && fundResidual <= 20n && bridgeFees === recordedBridgeFees, coreCash, marketFlows };
+    const result = conservationResult(fundValueIn, investorPayments, fundFees, fundRemaining, unexplainedAmount);
+    return { scope: "Fund-wide USDC value across both vault chains; USDG at 1:1, WETH at the price source (hub transaction block, current Hub rate for spoke WETH; unchanged feed asserted by the scenario)", methodology: "Only amount-bounded transaction evidence explains boundary flows: vault investment events, transaction input and pinned adapters/counterparties; swap sales plus canonical V3 pool Swap receipts; payout, income, fee and closure events; bridge sends and recipient/token/amount-matched FilledRelay evidence. Unmatched flows never enter Market Costs or P&L and fail even below rounding tolerance. Internal vault transfers cancel. Payout Fee stays in Idle. Native gas is manager/keeper-paid (DEC-187).", externalCapital, realizedMarketPnlAndIncome: marketNet, valueIn: fundValueIn, valueOut: investorPayments, fees: fundFees, externalFeesAndSweeps, bridgeFees, recordedBridgeFees, remaining: fundRemaining, remainingVaultCash, remainingPositions, inFlight: inFlight + returnInFlight, ...result, passed: result.passed && unexplainedFlows.length === 0 && bridgeFees === recordedBridgeFees, coreCash, marketFlows, unexplainedAmount, unexplainedFlows };
   }
 
   /** A point of the Share Price timeline: the fund's books at the hub's latest block. */
