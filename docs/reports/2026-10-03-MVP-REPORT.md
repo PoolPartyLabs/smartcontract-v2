@@ -923,10 +923,10 @@ above is historical; #30 subsequently merged and frozen-release validation prece
 
 **Ready evidence:** #20 dual-chain deploy/checker rehearsal and executable verification extraction; #21 fixed
 nested library linking with deployment regressions; fresh green tests/sizes/format.
-**Completed lifecycle evidence:** merged PR #24 recovery run, section 7. **Still not ready:** conformance
-the completed DEC-145 PR #30 merge and frozen-SHA deployment rehearsal,
-production guardian service, live Across route confirmation,
-explorer source verification, approved real keys/ETH budgets and internal risk acceptance. No mainnet deployment here.
+**Completed lifecycle evidence:** merged PR #24 recovery run, section 7. **Pre-deploy gaps, all closed on
+October 3:** the DEC-145 merge (#30) and frozen-SHA rehearsal (#31), real guardian-signed VAA delivery, live
+Across route confirmation, explorer source verification and funded keys. The mainnet result is recorded in
+[Mainnet alpha deployment](#mainnet-alpha-deployment); this section is the pre-deploy checklist as written.
 
 Use [DEPLOYMENT-ALPHA](../DEPLOYMENT-ALPHA.md) for the input sheet/broadcast procedure; its October 2 feature-gap
 warnings are historical and superseded by this report, but its final-SHA/mainnet gates still apply. Generic
