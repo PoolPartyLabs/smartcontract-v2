@@ -7,7 +7,7 @@
 # Environment:
 #   ARBITRUM_RPC_URL, ROBINHOOD_RPC_URL  upstream RPCs (process environment, then the repo .env, then the public
 #                                        endpoints of .env.example); an archive endpoint is best, and one Alchemy key
-#                                        serves both chains. This script prints the host only, the log tails it shows
+#                                        serves both chains. This script redacts upstream URLs, the log tails it shows
 #                                        on a failure included; anvil's log is redacted before it reaches disk.
 #   ARBITRUM_FORK_BLOCK, ROBINHOOD_FORK_BLOCK
 #                                        fork blocks, read from the process environment only (default: latest). The
@@ -52,7 +52,7 @@ READY_TIMEOUT_S="${LOCAL_E2E_READY_TIMEOUT_S:-90}"
 # EIP-7825 per-transaction gas cap that Nitro does not apply).
 HARDFORK="${LOCAL_E2E_HARDFORK:-prague}"
 
-command -v anvil >/dev/null || { echo "error: anvil not found (install Foundry: https://getfoundry.sh)" >&2; exit 1; }
+command -v anvil >/dev/null || { echo "error: anvil not found (install Foundry)" >&2; exit 1; }
 command -v curl >/dev/null || { echo "error: curl not found" >&2; exit 1; }
 
 upper() { tr '[:lower:]' '[:upper:]' <<<"$1"; }

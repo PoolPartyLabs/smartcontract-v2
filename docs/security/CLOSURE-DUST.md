@@ -10,6 +10,10 @@ USDC and USDG on the alpha route both have six decimals and are treated at the e
 - CLOSE excludes base-token Principal below the threshold, clears its unwind reservation and ledger entry, and
   emits `ClosureDustExcluded(token, amount, Principal)` from the Spoke Vault. It never excuses a failed position,
   a non-base Unallocated Balance, or a still-uncredited transfer.
+- Principal arriving after CLOSE also excludes the aggregate base-token Unallocated Balance when it is below
+  the same threshold and no unwind proceeds remain reserved. Arrival credits and `cumulativeReceived` still
+  record the full arrival for Hub reconciliation. At/above-threshold Principal and all Income arrivals stay
+  ledgered. No second CLOSE is needed for eligible late dust: an ordinary fresh report permits finalization.
 - COLLECT after CLOSE excludes unsent converted Income below the threshold, emits the Income exclusion event,
   and reports the original token units sold with zero dollars obtained. The Core Vault closes those recognized
   token intervals at a zero-dollar rate, including their fee units, and emits its chain-specific exclusion event.
@@ -17,6 +21,7 @@ USDC and USDG on the alpha route both have six decimals and are treated at the e
 - Excluded balances remain physically on the Spoke Vault but outside its ledger, available to permissionless
   `sweepExcess`. They are not included in the frozen `closedIdle` split. Open-fund Income dust still waits for a
   larger collection; the terminal rule does not apply to ordinary Income Withdrawal.
+  The sweep emits `ExcessSwept(token, recipient, amount)` recording the dust actually transferred.
 - Finalization accepts only a below-threshold base-token Principal remainder in an otherwise complete fresh CLOSE
   report, records it in an event, and still requires collected Income to be empty and its intervals converted.
 

@@ -14,14 +14,14 @@ actors are simulated.
 
 - Foundry 1.7+ (`anvil`, `forge`) on the `PATH`: <https://getfoundry.sh>
 - Node 24 and pnpm (10 or later)
-- `bash`, `curl`, `lsof` (macOS or Linux)
+- `bash`, `curl`, `lsof`, `perl` (macOS or Linux)
 - Network access to an Arbitrum One and a Robinhood Chain RPC. An archive endpoint is best: one Alchemy key serves both
   chains (Alchemy supports Robinhood Chain mainnet as well as Arbitrum One). Export `ARBITRUM_RPC_URL` and
   `ROBINHOOD_RPC_URL` (and, for reproducible runs, `ARBITRUM_FORK_BLOCK` and `ROBINHOOD_FORK_BLOCK`) in the shell that
-  runs `pnpm run up`, for instance by sourcing a local env file. The harness prints the upstream host only, never the
-  URL, its error output included (anvil's and forge's errors repeat the URL; the harness cuts every URL to its host).
-  anvil's own logs, `.state/arbitrum.log` and `.state/robinhood.log`, hold the full URL with its key: they are
-  gitignored, never share them. The public endpoints work for short sessions (see [Troubleshooting](#troubleshooting)).
+  runs `pnpm run up`, for instance by sourcing a local env file. The harness replaces every HTTP(S)/WS(S) URL with
+  `<redacted-url>` in output and persisted anvil logs. Only literal loopback endpoints (`127.0.0.1`, `localhost`,
+  `[::1]`, any port, no userinfo) may remain whole for debugging. The public endpoints work for short sessions
+  (see [Troubleshooting](#troubleshooting)).
 
 ## Quick start
 
@@ -175,6 +175,14 @@ manager keys: an app can hard-code them for local development, and the factory a
 ## Keeper
 
 `pnpm keeper` replaces four off-chain parties on the two forks:
+
+Principal transit acknowledgements persist in `.state/pending-transits.json`, scoped
+to the current deployment. Every poll reconstructs candidates from sends and retries
+uncredited transits and failed ACK publication/delivery with 500 ms–30 s exponential
+backoff, without an attempt limit or a new-report requirement. ACKs preserve emitter
+sequence order; expired/superseded ACKs are republished. Refunds require ACK delivery;
+confirmed arrivals/expiries and the protocol's post-deadline retention end tracking.
+Do not delete this queue while its deployment is running.
 
 1. **Across relayer.** Watches `FundsDeposited` on both SpokePools; for a deposit whose recipient is a known fund's vault
    on the other node (its Spoke Vault on Robinhood, its Core Vault on the hub) it builds the relay data from the event
@@ -378,9 +386,10 @@ back to the deployment); after a warp they run ahead. Deadlines must use the cha
 account's activity (MetaMask: Settings, Advanced, Clear activity tab data).
 
 **Logs.** `local-e2e/.state/arbitrum.log`, `robinhood.log` (anvil), the keeper logs to its terminal, forge broadcast
-files in `.state/broadcast/`. The fork launcher redacts URL userinfo, paths, queries, and fragments before anvil's output reaches
-disk. Status, structured logs, forwarded RPC errors, and run reports use the same protection, keeping only the scheme,
-host, and port. Run `pnpm check:urls` for a synthetic-credentials stdout and persisted-log regression check.
+files in `.state/broadcast/`. The fork launcher replaces HTTP(S)/WS(S) URLs with `<redacted-url>` before anvil's output
+reaches disk; only literal loopback endpoints without userinfo may remain whole. Status, console output, structured
+logs, forwarded RPC errors, and run reports use the same rule. Run `pnpm check:urls` for stdout, stderr, persisted-log,
+and error regression checks, including malformed, percent-encoded, and internationalized hosts.
 
 ## How it differs from production
 
@@ -429,3 +438,54 @@ local-e2e/
   reports/              run reports (gitignored)
   .state/               pids, logs, deployment.json, broadcast files (gitignored)
 ```
+
+## WP-15b lifecycle extension
+
+The scenario now includes permissionless spoke UNWIND settlement, closure with CLOSE orders,
+final income collection, management fee payment, and frozen closed-fund exits. The harness
+defaults to a 100 bps management fee to exercise payment; override `MANAGEMENT_FEE_BPS=0`
+to retain the former zero-fee configuration. Operating Cash remains zero.
+
+Before every fork run, source the handoff's `tools/rpc-env.sh` in the same shell. Use private
+ports via `LOCAL_E2E_ARBITRUM_PORT=48645`, `LOCAL_E2E_ROBINHOOD_PORT=48646`, and
+`LOCAL_E2E_API_PORT=48787`. Run `pnpm run up --warm-up none`, `pnpm scenario --keeper
+inprocess`, `pnpm api:probe`, and `pnpm run down`. `pnpm up` is pnpm's update alias; use
+`pnpm run up`. Failed CLI startup now stops the forks it started.
+
+Offline checks: `pnpm typecheck`, `pnpm check:lifecycle`, and `pnpm check:urls`.
+
+New API builders: `POST /tx/request` and `/tx/claim` accept optional `maxLossBps`
+(0 disables the optional bound; valid range 0–10000). `GET /quote/claim` accepts the
+same query parameter. Additional builders are `/tx/settle-payout`, `/tx/income-request`,
+`/tx/income-settle`, `/tx/income-withdraw`, `/tx/close`, `/tx/closure-unwind`,
+`/tx/closure-finalize`, and `/tx/closed-exit`. Holder-specific settlement/exit builders
+require `holder`; request builders use `amount`, `mode` (`instant` or `standard`), and
+optional `maxLossBps`. `GET /closure` reads the lifecycle state and frozen split.
+Unsigned transactions carry an optional decimal-string native `value` for payable orders.
+The HTTP probe verifies every new builder's calldata and input validation; the scenario
+executes the lifecycle directly against the same contracts.
+
+Each scenario step captures transactions/gas, Share Price, Share Assets, Gross Assets,
+management fee accrual, paid fees, and every actor's token/share balance, share value and
+Attributed Income. JSON contains full hashes; Markdown includes per-step tables and totals.
+The fund-wide conservation check reconciles external capital plus independently summed
+realized investment cash flows with investor payments, external fees/sweeps, bridge costs,
+and physical vault cash plus remaining positions/transits across both chains. Bridge sends
+match transit events; arrivals match `FilledRelay` transactions. USDG is valued at 1:1;
+the fixed scenario ETH/USD feed values WETH. The final closed-fund check has no remaining
+positions or transits. Payout Fee stays in fund value; manager/keeper native gas is external
+(DEC-187). A separate Core Vault USDC transfer reconciliation also runs.
+
+**Verified on October 3, 2026:** 55 steps, 319 assertions, 100 transactions; 31 API concepts.
+See `reports/2026-10-03-wp15b-completed.md` and the linked full JSON/Markdown run reports.
+The historical deployment blocker report is superseded. The scenario includes a Standard
+Payout with a 1 bp maximum, two excluded positions and an unbounded retry that leaves the
+already-delivered Aave position unchanged, plus Instant Hub/spoke settlement.
+
+The keeper publishes and relays `ACKNOWLEDGE` orders for resolved Principal transits.
+Without them, 16 unresolved send records exhaust spoke capacity and closure reports retain
+In-flight Value. Closure uses a 15,000,000 gas budget: gas estimation can choose an inner
+out-of-gas unwind that the Core Vault catches. After the final closure send is acknowledged,
+publish another CLOSE to restore the terminal result removed by acknowledgement before
+final income collection and `finalizeClosure`. These implementation limitations are recorded
+in the completion report; no contract changes are made by WP-15b.

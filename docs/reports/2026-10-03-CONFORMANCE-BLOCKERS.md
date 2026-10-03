@@ -90,3 +90,37 @@ Compiler settings unchanged. Pure send-result move: SpokeUnwindLib 23,449 -> 21,
 - Add the new two-fork test in the already registered closure suite; no new SCENARIO_SUITES entry required.
 - Do not change pending/accepted G findings. No external audit, production VAA/fill/refund certification,
   `pnpm scenario` or `api:probe` is claimed by the requested deploy-path smoke check.
+
+## PR #28 round-1 follow-up
+
+The review found that a Principal arrival after the last CLOSE could remain ledgered even after Core finalization.
+The existing five-USDC two-fork regression now delivers 20,000 units after CLOSE, credits the home transfer,
+advances past its retention window, and delivers an ordinary fresh report without another CLOSE. Before the
+follow-up it fails after successful finalization with `20000 != 0` for the spoke's Unallocated Balance.
+After the fix it verifies Closed state, zero Unallocated Balance, a 20,000-unit sweep, the recipient's balance
+increase, the `ExcessSwept` event, and a zero second sweep.
+
+The only production change is in `SpokeCrossChainLib.creditArrival`: once CLOSE has executed, an aggregate
+base-token Principal Unallocated Balance below the unchanged 0.50 threshold is excluded if no unwind proceeds
+remain reserved. The existing `ClosureDustExcluded` event records exclusion; arrival proofs and cumulative
+receipts still advance. No new entry point, storage, acknowledgement logic, or Core finalization change.
+Five new unit regressions cover arrival proofs/events, threshold-minus-one, exactly-at-threshold plus another
+small arrival, Open Principal/late Income, and a refused CLOSE send with reserved Principal followed by retry.
+
+| Round-1 validation | Result |
+|---|---|
+| `forge build --sizes` | PASS |
+| `forge fmt --check` | PASS |
+| ContractSizes | 3 passed, 1 suite, 0 failed/skipped |
+| Focused Principal/Income dust selection | 31 passed, 2 suites, 0 failed/skipped (includes inherited tests) |
+| Full non-fork selection | 1,502 passed, 188 suites, 0 failed/skipped |
+| Full fork selection, `-j 4` | 223 passed, 56 suites, 0 failed/skipped |
+| Separate closure fork selection | 3 passed, 2 suites, 0 failed/skipped |
+
+SpokeCrossChainLib: 16,429 -> 16,592 B, margin 8,147 -> 7,984 B. All other production runtimes in the table
+above are unchanged, including SpokeVault 22,905 B / 1,671 B margin and CoreVault 22,358 B / 2,218 B margin.
+Every production executable and linked library retains at least 1,000 B margin; no low-margin exception.
+The regression stays in the already registered closure scenario suite; shared fork fixtures and CI are unchanged.
+The requested spoke-file change supersedes the original WP-13 ownership restriction. No new spec divergence:
+the already documented task-authorized terminal-dust narrowing of DEC-163 remains (DEC-149/167 recovery path).
+RPC environment sourced in the same shell for fork runs; no harness, anvil, keeper, or API process started.

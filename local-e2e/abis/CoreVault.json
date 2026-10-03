@@ -517,7 +517,7 @@
         ]
       }
     ],
-    "stateMutability": "nonpayable"
+    "stateMutability": "payable"
   },
   {
     "type": "function",
@@ -528,6 +528,45 @@
   },
   {
     "type": "function",
+    "name": "closedIdle",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "closedSupply",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "closingDeadline",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "closingStartedAt",
     "inputs": [],
     "outputs": [
@@ -535,6 +574,19 @@
         "name": "",
         "type": "uint64",
         "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "closureRequestId",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ],
     "stateMutability": "view"
@@ -614,6 +666,25 @@
   },
   {
     "type": "function",
+    "name": "exitClosedFund",
+    "inputs": [
+      {
+        "name": "holder",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "paid",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "factory",
     "inputs": [],
     "outputs": [
@@ -624,6 +695,13 @@
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "finalizeClosure",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -1367,6 +1445,31 @@
             "internalType": "uint256"
           },
           {
+            "name": "expectedSpokes",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "reportedSpokes",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "orderSequence",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "orderDeadline",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "awaitingSettlement",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
             "name": "pendingLeaverCost",
             "type": "uint256",
             "internalType": "uint256"
@@ -1642,7 +1745,7 @@
         ]
       }
     ],
-    "stateMutability": "nonpayable"
+    "stateMutability": "payable"
   },
   {
     "type": "function",
@@ -1746,6 +1849,137 @@
       }
     ],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "settlePayout",
+    "inputs": [
+      {
+        "name": "holder",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "receipt",
+        "type": "tuple",
+        "internalType": "struct ICoreVaultPayouts.PayoutReceipt",
+        "components": [
+          {
+            "name": "mode",
+            "type": "uint8",
+            "internalType": "enum ICoreVaultPayouts.PayoutMode"
+          },
+          {
+            "name": "usdcRequested",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "sharesBurned",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "usdcGross",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "payoutFee",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "flowFee",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "usdcPaid",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "usdcOutstanding",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "sharePrice",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "shareAssets",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "totalShares",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "unwindProceeds",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "payoutSettlementPrice",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "closedBelowOneShare",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "requestId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "cappedByManagerBase",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "marketCost",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "marketCostAbsorbed",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "leaverCost",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "excludedPositions",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "fracNum",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "fracDen",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "payable"
   },
   {
     "type": "function",
@@ -1996,6 +2230,13 @@
   },
   {
     "type": "function",
+    "name": "unwindAllAfterDeadline",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
     "name": "usdc",
     "inputs": [],
     "outputs": [
@@ -2092,6 +2333,56 @@
         "type": "address",
         "indexed": true,
         "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ClosedFundExited",
+    "inputs": [
+      {
+        "name": "holder",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "shares",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "gross",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "flowFee",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "paid",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ClosureUnwindFailed",
+    "inputs": [
+      {
+        "name": "reason",
+        "type": "bytes",
+        "indexed": false,
+        "internalType": "bytes"
       }
     ],
     "anonymous": false
@@ -2221,6 +2512,55 @@
       },
       {
         "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "FundClosed",
+    "inputs": [
+      {
+        "name": "closedAt",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "closedSupply",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "closedIdle",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "closingSharePrice",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "managementFeePaid",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "managerSharesBurned",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "excessCostDeducted",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -3527,6 +3867,22 @@
   },
   {
     "type": "error",
+    "name": "ClosingDeadlineNotReached",
+    "inputs": [
+      {
+        "name": "deadline",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ClosureNotReady",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "DepositBelowOneShare",
     "inputs": [
       {
@@ -3677,6 +4033,28 @@
         "name": "bps",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "FundNotClosed",
+    "inputs": [
+      {
+        "name": "state",
+        "type": "uint8",
+        "internalType": "enum ICoreVaultLifecycle.FundState"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "FundNotClosing",
+    "inputs": [
+      {
+        "name": "state",
+        "type": "uint8",
+        "internalType": "enum ICoreVaultLifecycle.FundState"
       }
     ]
   },
@@ -3996,6 +4374,17 @@
   },
   {
     "type": "error",
+    "name": "PayoutAwaitingSettlement",
+    "inputs": [
+      {
+        "name": "shareholder",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "PayoutBelowOneShare",
     "inputs": [
       {
@@ -4005,6 +4394,17 @@
       },
       {
         "name": "sharePrice",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "PayoutMessageFeeNotUsed",
+    "inputs": [
+      {
+        "name": "amount",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -4147,6 +4547,33 @@
   {
     "type": "error",
     "name": "SpokeNotReporting",
+    "inputs": [
+      {
+        "name": "spokeIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SpokeUnwindNotCredited",
+    "inputs": [
+      {
+        "name": "spokeIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "transitId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SpokeUnwindNotReported",
     "inputs": [
       {
         "name": "spokeIndex",

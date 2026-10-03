@@ -43,12 +43,13 @@ import {
   spokeVaultAbi,
   uniswapV3SwapAdapterAbi,
   valueReportReceiverAbi,
+  wormholeCoreAbi,
 } from "./abis.ts";
-import { latestTimestamp, nodes, nodesUp, read, type Side } from "./chain.ts";
+import { latestTimestamp, nodes, nodesUp, read, runMain, type Side } from "./chain.ts";
 import { ARBITRUM, HUB_POOL_ID, ROBINHOOD, SWAP_ADAPTER_TOKENS, actors, isMain } from "./config.ts";
 import { sharePriceHistory } from "./history.ts";
 import { runningKeeperPid } from "./keeper.ts";
-import { redactUrls } from "./log.ts";
+import { safeConsole as console, redactUrls } from "./log.ts";
 import { readState, type DeploymentState, type FundRecord } from "./state.ts";
 import { encodeRoute, legsHash, quotePaths, signRoute } from "./swap-route.ts";
 import { deliverDirectly, publishReport, waitForDelivery, type SpokeRef } from "./warp.ts";
@@ -66,6 +67,7 @@ export interface UnsignedTx {
   to: Address;
   data: Hex;
   description: string;
+  value?: string;
 }
 
 class HttpError extends Error {
@@ -279,11 +281,11 @@ export async function quoteDeposit(state: DeploymentState, from: Address, amount
   return { ok: true, shares, wholeShares: shares / SHARE, usdcCharged: charged, leftInWallet: amount - charged };
 }
 
-export async function quoteClaim(state: DeploymentState, from: Address) {
+export async function quoteClaim(state: DeploymentState, from: Address, maxLossBps = 0) {
   const core = hub(state).hub.coreVault;
-  const sim = await simulate<Record<string, bigint | boolean>>("arbitrum", from, core, coreVaultAbi, "claimPayout", [0]);
+  const sim = await simulate<Record<string, bigint | boolean>>("arbitrum", from, core, coreVaultAbi, "claimPayout", [lossParam(maxLossBps)]);
   if (!sim.ok) return { ok: false, revert: sim.revert };
-  return { ok: true, receipt: sim.result, maxLossBps: 0 };
+  return { ok: true, receipt: sim.result, maxLossBps };
 }
 
 /** A manager swap minimum the API will sign off on: the oracle value of `amountIn` less the API slippage. The vault
@@ -318,14 +320,30 @@ export async function buildDeposit(state: DeploymentState, from: Address, amount
   return txs;
 }
 
-export function buildRequest(state: DeploymentState, amount: bigint, mode: "instant" | "standard"): UnsignedTx[] {
+export function buildRequest(state: DeploymentState, amount: bigint, mode: "instant" | "standard", maxLossBps = 0): UnsignedTx[] {
   const core = hub(state).hub.coreVault;
-  return [{ chainId: nodes.arbitrum.chain.id, to: core, data: encodeFunctionData({ abi: coreVaultAbi, functionName: "requestPayout", args: [amount, mode === "instant" ? 0 : 1, 0] }), description: `requestPayout (${mode})` }];
+  return [{ chainId: nodes.arbitrum.chain.id, to: core, data: encodeFunctionData({ abi: coreVaultAbi, functionName: "requestPayout", args: [amount, mode === "instant" ? 0 : 1, lossParam(maxLossBps)] }), description: `requestPayout (${mode})` }];
 }
 
-export async function buildClaim(state: DeploymentState): Promise<UnsignedTx[]> {
+export async function buildClaim(state: DeploymentState, maxLossBps = 0): Promise<UnsignedTx[]> {
   const core = hub(state).hub.coreVault;
-  return [{ chainId: nodes.arbitrum.chain.id, to: core, data: encodeFunctionData({ abi: coreVaultAbi, functionName: "claimPayout", args: [0] }), description: "claimPayout" }];
+  return [{ chainId: nodes.arbitrum.chain.id, to: core, data: encodeFunctionData({ abi: coreVaultAbi, functionName: "claimPayout", args: [lossParam(maxLossBps)] }), description: "claimPayout" }];
+}
+
+function lossParam(value: number): number {
+  if (!Number.isInteger(value) || value < 0 || value > 10_000) throw new HttpError(422, "maxLossBps must be an integer from 0 to 10000; 0 disables the optional bound");
+  return value;
+}
+
+async function lifecycleTx(state: DeploymentState, functionName: string, args: readonly unknown[] = []): Promise<UnsignedTx[]> {
+  const payable = ["requestIncomeWithdrawal", "unwindAllAfterDeadline"].includes(functionName);
+  const value = payable ? await read<bigint>("arbitrum", { address: ARBITRUM.wormholeCore, abi: wormholeCoreAbi, functionName: "messageFee" }) : 0n;
+  return [{ chainId: nodes.arbitrum.chain.id, to: hub(state).hub.coreVault, data: encodeFunctionData({ abi: coreVaultAbi, functionName, args }), description: functionName, value: value.toString() }];
+}
+
+async function closureStatus(state: DeploymentState) {
+  const names = ["fundState", "closingStartedAt", "closingDeadline", "closureRequestId", "closedSupply", "closedIdle", "managementFeeAccrued"];
+  return Object.fromEntries(await Promise.all(names.map(async (functionName) => [functionName, await read("arbitrum", { address: hub(state).hub.coreVault, abi: coreVaultAbi, functionName })])));
 }
 
 /** The manager's swap on the hub Spoke Vault (`SpokeVault.swap`, WP-07C) through the fund's own swap adapter (Mandate
@@ -595,11 +613,23 @@ const routes: { method: string; pattern: RegExp; handler: Handler }[] = [
   { method: "GET", pattern: /^\/fund$/, handler: (s) => fundState(s) },
   { method: "GET", pattern: /^\/holders\/(0x[0-9a-fA-F]{40})$/, handler: (s, m) => holderState(s, m[1] as Address) },
   { method: "GET", pattern: /^\/quote\/deposit$/, handler: (s, _m, u) => quoteDeposit(s, addressParam(u.searchParams.get("from") ?? undefined, "from"), amountParam(u.searchParams.get("amount") ?? undefined, "amount")) },
-  { method: "GET", pattern: /^\/quote\/claim$/, handler: (s, _m, u) => quoteClaim(s, addressParam(u.searchParams.get("from") ?? undefined, "from")) },
+  { method: "GET", pattern: /^\/quote\/claim$/, handler: (s, _m, u) => quoteClaim(s, addressParam(u.searchParams.get("from") ?? undefined, "from"), Number(u.searchParams.get("maxLossBps") ?? 0)) },
   { method: "GET", pattern: /^\/quote\/swap$/, handler: (s, _m, u) => quoteSwap(s, addressParam(u.searchParams.get("tokenIn") ?? undefined, "tokenIn"), amountParam(u.searchParams.get("amountIn") ?? undefined, "amountIn")) },
   { method: "POST", pattern: /^\/tx\/deposit$/, handler: (s, _m, _u, b) => buildDeposit(s, addressParam(b.from, "from"), amountParam(b.amount, "amount"), b.minShares ? amountParam(b.minShares, "minShares") : 0n) },
-  { method: "POST", pattern: /^\/tx\/request$/, handler: async (s, _m, _u, b) => buildRequest(s, amountParam(b.amount, "amount"), b.mode === "standard" ? "standard" : "instant") },
-  { method: "POST", pattern: /^\/tx\/claim$/, handler: (s) => buildClaim(s) },
+  { method: "POST", pattern: /^\/tx\/request$/, handler: async (s, _m, _u, b) => {
+    if (!["instant", "standard"].includes(b.mode)) throw new HttpError(422, "mode must be instant or standard");
+    return buildRequest(s, amountParam(b.amount, "amount"), b.mode as "instant" | "standard", Number(b.maxLossBps ?? 0));
+  } },
+  { method: "POST", pattern: /^\/tx\/claim$/, handler: (s, _m, _u, b) => buildClaim(s, Number(b.maxLossBps ?? 0)) },
+  { method: "POST", pattern: /^\/tx\/settle-payout$/, handler: (s, _m, _u, b) => lifecycleTx(s, "settlePayout", [addressParam(b.holder, "holder")]) },
+  { method: "POST", pattern: /^\/tx\/income-request$/, handler: (s, _m, _u, b) => lifecycleTx(s, "requestIncomeWithdrawal", [lossParam(Number(b.maxLossBps ?? 0))]) },
+  { method: "POST", pattern: /^\/tx\/income-settle$/, handler: (s, _m, _u, b) => lifecycleTx(s, "settleIncomeWithdrawal", [addressParam(b.holder, "holder")]) },
+  { method: "POST", pattern: /^\/tx\/income-withdraw$/, handler: (s) => lifecycleTx(s, "withdrawIncome") },
+  { method: "POST", pattern: /^\/tx\/close$/, handler: (s) => lifecycleTx(s, "closeFund") },
+  { method: "POST", pattern: /^\/tx\/closure-unwind$/, handler: (s) => lifecycleTx(s, "unwindAllAfterDeadline") },
+  { method: "POST", pattern: /^\/tx\/closure-finalize$/, handler: (s) => lifecycleTx(s, "finalizeClosure") },
+  { method: "POST", pattern: /^\/tx\/closed-exit$/, handler: (s, _m, _u, b) => lifecycleTx(s, "exitClosedFund", [addressParam(b.holder, "holder")]) },
+  { method: "GET", pattern: /^\/closure$/, handler: (s) => closureStatus(s) },
   { method: "POST", pattern: /^\/tx\/swap$/, handler: (s, _m, _u, b) => buildSwap(s, addressParam(b.tokenIn, "tokenIn"), amountParam(b.amountIn, "amountIn"), b.slippageBps ? amountParam(b.slippageBps, "slippageBps") : API_SLIPPAGE_BPS) },
   {
     method: "GET",
@@ -648,7 +678,7 @@ const routes: { method: string; pattern: RegExp; handler: Handler }[] = [
 
 function json(res: ServerResponse, status: number, payload: unknown) {
   res.writeHead(status, { "content-type": "application/json" });
-  res.end(JSON.stringify(payload, (_k, v) => (typeof v === "bigint" ? v.toString() : v), 2));
+  res.end(JSON.stringify(payload, (_k, v) => (typeof v === "bigint" ? v.toString() : typeof v === "string" ? redactUrls(v) : v), 2));
 }
 
 async function readBody(req: IncomingMessage): Promise<Record<string, string>> {
@@ -680,5 +710,8 @@ export function startApi(port = API_PORT, options: ApiOptions = {}) {
 }
 
 if (isMain(import.meta.url)) {
-  startApi().then(() => console.log(`local-e2e API on http://127.0.0.1:${API_PORT}`));
+  runMain(async () => {
+    await startApi();
+    console.log(`local-e2e API on http://127.0.0.1:${API_PORT}`);
+  });
 }

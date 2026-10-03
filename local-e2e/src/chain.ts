@@ -20,7 +20,7 @@ import {
 } from "viem";
 import { allErrorsAbi } from "./abis.ts";
 import { ACTOR_NAMES, actors, arbitrumFork, robinhoodFork, type ActorName } from "./config.ts";
-import { redactUrls } from "./log.ts";
+import { safeConsole as console, redactUrls } from "./log.ts";
 
 export type Side = "arbitrum" | "robinhood";
 export const SIDES: Side[] = ["arbitrum", "robinhood"];
@@ -155,7 +155,7 @@ function findRevertData(err: BaseError): Hex | undefined {
   return found;
 }
 
-/** A one-line explanation of a failure, with the pruned-state hint when it applies; URLs keep their host only. */
+/** A one-line explanation of a failure, with the pruned-state hint and categorical URL redaction. */
 export function explain(err: unknown): string {
   const revert = revertOf(err);
   const text = err instanceof BaseError ? err.shortMessage + "\n" + err.message : String(err);
@@ -194,6 +194,7 @@ export interface Call {
   functionName: string;
   args?: readonly unknown[];
   value?: bigint;
+  gas?: bigint;
 }
 
 export interface Sent<T = unknown> {
@@ -274,7 +275,8 @@ export async function send<T = unknown>(side: Side, who: ActorName | Account, ca
       args: call.args ?? [],
       value: call.value,
     } as never);
-    const hash = await wallet(side, account).writeContract(request as never);
+    const gas = call.gas ?? (await node.client.estimateContractGas({ ...request, account } as never)) * 3n / 2n;
+    const hash = await wallet(side, account).writeContract({ ...request, gas } as never);
     const receipt = await node.client.waitForTransactionReceipt({ hash, pollingInterval: 100 });
     if (receipt.status !== "success") throw new Error(`transaction ${hash} reverted on ${node.label}`);
     recordTransaction(side, call.functionName, receipt);
