@@ -50,6 +50,7 @@ contract Refute_SpokeCrossChainChecks is SpokeBFixture {
     ///         with a full window, not on an id a stranger already credited, not with an Income-kind duplicate.
     function test_refute_genuineFillCanRevertOnTheSpoke() public {
         vm.prank(manager);
+        vm.expectRevert(bytes4(keccak256("OperatingCashNotSupported()")));
         spoke.setOperatingCashParameters(type(uint256).max, type(uint256).max); // top-up on every operation
         _dustArrivals(256);
         bytes32 t = keccak256("a hub transit id"); // the spoke cannot tell a relayer's genuine fill from any other

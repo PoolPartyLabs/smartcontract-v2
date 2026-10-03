@@ -9,6 +9,7 @@ import {SpokeCloseLib} from "./SpokeCloseLib.sol";
 import {SpokeUnwindTypes} from "./SpokeUnwindTypes.sol";
 import {SpokeCrossChainLib} from "./SpokeCrossChainLib.sol";
 import {TransferKind} from "../interfaces/FundTypes.sol";
+import {ICoreVaultLifecycle} from "../interfaces/ICoreVaultLifecycle.sol";
 
 /// @title SpokeVaultUnwind
 /// @notice The hub Spoke Vault's automatic unwind for a payout, and the executors of the Core Vault's unwind and
@@ -17,8 +18,19 @@ import {TransferKind} from "../interfaces/FundTypes.sol";
 ///      `SpokeUnwindLib` (DEC-131). Split out of SpokeVault (WP-07 A3) so the unwind has its own source file.
 abstract contract SpokeVaultUnwind is SpokeVaultBase {
     function _requireSpokeOpen() internal view {
+        _requireExposureOpen(address(0));
+    }
+
+    function _requireExposureOpen(address tokenOut) internal view {
         if (_s.unwind.closed) revert SpokeUnwindTypes.SpokeClosed();
         if (_s.unwind.reservedBase != 0) revert SpokeUnwindTypes.UnwindProceedsReserved();
+        if (onHubChain) {
+            ICoreVaultLifecycle.FundState state = ICoreVaultLifecycle(coreVault).fundState();
+            if (
+                state != ICoreVaultLifecycle.FundState.Open
+                    && !(state == ICoreVaultLifecycle.FundState.Closing && tokenOut == baseToken)
+            ) revert ICoreVaultLifecycle.FundNotOpen(state);
+        }
     }
     /// @notice DEC-141: in a Standard Payout the fund absorbs each unwind sale's loss up to this share of the value
     ///         sold, in bps; the requester bears the excess. Applied by the linked `SpokeUnwindLib`, whose constant

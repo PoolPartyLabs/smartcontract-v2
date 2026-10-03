@@ -15,6 +15,7 @@ import {SpokeVaultTypes} from "./SpokeVaultTypes.sol";
 import {SpokeIncomeTypes} from "./SpokeIncomeTypes.sol";
 import {SpokeLedger} from "./SpokeLedger.sol";
 import {SpokeCrossChainLib} from "./SpokeCrossChainLib.sol";
+import {ClosureDust} from "../libraries/ClosureDust.sol";
 
 /// @title SpokeIncomeLib
 /// @notice The Spoke Vault's income collection: the executor of the Core Vault's collection orders on a spoke and the
@@ -237,6 +238,24 @@ library SpokeIncomeLib {
         r.resultId = id;
         r.round = round;
         uint256 amount = b.unsentBase;
+        if (s.unwind.closed && amount != 0 && amount < ClosureDust.threshold(c.baseToken)) {
+            r.amountSent = amount;
+            b.unsentBase = 0;
+            s.collectedIncome[c.baseToken] -= amount;
+            for (uint256 index; index < tokens.length; ++index) {
+                address token = tokens[index];
+                uint256 sold = b.unsentSold[token];
+                if (sold == 0) continue;
+                r.tokens.push(token);
+                r.sold.push(sold);
+                r.obtained.push(0);
+                delete b.unsentSold[token];
+                delete b.unsentObtained[token];
+            }
+            emit SpokeCrossChainLib.ClosureDustExcluded(c.baseToken, amount, TransferKind.Income);
+            emit ISpokeVaultIncome.IncomeCollectionExecuted(round, id, bytes32(0), 0);
+            return;
+        }
         if (amount == 0 || !_bridgeable(s, c, amount)) {
             emit ISpokeVaultIncome.IncomeCollectionExecuted(round, id, bytes32(0), 0);
             return;

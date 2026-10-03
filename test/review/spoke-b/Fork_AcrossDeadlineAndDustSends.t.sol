@@ -127,8 +127,6 @@ contract Fork_AcrossDeadlineAndDustSends is SpokeVaultForkBase {
         );
         assertEq(address(vault), vaultAt);
         spokeUni.setVault(address(vault));
-        vm.prank(manager);
-        vault.setOperatingCashParameters(0, 0);
 
         // 1,000 USDG arrive (Across fill as the repository's fork suites simulate it).
         deal(RH_USDG, address(vault), 1000e6);

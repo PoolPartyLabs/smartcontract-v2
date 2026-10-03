@@ -129,8 +129,8 @@ contract FundFactoryVerifyRound2Test is Test, FactoryDeployment, FundMandate, Fu
         plan.spokePool = _poolKey(address(spokeWeth), address(usdg), 500, 10);
         plan.spokeCap = 1_000_000e6;
         plan.maxReportAge = 1588;
-        plan.spokeOperatingCashFloor = 5e6;
-        plan.spokeOperatingCashTopUp = 10e6;
+        plan.spokeOperatingCashFloor = 0;
+        plan.spokeOperatingCashTopUp = 0;
         plan.minFirstDeposit = 100e6;
         plan.performanceFeeBps = 2000;
     }
@@ -166,7 +166,7 @@ contract FundFactoryVerifyRound2Test is Test, FactoryDeployment, FundMandate, Fu
         m.bridgeAdapters[0] = BridgeAdapterConfig(HUB, SPOKE, factory.addressOf(fundId, "AcrossBridgeAdapter", SPOKE));
         m.bridgeAdapters[1] = BridgeAdapterConfig(HUB, HUB, factory.addressOf(fundId, "AcrossBridgeAdapter", HUB));
         m.operatingCash = new OperatingCashConfig[](1);
-        m.operatingCash[0] = OperatingCashConfig(HUB, 5e6, 10e6);
+        m.operatingCash[0] = OperatingCashConfig(HUB, 0, 0);
         m.payoutFeeBps = MandateLib.DEFAULT_PAYOUT_FEE_BPS;
         m.minFirstDeposit = 1e6;
         m.performanceFeeBps = MandateLib.MIN_PERFORMANCE_FEE_BPS;

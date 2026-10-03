@@ -37,7 +37,7 @@ contract ContractSizesTest is Test {
 
     /// @dev Every top-level contract and library under `src/`, as `<path>:<name>`.
     function _entries() internal pure returns (Entry[] memory e) {
-        e = new Entry[](41);
+        e = new Entry[](42);
         uint256 i;
         // Contracts deployed on chain (the factory's roles, the protocol-level contracts and what they deploy).
         e[i++] = Entry("src/adapters/AaveV3Adapter.sol:AaveV3Adapter", Kind.Contract);
@@ -69,6 +69,7 @@ contract ContractSizesTest is Test {
         e[i++] = Entry("src/core/CoreVaultIncomeTypes.sol:CoreVaultIncomeTypes", Kind.InlinedLibrary);
         e[i++] = Entry("src/core/CoreVaultPayoutTypes.sol:CoreVaultPayoutTypes", Kind.InlinedLibrary);
         e[i++] = Entry("src/factory/CodeStore.sol:CodeStore", Kind.InlinedLibrary);
+        e[i++] = Entry("src/libraries/ClosureDust.sol:ClosureDust", Kind.InlinedLibrary);
         e[i++] = Entry("src/factory/Create3.sol:Create3", Kind.InlinedLibrary);
         e[i++] = Entry("src/libraries/BridgeFeeRule.sol:BridgeFeeRule", Kind.InlinedLibrary);
         e[i++] = Entry("src/libraries/DollarIncomeIndex.sol:DollarIncomeIndex", Kind.InlinedLibrary);
@@ -100,7 +101,7 @@ contract ContractSizesTest is Test {
             }
             uint256 margin = CODE_LIMIT - size;
             console2.log(string.concat(e[i].id, " size / margin"), size, margin);
-            if (margin < LOW_MARGIN) console2.log("WARNING: margin below 1,000 bytes", e[i].id);
+            assertGe(margin, LOW_MARGIN, string.concat(e[i].id, " has less than 1,000 bytes of margin"));
         }
     }
 

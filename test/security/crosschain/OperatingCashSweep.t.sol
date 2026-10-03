@@ -33,57 +33,10 @@ import {CrossChainFixture} from "./helpers/CrossChainFixture.sol";
 /// operation and per period as a share of Share Assets; and give Operating Cash an exit that returns it to
 /// Shareholders (DEC-096: at fund close it is distributed to them). DEC-100's "no protocol cap" needs a new ruling.
 contract OperatingCashSweepPoC is CrossChainFixture {
-    function test_POC_operatingCashParametersSweepBridgedPrincipal() public {
-        // A fund with half of its capital on Robinhood, confirmed by a report.
-        _deposit(alice, 100_000e6);
-        (, uint256 depositId) = _sendToSpoke(50_000e6);
-        _fillOnSpoke(depositId);
-        _reportAndDeliver(900);
-        uint256 arrived = 50_000e6 - _ruleFee(50_000e6); // DEC-162: 49,959.97
-        assertEq(core.shareAssets(), SEED_IDLE + 99_750e6 - _ruleFee(50_000e6));
-
-        // 1. The manager lifts the spoke's floor and top-up to the maximum.
-        vm.chainId(SPOKE);
+    function test_REGRESSION_operatingCashParametersSweepBridgedPrincipal() public {
         vm.prank(manager);
+        vm.expectRevert(bytes4(keccak256("OperatingCashNotSupported()")));
         spoke.setOperatingCashParameters(type(uint256).max, type(uint256).max);
-
-        // 2. The next operation, here anybody's 1 USDG Across fill, sweeps the whole Unallocated Balance.
-        _strangerFillOnSpoke(attacker, keccak256("any id"), 1e6, TransferKind.Principal);
-        vm.chainId(SPOKE);
-        assertEq(spoke.unallocatedBalance(address(usdg)), 0, "nothing left to allocate or send home");
-        assertEq(spoke.operatingCash(), arrived + 1e6, "all of it is Operating Cash now");
-
-        // The manager cannot undo it: lowering the parameters does not move Operating Cash back, nothing spends it, the
-        // garbage collector does not touch it and a transfer home has nothing to send.
-        vm.startPrank(manager);
-        spoke.setOperatingCashParameters(0, 0);
-        vm.expectPartialRevert(ISpokeVault.InsufficientUnallocatedBalance.selector);
-        spoke.sendToHub(1e6, TransferKind.Principal, 0);
-        vm.stopPrank();
-        assertEq(spoke.sweepExcess(address(usdg)), 0);
-        assertEq(spoke.operatingCash(), arrived + 1e6);
-        assertEq(usdg.balanceOf(address(spoke)), arrived + 1e6, "the USDG never left the vault");
-        vm.chainId(HUB);
-
-        // The next report takes the spoke's principal out of Share Assets.
-        _reportAndDeliver(900);
-        assertEq(
-            core.shareAssets(), SEED_IDLE + 49_749e6, "Idle only, less the stranger's unit of unknown-origin value"
-        );
-
-        // 3. The same on the hub: all Free Idle but the 1 USDC the triggering call moves.
-        uint256 freeIdle = core.freeIdle();
-        vm.startPrank(manager);
-        core.setOperatingCashParameters(type(uint256).max, freeIdle - 1e6);
-        core.allocateToHubSpokeVault(1e6);
-        vm.stopPrank();
-        assertEq(core.idle(), 0);
-        assertEq(core.operatingCash(), freeIdle - 1e6);
-        assertEq(usdc.balanceOf(address(core)), freeIdle - 1e6, "the USDC never left the vault");
-        assertEq(core.sweepExcess(address(usdc)), 0);
-
-        // Alice's 99,750 shares are backed by nothing; 99,724 USDC and USDG of the fund sit frozen in the two vaults.
-        assertEq(core.shareAssets(), 0);
-        assertEq(shares.balanceOf(alice), 99_750e18);
+        assertEq(spoke.operatingCash(), 0);
     }
 }

@@ -212,8 +212,8 @@ abstract contract FundSystemFixture is Test, FundSeed {
         m.bridgeAdapters[0] = BridgeAdapterConfig(SPOKE, HUB, address(hubBridge));
         m.bridgeAdapters[1] = BridgeAdapterConfig(SPOKE, SPOKE, address(spokeBridge));
         m.operatingCash = new OperatingCashConfig[](2);
-        m.operatingCash[0] = OperatingCashConfig(HUB, 1e6, 3e6);
-        m.operatingCash[1] = OperatingCashConfig(SPOKE, 5e6, 10e6);
+        m.operatingCash[0] = OperatingCashConfig(HUB, 0, 0);
+        m.operatingCash[1] = OperatingCashConfig(SPOKE, 0, 0);
         m.payoutFeeBps = 200;
         m.minFirstDeposit = SYSTEM_SEED;
         m.performanceFeeBps = PERFORMANCE_FEE_BPS;

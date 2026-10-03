@@ -10,6 +10,7 @@ import {IManagerRegistry} from "../interfaces/IManagerRegistry.sol";
 import {ISpokeVault} from "../interfaces/ISpokeVault.sol";
 import {IValueReportReceiver} from "../interfaces/IValueReportReceiver.sol";
 import {DollarIncomeIndex} from "../libraries/DollarIncomeIndex.sol";
+import {ClosureDust} from "../libraries/ClosureDust.sol";
 import {OrderCodec} from "../libraries/OrderCodec.sol";
 import {ReportCodec} from "../libraries/ReportCodec.sol";
 import {SpokeIncomeTypes} from "../spoke/SpokeIncomeTypes.sol";
@@ -305,6 +306,20 @@ library CoreVaultIncomeCollectionLogic {
             res.seen = true;
             res.round = c.round;
             if (c.transitId == bytes32(0)) {
+                if (c.amountSent != 0) {
+                    if (
+                        s.fundState != ICoreVaultLifecycle.FundState.Closing
+                            || c.amountSent >= ClosureDust.threshold(w.usdc)
+                    ) revert ICoreVaultLifecycle.ClosureNotReady();
+                    (res.sold, res.obtained,) =
+                        _align(b.sources[spokeIndex + 1].index.tokens, c.tokens, c.sold, c.obtained);
+                    _freezeResult(b.sources[spokeIndex + 1], res);
+                    uint256[] memory dollars = new uint256[](res.sold.length);
+                    _finalizeResult(s, w, spokeIndex + 1, res, dollars, 0);
+                    emit ICoreVaultLifecycle.ClosureDustExcluded(
+                        s.mandate.spokes[spokeIndex].chainId, c.amountSent, true
+                    );
+                }
                 _finish(b, spokeIndex, res, false);
                 return;
             }
@@ -364,6 +379,7 @@ library CoreVaultIncomeCollectionLogic {
         uint256 listed = s.hubBound[key].listed;
         if (listed == 0) return;
         delete book.recoveredIncome[spokeIndex][transitId];
+        book.recoveredDollars -= recovered;
         uint256 credited = recovered < listed ? recovered : listed;
         book.credited[spokeIndex][transitId] += credited;
         if (recovered > credited) {

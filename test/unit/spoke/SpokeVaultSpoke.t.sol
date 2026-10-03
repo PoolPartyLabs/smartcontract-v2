@@ -414,34 +414,19 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
     // ---------------------------------------------------------------------------------------------------------------
 
     function test_DEC096_arrivalIsAnOperationThatTopsUpFromUnallocated() public {
-        // Spoke Vault verifier finding: an arrival moves value, so it tops up like every other operation.
-        usdg.mint(address(spokePool), 100e6);
-        vm.expectEmit(address(vault));
-        emit ISpokeVault.OperatingCashToppedUp(SPOKE_TOP_UP, SPOKE_TOP_UP);
-        vm.expectEmit(address(vault));
-        emit ISpokeVault.OperatingExpensePaid(
-            SPOKE, address(0), vault.OPERATING_CASH_TOP_UP(), SPOKE_TOP_UP, ExpensePayer.ShareAssets
-        );
-        spokePool.fill(
-            address(vault), address(usdg), 100e6, TransitMessage.encode(FUND_ID, HUB, ARRIVAL, TransferKind.Principal)
-        );
-        assertEq(vault.operatingCash(), SPOKE_TOP_UP);
-
-        // At the floor again: the next operation does not top up.
+        _arrive(100e6, ARRIVAL, TransferKind.Principal);
+        assertEq(vault.operatingCash(), 0);
         vm.prank(manager);
         vault.swap(address(spokeSwap), address(usdg), address(weth), 20e6, 0, "");
-
-        assertEq(vault.operatingCash(), SPOKE_TOP_UP);
-        assertEq(vault.unallocatedBalance(address(usdg)), 100e6 - SPOKE_TOP_UP - 20e6);
-        // DEC-042/DEC-104: Operating Cash is outside Share Assets, so the report's Unallocated Balance excludes it.
-        assertEq(vault.buildReport().unallocated[0].amount, 70e6);
+        assertEq(vault.unallocatedBalance(address(usdg)), 80e6);
+        assertEq(vault.buildReport().unallocated[0].amount, 80e6);
     }
 
     function test_DEC096_topUpLimitedToUnallocatedBalance() public {
         _arrive(4e6, ARRIVAL, TransferKind.Principal);
-        _arrive(50e6, keccak256("income"), TransferKind.Income); // a value-moving operation: the top-up runs again
-        assertEq(vault.operatingCash(), 4e6, "never out of the collected income bucket");
-        assertEq(vault.unallocatedBalance(address(usdg)), 0);
+        _arrive(50e6, keccak256("income"), TransferKind.Income);
+        assertEq(vault.operatingCash(), 0);
+        assertEq(vault.unallocatedBalance(address(usdg)), 4e6);
         assertEq(vault.collectedIncome(address(usdg)), 50e6);
     }
 
@@ -461,12 +446,11 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
     }
 
     function test_DEC096_managerAdjustsFloorAndTopUp() public {
-        vm.expectEmit(address(vault));
-        emit ISpokeVault.OperatingCashParametersSet(20e6, 30e6);
         vm.prank(manager);
+        vm.expectRevert(bytes4(keccak256("OperatingCashNotSupported()")));
         vault.setOperatingCashParameters(20e6, 30e6);
-        assertEq(vault.operatingCashFloor(), 20e6);
-        assertEq(vault.operatingCashTopUp(), 30e6);
+        assertEq(vault.operatingCashFloor(), 0);
+        assertEq(vault.operatingCashTopUp(), 0);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -782,7 +766,7 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
         assertEq(r.operatingCash, SPOKE_TOP_UP);
         assertEq(r.collectedIncome[0].token, address(usdg));
         assertEq(r.collectedIncome[0].amount, 7e6);
-        assertEq(r.unallocated[0].amount, 90e6, "neither is in Unallocated Balance");
+        assertEq(r.unallocated[0].amount, 100e6, "Income is outside Unallocated Balance");
     }
 
     function test_DEC080_sendAboveUnallocatedReverts() public {
@@ -841,15 +825,11 @@ contract SpokeVaultSpokeTest is SpokeVaultTestBase {
     ///      removed because a sink and a release let the manager exceed the Spoke Cap and depress the hub's Share Price.
     function test_SEC_S63_spokeOperatingCashSinkHasNoReleaseVerb() public {
         vm.prank(manager);
+        vm.expectRevert(bytes4(keccak256("OperatingCashNotSupported()")));
         vault.setOperatingCashParameters(type(uint256).max, type(uint256).max);
-        _arrive(1000e6, ARRIVAL, TransferKind.Principal);
-        assertEq(vault.operatingCash(), 1000e6, "the arrival swept everything into Operating Cash");
-        vm.startPrank(manager);
-        vault.setOperatingCashParameters(5e6, 5e6);
-        (bool released,) = address(vault).call(abi.encodeWithSignature("releaseOperatingCash(uint256)", 995e6));
-        vm.stopPrank();
-        assertFalse(released, "no release verb");
-        assertEq(vault.unallocatedBalance(address(usdg)), 0);
+        _arrive(5e6, ARRIVAL, TransferKind.Principal);
+        assertEq(vault.operatingCash(), 0);
+        assertEq(vault.unallocatedBalance(address(usdg)), 5e6);
     }
 
     /// @dev Security review S-3: a send home is listed until its refund is recognized or until its fill deadline plus

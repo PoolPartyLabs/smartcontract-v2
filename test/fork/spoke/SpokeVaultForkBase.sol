@@ -83,7 +83,7 @@ abstract contract SpokeVaultForkBase is Test {
         m.bridgeAdapters[1] = BridgeAdapterConfig(ROBINHOOD, ROBINHOOD, a.spokeBridge);
 
         m.operatingCash = new OperatingCashConfig[](1);
-        m.operatingCash[0] = OperatingCashConfig(ROBINHOOD, 5e6, 10e6);
+        m.operatingCash[0] = OperatingCashConfig(ROBINHOOD, 0, 0);
 
         m.payoutFeeBps = 200;
         m.minFirstDeposit = 100e6;

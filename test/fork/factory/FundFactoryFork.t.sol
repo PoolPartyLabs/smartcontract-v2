@@ -60,8 +60,8 @@ contract FundFactoryForkTest is Test, FactoryDeployment, FundMandate, FundSeed {
         plan.spokeCap = 1_000_000e6;
         // Ruling 2026-09-29: Robinhood 1,587 s plus one block, rounded up.
         plan.maxReportAge = 1588;
-        plan.spokeOperatingCashFloor = 5e6;
-        plan.spokeOperatingCashTopUp = 10e6;
+        plan.spokeOperatingCashFloor = 0;
+        plan.spokeOperatingCashTopUp = 0;
         plan.minFirstDeposit = 100e6;
         plan.performanceFeeBps = 2000;
     }

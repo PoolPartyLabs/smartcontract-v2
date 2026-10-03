@@ -20,6 +20,7 @@ pragma solidity 0.8.28;
 ///      (DEC-117 item 4) and the manager keeps every unwind verb. The Closed state (DEC-150) is reached by the
 ///      closure's finalization.
 interface ICoreVaultLifecycle {
+    event ClosureDustExcluded(uint256 indexed chainId, uint256 amount, bool income);
     /// @notice Frozen closure split and the manager's final settlement (DEC-147/163/167).
     event FundClosed(
         uint64 closedAt,

@@ -36,8 +36,8 @@ abstract contract SpokeVaultTestBase is Test {
     uint256 internal constant SPOKE = 4663;
     uint16 internal constant WH_SPOKE = 72;
     uint32 internal constant MAX_REPORT_AGE = 1587;
-    uint256 internal constant SPOKE_FLOOR = 5e6;
-    uint256 internal constant SPOKE_TOP_UP = 10e6;
+    uint256 internal constant SPOKE_FLOOR = 0;
+    uint256 internal constant SPOKE_TOP_UP = 0;
     bytes32 internal constant FUND_ID = keccak256("fund-1");
     bytes32 internal constant HUB_POOL = keccak256("hub WETH/USDC");
     bytes32 internal constant AAVE_USDC = keccak256("aave USDC");
@@ -126,8 +126,8 @@ abstract contract SpokeVaultTestBase is Test {
         m.bridgeAdapters[2] = BridgeAdapterConfig(SPOKE, SPOKE, address(spokeBridgeFallback));
 
         m.operatingCash = new OperatingCashConfig[](2);
-        m.operatingCash[0] = OperatingCashConfig(HUB, 1e6, 3e6);
-        m.operatingCash[1] = OperatingCashConfig(SPOKE, SPOKE_FLOOR, SPOKE_TOP_UP);
+        m.operatingCash[0] = OperatingCashConfig(HUB, 0, 0);
+        m.operatingCash[1] = OperatingCashConfig(SPOKE, 0, 0);
 
         m.payoutFeeBps = 200;
         m.minFirstDeposit = 100e6;
@@ -180,10 +180,7 @@ abstract contract SpokeVaultTestBase is Test {
         spokePool.fill(address(vault), address(usdg), amount, TransitMessage.encode(FUND_ID, HUB, transitId, kind));
     }
 
-    function _disableOperatingCash() internal {
-        vm.prank(manager);
-        vault.setOperatingCashParameters(0, 0);
-    }
+    function _disableOperatingCash() internal {}
 
     /// @dev DEC-158, DEC-162: the manager passes no bridge parameter and the bridge adapter fixes the amount to arrive,
     ///      so the primary mock adapter is set to deliver `outputAmount` on the next send home (a cheatcode write: it

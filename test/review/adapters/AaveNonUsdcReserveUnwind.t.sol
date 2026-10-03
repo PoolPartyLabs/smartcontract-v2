@@ -98,7 +98,7 @@ contract AaveNonUsdcReserveUnwindTest is Test {
         m.spokes = new SpokeConfig[](0);
         m.bridgeAdapters = new BridgeAdapterConfig[](0);
         m.operatingCash = new OperatingCashConfig[](1);
-        m.operatingCash[0] = OperatingCashConfig(HUB, 1e6, 3e6);
+        m.operatingCash[0] = OperatingCashConfig(HUB, 0, 0);
         m.payoutFeeBps = 200;
         m.minFirstDeposit = 100e6;
         m.performanceFeeBps = 1000;

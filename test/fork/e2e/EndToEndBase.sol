@@ -60,8 +60,8 @@ abstract contract EndToEndBase is Test, FactoryDeployment, FundMandate, FundSeed
 
     /// @dev Spoke Operating Cash (DEC-096), set by the scenario to exercise the top-up; script/CreateFund.s.sol defaults
     ///      both to 0 (ruling 2026-10-02: Operating Cash is out of the MVP).
-    uint256 internal constant SPOKE_OPERATING_CASH_FLOOR = 5e6;
-    uint256 internal constant SPOKE_OPERATING_CASH_TOP_UP = 10e6;
+    uint256 internal constant SPOKE_OPERATING_CASH_FLOOR = 0;
+    uint256 internal constant SPOKE_OPERATING_CASH_TOP_UP = 0;
 
     uint256 internal constant MIN_FIRST_DEPOSIT = 100e6;
     uint16 internal constant PERFORMANCE_FEE_BPS = 2000;
@@ -189,8 +189,8 @@ abstract contract EndToEndBase is Test, FactoryDeployment, FundMandate, FundSeed
         plan.spokePool = _spokePoolKey();
         plan.spokeCap = SPOKE_CAP;
         plan.maxReportAge = ROBINHOOD_MAX_REPORT_AGE;
-        plan.spokeOperatingCashFloor = SPOKE_OPERATING_CASH_FLOOR;
-        plan.spokeOperatingCashTopUp = SPOKE_OPERATING_CASH_TOP_UP;
+        plan.spokeOperatingCashFloor = 0;
+        plan.spokeOperatingCashTopUp = 0;
         plan.minFirstDeposit = MIN_FIRST_DEPOSIT;
         plan.performanceFeeBps = PERFORMANCE_FEE_BPS;
     }
