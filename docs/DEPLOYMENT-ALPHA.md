@@ -1,21 +1,21 @@
 # Internal alpha deployment — DEC-134
 
-Current measured baseline: **October 3, 2026**, `origin/main` `334eae6`, including #24/#25/#26/#28/#29.
-DEC-145 is **in PR #30, landing before the deploy** (waiting lots/resumable checkpoints, reported max-config peak
-2.04M gas). Historical rehearsal sections below retain their original SHAs/counts; current tests and sizes are in
+Final B-04 measured baseline: **October 3, 2026**, `origin/main` `f171dc6`, including **PR #30 / DEC-145**
+(merged through `6395173`; waiting lots/resumable checkpoints, max-config peak 2.04M gas).
+The final alpha-sized rehearsal and full lifecycle replay pass on this production build. Historical rehearsal sections retain their original SHAs/counts; current tests and sizes are in
 the [founder report](reports/2026-10-03-MVP-REPORT.md). Arbitrum One is the Hub Chain
 (EVM 42161 / Wormhole 23); Robinhood Chain is the Spoke Chain (EVM 4663 / Wormhole 72).
 This is an operator runbook, **not authorization to broadcast on mainnet**. No mainnet deployment took place.
 
 ## Release gates
 
-1. Land DEC-145 PR #30 and freeze an independently reviewed commit. Unwind/income/closure are merged, including
+1. Freeze an independently reviewed commit. DEC-145 PR #30, unwind/income/closure are merged, including
    #28 conformance fixes and #29 report v5/all-kind acknowledgements. #24's full lifecycle and #29's integrated
-   replay are committed evidence, not a frozen post-#30 rehearsal. Re-run on the frozen commit: library addresses and creation
+   replay and the final B-04 post-#30 rehearsal are committed evidence. Re-run if production code changes: library addresses and creation
    code hashes depend on the build. WP-17 is deferred by Rafael. G-02/G-03/G-04/G-06/G-07 remain accepted only
    for alpha; see [KNOWN-LIMITATIONS](security/KNOWN-LIMITATIONS.md).
 2. Pass `bash script/alpha-safe.sh forge build --sizes`, `bash script/alpha-safe.sh forge fmt --check`, the size suite, all non-fork and all fork tests, and the final
-   `local-e2e` scenario/API probe required by HANDOFF section 6. This branch's smoke is not that final scenario.
+   `local-e2e` scenario/API probe required by HANDOFF section 6. B-04 also reran that scenario: 57 steps / 330 assertions, API 31 concepts.
 3. Obtain Rafael's signed-off input sheet, maximum alpha exposure, funded wallets, incident contact and process
    supervisor. Keep the API loopback-only, behind an authenticated internal tunnel; do not expose the ordinary
    harness API. Only Pool Party wallets participate. Contracts remain permissionless: this is operational access
@@ -118,7 +118,9 @@ the actual immutable wiring, not taken from an operator's unchecked manifest.
 
 ## Exact deployment order
 
-Run from the release worktree root. Keep operator and manager keystores separate. Do not invoke the deploy script
+Run from the release worktree root. For Rafael's approved alpha, `alpha-operator` and `alpha-manager` refer to the
+same signing address; API signer, keeper, adapter guardian and Protocol Recipient use that address too. The second
+investor is separate. Do not invoke the deploy script
 twice on a chain after success: registry/price-source/stores are CREATE deployments, and the fixed factory CREATE3
 salt is already occupied. A failed broadcast needs receipt-by-receipt reconciliation, not a blind rerun.
 
@@ -147,7 +149,7 @@ mkdir -p "$FOUNDRY_BROADCAST"
 chmod 700 "$ALPHA_RECORD_DIR"
 export MIN_FIRST_DEPOSIT=2000000 SEED_AMOUNT=5000000 SPOKE_CAP=100000000
 export ALPHA_DEPOSIT_AMOUNT=5000000 ALPHA_SEND_AMOUNT=5000000 ALPHA_PAYOUT_AMOUNT=1000000
-export ALPHA_AAVE_AMOUNT=1000000 ALPHA_INVESTOR_DEPOSIT=2000000 ALPHA_MIN_COLLECT_USDC=500000
+export ALPHA_AAVE_AMOUNT=1000000 ALPHA_INVESTOR_DEPOSIT=5000000 ALPHA_MIN_COLLECT_USDC=500000
 test "$(bash script/alpha-safe.sh cast chain-id --rpc-url "$ARBITRUM_RPC_URL")" = 42161
 test "$(bash script/alpha-safe.sh cast chain-id --rpc-url "$ROBINHOOD_RPC_URL")" = 4663
 bash script/alpha-safe.sh cast balance "$DEPLOYER_ADDRESS" --rpc-url "$ARBITRUM_RPC_URL"
@@ -329,7 +331,7 @@ pending acknowledgement messages every poll with exponential backoff capped at 6
 restart or temporary RPC/send failure. After authenticated Principal credit it publishes
 `acknowledgeSpokeTransit(0,transitId)` and retains work until the Spoke Vault confirms resolution. Income work
 resolves only after authenticated credit; late/unlisted recovery and refunds still require incident handling.
-Sixteen undelivered Principal acknowledgements can still block exits; monitor the durable queues (DEC-068/139/151).
+The 64 shared unresolved Principal/Income slots can block new sends and closure; monitor the durable queues (DEC-068/139/151).
 
 Install with the frozen lockfile; type-check; export the nonsecret runtime variables from the actual deployment.
 Inject only the key required by the process (hidden prompt below is **Bash**, not zsh):
@@ -675,7 +677,8 @@ Spoke `executeOrder(ACKNOWLEDGE VAA)` succeeds in
 does not populate that unwind mapping. The probe fails precisely at `Timed out: durable keeper Principal acknowledgement`.
 The runtime keeps this work pending and retries; it does not falsely mark it resolved. This is a separate
 contract limitation requiring an independently reviewed source fix, **not** the alpha COLLECT root cause.
-Do not use manual Principal returns on mainnet alpha; the CLOSE/UNWIND-owned path has its request mapping.
+Historical pre-#29 limitation, now superseded: B-04 proves a manual Principal return is credited, acknowledged and
+removed from the shared slot list by the durable alpha keeper. Manual refunds still require incident handling.
 Default capital/income/second-fund-closure rehearsal does not use this unsupported manual acknowledgement path.
 
 All production sizes match merged main: Core Vault **22862 / 1714 margin**, Spoke Vault **22887 / 1689**, tightest
@@ -791,7 +794,7 @@ funds remain outside this internal-alpha authorization. No keys or RPC URLs are 
 Fork storage funding, guardian override, V4 test trader and oracle re-stamp are not evidence for those live gates.
 The final script prints both smoke passes and stops both private forks; no owned Anvil/API/keeper remains.
 
-## Validation and runtime sizes
+## Historical round-2 validation and sizes
 
 Fresh round-2 green bar: build/sizes and format check; size **3/3 in 1 suite**; non-fork **1,433/1,433 in 183 suites**;
 fork **222/222 in 56 suites** with -j 4; alpha **11/11 Node tests**; verification tooling **2/2 Node tests**;
@@ -829,3 +832,247 @@ Production before = after (no source change), EIP-170 limit 24,576 bytes:
 Tightest executable: **SpokeUnwindLib 23,449 B / 1,127 B margin**; Core Vault 22,862 / 1,714;
 Spoke Vault 22,887 / 1,689. No executable margin below 1,000. Full CodeStore data chunks intentionally
 have **0 B margin** (STOP plus data at EIP-170); do not increase chunk size. Script contracts are off-chain.
+
+## Final B-04 rehearsal — October 3, 2026
+
+**PASS on final main `f171dc6`, including #30. No mainnet transactions were sent.** This section supersedes
+historical readiness, sizes, counts, role assignments and manual-send limitations above. B-04's code/test gates
+are complete; the deployment is **conditionally ready for the approved internal alpha, not an unconditional
+mainnet GO**. Independent review of this tooling PR, live guardian observation/finality, tiny real Across fills
+and source verification remain execution gates. There is no contract failure requiring a `src/` change.
+Rafael already approved the one-wallet role layout, 30 USDC budget and stopping the keeper after smoke.
+
+The full, sanitized address manifest, every transaction hash/receipt gas/price and scenario assertions are in
+`local-e2e/reports/2026-10-03-B04-alpha-final.json`. The independent full-size lifecycle and API reports are
+`local-e2e/reports/2026-10-03-B04-scenario.md` and `local-e2e/reports/2026-10-03-B04-api-probe.md`.
+Fork hashes are evidence only; they are not mainnet explorer transactions. The fixed archive pins were
+Arbitrum **511007613**, Robinhood **78293056**. No credential-bearing RPC URL, key, calldata or raw broadcast
+file is committed. Both private forks and all API/keeper children were stopped.
+
+### Exact reproducible fork sequence
+
+From this release worktree, after the required shared `lib` and `.env` symlinks:
+
+```bash
+CI=true pnpm --dir local-e2e install --frozen-lockfile
+. /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
+ALPHA_REHEARSAL_HUB_PORT=18845 ALPHA_REHEARSAL_SPOKE_PORT=18846 ALPHA_REHEARSAL_API_PORT=18847 \
+  bash script/rehearse-alpha.sh
+```
+
+The script uses the real DeployFactory/CreateFund scripts and checks both chains for **both funds**. The single
+throwaway operator `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266` is deployer, API signer, manager, keeper,
+adapter guardian and Protocol Recipient. The separate investor is `0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC`.
+The local Wormhole guardian-set signer and fee-generating trader are fork infrastructure, not alpha wallet roles.
+
+Exact ordered flow in `script/rehearse-alpha.sh` / `local-e2e/src/alpha-final-smoke.ts`:
+
+1. Explicit minimum **2 USDC**, seed budget **5 USDC**, Spoke Cap **100 USDC**, performance fee **2,000 bps**,
+   management fee **0**, Operating Cash **0**. Seed/deposit budgets charge only whole-share cost plus flow fee:
+   a 5 USDC budget initially mints four shares, not five. Two seeds and the manager's 5 USDC deposit are funded.
+2. Deploy both protocol stacks, create first Hub fund and Robinhood Spoke Vault, run both deployment checkers.
+   Start authenticated alpha API/keeper, synchronously report **before and after** the manager's 5 USDC deposit.
+3. Send **5 USDC** to Robinhood; fill through the real Across SpokePool and match full `FilledRelay` data.
+   Report arrival; manually `sendToHub(1000000,Principal,0)`, fill the return, wait for durable acknowledgement,
+   prove `inFlightTransitIds` and keeper queue no longer contain the transit. Synthetic relayer funding is additive:
+   with one role wallet, never overwrite its remaining seed/investment USDC with the relayer's inventory.
+4. Swap half of the remaining spoke allocation through V3, open its Mandate V4 position, generate real LP fees
+   with a fork-only trader. Allocate/supply **1 USDC** to the Hub Aave position; advance both clocks one day,
+   re-stamp the fork oracle and collect Aave interest. No mock income is credited to the fund.
+5. Deliver a report showing earned spoke Income, then the separate investor deposits **5 USDC**. Deliver the
+   immediate post-deposit report. Assert `unconvertedIncome(investor,1,USDG) == 0`; request Income Withdrawal,
+   deliver COLLECT, match/fill its Income send and confirm its shared slot is freed. Settle the manager's positive
+   Attributed Income; assert `incomeOwed(investor) == 0` after conversion too. This is DEC-145's prior-interval proof.
+6. Invest remaining Free Idle in the already-open Aave position using **increasePosition**, report, and have the
+   investor request a **2 USDC Instant Payout with maxLossBps=500**. Prove automatic Hub unwind and a Hub UNWIND
+   order, execute it on Robinhood, match/fill Principal return, report, settle, and report after the share burn.
+   The final run pays **1.983821 USDC gross / 1.908657 USDC net**, with **1.992926 USDC** unwind proceeds.
+7. Create a second 5 USDC-seed fund on both chains, check both, deposit a separate-investor 5 USDC budget,
+   report, close, advance beyond the deadline, unwind/CLOSE, wait for the **specific order id** in its report,
+   perform final Income collection, report, finalize, and exit the investor. Manager shares are paid/burned at
+   finalization; investor shares are zero after exit and frozen `closedSupply` stays **4e18**.
+
+The full-size regression replay also ran independently on fresh ports 18855/18856:
+
+```bash
+. /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
+export LOCAL_E2E_ARBITRUM_PORT=18855 LOCAL_E2E_ROBINHOOD_PORT=18856
+unset ALPHA_REHEARSAL_SAME_ROLES
+pnpm --dir local-e2e run up --warm-up none
+pnpm --dir local-e2e scenario
+pnpm --dir local-e2e api:probe
+pnpm --dir local-e2e down
+```
+
+### Addresses and representative receipts
+
+| Role | First fund / shared deployment | Second fund |
+|---|---|---|
+| Factory, both chains | `0x408EBd63EC5DdB000471452253A73DB682590E5c` | same |
+| Core Vault | `0xE83aBE79E1639676F90CF82034cDb8c6dB14f64e` | `0xf28CcCE6D425Bec5117ebaF92Aaf7048E9cc2De1` |
+| Hub Spoke Vault | `0x11249C90f34f8cAa50Ff8597A893EE5336C66B7d` | `0xFC340c62C4f6e7Ab18b5c9eF61377737aD6080F7` |
+| Robinhood Spoke Vault | `0x323a06D8d48bDf02a78aa882A24894d35C774b32` | `0x5d356D17A4855Dc70F2785A70d1c073f11dD9F89` |
+| ShareToken | `0x82c735287B6e8B61d06235b6b5Ab7c0E7FaAf70E` | `0x04CF8efCe306Ea22138C6556eB8b5CE45008D3C0` |
+| ValueReportReceiver | `0xD641f0e1Dc8beD2995e8f2897330f30dA13Ea439` | `0xbA34BeF1e70c2d915E044a32CAd2687940de5A00` |
+
+Every receipt is retained in the JSON evidence, including deployments, approvals, reports/deliveries and
+fork-only fills/trades. Separate categories prevent attributing third-party relayer/trader costs to the alpha.
+
+### ETH budget: do not confuse Anvil prices with mainnet
+
+The final receipt totals were **132,354,567 gas** for the shared Arbitrum alpha wallet and **70,145,599 gas**
+for Robinhood, including both fund creations and repeated synchronous reports. The investor separately used
+**2,919,806 gas on Arbitrum**. Fork-only relayer gas was 757,557 / 306,918; the LP trader is excluded entirely.
+Anvil is not Nitro: legacy deploys were forced to 0.1 gwei while ordinary runtime EIP-1559 transactions include
+Anvil's tip/basefee. The synthetic receipt debits **0.032574957 ETH / 0.018737585 ETH** are therefore **not** the
+mainnet funding requirement. Likewise, applying the pinned Anvil `eth_gasPrice` to all gas is not a live quote.
+
+Read-only live sample **October 3, 2026, 04:07:50 UTC**: Arbitrum **20,020,000 wei (0.02002 gwei)**;
+Robinhood **29,454,000 wei (0.029454 gwei)**. Repricing all measured EVM gas at those live prices:
+
+| Budget | Arbitrum ETH | Robinhood ETH |
+|---|---:|---:|
+| Both deployments + both funds + entire rehearsed alpha flow, no 6x discount | **0.002649738** | **0.002066068** |
+| Separate investor transactions | 0.000058455 | 0 |
+| Rafael's 6x lower-gas planning estimate, shared wallet only | 0.000441623 | 0.000344345 |
+| Approved real shared-wallet balance | **0.0115** | **0.0131** |
+
+The wallet covers the undiscounted EVM estimate **4.34x / 6.34x**; use **0.00530 / 0.00414 ETH** as a 2x EVM
+planning reserve, not a guaranteed fee cap. Do not divide actual measured receipt gas by six and call it measured
+mainnet gas: the 6x value is Rafael's heuristic only. Nitro parent-chain data fees, changing basefee, guardian
+count (one local signer versus the real set), live relayer fees and retries are not reproduced by Anvil.
+Before each real broadcast obtain the live full gas estimate, including the Nitro data component, and stop if
+the remaining wallet cannot cover it. Official fee reference: Arbitrum Docs, “How to estimate gas in Arbitrum”.
+No claim is made that these fork EVM costs include the parent-chain data charge.
+
+The 30 USDC budget covers two 5 USDC seeds, a 5 USDC manager deposit and up to 8 USDC sent to the approved
+second investor (**23 USDC maximum budget**, before share rounding; no separate extra 5 USDC is needed to send
+existing fund assets to the spoke). Bridge/Payout Fees are deducted by the protocol, not additional ETH transfers.
+The initial 1% Instant loss bound correctly refused the ~0.622293 USDG return: fixed+variable fee **0.030498**,
+arrival **0.591795**, effective loss **4.90%**. The alpha-sized 5% requester bound passes; it does **not** widen
+the adapter's fixed fee terms. Keep meaningful allocations disabled until live route terms accept the tiny amount.
+The fork produced only about 0.0115 USDC of bridge-returned Income after accelerated fee trades: this is **below
+the normal 0.50 USDC runtime COLLECT floor**. Direct contract collection is fork evidence, not authorization to
+force an uneconomic live Income send. On mainnet defer until actual fees, conversion and route limits are viable.
+
+### Exact mainnet continuation and stops
+
+Use “Exact deployment order” above for build, DeployFactory, CreateFund, export of the **actual** predictions
+and CheckAlphaDeployment on each chain. Never reuse the fork addresses or run `rehearse-alpha.sh` on mainnet.
+Override the shared `.env` explicitly; unlock the same approved address for `alpha-operator` and
+`alpha-manager`; set `DEPLOYER_ADDRESS`, `MANAGER`, `API_SIGNER`, `ADAPTER_GUARDIAN`, `PROTOCOL_RECIPIENT`
+to the approved shared wallet. Keep `REGISTRY_OWNER` unset. Secret-manager/hidden-prompt injection supplies
+the same key separately to the keeper/API processes; no key goes into a command file. Keep all three
+`ALPHA_ALLOW_LOCAL_TEST_KEYS`, `ALPHA_REHEARSAL_LOCAL_VAA`, `ALPHA_REHEARSAL_SAME_ROLES` unset.
+Persist per-fund cursor and transaction records, run the keeper only during smoke, then stop it cleanly.
+
+After first deployment/check and live authenticated report/VAA gate, the ordered manual calls are below.
+`report` means the authenticated synchronous `/report` command documented above; wait for HTTP 200/delivered
+before each following mint/burn. A human must inspect every successful receipt before the next call.
+
+```bash
+. /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
+report() {
+  printf 'header = "Authorization: Bearer %s"\n' "$ALPHA_API_TOKEN" | \
+    bash script/alpha-safe.sh curl --config - --fail-with-body -X POST "http://127.0.0.1:${ALPHA_API_PORT:-8787}/report"
+}
+hub_send() { bash script/alpha-safe.sh cast send "$@" --account alpha-manager --rpc-url "$ARBITRUM_RPC_URL"; }
+spoke_send() { bash script/alpha-safe.sh cast send "$@" --account alpha-manager --rpc-url "$ROBINHOOD_RPC_URL"; }
+export ALPHA_INVESTOR_ADDRESS=0x3A3ea619C0f37a7D2fF07FF442d863f316A99A7a
+report
+hub_send 0xaf88d065e77c8cC2239327C5EDb3A432268e5831 'approve(address,uint256)' "$ALPHA_CORE_VAULT" 5000000
+hub_send "$ALPHA_CORE_VAULT" 'deposit(uint256,uint256)' 5000000 1
+report
+# Top up the approved investor with 5-8 USDC only after checking its current balance.
+# Check real Across route terms and quoteSend before the tiny send; STOP on unsupported/unprofitable terms.
+hub_send "$ALPHA_CORE_VAULT" 'sendToSpoke(uint256,uint256,uint256,bytes)' 0 5000000 0 0x
+# Wait for full FilledRelay/TransitArrived match and accepted arrival report; no simulated fill on mainnet.
+report
+spoke_send "$ALPHA_SPOKE_VAULT" 'sendToHub(uint256,uint8,uint256)' 1000000 0 0
+# Wait for real fill, report, durable acknowledgeSpokeTransit/executeOrder and disappearance from inFlightTransitIds.
+report
+```
+
+Position operations must use the actual Mandate adapter/PoolKey/position key and current tick/spot, not a fork
+tick or NFT id. The exact selectors/parameter encoding rehearsed are `swap(adapter,tokenIn,tokenOut,amount,100,0x)`,
+`openPosition(adapter,poolKey,amount0,amount1,params)`, `allocateToHubSpokeVault(1000000)` and
+Aave `openPosition(adapter,poolKey,1000000,0,abi.encode(uint256(1000000)))`. V4 `params` is
+`abi.encode(int24 lower,int24 upper,uint128 liquidity,uint128 amount0Max,uint128 amount1Max,uint128 amount0Min,
+uint128 amount1Min,uint256 deadline)` with tick-spacing-valid bounds, liquidity 0 to derive size, approved
+nonzero minimums and a future deadline. Never reproduce storage funding, trader loops, oracle writes or time warps.
+Wait for genuinely earned income and a report before the late entrant; use that investor's separate keystore:
+
+```bash
+report
+bash script/alpha-safe.sh cast send 0xaf88d065e77c8cC2239327C5EDb3A432268e5831 'approve(address,uint256)' "$ALPHA_CORE_VAULT" 5000000 --account alpha-investor --rpc-url "$ARBITRUM_RPC_URL"
+bash script/alpha-safe.sh cast send "$ALPHA_CORE_VAULT" 'deposit(uint256,uint256)' 5000000 1 --account alpha-investor --rpc-url "$ARBITRUM_RPC_URL"
+report
+bash script/alpha-safe.sh cast call "$ALPHA_CORE_VAULT" 'unconvertedIncome(address,uint256,address)(uint256)' "$ALPHA_INVESTOR_ADDRESS" 1 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168 --rpc-url "$ARBITRUM_RPC_URL"
+# Expected zero before conversion; invoke income phase only after the 0.50 USDC/runtime and live route gates pass.
+bash script/alpha-safe.sh pnpm --dir local-e2e exec tsx src/alpha-mainnet-smoke.ts income
+bash script/alpha-safe.sh cast call "$ALPHA_CORE_VAULT" 'incomeOwed(address)(uint256)' "$ALPHA_INVESTOR_ADDRESS" --rpc-url "$ARBITRUM_RPC_URL"
+# Expected zero for the prior interval after its conversion; fund operations have not earned a later interval yet.
+# Invest remaining Free Idle using Aave increasePosition(adapter,positionKey,amount,0,abi.encode(amount)), then report.
+report
+bash script/alpha-safe.sh cast send "$ALPHA_CORE_VAULT" 'requestPayout(uint256,uint8,uint16)' 2000000 0 500 --account alpha-investor --rpc-url "$ARBITRUM_RPC_URL"
+# Wait for Hub UNWIND, spoke executeOrder, full Principal fill match and an accepted post-unwind report.
+report
+hub_send "$ALPHA_CORE_VAULT" 'settlePayout(address)' "$ALPHA_INVESTOR_ADDRESS"
+report
+```
+
+For the second fund, keep the first fund's addresses/cursor saved, unset `CREATION_NUMBER`/`MANDATE_HASH`, repeat
+the exact Hub CreateFund/export/Robinhood CreateFund/check sequence, start a **new** per-fund runtime cursor,
+deposit the investor's approved budget with pre/post reports, and export `ALPHA_EXIT_HOLDER` to that investor.
+Run `alpha-mainnet-smoke.ts closure` once: close, manager's immediate unwind/CLOSE (permissionless callers must
+wait 72 hours), real return matching/acknowledgements, **final Income collection**, report, finalize and frozen exit.
+Do not run the `capital` continuation phase after the manual sequence: it would deposit/send again. On any failure
+reconcile saved receipts and state; never blindly replay a partly completed phase. No external-wallet capital.
+
+### Final validation and size budget
+
+`forge build --sizes`, `forge fmt --check`: PASS. Size **3/3 in 1 suite**; non-fork **1,567/1,567 in 193 suites**;
+fork **228/228 in 58 suites** with `-j 4`; alpha Node **19/19**; harness Node **12/12**; verification Node **2/2**;
+URL redaction **42 cases**; TypeScript PASS; alpha API **5 checks**; full replay **57 steps / 330 assertions**;
+full API probe **31 concepts**. No shared fork fixture/new fork suite: CI `SCENARIO_SUITES` unchanged.
+
+Production before = after relative to final main, compiler/optimizer unchanged, limit 24,576 bytes:
+
+| Contract / linked library | Before = after bytes | Margin |
+|---|---:|---:|
+| AaveV3Adapter | 9893 | 14683 |
+| AcrossBridgeAdapter | 6713 | 17863 |
+| UniswapV3SwapAdapter | 10586 | 13990 |
+| UniswapV4Adapter | 14369 | 10207 |
+| CoreVault | 22578 | 1998 |
+| CoreVaultClosureLogic | 17052 | 7524 |
+| ManagerFeeVault | 1077 | 23499 |
+| ManagerRegistry | 1603 | 22973 |
+| ShareToken | 1822 | 22754 |
+| TransitEscrow | 894 | 23682 |
+| Create3Deployer | 1342 | 23234 |
+| FundFactory | 18347 | 6229 |
+| ChainlinkPriceSource | 1709 | 22867 |
+| ValueReportReceiver | 8309 | 16267 |
+| SpokeVault | 22907 | **1669** |
+| CoreVaultLogic | 13612 | 10964 |
+| CoreVaultTransitLogic | 16005 | 8571 |
+| CoreVaultIncomeLogic | 18118 | 6458 |
+| CoreVaultIncomeCollectionLogic | 17713 | 6863 |
+| CoreVaultPayoutLogic | 22547 | 2029 |
+| SpokeCrossChainLib | 16953 | 7623 |
+| SpokeUnwindLib | 21594 | 2982 |
+| SpokeCloseLib | 5875 | 18701 |
+| SpokeIncomeLib | 12563 | 12013 |
+
+Tightest executable is Spoke Vault **22,907 B / 1,669 B margin**; no production executable has <1,000 B margin.
+Full CodeStore chunks have **0 B margin** by deliberate STOP+data layout; do not enlarge them. Inlined libraries
+have no deployed entry point. The size suite checks every production source declaration.
+
+Scope deviations: only rehearsal scripts/runtime/runbook changed; no production source changes. Shared-role
+funding is additive, the Aave follow-on uses increasePosition, final collection precedes closure, and CLOSE proof
+matches the actual order id instead of any nonempty historical blob. The 5% Instant requester bound is an explicit
+alpha-size execution choice, not a protocol/spec change. Existing DEC-185/native Operating Cash/refund deferrals
+remain per October 2 ruling; DEC-186 caps management fee at 500 bps; DEC-187 manager pays own gas. No new
+monetary spec divergence found. Live guardian/finality, Across economics/refunds, explorer verification and
+authenticated service supervision cannot be certified by a local fork; keep them as mandatory live stops.

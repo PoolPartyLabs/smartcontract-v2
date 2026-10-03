@@ -30,27 +30,29 @@ for attempt in {1..60}; do
   sleep 1
 done
 [[ $(bash script/alpha-safe.sh cast chain-id --rpc-url "$HUB_RPC") == 42161 && $(bash script/alpha-safe.sh cast chain-id --rpc-url "$SPOKE_RPC") == 4663 ]]
-export LOCAL_E2E_ARBITRUM_PORT="$HUB_PORT" LOCAL_E2E_ROBINHOOD_PORT="$SPOKE_PORT" ALPHA_API_PORT="$API_PORT"
+export LOCAL_E2E_ARBITRUM_PORT="$HUB_PORT" LOCAL_E2E_ROBINHOOD_PORT="$SPOKE_PORT" ALPHA_API_PORT="$API_PORT" ALPHA_REHEARSAL_SAME_ROLES=1
 REHEARSAL_OPERATOR_KEY=$(node --import ./local-e2e/node_modules/tsx/dist/loader.mjs --input-type=module -e 'import {ACTOR_KEYS} from "./local-e2e/src/config.ts"; process.stdout.write(ACTOR_KEYS.operator)')
-REHEARSAL_MANAGER_KEY=$(node --import ./local-e2e/node_modules/tsx/dist/loader.mjs --input-type=module -e 'import {ACTOR_KEYS} from "./local-e2e/src/config.ts"; process.stdout.write(ACTOR_KEYS.manager)')
+REHEARSAL_MANAGER_KEY="$REHEARSAL_OPERATOR_KEY"
 export DEPLOYER_ADDRESS=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
-export ADAPTER_GUARDIAN="$DEPLOYER_ADDRESS" PROTOCOL_RECIPIENT=0x976EA74026E726554dB657fA54763abd0C3a0aa9
-export API_SIGNER=0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f
+export ADAPTER_GUARDIAN="$DEPLOYER_ADDRESS" PROTOCOL_RECIPIENT="$DEPLOYER_ADDRESS"
+export API_SIGNER="$DEPLOYER_ADDRESS"
 unset REGISTRY_OWNER
-export MANAGER=0x70997970C51812dc3A010C7d01b50e0d17dc79C8
+export MANAGER="$DEPLOYER_ADDRESS"
 export SPOKE_CAP=${SPOKE_CAP:-100000000} MIN_FIRST_DEPOSIT=${MIN_FIRST_DEPOSIT:-2000000} SEED_AMOUNT=${SEED_AMOUNT:-5000000}
 export ALPHA_DEPOSIT_AMOUNT=${ALPHA_DEPOSIT_AMOUNT:-5000000} ALPHA_SEND_AMOUNT=${ALPHA_SEND_AMOUNT:-5000000}
 export ALPHA_PAYOUT_AMOUNT=${ALPHA_PAYOUT_AMOUNT:-1000000} ALPHA_AAVE_AMOUNT=${ALPHA_AAVE_AMOUNT:-1000000}
 export ALPHA_MANUAL_ACK_PROBE=1
-export ALPHA_INVESTOR_DEPOSIT=${ALPHA_INVESTOR_DEPOSIT:-2000000} ALPHA_MIN_COLLECT_USDC=${ALPHA_MIN_COLLECT_USDC:-500000}
+export ALPHA_INVESTOR_DEPOSIT=${ALPHA_INVESTOR_DEPOSIT:-5000000} ALPHA_MIN_COLLECT_USDC=${ALPHA_MIN_COLLECT_USDC:-500000}
 [[ "$MIN_FIRST_DEPOSIT" -ge 2000000 && "$MIN_FIRST_DEPOSIT" -le "$SEED_AMOUNT" && "$SEED_AMOUNT" -le 5000000 && "$SPOKE_CAP" -le 100000000 ]]
 export PERFORMANCE_FEE_BPS=2000 MANAGEMENT_FEE_BPS=0 SPOKE_OPERATING_CASH_FLOOR=0 SPOKE_OPERATING_CASH_TOP_UP=0
 unset HUB_POOL_TOKEN0 HUB_POOL_TOKEN1 HUB_POOL_FEE HUB_POOL_TICK_SPACING HUB_AAVE_ASSET
 unset SPOKE_POOL_TOKEN0 SPOKE_POOL_TOKEN1 SPOKE_POOL_FEE SPOKE_POOL_TICK_SPACING
 export FOUNDRY_BROADCAST="$STATE/broadcast"
+export ALPHA_REHEARSAL_STATE="$STATE"
 bash script/alpha-safe.sh forge build >/dev/null 2>&1
 bash local-e2e/scripts/export-abis.sh --no-build >"$STATE/abis.log"
 pnpm --dir local-e2e alpha:rehearsal fund
+pnpm --dir local-e2e exec tsx src/alpha-evidence.ts start
 for side in hub spoke; do
   if [[ "$side" == hub ]]; then rpc="$HUB_RPC"; else rpc="$SPOKE_RPC"; fi
   bash script/alpha-safe.sh forge script script/DeployFactory.s.sol --rpc-url "$rpc" --private-key "$REHEARSAL_OPERATOR_KEY" --broadcast --slow --legacy --with-gas-price 100000000 >"$STATE/deploy-$side.log" 2>&1
@@ -71,10 +73,6 @@ for side in hub spoke; do
   bash script/alpha-safe.sh forge script script/CheckAlphaDeployment.s.sol --rpc-url "$rpc" >"$STATE/check-$side.log" 2>&1
   grep 'ALPHA CHECK PASS' "$STATE/check-$side.log"
 done
-bash script/alpha-safe.sh cast send 0xaf88d065e77c8cC2239327C5EDb3A432268e5831 'approve(address,uint256)' "$ALPHA_CORE_VAULT" "$ALPHA_DEPOSIT_AMOUNT" --rpc-url "$HUB_RPC" --private-key "$REHEARSAL_MANAGER_KEY" --legacy --gas-price 100000000 --json >"$STATE/approve.json"
-bash script/alpha-safe.sh cast send "$ALPHA_CORE_VAULT" 'deposit(uint256,uint256)' "$ALPHA_DEPOSIT_AMOUNT" 1 --rpc-url "$HUB_RPC" --private-key "$REHEARSAL_MANAGER_KEY" --legacy --gas-price 100000000 --json >"$STATE/deposit.json"
-jq '{status,transactionHash,gasUsed}' "$STATE/deposit.json"
-export ALPHA_REHEARSAL_STATE="$STATE"
 pnpm --dir local-e2e exec tsx src/alpha-final-smoke.ts
 pnpm --dir local-e2e alpha:rehearsal runtime
 unset CREATION_NUMBER MANDATE_HASH
@@ -86,5 +84,9 @@ export ALPHA_SPOKE_VAULT=$(sed -n 's/^  Robinhood Spoke Vault (predicted) //p' "
 export ALPHA_REPORT_RECEIVER=$(sed -n 's/^  ValueReportReceiver //p' "$STATE/create-second-hub.log")
 export ALPHA_SHARE_TOKEN=$(sed -n 's/^  ShareToken //p' "$STATE/create-second-hub.log")
 bash script/alpha-safe.sh forge script script/CreateFund.s.sol --rpc-url "$SPOKE_RPC" --private-key "$REHEARSAL_MANAGER_KEY" --broadcast --slow --legacy --with-gas-price 100000000 >"$STATE/create-second-spoke.log" 2>&1
+for rpc in "$HUB_RPC" "$SPOKE_RPC"; do
+  bash script/alpha-safe.sh forge script script/CheckAlphaDeployment.s.sol --rpc-url "$rpc" >>"$STATE/check-second.log" 2>&1
+done
 pnpm --dir local-e2e exec tsx src/alpha-final-smoke.ts close
+pnpm --dir local-e2e exec tsx src/alpha-evidence.ts finish
 echo 'Rehearsal passed; both private forks stop on exit.'
