@@ -1,0 +1,232 @@
+{
+  "schemaVersion": 1,
+  "observedDate": "2026-10-04",
+  "fundCreationNumber": 7,
+  "fundId": "0x00faff8442456da2305c0c9d973f480edbe2dad96f2a849d03c5b9226fba3ee4",
+  "manager": "0xb1b546c3ce14bb02856b3056d448248bc8b34a1e",
+  "mandateHash": "0x27f9871c8d1dc8841efe2c7297bfbc295efebec4501dd6a3c63982364fdc0284",
+  "snapshot": {
+    "42161": {
+      "block": 511654340,
+      "timestampUtc": "2026-10-04T15:40:52Z"
+    },
+    "4663": {
+      "block": 80049217,
+      "timestampUtc": "2026-10-04T15:40:53Z"
+    }
+  },
+  "factoryNextCreationNumber": 8,
+  "contracts": {
+    "factory": {
+      "42161": "0x2CDB1f3fa95F8A65495D01D20AD53cF980728534",
+      "4663": "0x2CDB1f3fa95F8A65495D01D20AD53cF980728534"
+    },
+    "42161": {
+      "coreVault": "0xa653f620ea8f5539ed4bb55be2977262fba1f2dc",
+      "shareToken": "0x25f02c58e916ec7796771105c7dbd65d1993d83d",
+      "managerFeeVault": "0x6dcee34eacdf81016e1b362248266bc4525befe0",
+      "reportReceiver": "0xd003f922067f42cafab9e3ba89c6bceb9b444a05",
+      "spokeVault": "0x78cda460e51dcd2b7fe94969e1664cb923608041",
+      "uniswapV4Adapter": "0xf1aa1d0032565a623db12674e76b7a097106c928",
+      "aaveV3Adapter": "0xe435325937f1c89f354f7829d3446e4427ddfccc",
+      "acrossAdapter": "0x6cc531cf5f15d2cda19a863b3736f249cc0289ff",
+      "uniswapV3SwapAdapter": "0x8c8bd58ef8590880f8010f9a4aa073738fcf680f"
+    },
+    "4663": {
+      "spokeVault": "0x1d34f28e8687aeecc3fdb0c5518b5bcc5af54e59",
+      "uniswapV4Adapter": "0x15a444e7bc51b254a0495412d8b487c39bc52edf",
+      "uniswapV3SwapAdapter": "0x115c244ea702cd905b3f18ec8ffa63eb7873a7fd",
+      "acrossAdapter": "0xb5f37fbf160bf6912870aec92822ba02ea1c9b3a"
+    }
+  },
+  "state": {
+    "fundState": "Open",
+    "fundStateRaw": 0,
+    "coreUsdcBaseUnits": "5700000",
+    "aaveAdapterATokenBaseUnits": "9500043",
+    "remoteUsdgBaseUnits": "3766960",
+    "fullLifecycleCompleted": false,
+    "uniswapV3SwapObserved": false,
+    "uniswapV4PositionObserved": false,
+    "report3DeliveryObserved": false
+  },
+  "sources": {
+    "arbitrumRpc": "https://arb1.arbitrum.io/rpc",
+    "robinhoodRpc": "https://rpc.mainnet.chain.robinhood.com",
+    "factoryLogs": "https://arbitrum.blockscout.com/api/v2/addresses/0x2CDB1f3fa95F8A65495D01D20AD53cF980728534/logs",
+    "factoryAbi": "https://github.com/PoolPartyLabs/smartcontract-v2/blob/main/src/interfaces/IFundFactory.sol",
+    "historicalReport": "https://github.com/PoolPartyLabs/smartcontract-v2/blob/main/docs/reports/2026-10-03-MVP-REPORT.md#mainnet-alpha-deployment"
+  },
+  "steps": [
+    {
+      "step": 1,
+      "timestampUtc": "2026-10-04T14:23:03Z",
+      "chainId": 42161,
+      "block": 511637332,
+      "transactionHash": "0x7430f891fa244cbf10ff8b9d365a2af11399f657def8f3e70498e21741f5453d",
+      "explorerUrl": "https://arbiscan.io/tx/0x7430f891fa244cbf10ff8b9d365a2af11399f657def8f3e70498e21741f5453d",
+      "action": "Create fund and seed",
+      "evidence": "19.05 USDC transferred; 0.05 USDC protocol fee; 19 shares minted."
+    },
+    {
+      "step": 2,
+      "timestampUtc": "2026-10-04T14:23:21Z",
+      "chainId": 4663,
+      "block": 80003147,
+      "transactionHash": "0x1785bd91cca6c955fbb12e65cba360128a425dc652ac9ed473b3993628c3d76d",
+      "explorerUrl": "https://robinhoodchain.blockscout.com/tx/0x1785bd91cca6c955fbb12e65cba360128a425dc652ac9ed473b3993628c3d76d",
+      "action": "Create matching spoke",
+      "evidence": "Matching fund ID in SpokeCreated; receipt succeeded."
+    },
+    {
+      "step": 3,
+      "timestampUtc": "2026-10-04T14:23:35Z",
+      "chainId": 42161,
+      "block": 511637446,
+      "transactionHash": "0x61ffebe17df8e995e517683705a0cadc0b1adc79bf49c3a4b8104cf9599ad6f6",
+      "explorerUrl": "https://arbiscan.io/tx/0x61ffebe17df8e995e517683705a0cadc0b1adc79bf49c3a4b8104cf9599ad6f6",
+      "action": "Allocate to hub Spoke Vault",
+      "evidence": "9.5 USDC received from Core Vault."
+    },
+    {
+      "step": 4,
+      "timestampUtc": "2026-10-04T14:23:44Z",
+      "chainId": 42161,
+      "block": 511637480,
+      "transactionHash": "0x070023ec9aa8ab89d13a5fa7d6f96bc56770c555ef9a85b17a4931aa9181c9b2",
+      "explorerUrl": "https://arbiscan.io/tx/0x070023ec9aa8ab89d13a5fa7d6f96bc56770c555ef9a85b17a4931aa9181c9b2",
+      "action": "Supply to Aave V3",
+      "evidence": "Aave Supply event: 9.5 USDC on behalf of the fund adapter."
+    },
+    {
+      "step": 5,
+      "timestampUtc": "2026-10-04T14:25:05Z",
+      "chainId": 4663,
+      "block": 80004175,
+      "transactionHash": "0xc568577f065894d8cc5e8fdeb2f874ed603f01793fb6de05242008e7ccc4a390",
+      "explorerUrl": "https://robinhoodchain.blockscout.com/tx/0xc568577f065894d8cc5e8fdeb2f874ed603f01793fb6de05242008e7ccc4a390",
+      "action": "Publish report 0",
+      "evidence": "Spoke report() and Wormhole publication."
+    },
+    {
+      "step": 6,
+      "timestampUtc": "2026-10-04T14:41:13Z",
+      "chainId": 42161,
+      "block": 511641255,
+      "transactionHash": "0x103149c4dc432a1429551a4cfdb8ae359b7bf73f817092278ffb642525a570e5",
+      "explorerUrl": "https://arbiscan.io/tx/0x103149c4dc432a1429551a4cfdb8ae359b7bf73f817092278ffb642525a570e5",
+      "action": "Deliver report 0",
+      "evidence": "Successful report receiver transaction."
+    },
+    {
+      "step": 7,
+      "timestampUtc": "2026-10-04T14:43:07Z",
+      "chainId": 4663,
+      "block": 80014885,
+      "transactionHash": "0xaee1cfaf2df1ac4cd8bb4908a35759abfcf1c22bba9808442a1ed240d4d6480c",
+      "explorerUrl": "https://robinhoodchain.blockscout.com/tx/0xaee1cfaf2df1ac4cd8bb4908a35759abfcf1c22bba9808442a1ed240d4d6480c",
+      "action": "Publish report 1",
+      "evidence": "Spoke report() and Wormhole publication."
+    },
+    {
+      "step": 8,
+      "timestampUtc": "2026-10-04T14:44:27Z",
+      "chainId": 42161,
+      "block": 511641955,
+      "transactionHash": "0x96f43b187fa38a88b333bbea45804f76aac6088305c216784a68d1399f0f171b",
+      "explorerUrl": "https://arbiscan.io/tx/0x96f43b187fa38a88b333bbea45804f76aac6088305c216784a68d1399f0f171b",
+      "action": "Send through Across",
+      "evidence": "3.8 USDC input; 3.766960 USDG expected output; deposit ID 4713839."
+    },
+    {
+      "step": 9,
+      "timestampUtc": "2026-10-04T14:44:27Z",
+      "chainId": 4663,
+      "block": 80015674,
+      "transactionHash": "0x819a2ad0d17276b5d282b8498ff9e76148110614b1e9846404afe6ffca8d3679",
+      "explorerUrl": "https://robinhoodchain.blockscout.com/tx/0x819a2ad0d17276b5d282b8498ff9e76148110614b1e9846404afe6ffca8d3679",
+      "action": "Receive Across fill",
+      "evidence": "3.766960 USDG transferred to remote Spoke Vault; arrival event."
+    },
+    {
+      "step": 10,
+      "timestampUtc": "2026-10-04T15:00:15Z",
+      "chainId": 42161,
+      "block": 511645420,
+      "transactionHash": "0x2ea654d09cf46432b1206d5bd6a6600f7d92026421e125abc6f4f56173971787",
+      "explorerUrl": "https://arbiscan.io/tx/0x2ea654d09cf46432b1206d5bd6a6600f7d92026421e125abc6f4f56173971787",
+      "action": "Deliver report 1",
+      "evidence": "Successful report receiver transaction."
+    },
+    {
+      "step": 11,
+      "timestampUtc": "2026-10-04T15:02:10Z",
+      "chainId": 4663,
+      "block": 80026173,
+      "transactionHash": "0x9fdcf3cf38b17ba3ab28270f91ad9399ab0d7c32b89aa6a50837ab8b8ccb1dbc",
+      "explorerUrl": "https://robinhoodchain.blockscout.com/tx/0x9fdcf3cf38b17ba3ab28270f91ad9399ab0d7c32b89aa6a50837ab8b8ccb1dbc",
+      "action": "Publish report 2",
+      "evidence": "Spoke report() and Wormhole publication."
+    },
+    {
+      "step": 12,
+      "timestampUtc": "2026-10-04T15:19:24Z",
+      "chainId": 42161,
+      "block": 511649626,
+      "transactionHash": "0xbf96e721ef13520d38d67073cd74dffaeb62e21c85462483da1c7f2ea31b9c45",
+      "explorerUrl": "https://arbiscan.io/tx/0xbf96e721ef13520d38d67073cd74dffaeb62e21c85462483da1c7f2ea31b9c45",
+      "action": "Accept report 2 and reconcile arrival",
+      "evidence": "Receiver/Core events confirm report 2 and 3.766960 USDG arrival."
+    },
+    {
+      "step": 13,
+      "timestampUtc": "2026-10-04T15:21:14Z",
+      "chainId": 4663,
+      "block": 80037527,
+      "transactionHash": "0x5879e7cb39aeeed2a6d4a98c2c90716fbd11e99ea08b3dab5cf14cd54242e724",
+      "explorerUrl": "https://robinhoodchain.blockscout.com/tx/0x5879e7cb39aeeed2a6d4a98c2c90716fbd11e99ea08b3dab5cf14cd54242e724",
+      "action": "Publish report 3",
+      "evidence": "Publication succeeded; delivery not observed by snapshot."
+    }
+  ],
+  "bridge": {
+    "depositId": "4713839",
+    "inputUsdcBaseUnits": "3800000",
+    "outputUsdgBaseUnits": "3766960",
+    "inputOutputGapBaseUnits": "33040",
+    "gapMeaning": "Selected input-output gap, not a verified actual relayer fee."
+  },
+  "limitations": [
+    "Balances were public latest-state reads around the stated snapshot bounds, not an atomic cross-chain snapshot.",
+    "Uniswap integrations configured in the mandate are not proof of executed positions or swaps.",
+    "Historical fund 1 evidence is separate from fund 7."
+  ],
+  "historicalFund1": {
+    "fundId": "0xe49050db325f1963991d8b7fa591be9fe3fac1e7bfea0c34955c4f67893f6e46",
+    "provenance": "Published October 3 MVP report, separate from latest fund7 live observation.",
+    "sourceUrl": "https://github.com/PoolPartyLabs/smartcontract-v2/blob/main/docs/reports/2026-10-03-MVP-REPORT.md#mainnet-alpha-deployment",
+    "transactions": [
+      {
+        "action": "Uniswap V3 spoke swap",
+        "chainId": 4663,
+        "hash": "0x25cb4e4d2ee294251af5b62a448bbba5561bce16bb39af2ef4f4f091cf333c2c",
+        "outputWethWei": "925757908345888"
+      },
+      {
+        "action": "Uniswap V4 openPosition",
+        "chainId": 4663,
+        "hash": "0x80a46b594efacc7566eb4b9d25bc0f6419d237847b13a374cb0c55736ce5129c",
+        "tokenId": "0x365e57",
+        "wethWei": "925757908345535",
+        "usdgBaseUnits": "2479218"
+      },
+      {
+        "action": "Second investor deposit",
+        "chainId": 42161,
+        "hash": "0x05599c50c2c03cee9742451fa818177f5904aa2850dbb696eef09e5e9eb959e2",
+        "sharesMinted": "1",
+        "usdcChargedBaseUnits": "1003370"
+      }
+    ]
+  }
+}
