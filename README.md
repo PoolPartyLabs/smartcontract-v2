@@ -1,160 +1,164 @@
-# Pool Party v2 smart contracts
+# Arbitrum Open House Singapore
 
-On-chain funds run by a manager, human or AI agent, inside a Mandate fixed at creation. Investors deposit and
-withdraw USDC on one chain (the Hub Chain) while the fund's capital works on several chains (Spoke Chains).
+<p align="center">
+  <img src="docs/assets/pool-party-logo.png" alt="Pool Party logo" width="96">
+</p>
 
-This repository holds the Solidity implementation. **Everything here is in English.** The product definition,
-decision register and research live in the separate specification repository (`PoolParty_SCs_v2`, in
-Portuguese); its decisions (DEC-001 to DEC-187, later decisions override earlier ones) are the business rules
-this code must follow. `docs/DECISIONS.md` is the English digest of that register and `docs/OPEN-QUESTIONS.md`
-lists answered questions, remaining gaps and implementation divergences. DEC-186/187 are Slack-only decisions
-recorded in the handoff; management cap is 500 bps (5%), manager pays own gas in the MVP.
+## Pool Party V2: live on mainnet
 
-## Status
+**An open-source On-Chain Asset Management System (OAMS), built during the Arbitrum Open House Singapore Buildathon and deployed on Arbitrum One and Robinhood Chain mainnet.** Managers create funds, commit to an immutable Mandate and operate DeFi positions. Investors access the fund through USDC-denominated shares on Arbitrum.
 
-Buildathon MVP, **internal-alpha code baseline `origin/main` at `334eae6` (October 3, 2026)**. WP-09 proportional Hub
-unwind and WP-10 live income dollar index landed via PR #23 (#19/#18); WP-12 spoke orders and WP-13 closure
-landed via PR #21 (including #22). PR #20 prepares/checks dual-chain deployment, not a production broadcast.
-No public-readiness claim: [founder MVP report](docs/reports/2026-10-03-MVP-REPORT.md) contains fresh tests,
-sizes, gas, reviews and release inputs. PR #24’s completed lifecycle is merged; #28 closes the conformance
-blockers and #29 ships report v5/manual-send acknowledgements. DEC-145 is **in PR #30, landing before the deploy**.
+**This is a live mainnet internal alpha with real capital and confirmed transactions.** The evidence includes manager-funded creation, investor deposits, Aave supply, Uniswap swaps and liquidity positions, Across transfers and Wormhole value reports. The external security audit is planned next, followed by the public V2 launch. V2 has not yet been audited by an independent third party.
 
-## Scope of the buildathon MVP
+Pool Party already serves **more than 4,000 users** across its existing product, as reported by the founding team on October 4, 2026. This product-wide figure is separate from the number of participants in the V2 mainnet alpha.
 
-| In scope now | Next | Not planned for now |
-|---|---|---|
-| Arbitrum One Hub, Robinhood Chain spoke; Across USDC/USDG | More spokes and CCTP routes | Borrowing, leverage, perps |
-| Uniswap V4 positions; Aave V3 supply-only on Arbitrum | External reward collectors | Share transfers between owners |
-| Mandate swap adapter: direct V3 discovery or signed split/multihop | V4/mixed API routes | V3 position adapter |
-| Finalized report v5; UNWIND, CLOSE, COLLECT, ACKNOWLEDGE orders | Multi-spoke report scheduling | ZK proofs of value |
-| Deposit, allocate, report, proportional Hub/spoke payouts, USDC Income Withdrawal | Entry-time filter, signed bridge quotes | Auto-compounding |
-| Irreversible closure, final management payment and frozen Closed exits | Native Operating Cash, refunds, gas top-up | Solana / CCTP on Robinhood |
+![Arbitrum Open House Singapore: Pool Party Fund Contracts V2](docs/assets/arbitrum-open-house-singapore.jpeg)
 
-Core Vault directly links six libraries, Spoke Vault four; nested links are immutable and deployed dependency-first
-(DEC-131). Performance fee is 10–90%; management 0–5%, accrued while Open and paid at finalization;
-Instant Payout Fee <=10% stays in Idle. Standard sale Market Costs are fund-absorbed up to 1% per sale, excess
-belongs to the leaver; closure excess belongs to the manager. Across fixes send terms (1% rate cap plus fixed fee),
-no signed bridge quote in MVP (DEC-176). Standard Payout Wormhole fees are caller-funded for now.
-A silent spoke blocks exits needing a fresh report (DEC-157/160); the keeper must deliver Hub acknowledgements
-to reclaim spoke send capacity (anyone may republish/deliver). Native Operating Cash/refunds/DEC-185 gas top-up
-are deferred by ruling 2026-10-02; MVP Operating Cash is enforced at 0 by #28, setters disabled.
-DEC-145 is in PR #30, landing before the deploy (waiting lots, resumable checkpoints, reported max-config peak 2.04M gas).
+[Live application](https://v2.dev.pool-party.xyz/en/manager/new) · [Public frontend](https://github.com/PoolPartyLabs/pool-party-v2-frontend) · [Latest strategy: transaction walkthrough](docs/evidence/2026-10-04-mainnet-fund-7.md) · [Machine-readable evidence](docs/evidence/fund-7-mainnet-2026-10-04.json)
 
-## Layout
+The application uses the **V2** contract-family selector. Its mainnet alpha availability and the upcoming public launch are separate milestones. The banner is event artwork; the transaction links below are the execution evidence.
 
-```
-src/
-  core/        Core Vault (hub books: shares, idle, payouts), Share token, Manager Fee Vault
-  factory/     Fund Factory, CREATE3 library, creation code stores, the factory's one-address deployer
-  spoke/       Spoke Vault (the fund's account on every chain, hub included), internal ledger
-  report/      Value report encoding, Wormhole publisher (spoke) and receiver (hub)
-  adapters/    IAdapter, IBridgeAdapter, Uniswap V4 adapter, Aave V3 adapter, Across bridge adapter
-  mandate/     Mandate struct, validation and immutability rules
-  libraries/   Shared math (whole-share rounding, USDC truncation, income accumulator)
-  interfaces/  External protocol interfaces not shipped by a dependency (Across)
-test/
-  unit/        Pure unit and fuzz tests, no network (invariant suites next to their contract)
-  security/    Regression tests of the security findings, whole-fund invariants, symbolic and mutation suites
-  review/      The independent review's proofs of concept, ported: regressions of what is fixed, pins of what is not
-  fork/        Mainnet fork tests against Arbitrum One and Robinhood Chain (never testnets)
-script/        Deployment scripts (fork first, then mainnet)
-docs/          DECISIONS.md, OPEN-QUESTIONS.md, ARCHITECTURE.md, INTEGRATIONS.md, DEPLOYMENT.md
-  security/    Threat model, findings register, invariants, tooling, known limitations, pre-mainnet checklist
-```
+## Which parts of your code have been produced during the Buildathon?
 
-## Toolchain
+**The new Pool Party V2 fund-contract system delivered in this repository was developed during the Buildathon window, September 14 to October 4, 2026.** Implementation started in this public repository on **September 29, 2026**. The first root commit is [`0943a185`](https://github.com/PoolPartyLabs/smartcontract-v2/commit/0943a185512fc7d0b7297dbcee06bf65e6f33b8c), timestamp **2026-09-29 19:55:57 UTC**. The mainnet alpha was deployed on **October 3, 2026**, from release [`797d592`](https://github.com/PoolPartyLabs/smartcontract-v2/commit/797d592).
 
-- Foundry (forge 1.7+), Solidity 0.8.28, EVM `cancun`.
-- OpenZeppelin Contracts 5.7 for ERC-20, access control, reentrancy guards, SafeERC20, math.
-- Uniswap `v4-core` and `v4-periphery` (interfaces, types and libraries; the pinned-pragma contracts are never
-  compiled, the deployed ones are used on forks). `v3-core`/`v3-periphery` stay only for the toolchain smoke test.
-- `wormhole-solidity-sdk` for Core Bridge interfaces, VAA parsing, replay protection and the
-  `WormholeOverride` fork-test helper that signs VAAs with a guardian set the test controls.
-- Across and Aave V3: minimal interfaces vendored in `src/interfaces/external/` (both upstream repos are Hardhat
-  monorepos).
+| Developed during this Buildathon | What the code delivers | Public implementation |
+| --- | --- | --- |
+| Immutable fund Mandate | Fixed chains, tokens, position/swap adapters, pools, bridge routes and fund rules at creation; operations check the selected Mandate. | [Mandate](src/mandate/Mandate.sol), [factory](src/factory/) |
+| Hub-and-spoke fund architecture | Core Vault and share accounting on Arbitrum; a Spoke Vault on each participating chain; deterministic factory deployment. | [Core](src/core/), [spokes](src/spoke/), [factory](src/factory/) |
+| Protocol adapters | Uniswap V4 liquidity positions, Uniswap V3 execution swaps, Aave V3 supply and the Across bridge. | [Adapters](src/adapters/), [public interfaces](src/interfaces/) |
+| Cross-chain accounting and messaging | Across moves capital between USDC and USDG. Wormhole carries authenticated value reports and order messages. | [Across adapter](src/adapters/AcrossBridgeAdapter.sol), [reporting](src/report/), [spoke execution](src/spoke/) |
+| Fund lifecycle | Manager seed, deposits, whole-share accounting, fee limits, proportional payouts, income accounting and irreversible closure with frozen exits. | [Core implementation](src/core/), [tests](test/) |
+| Validation and operating tools | Unit/fuzz/invariant and mainnet-fork tests, a two-chain local environment, deployment/verification scripts and dated execution reports. | [Test suite](test/), [local environment](local-e2e/), [deployment scripts](script/), [reports](docs/reports/) |
+| New V2 frontend and API integration | Mandate → Build → Review → Launch, configuration panels, serial wallet signing/recovery, fund views and investor V2 presentation in the existing app. | [Public frontend V2 implementation](https://github.com/PoolPartyLabs/pool-party-v2-frontend/tree/main/src/features/manager/fund), [typed API integration](https://github.com/PoolPartyLabs/pool-party-v2-frontend/tree/main/src/lib/api/v2) |
 
-## Getting started
+The V2 code was written using established open-source dependencies, including OpenZeppelin, Uniswap, Wormhole and Foundry. Their upstream code is credited in [the dependency manifest](.gitmodules); it is not claimed as original hackathon work. Pool Party's existing app shell, wallet/auth, design system and provisioning foundation also predate this submission. The frontend's first public V2 implementation commit is [`ab884b4b`, October 3](https://github.com/PoolPartyLabs/pool-party-v2-frontend/commit/ab884b4b6c93542ab46054a5f19a352fbee5dad6).
+
+## Mainnet integrations actually used
+
+| Integration | Role in this Buildathon | Mainnet evidence |
+| --- | --- | --- |
+| **Arbitrum One, chain ID 42161** | Hub Core Vault, shares, USDC entry, Aave supply and fund accounting. | [Fund #7 creation](https://arbiscan.io/tx/0x7430f891fa244cbf10ff8b9d365a2af11399f657def8f3e70498e21741f5453d) |
+| **Robinhood Chain, chain ID 4663** | Remote Spoke Vault, USDG capital and Uniswap liquidity operations. | [Fund #7 spoke creation](https://robinhoodchain.blockscout.com/tx/0x1785bd91cca6c955fbb12e65cba360128a425dc652ac9ed473b3993628c3d76d) |
+| **Aave V3** | Supply USDC on Arbitrum. | [Fund #7 supplies 9.5 USDC](https://arbiscan.io/tx/0x070023ec9aa8ab89d13a5fa7d6f96bc56770c555ef9a85b17a4931aa9181c9b2) |
+| **Uniswap V3** | Execution swaps through a dedicated swap adapter. | [Fund #1 USDG/WETH swap](https://robinhoodchain.blockscout.com/tx/0x25cb4e4d2ee294251af5b62a448bbba5561bce16bb39af2ef4f4f091cf333c2c) |
+| **Uniswap V4** | Concentrated-liquidity positions through the position adapter. | [Fund #1 opens a WETH/USDG position](https://robinhoodchain.blockscout.com/tx/0x80a46b594efacc7566eb4b9d25bc0f6419d237847b13a374cb0c55736ce5129c) |
+| **Across** | Capital transport: USDC on Arbitrum to USDG on Robinhood. | [Fund #7 send](https://arbiscan.io/tx/0x96f43b187fa38a88b333bbea45804f76aac6088305c216784a68d1399f0f171b), [fill](https://robinhoodchain.blockscout.com/tx/0x819a2ad0d17276b5d282b8498ff9e76148110614b1e9846404afe6ffca8d3679) |
+| **Wormhole** | Cross-chain value reports; capital itself travels through Across. | [Report publication](https://robinhoodchain.blockscout.com/tx/0x9fdcf3cf38b17ba3ab28270f91ad9399ab0d7c32b89aa6a50837ab8b8ccb1dbc), [hub acceptance and arrival reconciliation](https://arbiscan.io/tx/0xbf96e721ef13520d38d67073cd74dffaeb62e21c85462483da1c7f2ea31b9c45) |
+| **USDC, USDG and WETH** | Hub entry/accounting, spoke capital, and the paired asset used by liquidity positions. | Amounts, token identities and chain-specific roles are in the [evidence walkthrough](docs/evidence/2026-10-04-mainnet-fund-7.md). |
+
+Uniswap V3 is used for **swaps**, not V3 liquidity positions. Aave is **supply-only on Arbitrum**. These are the integrations demonstrated during this Buildathon; roadmap protocols are not included in the delivered feature list.
+
+### Latest created strategy: fund #7
+
+The public factory scan found seven created funds and `nextCreationNumber() = 8`. **Fund #7 was created on October 4, 2026 at 14:23:03 UTC**. At the recorded October 4 observation bound:
+
+1. The manager funded creation with **19.05 USDC**: **19 shares** minted and **0.05 USDC** paid to the protocol recipient.
+2. **9.5 USDC** was allocated and supplied to Aave V3 on Arbitrum.
+3. **3.8 USDC** was sent through Across; **3.766960 USDG** arrived in the fund's Robinhood Spoke Vault.
+4. Wormhole reports were published and accepted on Arbitrum, including confirmation of the bridge arrival.
+5. The fund was **Open**. Its Core Vault held **5.700000 USDC**, its Aave adapter **9.500043 aUSDC**, and its Robinhood vault **3.766960 USDG**.
+
+These are recorded observations at **Arbitrum block 511654340 / Robinhood block 80049217**, not a continuously updating balance feed. Fund #7 had not executed a Uniswap V3 swap or V4 position at that bound. Those mainnet operations are independently demonstrated by fund #1, alongside a [second investor's real deposit](https://arbiscan.io/tx/0x05599c50c2c03cee9742451fa818177f5904aa2850dbb696eef09e5e9eb959e2).
+
+**Read the [full 13-step transaction walkthrough](docs/evidence/2026-10-04-mainnet-fund-7.md)** for hashes, timestamps, contracts, snapshot bounds and the historical fund #1 evidence. The [JSON manifest](docs/evidence/fund-7-mainnet-2026-10-04.json) exposes the same facts for automated review.
+
+## Open source: anyone can build an adapter
+
+**Any developer can implement, test and contribute a Pool Party adapter.** The integration contracts are public:
+
+- [`IAdapter`](src/interfaces/IAdapter.sol): position operations, valuation, income collection and unwind parameters.
+- [`ISwapAdapter`](src/interfaces/ISwapAdapter.sol): token swaps and execution bounds.
+- [`IBridgeAdapter`](src/interfaces/IBridgeAdapter.sol): bridge quotes, send calldata and route behavior.
+- [`IAdapterGuard`](src/interfaces/IAdapterGuard.sol): adapter pause/deprecation interface.
+
+Start from the shipped [Uniswap V4](src/adapters/UniswapV4Adapter.sol), [Aave V3](src/adapters/AaveV3Adapter.sol), [Uniswap V3 swap](src/adapters/UniswapV3SwapAdapter.sol) or [Across](src/adapters/AcrossBridgeAdapter.sol) adapter. Add unit and mainnet-fork tests for the new integration, including valuation, destination restrictions and failure behavior, then submit a pull request.
+
+A new adapter is a new integration, not an automatic change to existing funds. Each fund pins its approved adapters and pools in its **immutable Mandate at creation**. Extending the adapter ecosystem does not grant a developer permission to alter a live fund's Mandate or move its assets.
+
+## Validation, audit and public launch
+
+| Evidence | Recorded result | Scope |
+| --- | --- | --- |
+| Contract tests | **1,548 non-fork tests + 227 mainnet-fork tests, zero failures/skips** | Dated code baseline `334eae6`, in the [MVP report](docs/reports/2026-10-03-MVP-REPORT.md). Size tests are already included. |
+| Two-fork end-to-end lifecycle | **55 steps, 319 assertions, 103 receipts** | Historical [PR #24](https://github.com/PoolPartyLabs/smartcontract-v2/pull/24) run. Local mainnet forks exercise the lifecycle; they are separate from the real mainnet receipts above. |
+| Mainnet source verification | **24/24 Arbitrum, 11/11 Robinhood** | [Deployment record](docs/reports/2026-10-03-MVP-REPORT.md#deployment-checks-verification-and-report-timing): Arbiscan and Sourcify. Verification means source matching, not a security audit. |
+| Live execution | Manager activity, investor deposit/payout, Aave supply, V3 swap, V4 position, Across fill and Wormhole report acceptance | [Transaction evidence](docs/evidence/2026-10-04-mainnet-fund-7.md) distinguishes the latest fund and the earlier smoke. |
+
+The test counts are the published historical validation results for their stated commits. This documentation update does not claim a new suite run or treat local-fork receipts as mainnet transactions. Full closure, asynchronous payouts and income return paths have test coverage but are not claimed as completed mainnet demonstrations in this README.
+
+**Next: independent external security audit, remediation and public V2 launch.** The team plans the audit soon; no auditor or completion date is announced here. Current contracts are live in an internal alpha. See [SECURITY.md](SECURITY.md), [known limitations](docs/security/KNOWN-LIMITATIONS.md) and the [threat model](docs/security/THREAT-MODEL.md).
+
+## Deployed contract addresses
+
+The alpha infrastructure below is deployed on mainnet. These are factory, implementation and library addresses, **not instructions to transfer funds directly**. Individual funds have separate vaults, adapters and share tokens; fund #7's complete inventory is in the [evidence document](docs/evidence/2026-10-04-mainnet-fund-7.md).
+
+### Same address on Arbitrum One and Robinhood Chain
+
+
+| Contract | Address | Explorers |
+| --- | --- | --- |
+| FundFactory | `0x2CDB1f3fa95F8A65495D01D20AD53cF980728534` | [Arbitrum](https://arbiscan.io/address/0x2CDB1f3fa95F8A65495D01D20AD53cF980728534) · [Robinhood](https://robinhoodchain.blockscout.com/address/0x2CDB1f3fa95F8A65495D01D20AD53cF980728534) |
+| Create3Deployer | `0x1Da47CED247a6776329281836600283b033f8e41` | [Arbitrum](https://arbiscan.io/address/0x1Da47CED247a6776329281836600283b033f8e41) · [Robinhood](https://robinhoodchain.blockscout.com/address/0x1Da47CED247a6776329281836600283b033f8e41) |
+| TransitEscrow implementation | `0xfFDc3EdE1D43678dDe55E98fb924a81dCA26383F` | [Arbitrum](https://arbiscan.io/address/0xfFDc3EdE1D43678dDe55E98fb924a81dCA26383F) · [Robinhood](https://robinhoodchain.blockscout.com/address/0xfFDc3EdE1D43678dDe55E98fb924a81dCA26383F) |
+| SpokeCrossChainLib | `0x3341467fd9F8Ce784D77348bEa276cE80EB57693` | [Arbitrum](https://arbiscan.io/address/0x3341467fd9F8Ce784D77348bEa276cE80EB57693) · [Robinhood](https://robinhoodchain.blockscout.com/address/0x3341467fd9F8Ce784D77348bEa276cE80EB57693) |
+| SpokeUnwindLib | `0xfea626E44de1d2d7A01935A485399e992725351D` | [Arbitrum](https://arbiscan.io/address/0xfea626E44de1d2d7A01935A485399e992725351D) · [Robinhood](https://robinhoodchain.blockscout.com/address/0xfea626E44de1d2d7A01935A485399e992725351D) |
+| SpokeCloseLib | `0xFCADfa1b5bCD4eDCa95220E07661795Efa883035` | [Arbitrum](https://arbiscan.io/address/0xFCADfa1b5bCD4eDCa95220E07661795Efa883035) · [Robinhood](https://robinhoodchain.blockscout.com/address/0xFCADfa1b5bCD4eDCa95220E07661795Efa883035) |
+| SpokeIncomeLib | `0xCB8Ece6A3A1FCB80083eD1c8B7c7b6e85B14Dc5B` | [Arbitrum](https://arbiscan.io/address/0xCB8Ece6A3A1FCB80083eD1c8B7c7b6e85B14Dc5B) · [Robinhood](https://robinhoodchain.blockscout.com/address/0xCB8Ece6A3A1FCB80083eD1c8B7c7b6e85B14Dc5B) |
+
+### Arbitrum One only
+
+| Contract | Address / Arbiscan |
+| --- | --- |
+| ManagerRegistry | [`0xd6671dc995e6d5F2F7f65ea05a513738907737cE`](https://arbiscan.io/address/0xd6671dc995e6d5F2F7f65ea05a513738907737cE) |
+| ChainlinkPriceSource | [`0xd1E43765FCb66515cd8Cf0Ede73dFF2E4bF249bF`](https://arbiscan.io/address/0xd1E43765FCb66515cd8Cf0Ede73dFF2E4bF249bF) |
+| CoreVaultLogic | [`0x43Ddb24ac75Cffa09f0849DDD71a78F7e9C3068d`](https://arbiscan.io/address/0x43Ddb24ac75Cffa09f0849DDD71a78F7e9C3068d) |
+| CoreVaultTransitLogic | [`0x6E6b2461628008C5E496c480860C675c33fe957D`](https://arbiscan.io/address/0x6E6b2461628008C5E496c480860C675c33fe957D) |
+| CoreVaultIncomeLogic | [`0x593BF11bf8e3b2F795bbC538AEe1d59f8D4D55B8`](https://arbiscan.io/address/0x593BF11bf8e3b2F795bbC538AEe1d59f8D4D55B8) |
+| CoreVaultIncomeCollectionLogic | [`0x4a0ae1f3017F6869Bc3B24CD69d0b501BA93FACa`](https://arbiscan.io/address/0x4a0ae1f3017F6869Bc3B24CD69d0b501BA93FACa) |
+| CoreVaultPayoutLogic | [`0xFaa7d44e670570CaB3346522f55D1b25408D05e8`](https://arbiscan.io/address/0xFaa7d44e670570CaB3346522f55D1b25408D05e8) |
+| CoreVaultClosureLogic | [`0x75997F8b180e20695c58fF519D672CFA9274E028`](https://arbiscan.io/address/0x75997F8b180e20695c58fF519D672CFA9274E028) |
+
+
+### Latest fund #7: primary contracts
+
+| Contract | Network | Address / explorer |
+| --- | --- | --- |
+| Core Vault | Arbitrum One | [`0xa653f620ea8f5539ed4bb55be2977262fba1f2dc`](https://arbiscan.io/address/0xa653f620ea8f5539ed4bb55be2977262fba1f2dc) |
+| Share token | Arbitrum One | [`0x25f02c58e916ec7796771105c7dbd65d1993d83d`](https://arbiscan.io/address/0x25f02c58e916ec7796771105c7dbd65d1993d83d) |
+| Hub Spoke Vault | Arbitrum One | [`0x78cda460e51dcd2b7fe94969e1664cb923608041`](https://arbiscan.io/address/0x78cda460e51dcd2b7fe94969e1664cb923608041) |
+| Value report receiver | Arbitrum One | [`0xd003f922067f42cafab9e3ba89c6bceb9b444a05`](https://arbiscan.io/address/0xd003f922067f42cafab9e3ba89c6bceb9b444a05) |
+| Remote Spoke Vault | Robinhood Chain | [`0x1d34f28e8687aeecc3fdb0c5518b5bcc5af54e59`](https://robinhoodchain.blockscout.com/address/0x1d34f28e8687aeecc3fdb0c5518b5bcc5af54e59) |
+
+## Build, inspect and contribute
+
+Toolchain: **Solidity 0.8.28, EVM Cancun and Foundry**. Pinned dependencies are recorded in [foundry.lock](foundry.lock) and [.gitmodules](.gitmodules).
 
 ```bash
-cp .env.example .env            # public RPCs work; a provider key is recommended for fork suites
+git clone --recurse-submodules https://github.com/PoolPartyLabs/smartcontract-v2.git
+cd smartcontract-v2
 forge build
-forge build --sizes
-forge test --match-path test/size/ContractSizes.t.sol -vv
-forge test --no-match-path "test/{fork/**,review/**/*Fork*}"
-forge test --match-path "test/{fork/**,review/**/*Fork*}" -j 4
+forge test --no-match-path 'test/{fork/**,review/**/*Fork*}'
 forge fmt --check
 ```
 
-Fork tests read `ARBITRUM_RPC_URL` and `ROBINHOOD_RPC_URL`. Use archive endpoints and pin
-`ARBITRUM_FORK_BLOCK` / `ROBINHOOD_FORK_BLOCK`; never log credentials. In the handoff environment source its
-`tools/rpc-env.sh` in the same shell before any fork command or harness startup.
+For mainnet-fork tests, configure `ARBITRUM_RPC_URL` and `ROBINHOOD_RPC_URL` plus explicit block pins as described in [.env.example](.env.example). The [two-fork environment](local-e2e/README.md) supports integration development without sending mainnet transactions.
 
-## Local two-fork environment (`local-e2e/`)
+| Source | Purpose |
+| --- | --- |
+| [Architecture](docs/ARCHITECTURE.md) | Vaults, shares, adapters and cross-chain boundaries. |
+| [Decision digest](docs/DECISIONS.md) | Implemented rules, decisions and current constraints. |
+| [Integrations](docs/INTEGRATIONS.md) | External protocol addresses and interfaces. |
+| [Deployment](docs/DEPLOYMENT.md) | Deployment architecture and dependencies. |
+| [Security documentation](docs/security/) | Internal reviews, regression findings and known limitations. |
+| [Public frontend](https://github.com/PoolPartyLabs/pool-party-v2-frontend) | Manager and investor application, typed API clients and frontend history. |
 
-For API and frontend development against real transactions: two long-lived anvil forks (Arbitrum One on port 8545,
-Robinhood Chain on port 8546) with the protocol deployed by `script/DeployFactory.s.sol` and `script/CreateFund.s.sol`,
-a keeper that fills Across deposits through the live SpokePools and delivers Wormhole VAAs signed by a local guardian,
-time warps on both clocks, committed ABIs, and an end-to-end scenario over JSON-RPC.
+Code, tests, reports and public PR history are available for human and automated review. Claude Code and Codex assisted implementation, testing and documentation under the team's direction. Claims about live execution are tied to chain receipts; test results are tied to dated reports and commits.
 
-```bash
-cd local-e2e && pnpm install
-pnpm run up          # fork, deploy, fund the actors, warm the fork caches
-pnpm keeper          # another terminal
-pnpm scenario        # the fork e2e phases over JSON-RPC
-pnpm down
-```
+## Existing product and earlier hackathons
 
-See `local-e2e/README.md` for what is real and what is simulated, the actors and keys, the state file and
-troubleshooting (public RPCs serve fork state for minutes only; an archive RPC is recommended for long sessions).
+Pool Party's existing product and community predate this V2 architecture. Earlier frontend work included Universal Funding, Active Reserve, hook analysis and Cash+. Those earlier projects are retained in the [public frontend](https://github.com/PoolPartyLabs/pool-party-v2-frontend) and are not claimed as new Arbitrum Open House Singapore work. The new V2 contracts, adapters, cross-chain accounting and fund builder described above are this Buildathon's delivery.
 
-## Security
+## Licensing
 
-**Not audited by a third party.** One internal security sweep (static, dynamic, symbolic, mutation and five manual
-lenses) ran on 2026-09-30: 44 findings, 16 fixed with regression tests, 3 waiting for a founder decision, 25
-acknowledged. An independent model-driven review and a verification plan (2026-09-30) were cross-checked against the
-code on 2026-10-01 (`docs/security/CROSS-CHECK-2026-10-01.md`; their proofs of concept run in `test/review/`).
-Historical sweep counts are not current release certification: S-8 is accepted by DEC-129; S-5's native cap and
-S-15’s DEC-145 entry-time rule is in PR #30, landing before the deploy; Operating Cash is enforced at 0 by #28.
-Fresh baseline: **1,548 non-fork tests / 190 suites; 227 fork tests / 57 suites; 3/3 size tests**
-(size suite included in non-fork total). Every production runtime fits 24,576 B; tightest SpokeVault is
-**22,907 B / 1,669 B margin**. Fresh complete sizes, per-suite counts and gas are in
-`docs/reports/2026-10-03-MVP-REPORT.md`; `docs/security/BASELINE-2026-10-02.md` is historical only. The
-Mandate fixes where a manager may trade and where tokens may go, not the price of a manager's trade
-(`docs/security/THREAT-MODEL.md`). Read `SECURITY.md` for the disclosure policy and `docs/security/` for the threat
-model, the register, the invariants, the tooling and the pre-mainnet checklist.
-
-## Canonical vocabulary
-
-Identifiers, NatSpec and docs use the canonical English names from the specification glossary. The ones that
-matter most:
-
-| Term | Meaning |
-|---|---|
-| Fund, Mandate | A fund and its rules, written once at creation |
-| Core Vault | Hub-chain contract: custody of idle USDC, share ledger, payout requests and payments; never calls a protocol |
-| Spoke Vault | The fund's account on a chain (hub included): holds positions, drives adapters, keeps an internal ledger, publishes value reports |
-| Share, Share Assets, Share Price | ERC-20 share (18 decimals, whole units only); what backs shares; assets divided by shares |
-| Gross Assets | Everything the fund holds: Share Assets, Operating Cash, Attributed Income, external rewards |
-| Idle, Payout Reserve, Free Idle | USDC in the Core Vault; the part reserved for Standard Payouts; the part the manager may allocate |
-| Unallocated Balance, In-flight Value, Spoke Cap | Value in a Spoke Vault not yet in a position; value moving between chains; how much may be sent to a spoke |
-| Payout Request, Payout, Instant Payout, Standard Payout, Payout Fee | The exit flow and its two speeds |
-| Attributed Income, Income Withdrawal | Income that belongs to holders who held while it was earned; taking it out without burning shares |
-| Unwind | Turning positions into USDC; Idle first, proportional Hub/spoke sale fraction with a 2% buffer and delivered-position retry memory |
-| Adapter, Bridge Adapter, Collector, Transport Route | Integration code per protocol; the bridge as an adapter; receive-only code; the bridge route |
-| Operating Cash, Operating Expense, Network Costs, Market Costs | Per-chain gas budget; a fund expense with its funding source; gas and bridge fees; swap fees, impact, slippage |
-
-Words the glossary forbids in identifiers: `liquidation`, `settlement` (as a process name), `fulfillment`,
-`yield`, `revenue`, `accrued`, `cost` (for Operating Expense), `withdrawal` for exits that burn shares.
-
-## Contributing rules
-
-1. Every rule in code cites the decision that governs it (`DEC-nnn`) in NatSpec and in the test name.
-2. No rule is assumed. If a decision does not cover a case, the case goes to `docs/OPEN-QUESTIONS.md` and the
-   code takes the most conservative behaviour (revert) until the founder decides.
-3. English only, canonical names only.
-4. Tests run on mainnet forks, never on testnets.
-5. Branches follow `<type>/pp-sc-<type>-<num>-<slug>`; parallel work happens in git worktrees.
-
-## License
-
-To be decided by Pool Party Labs.
+Solidity source files declare their license through SPDX headers, predominantly MIT. Third-party dependencies retain their own licenses. Contributions should preserve the applicable source and dependency notices.
