@@ -41,6 +41,17 @@ contract CctpBridgeAdapterTest is Test {
         assertEq(net, 999_860_000);
     }
 
+    function test_DEC199_hardCeilingRejectsHigherDeploymentAndQuote() public {
+        vm.expectRevert(CctpBridgeAdapter.InvalidFee.selector);
+        new CctpBridgeAdapter(address(this), address(this), address(0x5555), USDC, route, 50_001);
+        CctpBridgeAdapter capped =
+            new CctpBridgeAdapter(address(this), address(this), address(0x5555), USDC, route, 50_000);
+        (uint256 net,) = capped.quoteSend(USDC, SOLANA, 1000e6, abi.encode(uint256(50_000)));
+        assertEq(net, 999_500_000);
+        vm.expectRevert(CctpBridgeAdapter.InvalidFee.selector);
+        capped.quoteSend(USDC, SOLANA, 1000e6, abi.encode(uint256(50_001)));
+    }
+
     function test_DEC191_rejectUnboundedEmptyAndZeroNetQuotes() public {
         vm.expectRevert(CctpBridgeAdapter.InvalidFee.selector);
         adapter.quoteSend(USDC, SOLANA, 1000e6, abi.encode(uint256(20_001)));

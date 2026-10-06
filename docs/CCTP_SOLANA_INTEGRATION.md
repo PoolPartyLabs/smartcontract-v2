@@ -6,6 +6,37 @@ finalized source reports independently of Circle's Fast capital attestation.
 Existing `CoreVault` and the Robinhood Across route remain available unchanged.
 No deployment or broadcast is authorized by this document.
 
+## T2c composition update — 2026-10-06
+
+`FundFactoryV6.createFundV6` now deploys the adapter/connector before its
+`CoreVaultV6`, which inherits `CoreVaultCctp`. The full immutable transport route
+is part of `SolanaMandateV6.Config.transport` and thus the Manager's EIP-712
+native-Mandate commitment. `SolanaDeploymentV6` is an additional linked library;
+deploy/link it for the factory, and link `CoreVaultCctpLogic` into Core v6
+alongside the six existing Core libraries. Core constructor arguments are now
+`(Mandate, CoreVaultConfig, SolanaSpokeRegistryV6, CctpBridgeAdapter,
+CctpReceiveConnector)`. Core creation-code hashes must be regenerated.
+
+DEC-199 resolves the earlier numeric fee TODO: exactly **50,000 scaled units =
+5 bps** in the v6 signed config/factory deployment; adapter constructors permit
+tighter bounds but never higher bounds. Return connectors independently refuse
+maxFee above the conservatively rounded 5 bps ceiling. No Standard fallback.
+Factory pins official Hub targets and checks Circle's remote messenger getter.
+Actual outbound unspent maxFee is recognized as principal once, bounded by sent
+amount; it is not deducted as an unknown-origin donation. Return fee surplus
+retains report-backed principal settlement.
+
+`test/fork/cctp/ComposedSolanaFund.fork.t.sol` executes real Circle burn/mint,
+native USDC custody, factory deployment and real Wormhole verification with
+local-only guardian/attester overrides. It does not execute Solana CPI or obtain
+a real Circle attestation. See the appended T2c section in
+`docs/SOLANA-REPORT-V6.md` for the final signed tuple, native result wire ABI,
+PDA namespaces, NVDA multiplier and mint/burn market-hours guards.
+
+Remaining release gates: Solana acceptance/PDA derivation/encoder agreement,
+bounded native report batches, keeper/manual operational integration and a
+separately approved deployment. No live deployment code is executed here.
+
 ## Components and custody
 
 - `CctpBridgeAdapter`: `IBridgeAdapter` builder, `CCTP_V2` protocol id, no custody

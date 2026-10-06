@@ -177,6 +177,25 @@ contract CoreVaultCctpTest is CoreVaultFixture {
         assertEq(vault.idle(), beforeIdle + AMOUNT - FEE);
     }
 
+    function test_DEC191_outboundFeeSurplusIsPrincipalOnceAndBounded() public {
+        vm.prank(manager);
+        bytes32 id = cctpCore.sendToSolana(AMOUNT, abi.encode(uint256(14_000)));
+        ReportCodec.Report memory report = _solanaReport();
+        report.unallocated[0].amount = AMOUNT - FEE;
+        report.cumulativeReceived = AMOUNT - FEE;
+        report.arrivedTransits = new ReportCodec.TransitAmount[](1);
+        report.arrivedTransits[0] = ReportCodec.TransitAmount(id, AMOUNT - FEE);
+        _deliverSolana(report);
+        uint256 assets = vault.shareAssets();
+        assertEq(assets, vault.idle() + AMOUNT - FEE);
+        _deliverSolana(report);
+        assertEq(vault.shareAssets(), assets);
+        report.arrivedTransits[0].amount = AMOUNT + 1;
+        vm.expectRevert(abi.encodeWithSelector(CoreVaultCctpLogic.ReceiptReportMismatch.selector, id));
+        _deliverSolana(report);
+        assertEq(vault.shareAssets(), assets);
+    }
+
     function test_DEC191_replayAndAlternateNonceCannotDoubleCredit() public {
         _list(TransferKind.Principal);
         bytes memory message = _message();
