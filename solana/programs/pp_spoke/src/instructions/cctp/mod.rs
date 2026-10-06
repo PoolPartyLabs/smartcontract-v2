@@ -11,6 +11,7 @@ pub mod recognize_refund;
 pub use recognize_refund::RecognizeRefund;
 pub(crate) use recognize_refund::__client_accounts_recognize_refund;
 pub mod cpi;
+pub mod reclaim;
 pub mod wire;
 
 use anchor_lang::prelude::*;
