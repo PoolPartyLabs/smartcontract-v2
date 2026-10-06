@@ -75,7 +75,8 @@ for (const negative of ['output', 'min_out', 'extra_vault', 'mint']) {
     const { transaction, route } = await build('wsol', negative);
     const before = await balances(route);
     const simulation = await connection.simulateTransaction(transaction);
-    assert.notEqual(simulation.value.err, null);
+    const expected = { output: 6004, min_out: 6007, extra_vault: 3007, mint: 6005 }[negative];
+    assert.deepEqual(simulation.value.err, { InstructionError: [1, { Custom: expected }] });
     assert.deepEqual(await balances(route), before);
     console.log(`${negative}: rejected ${JSON.stringify(simulation.value.err)}`);
   });
@@ -84,5 +85,5 @@ for (const negative of ['output', 'min_out', 'extra_vault', 'mint']) {
 test('probe rejects absent manager signature independently of fee payer', async () => {
   const { transaction } = await build('wsol', 'unauthorized');
   const simulation = await connection.simulateTransaction(transaction);
-  assert.notEqual(simulation.value.err, null);
+  assert.deepEqual(simulation.value.err, { InstructionError: [1, { Custom: 6000 }] });
 });
