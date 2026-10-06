@@ -133,6 +133,7 @@ pub fn handler(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
         pending_results: 0,
         assets: args.assets,
         venues: args.venues,
+        transport: args.transport,
     };
     fund.try_serialize(&mut &mut ctx.accounts.fund.try_borrow_mut_data()?[..])?;
     for (mint, ata, ledger, token) in [
@@ -254,9 +255,40 @@ fn allocate<'info>(
 }
 
 pub fn validate_config(args: &InitializePayload, manager: &Pubkey, emitter: &Pubkey) -> Result<()> {
+    let fund = Pubkey::find_program_address(
+        &[b"fund", &args.hub_core, &args.spoke_index.to_le_bytes()],
+        &crate::ID,
+    )
+    .0;
+    let vault = Pubkey::find_program_address(&[b"vault", fund.as_ref()], &crate::ID).0;
+    require!(
+        args.transport.hub_usdc
+            == [
+                0xaf, 0x88, 0xd0, 0x65, 0xe7, 0x7c, 0x8c, 0xc2, 0x23, 0x93, 0x27, 0xc5, 0xed, 0xb3,
+                0xa4, 0x32, 0x26, 0x8e, 0x58, 0x31
+            ]
+            && args.transport.token_messenger
+                == [
+                    0x28, 0xb5, 0xa0, 0xe9, 0xc6, 0x21, 0xa5, 0xba, 0xda, 0xa5, 0x36, 0x21, 0x9b,
+                    0x3a, 0x22, 0x8c, 0x81, 0x68, 0xcf, 0x5d
+                ]
+            && args.transport.message_transmitter
+                == [
+                    0x81, 0xd4, 0x0f, 0x21, 0xf1, 0x2a, 0x8f, 0x0e, 0x32, 0x52, 0xbc, 0xcb, 0x95,
+                    0x4d, 0x72, 0x2d, 0x4c, 0x46, 0x4b, 0x64
+                ]
+            && args.transport.destination_domain == 5
+            && args.transport.fast_fee_ceiling == 50_000
+            && args.transport.remote_token_messenger == custody::CCTP_MESSENGER
+            && args.transport.remote_vault_authority == vault
+            && args.transport.destination_caller == vault
+            && args.transport.mint_recipient
+                == custody::associated_address(&vault, &custody::USDC)?,
+        CoreError::InvalidConfiguration
+    );
     require!(
         args.hub_chain_id == 42161
-            && args.spoke_chain_id != 0
+            && args.spoke_chain_id == 1
             && args.factory != [0; 20]
             && args.hub_core != [0; 20]
             && args.fund_id != [0; 32]
@@ -317,7 +349,8 @@ pub fn validate_config(args: &InitializePayload, manager: &Pubkey, emitter: &Pub
                 emitter,
                 args.spoke_chain_id,
                 &args.assets,
-                &args.venues
+                &args.venues,
+                &args.transport
             ),
         CoreError::InvalidConfiguration
     );

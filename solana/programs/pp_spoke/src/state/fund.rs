@@ -34,6 +34,20 @@ pub struct FundState {
     pub assets: Vec<Asset>,
     #[max_len(8)]
     pub venues: Vec<Venue>,
+    pub transport: Transport,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, InitSpace, Default)]
+pub struct Transport {
+    pub hub_usdc: [u8; 20],
+    pub token_messenger: [u8; 20],
+    pub message_transmitter: [u8; 20],
+    pub destination_domain: u32,
+    pub mint_recipient: Pubkey,
+    pub destination_caller: Pubkey,
+    pub remote_token_messenger: Pubkey,
+    pub remote_vault_authority: Pubkey,
+    pub fast_fee_ceiling: u64,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, InitSpace, PartialEq, Eq)]

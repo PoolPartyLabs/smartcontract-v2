@@ -26,22 +26,30 @@ export function integer(value: number | bigint, size: number): Buffer {
   return bytes;
 }
 
-export function nativeConfig(manager: PublicKey, emitter: PublicKey) {
+export function nativeConfig(manager: PublicKey, emitter: PublicKey, fund = publicKey(addresses.fund)) {
   const mint = publicKey(ADDRESSES.usdc).toBuffer();
   const namespace = Buffer.from('PoolParty/SolanaAsset/v6');
   const paddedNamespace = Buffer.concat([namespace, Buffer.alloc(32 - namespace.length)]);
   const alias = hash(Buffer.concat([word(96), word(1), mint, word(namespace.length), paddedNamespace])).subarray(12);
   const asset = Buffer.concat([mint, alias, integer(0, 1)]);
   const venue = Buffer.concat([publicKey(ADDRESSES.kamino).toBuffer(), Buffer.alloc(32), publicKey(ADDRESSES.reserve).toBuffer(), mint, Buffer.alloc(32)]);
+  const hubUsdc = Buffer.from('af88d065e77c8cc2239327c5edb3a432268e5831', 'hex');
+  const messenger = Buffer.from('28b5a0e9c621a5badaa536219b3a228c8168cf5d', 'hex');
+  const transmitter = Buffer.from('81d40f21f12a8f0e3252bccb954d722d4c464b64', 'hex');
+  const vault = PublicKey.findProgramAddressSync([Buffer.from('vault'), fund.toBuffer()], publicKey(ADDRESSES.spoke))[0];
+  const recipient = testAta(ADDRESSES.usdc, vault).toBuffer();
+  const remoteMessenger = publicKey(ADDRESSES.cctpMessenger).toBuffer();
+  const transport = Buffer.concat([hubUsdc, messenger, transmitter, integer(5, 4), recipient, vault.toBuffer(), remoteMessenger, vault.toBuffer(), integer(50_000, 8)]);
   const abi = Buffer.concat([word(6), word(64), publicKey(ADDRESSES.spoke).toBuffer(), emitter.toBuffer(), mint, manager.toBuffer(),
-    word(1), word(224), word(352), word(1), mint, addressWord(alias), word(0), word(1), venue]);
-  return { nativeHash: hash(abi), assets: Buffer.concat([integer(1, 4), asset]), venues: Buffer.concat([integer(1, 4), venue]) };
+    word(1), word(512), word(640), addressWord(hubUsdc), addressWord(messenger), addressWord(transmitter), word(5), recipient,
+    vault.toBuffer(), remoteMessenger, vault.toBuffer(), word(50_000), word(1), mint, addressWord(alias), word(0), word(1), venue]);
+  return { nativeHash: hash(abi), assets: Buffer.concat([integer(1, 4), asset]), venues: Buffer.concat([integer(1, 4), venue]), transport };
 }
 
 export function bindingPayload(manager: PublicKey, core = hubCore, index = 1, expiry = 2_000_000_000n) {
   const target = fundAddresses(core, index);
   const emitter = publicKey(target.emitter);
-  const config = nativeConfig(manager, emitter);
+  const config = nativeConfig(manager, emitter, publicKey(target.fund));
   const nonce = word(9);
   const type = 'ManagerSolanaBinding(bytes32 solanaKey,address fund,bytes32 spoke,uint256 spokeChainId,bytes32 nativeMandateHash,uint256 nonce,uint256 expiry)';
   const domain = hash(Buffer.concat([hash(Buffer.from('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)')),
@@ -52,7 +60,7 @@ export function bindingPayload(manager: PublicKey, core = hubCore, index = 1, ex
   const signature = secp256k1.sign(digest, ephemeralKey);
   const managerEvm = hash(Buffer.from(secp256k1.getPublicKey(ephemeralKey, false)).subarray(1)).subarray(12);
   return Buffer.concat([core, integer(index, 2), fundId, mandateHash, managerEvm, factory, integer(42161, 8), integer(1, 8),
-    config.nativeHash, nonce, integer(expiry, 8), Buffer.from(signature.toCompactRawBytes()), integer(signature.recovery + 27, 1), config.assets, config.venues]);
+    config.nativeHash, nonce, integer(expiry, 8), Buffer.from(signature.toCompactRawBytes()), integer(signature.recovery + 27, 1), config.assets, config.venues, config.transport]);
 }
 
 export function fixtureFund(manager: PublicKey) {
@@ -66,7 +74,7 @@ export function fixtureFund(manager: PublicKey) {
   return Buffer.concat([discriminator('account', 'FundState'), hubCore, index, fundId, mandateHash, Buffer.alloc(20, 1), manager.toBuffer(),
     integer(0, 8), integer(0, 8), integer(0, 1), integer(bump, 1), integer(vaultBump, 1), integer(emitterBump, 1),
     integer(42161, 8), factory, integer(1, 8), config.nativeHash, word(9), Buffer.alloc(32, 1), integer(2_000_000_000, 8),
-    addressWord(hubCore), integer(23, 2), integer(0, 16), integer(0, 16), integer(0, 2), integer(0, 2), integer(0, 2), config.assets, config.venues]);
+    addressWord(hubCore), integer(23, 2), integer(0, 16), integer(0, 16), integer(0, 2), integer(0, 2), integer(0, 2), config.assets, config.venues, config.transport]);
 }
 
 export function fixtureLedger() {

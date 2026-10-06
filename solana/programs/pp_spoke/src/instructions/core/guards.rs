@@ -78,6 +78,7 @@ pub(crate) fn fixture() -> (FundState, Pubkey) {
             pending_results: 0,
             assets: vec![],
             venues: vec![],
+            transport: crate::state::Transport::default(),
         },
         key,
     )

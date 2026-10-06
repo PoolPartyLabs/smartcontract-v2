@@ -1,5 +1,5 @@
 use super::guards::CoreError;
-use crate::state::{Asset, Venue};
+use crate::state::{Asset, Transport, Venue};
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::{keccak, secp256k1_recover::secp256k1_recover};
 
@@ -27,6 +27,7 @@ pub struct InitializePayload {
     pub signature: [u8; 65],
     pub assets: Vec<Asset>,
     pub venues: Vec<Venue>,
+    pub transport: Transport,
 }
 
 pub fn word(value: u128) -> [u8; 32] {
@@ -106,6 +107,7 @@ pub fn native_mandate_hash(
     chain: u64,
     assets: &[Asset],
     venues: &[Venue],
+    transport: &Transport,
 ) -> [u8; 32] {
     let mut words = vec![
         word(6),
@@ -115,8 +117,17 @@ pub fn native_mandate_hash(
         super::custody::USDC.to_bytes(),
         manager.to_bytes(),
         word(u128::from(chain)),
-        word(224),
-        word(224 + 32 + (assets.len() as u128) * 96),
+        word(512),
+        word(512 + 32 + (assets.len() as u128) * 96),
+        address_word(&transport.hub_usdc),
+        address_word(&transport.token_messenger),
+        address_word(&transport.message_transmitter),
+        word(u128::from(transport.destination_domain)),
+        transport.mint_recipient.to_bytes(),
+        transport.destination_caller.to_bytes(),
+        transport.remote_token_messenger.to_bytes(),
+        transport.remote_vault_authority.to_bytes(),
+        word(u128::from(transport.fast_fee_ceiling)),
         word(assets.len() as u128),
     ];
     for asset in assets {
@@ -164,7 +175,7 @@ mod tests {
             hub_chain_id: 42161, spoke_chain_id: 1, native_mandate_hash: word(7), nonce: word(9),
             expiry: 2_000_000_000,
             signature: fixed_hex("67f384b05c9b8f7b208e872b0ebb9f7c2a83f2b1a4820e9d3e8246abb15bf3994fa5587a8e452afa7010de273152237875c920a270f1c9fccbe4602722d2e3bd1c"),
-            assets: vec![], venues: vec![],
+            assets: vec![], venues: vec![], transport: Transport::default(),
         };
         (
             payload,
@@ -173,6 +184,56 @@ mod tests {
                 "07f093b39a102fb41eb5f221512e72f5af084d7db72b1a5158313f7db556efbd",
             )),
         )
+    }
+
+    #[test]
+    fn complete_transport_hash_matches_independent_evm_abi() {
+        let manager = Pubkey::new_from_array(fixed_hex(
+            "0f0248bf50f38b8fa1b2f34e5ee9070476e3c10c3e72eefd4e4ddc58e0a5a3a1",
+        ));
+        let emitter = Pubkey::new_from_array(fixed_hex(
+            "1ee39f01232b2e295e21e516f476e557768949820bc25b6f3b5466250070b0f1",
+        ));
+        let vault = Pubkey::new_from_array(fixed_hex(
+            "f33ef011782bb01b1cf6ea9095db6c03278a314b670e89eb33101bd25dcd9dd4",
+        ));
+        let transport = Transport {
+            hub_usdc: fixed_hex("af88d065e77c8cc2239327c5edb3a432268e5831"),
+            token_messenger: fixed_hex("28b5a0e9c621a5badaa536219b3a228c8168cf5d"),
+            message_transmitter: fixed_hex("81d40f21f12a8f0e3252bccb954d722d4c464b64"),
+            destination_domain: 5,
+            mint_recipient: Pubkey::new_from_array(fixed_hex(
+                "7982cec8701aa4528f0d651030ecac78bb73226fe7646083d8d29db7d79ceeaa",
+            )),
+            destination_caller: vault,
+            remote_token_messenger: super::super::custody::CCTP_MESSENGER,
+            remote_vault_authority: vault,
+            fast_fee_ceiling: 50_000,
+        };
+        let assets = vec![Asset {
+            mint: super::super::custody::USDC,
+            accounting_id: fixed_hex("06dcacb276039c31d0c4d13c8d7b4d129b4e7253"),
+            stock: false,
+        }];
+        let venues = vec![Venue {
+            program: pubkey!("KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD"),
+            pool: Pubkey::default(),
+            reserve: pubkey!("D6q6wuQSrifJKZYpR1M8R4YawnLDtDsMmWM1NbBmgJ59"),
+            token0: super::super::custody::USDC,
+            token1: Pubkey::default(),
+        }];
+        let expected =
+            fixed_hex("8bedf458b0756b03aef050251911a6ab3494ed4085546059c31f352e802e2d40");
+        assert_eq!(
+            native_mandate_hash(&manager, &emitter, 1, &assets, &venues, &transport),
+            expected
+        );
+        let mut changed = transport.clone();
+        changed.fast_fee_ceiling += 1;
+        assert_ne!(
+            native_mandate_hash(&manager, &emitter, 1, &assets, &venues, &changed),
+            expected
+        );
     }
 
     #[test]
