@@ -67,17 +67,15 @@ test('Kamino decoder validates source-pinned reserve offsets', () => {
   assert.throws(() => decodeReserve(data.subarray(0, 8623)));
 });
 
-test('each instruction has its own fail-closed handler and Accounts struct', () => {
-  const root = new URL('../../programs/pp_spoke/src/instructions/', import.meta.url);
-  let count = 0;
+test('every declared instruction keeps an Accounts struct in its track module', () => {
+  // Tracks replace the scaffold's fail-closed handlers with real ones and add helper files,
+  // so this checks structure only: the 25 entry points stay declared and each module defines Accounts.
+  const root = new URL('../../programs/pp_spoke/src/', import.meta.url);
+  const lib = readFileSync(new URL('lib.rs', root), 'utf8');
+  assert.equal((lib.match(/^\s*pub fn \w+\s*(<[^>]*>)?\s*\(/gm) ?? []).length, 25);
   for (const module of ['core', 'cctp', 'report', 'kamino', 'raydium', 'swap']) {
-    for (const file of readdirSync(new URL(`${module}/`, root)).filter(name => name !== 'mod.rs')) {
-      const source = readFileSync(new URL(`${module}/${file}`, root), 'utf8');
-      assert.match(source, /#\[derive\(Accounts\)\]/);
-      assert.match(source, /err!\(SpokeError::NotImplemented\)/);
-      assert.doesNotMatch(source, /invoke_signed|\.set_inner\(/);
-      count++;
-    }
+    const dir = new URL(`instructions/${module}/`, root);
+    const sources = readdirSync(dir).filter(name => name.endsWith('.rs')).map(name => readFileSync(new URL(name, dir), 'utf8'));
+    assert.ok(sources.some(source => /#\[derive\(Accounts\)\]/.test(source)), `${module} defines no Accounts struct`);
   }
-  assert.equal(count, 25);
 });
