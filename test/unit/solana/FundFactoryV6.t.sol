@@ -4,6 +4,8 @@ import {Test} from "forge-std/Test.sol";
 import {FactoryDeployment} from "../../../script/FactoryDeployment.sol";
 import {FundFactoryV6} from "../../../src/factory/FundFactoryV6.sol";
 import {CoreVaultV6} from "../../../src/core/CoreVaultV6.sol";
+import {CoreVaultCctpLogic} from "../../../src/core/CoreVaultCctpLogic.sol";
+import {SolanaDeploymentV6} from "../../../src/factory/SolanaDeploymentV6.sol";
 import {ValueReportReceiverV6} from "../../../src/report/ValueReportReceiverV6.sol";
 import {IFundFactory} from "../../../src/interfaces/IFundFactory.sol";
 import {CodeStore} from "../../../src/factory/CodeStore.sol";
@@ -32,16 +34,25 @@ contract FundFactoryV6Test is Test, FactoryDeployment {
     bytes private coreCode;
     uint256 private constant MANAGER_PRIVATE_KEY = 0x12345;
     address private manager;
-    address private nativeTransport;
 
     function setUp() public {
         vm.chainId(42_161);
         vm.warp(1_791_293_400);
         manager = vm.addr(MANAGER_PRIVATE_KEY);
-        nativeTransport = address(new NativeTransportFixture());
         Deployment memory deployment;
         _deployLibraries(true, deployment);
-        coreCode = _linkedToCoreVaultLibraries("out/CoreVaultV6.sol/CoreVaultV6.json", deployment);
+        (string[] memory coreIds, address[] memory coreLibraries) = _coreVaultLinks(deployment);
+        string[] memory ids = new string[](7);
+        address[] memory libraries = new address[](7);
+        for (uint256 index; index < 6; ++index) {
+            ids[index] = coreIds[index];
+            libraries[index] = coreLibraries[index];
+        }
+        ids[6] = "src/core/CoreVaultCctpLogic.sol:CoreVaultCctpLogic";
+        libraries[6] = _deterministic(
+            LIBRARY_SALT, _linkedToCoreVaultLibraries("out/CoreVaultCctpLogic.sol/CoreVaultCctpLogic.json", deployment)
+        );
+        coreCode = _linked("out/CoreVaultV6.sol/CoreVaultV6.json", ids, libraries);
         usdc = new MockToken("USDC", 6);
         MockAaveV3Pool aave = new MockAaveV3Pool(MockAaveV3Pool.Rounding.HalfUp);
         aave.listReserve(address(usdc));
@@ -58,6 +69,11 @@ contract FundFactoryV6Test is Test, FactoryDeployment {
         wiring.spokeCrossChainLib = deployment.spokeCrossChainLib;
         wiring.coreVaultCreationCodeHash = keccak256(coreCode);
         wiring.flowFeeBps = 25;
+        vm.mockCall(
+            0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d,
+            abi.encodeWithSignature("remoteTokenMessengers(uint32)", uint32(5)),
+            abi.encode(bytes32(uint256(1234)))
+        );
         V3Stub.wire(wiring);
         IFundFactory.CreationCodeStores memory stores = _writeCodeStores(true, deployment);
         stores.valueReportReceiver = CodeStore.write(type(ValueReportReceiverV6).creationCode);
@@ -76,7 +92,7 @@ contract FundFactoryV6Test is Test, FactoryDeployment {
         mandate_.tokens = new TokenConfig[](5);
         mandate_.tokens[0] = TokenConfig(42_161, address(usdc));
         mandate_.tokens[1] = TokenConfig(4663, address(800));
-        SolanaMandateV6.Config memory native = SolanaFixture.nativeConfig();
+        SolanaMandateV6.Config memory native = _nativeConfig();
         for (uint256 index; index < 3; ++index) {
             mandate_.tokens[index + 2] = TokenConfig(1, native.assets[index].accountingId);
         }
@@ -100,11 +116,16 @@ contract FundFactoryV6Test is Test, FactoryDeployment {
         address hubBridge = factory.addressOf(id, "AcrossBridgeAdapter", 42_161);
         mandate_.bridgeAdapters[0] = BridgeAdapterConfig(4663, 42_161, hubBridge);
         mandate_.bridgeAdapters[1] = BridgeAdapterConfig(4663, 4663, factory.addressOf(id, "AcrossBridgeAdapter", 4663));
-        mandate_.bridgeAdapters[2] = BridgeAdapterConfig(1, 42_161, nativeTransport);
+        mandate_.bridgeAdapters[2] = BridgeAdapterConfig(1, 42_161, factory.addressOf(id, "CctpBridgeAdapter", 42_161));
         mandate_.bridgeAdapters[3] = BridgeAdapterConfig(1, 1, address(1002));
         mandate_.performanceFeeBps = 1000;
         mandate_.managementFeeBps = 500;
         mandate_.minFirstDeposit = 50e6;
+    }
+
+    function _nativeConfig() private view returns (SolanaMandateV6.Config memory native) {
+        native = SolanaFixture.nativeConfig();
+        native.transport.hubUsdc = address(usdc);
     }
 
     function _params(uint256 number) private view returns (IFundFactory.HubParams memory params) {
@@ -127,7 +148,7 @@ contract FundFactoryV6Test is Test, FactoryDeployment {
     }
 
     function testCreateThreeChainFundAndReuseManagerKey() public {
-        SolanaMandateV6.Config memory native = SolanaFixture.nativeConfig();
+        SolanaMandateV6.Config memory native = _nativeConfig();
         for (uint256 number = 1; number <= 2; ++number) {
             FundFactoryV6.Binding memory binding = _binding(number, native);
             Mandate memory mandate_ = _mandate(number);
@@ -141,6 +162,10 @@ contract FundFactoryV6Test is Test, FactoryDeployment {
             assertEq(core.idle(), 49_000_000);
             assertEq(core.shareAssets(), 49_000_000);
             assertEq(core.managementFeeBps(), 500);
+            assertEq(core.cctpAdapter().maxFeeBps(), 50_000);
+            assertEq(core.cctpAdapter().vault(), result.coreVault);
+            assertEq(core.cctpConnector().core(), result.coreVault);
+            assertEq(core.cctpAdapter().mintRecipient(), native.transport.mintRecipient);
             assertTrue(factory.isFund(result.coreVault));
             assertEq(factory.bindingNonce(manager), number);
             assertTrue(factory.bindingCommitment(result.coreVault) != 0);
@@ -149,7 +174,7 @@ contract FundFactoryV6Test is Test, FactoryDeployment {
     }
 
     function testRejectChangedKeyExpiryNonceAndContractManager() public {
-        SolanaMandateV6.Config memory native = SolanaFixture.nativeConfig();
+        SolanaMandateV6.Config memory native = _nativeConfig();
         FundFactoryV6.Binding memory binding = _binding(1, native);
         Mandate memory mandate_ = _mandate(1);
         IFundFactory.HubParams memory params = _params(1);
@@ -157,7 +182,7 @@ contract FundFactoryV6Test is Test, FactoryDeployment {
         vm.expectRevert(FundFactoryV6.InvalidSolanaBinding.selector);
         vm.prank(manager);
         factory.createFundV6(mandate_, params, native, binding);
-        native = SolanaFixture.nativeConfig();
+        native = _nativeConfig();
         binding.expiry = block.timestamp - 1;
         vm.expectRevert(FundFactoryV6.InvalidSolanaBinding.selector);
         vm.prank(manager);
@@ -175,7 +200,7 @@ contract FundFactoryV6Test is Test, FactoryDeployment {
     }
 
     function testRejectManagementFeeAbove500AndRollbackBinding() public {
-        SolanaMandateV6.Config memory native = SolanaFixture.nativeConfig();
+        SolanaMandateV6.Config memory native = _nativeConfig();
         Mandate memory mandate_ = _mandate(1);
         mandate_.managementFeeBps = 501;
         FundFactoryV6.Binding memory binding = _binding(1, native);
@@ -188,36 +213,47 @@ contract FundFactoryV6Test is Test, FactoryDeployment {
     }
 
     function testSignatureDomainBindsFactoryChainFundAndMandate() public {
-        SolanaMandateV6.Config memory native = SolanaFixture.nativeConfig();
+        SolanaMandateV6.Config memory native = _nativeConfig();
         bytes32 digest = factory.bindingDigest(native, address(123), 0, 999);
         assertTrue(digest != factory.bindingDigest(native, address(124), 0, 999));
         native.venues[0].pool = bytes32(uint256(99));
         assertTrue(digest != factory.bindingDigest(native, address(123), 0, 999));
-        native = SolanaFixture.nativeConfig();
+        native = _nativeConfig();
         vm.chainId(4663);
         assertTrue(digest != factory.bindingDigest(native, address(123), 0, 999));
     }
 
     function testRejectAcrossNativeTransportAtCoreCreation() public {
-        SolanaMandateV6.Config memory native = SolanaFixture.nativeConfig();
+        SolanaMandateV6.Config memory native = _nativeConfig();
         Mandate memory mandate_ = _mandate(1);
         mandate_.bridgeAdapters[2].adapter = mandate_.bridgeAdapters[0].adapter;
         IFundFactory.HubParams memory params = _params(1);
         FundFactoryV6.Binding memory binding = _binding(1, native);
-        vm.expectRevert(CoreVaultV6.InvalidNativeRegistry.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IFundFactory.UnexpectedBridgeAdapter.selector, uint256(42_161), mandate_.bridgeAdapters[0].adapter
+            )
+        );
         vm.prank(manager);
         factory.createFundV6(mandate_, params, native, binding);
         assertEq(factory.bindingNonce(manager), 0);
     }
-}
 
-/// @notice No bridge execution; only the immutable CCTP target/deadline wiring of DEC-191.
-contract NativeTransportFixture {
-    function target() external pure returns (address) {
-        return 0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d;
-    }
-
-    function fillDeadlineSeconds() external pure returns (uint32) {
-        return 0;
+    function testRouteAndFeeCeilingAreSignedAndFailClosed() public {
+        SolanaMandateV6.Config memory native = _nativeConfig();
+        FundFactoryV6.Binding memory binding = _binding(1, native);
+        Mandate memory mandate_ = _mandate(1);
+        IFundFactory.HubParams memory params = _params(1);
+        native.transport.destinationCaller = bytes32(uint256(9876));
+        vm.expectRevert(FundFactoryV6.InvalidSolanaBinding.selector);
+        vm.prank(manager);
+        factory.createFundV6(mandate_, params, native, binding);
+        native = _nativeConfig();
+        native.transport.fastFeeCeiling = 50_001;
+        binding = _binding(1, native);
+        vm.expectRevert(SolanaDeploymentV6.InvalidSolanaBinding.selector);
+        vm.prank(manager);
+        factory.createFundV6(mandate_, params, native, binding);
+        assertEq(factory.bindingNonce(manager), 0);
     }
 }

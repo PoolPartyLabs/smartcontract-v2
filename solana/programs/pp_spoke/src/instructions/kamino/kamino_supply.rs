@@ -6,7 +6,7 @@ use anchor_lang::prelude::*;
 #[derive(Accounts)]
 pub struct KaminoSupply<'info> {
     pub authority: Signer<'info>,
-    #[account(seeds = [b"fund", fund.hub_core.as_ref(), &fund.spoke_index.to_le_bytes()], bump = fund.bump,
+    #[account(mut, seeds = [b"fund", fund.hub_core.as_ref(), &fund.spoke_index.to_le_bytes()], bump = fund.bump,
         constraint = fund.manager_solana == authority.key() @ KaminoError::Unauthorized,
         constraint = !fund.closed @ KaminoError::EntryDisabled)]
     pub fund: Account<'info, FundState>,
@@ -62,6 +62,12 @@ pub fn handler(ctx: Context<KaminoSupply>, payload: Vec<u8>) -> Result<()> {
     position.principal = checked_add(position.principal, amount)?;
     position.idle_principal -= amount;
     checkpoint(position, ctx.accounts.venue.refresh()?)?;
+    ctx.accounts.fund.active_positions = ctx
+        .accounts
+        .fund
+        .active_positions
+        .checked_add(1)
+        .ok_or(KaminoError::UnexpectedDelta)?;
     emit!(KaminoSupplied {
         fund: position.fund,
         liquidity: amount,

@@ -1,9 +1,22 @@
 pragma solidity 0.8.28;
 
 import {ReportCodecV6} from "../libraries/ReportCodecV6.sol";
+import {IPriceSource} from "../interfaces/IPriceSource.sol";
 
 /// @notice Immutable native identity commitment accompanying the EVM Mandate (DEC-188, DEC-190).
 library SolanaMandateV6 {
+    struct Transport {
+        address hubUsdc;
+        address tokenMessenger;
+        address messageTransmitter;
+        uint32 destinationDomain;
+        bytes32 mintRecipient;
+        bytes32 destinationCaller;
+        bytes32 remoteTokenMessenger;
+        bytes32 remoteVaultAuthority;
+        uint256 fastFeeCeiling;
+    }
+
     struct Asset {
         bytes32 mint;
         address accountingId;
@@ -23,10 +36,11 @@ library SolanaMandateV6 {
         bytes32 spoke;
         bytes32 usdcMint;
         bytes32 managerKey;
-        /// @dev TODO(decision): canonical accounting chain namespace; distinct from Circle/Wormhole IDs.
+        /// @dev This v6 cohort uses chain 1 for Solana accounting, independently of transport namespaces.
         uint256 chainId;
         Asset[] assets;
         Venue[] venues;
+        Transport transport;
     }
 
     /// @dev Namespaced accounting aliases, not truncated public keys; collisions are refused by the registry.
@@ -72,13 +86,15 @@ contract SolanaSpokeRegistryV6 {
         _config.usdcMint = config.usdcMint;
         _config.managerKey = config.managerKey;
         _config.chainId = config.chainId;
+        _config.transport = config.transport;
         for (uint256 index; index < config.assets.length; ++index) {
             SolanaMandateV6.Asset memory asset = config.assets[index];
             if (
                 asset.mint == 0 || asset.accountingId == address(0) || accountingId[asset.mint] != address(0)
                     || asset.accountingId != SolanaMandateV6.accountingId(asset.mint)
             ) revert InvalidNativeConfig();
-            bool isStock = asset.mint == 0x07e83582411fea1482f0994b80aa512a97c94f25df283bec5a67a381fc862b4a;
+            bool isStock = asset.mint == 0x07e83582411fea1482f0994b80aa512a97c94f25df283bec5a67a381fc862b4a
+                || asset.mint == 0x07e8a50e140fda5791f4566a957fd3ae3f873e6a3466ffc13d79119dfa9ab50a;
             bool isUsdc = asset.mint == 0xc6fa7af3bedbad3a3d65f36aabc97431b1bbe4c2d2f6e0e47ca60203452f5d61;
             bool isWrappedSol = asset.mint == 0x069b8857feab8184fb687f634618c035dac439dc1aeb3b5598a0f00000000001;
             if ((!isStock && !isUsdc && !isWrappedSol) || asset.stock != isStock) revert InvalidNativeConfig();
@@ -107,6 +123,18 @@ contract SolanaSpokeRegistryV6 {
         return _config;
     }
 
+    /// @notice DEC-194, DEC-198: native share mints/burns cannot use cached off-hours stock prices.
+    function requireStockPricing(address source) external view {
+        for (uint256 index; index < _config.assets.length; ++index) {
+            SolanaMandateV6.Asset memory asset = _config.assets[index];
+            if (!asset.stock) continue;
+            (uint256 price, uint256 updatedAt) = IPriceSource(source).priceInUsdc(asset.accountingId);
+            if (price == 0 || updatedAt + IPriceSource(source).maxPriceAge(asset.accountingId) < block.timestamp) {
+                revert UnsafeStockState(asset.mint);
+            }
+        }
+    }
+
     function token(bytes32 mint) public view returns (address identity) {
         identity = accountingId[mint];
         if (identity == address(0)) revert UnknownMint(mint);
@@ -131,7 +159,7 @@ contract SolanaSpokeRegistryV6 {
         }
     }
 
-    /// @dev DEC-194: unit-multiplier demo guard; no unauthenticated scalar and no mixed corporate-action pricing.
+    /// @dev DEC-194, DEC-198: pinned issuer witnesses; no arbitrary scalar or mixed corporate-action pricing.
     function validateMintStates(ReportCodecV6.MintState[] memory states) external view {
         for (uint256 index; index < _config.assets.length; ++index) {
             bytes32 mint = _config.assets[index].mint;
@@ -141,10 +169,14 @@ contract SolanaSpokeRegistryV6 {
                 ReportCodecV6.MintState memory state = states[stateIndex];
                 if (state.mint != mint) continue;
                 ++matches;
-                if (
-                    state.multiplierBits != 0x3ff0000000000000 || state.newMultiplierBits != 0x3ff0000000000000
-                        || state.paused || state.frozen || state.transferHook != 0
-                ) revert UnsafeStockState(mint);
+                bool nvda = mint == 0x07e8a50e140fda5791f4566a957fd3ae3f873e6a3466ffc13d79119dfa9ab50a;
+                bool multiplierSafe = nvda
+                    ? state.multiplierBits == 0x3ff003c2ac1bf43f && state.newMultiplierBits == 0x3ff006f7d589fea9
+                        && state.effectiveAt == 1_789_000_200 && block.timestamp >= uint64(state.effectiveAt)
+                    : state.multiplierBits == 0x3ff0000000000000 && state.newMultiplierBits == 0x3ff0000000000000;
+                if (!multiplierSafe || state.paused || state.frozen || state.transferHook != 0) {
+                    revert UnsafeStockState(mint);
+                }
             }
             if (matches != 1) revert UnsafeStockState(mint);
         }

@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { keccak_256 } from '@noble/hashes/sha3';
 import { PublicKey } from '@solana/web3.js';
+import { completeFundState } from '../helpers/fund-state.ts';
 import { createHash } from 'node:crypto';
 import { ADDRESSES, derive, publicKey } from '../helpers/addresses.ts';
 import { discriminator } from '../helpers/layouts.ts';
@@ -11,7 +12,7 @@ import { testAta, testWallet } from '../helpers/localnet.ts';
 export const HUB = Buffer.alloc(20, 9);
 export const CONNECTOR = Buffer.alloc(20, 10);
 export const FUND_ID = Buffer.alloc(32, 7);
-export const CHAIN = 1_000_000_005n;
+export const CHAIN = 1n;
 export const MANDATE = Buffer.alloc(32, 11);
 export const fund = derive(ADDRESSES.spoke, Buffer.from('fund'), HUB, Buffer.from([0, 0]));
 export const vault = derive(ADDRESSES.spoke, Buffer.from('vault'), publicKey(fund).toBuffer());
@@ -103,9 +104,9 @@ export function prepareCctpFixtures(): void {
   const manager = testWallet();
   const fundBump = publicKey(ADDRESSES.spoke);
   const find = (seeds: Buffer[]) => PublicKey.findProgramAddressSync(seeds, fundBump)[1];
-  write(fund, Buffer.concat([discriminator('account', 'FundState'), HUB, Buffer.alloc(2), FUND_ID, MANDATE, Buffer.alloc(20, 12),
-    manager.publicKey.toBuffer(), uint64(0n), uint64(0n), Buffer.from([0, find([Buffer.from('fund'), HUB, Buffer.alloc(2)]), find([Buffer.from('vault'), publicKey(fund).toBuffer()])])]));
-  write(route, Buffer.concat([discriminator('account', 'CctpRoute'), publicKey(fund).toBuffer(), MANDATE, CONNECTOR, uint64(CHAIN), uint64(20_000n), Buffer.from([1])]));
+  write(fund, completeFundState(Buffer.concat([discriminator('account', 'FundState'), HUB, Buffer.alloc(2), FUND_ID, MANDATE, Buffer.alloc(20, 12),
+    manager.publicKey.toBuffer(), uint64(0n), uint64(0n), Buffer.from([0, find([Buffer.from('fund'), HUB, Buffer.alloc(2)]), find([Buffer.from('vault'), publicKey(fund).toBuffer()])])])));
+  write(route, Buffer.concat([discriminator('account', 'CctpRoute'), publicKey(fund).toBuffer(), MANDATE, CONNECTOR, uint64(CHAIN), uint64(50_000n), Buffer.from([1])]));
   write(ledger, Buffer.concat([discriminator('account', 'CctpLedger'), publicKey(fund).toBuffer(), uint64(10_000_000n), Buffer.alloc(40)]));
   const token = snapshot(testAta(ADDRESSES.usdc, manager.publicKey).toBase58(), true);
   const tokenData = Buffer.from(token.account.data[0], 'base64');

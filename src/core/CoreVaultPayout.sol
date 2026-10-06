@@ -30,7 +30,10 @@ abstract contract CoreVaultPayout is CoreVaultTransit {
     {
         if (usdcAmount == 0) revert ZeroAmount();
         _requireOpen();
-        if (mode == PayoutMode.Instant) _topUpOperatingCash();
+        if (mode == PayoutMode.Instant) {
+            _requireSharePricing();
+            _topUpOperatingCash();
+        }
         receipt = CoreVaultPayoutLogic.requestPayout(_s, _wiring(), usdcAmount, mode, maxLossBps, msg.value);
     }
 
@@ -49,6 +52,7 @@ abstract contract CoreVaultPayout is CoreVaultTransit {
     ///      Standard reserve locked); the receipt says so (`cappedByManagerBase`).
     function claimPayout(uint16 maxLossBps) external payable nonReentrant returns (PayoutReceipt memory receipt) {
         _requireOpen();
+        _requireSharePricing();
         _topUpOperatingCash();
         receipt = CoreVaultPayoutLogic.claimPayout(_s, _wiring(), maxLossBps, msg.value);
     }
@@ -65,6 +69,7 @@ abstract contract CoreVaultPayout is CoreVaultTransit {
 
     function settlePayout(address holder) external payable nonReentrant returns (PayoutReceipt memory receipt) {
         _requireOpen();
+        _requireSharePricing();
         receipt = CoreVaultPayoutLogic.settlePayout(_s, _wiring(), holder, msg.value);
     }
 
