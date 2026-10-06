@@ -50,6 +50,7 @@ contract CoreVault is CoreVaultPayout {
     {
         if (usdcAmount == 0) revert ZeroAmount();
         _requireOpen();
+        _requireSharePricing();
         _topUpOperatingCash();
         return CoreVaultClosureLogic.deposit(_s, _wiring(), usdcAmount, minShares);
     }
@@ -118,6 +119,7 @@ contract CoreVault is CoreVaultPayout {
     }
 
     function exitClosedFund(address holder) external nonReentrant returns (uint256 paid) {
+        _requireSharePricing();
         return CoreVaultClosureLogic.exit(_s, _wiring(), holder);
     }
 

@@ -1,6 +1,7 @@
 pragma solidity 0.8.28;
 
 import {ReportCodecV6} from "../libraries/ReportCodecV6.sol";
+import {IPriceSource} from "../interfaces/IPriceSource.sol";
 
 /// @notice Immutable native identity commitment accompanying the EVM Mandate (DEC-188, DEC-190).
 library SolanaMandateV6 {
@@ -120,6 +121,18 @@ contract SolanaSpokeRegistryV6 {
 
     function nativeConfig() external view returns (SolanaMandateV6.Config memory) {
         return _config;
+    }
+
+    /// @notice DEC-194, DEC-198: native share mints/burns cannot use cached off-hours stock prices.
+    function requireStockPricing(address source) external view {
+        for (uint256 index; index < _config.assets.length; ++index) {
+            SolanaMandateV6.Asset memory asset = _config.assets[index];
+            if (!asset.stock) continue;
+            (uint256 price, uint256 updatedAt) = IPriceSource(source).priceInUsdc(asset.accountingId);
+            if (price == 0 || updatedAt + IPriceSource(source).maxPriceAge(asset.accountingId) < block.timestamp) {
+                revert UnsafeStockState(asset.mint);
+            }
+        }
     }
 
     function token(bytes32 mint) public view returns (address identity) {

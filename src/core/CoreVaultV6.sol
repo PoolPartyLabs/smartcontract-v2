@@ -56,4 +56,9 @@ contract CoreVaultV6 is CoreVaultCctp {
         nativeMandateHash = registry.nativeMandateHash();
         managerSolanaKey = registry.managerKey();
     }
+
+    /// @dev DEC-194, DEC-198: legacy payout cached-price fallback must not bypass native stock market hours.
+    function _requireSharePricing() internal view override {
+        nativeRegistry.requireStockPricing(priceSource);
+    }
 }
