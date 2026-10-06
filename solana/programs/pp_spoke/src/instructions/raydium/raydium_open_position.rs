@@ -10,6 +10,7 @@ use anchor_lang::prelude::*;
 pub struct RaydiumOpenPosition<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
+    #[account(mut)]
     pub fund: Account<'info, FundState>,
     /// CHECK: canonical Fund vault checked in handler and signs only bounded CPIs.
     pub vault: UncheckedAccount<'info>,
@@ -349,5 +350,63 @@ pub fn handler(ctx: Context<RaydiumOpenPosition>, payload: Vec<u8>) -> Result<()
     record.collected_fees_1 = 0;
     record.closed = false;
     record.bump = ctx.bumps.position_record;
+    latch_open_position(&mut accounts.fund.active_positions)?;
     Ok(())
+}
+
+fn latch_open_position(active_positions: &mut u16) -> Result<()> {
+    *active_positions = active_positions
+        .checked_add(1)
+        .ok_or(RaydiumError::Arithmetic)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn successful_opens_latch_each_unretired_position() {
+        let mut active_positions = 0;
+        latch_open_position(&mut active_positions).unwrap();
+        assert_eq!(active_positions, 1);
+        latch_open_position(&mut active_positions).unwrap();
+        assert_eq!(active_positions, 2);
+    }
+
+    #[test]
+    fn position_latch_blocks_idle_only_core_report() {
+        let (mut fund, fund_key) = crate::instructions::core::guards::fixture();
+        let clock = Clock {
+            slot: 100,
+            unix_timestamp: 1000,
+            ..Clock::default()
+        };
+        assert!(crate::instructions::report::snapshot::encoded_snapshot(
+            &fund,
+            fund_key,
+            &[],
+            &clock
+        )
+        .is_ok());
+        latch_open_position(&mut fund.active_positions).unwrap();
+        let error =
+            crate::instructions::report::snapshot::encoded_snapshot(&fund, fund_key, &[], &clock)
+                .unwrap_err();
+        assert_eq!(
+            error,
+            error!(crate::instructions::report::snapshot::ReportError::AdapterNotIntegrated)
+        );
+        assert_eq!(fund.active_positions, 1);
+    }
+
+    #[test]
+    fn position_latch_overflow_fails_without_clearing_count() {
+        let mut active_positions = u16::MAX - 1;
+        latch_open_position(&mut active_positions).unwrap();
+        assert_eq!(active_positions, u16::MAX);
+        let error = latch_open_position(&mut active_positions).unwrap_err();
+        assert_eq!(error, error!(RaydiumError::Arithmetic));
+        assert_eq!(active_positions, u16::MAX);
+    }
 }
