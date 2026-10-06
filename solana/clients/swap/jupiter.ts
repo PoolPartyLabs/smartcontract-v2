@@ -15,7 +15,11 @@ export class TokenBucket {
   private updated: number;
   private blockedUntil = 0;
   private queue: Promise<void> = Promise.resolve();
-  constructor(private intervalMs: number, private clock: Clock = realClock) {
+  private intervalMs: number;
+  private clock: Clock;
+  constructor(intervalMs: number, clock: Clock = realClock) {
+    this.intervalMs = intervalMs;
+    this.clock = clock;
     if (!Number.isFinite(intervalMs) || intervalMs < 1000) throw new Error('MVP rate must not exceed Free 1 RPS');
     this.updated = clock.now();
   }
@@ -52,11 +56,17 @@ export type SwapInstructions = {
 export class JupiterClient {
   private bucket: TokenBucket;
   private cache = new Map<string, { expires: number; quote: Quote }>();
+  private apiKey?: string;
+  private transport: typeof fetch;
+  private clock: Clock;
   constructor(
-    private apiKey?: string,
-    private transport: typeof fetch = fetch,
-    private clock: Clock = realClock,
+    apiKey?: string,
+    transport: typeof fetch = fetch,
+    clock: Clock = realClock,
   ) {
+    this.apiKey = apiKey;
+    this.transport = transport;
+    this.clock = clock;
     this.bucket = new TokenBucket(apiKey ? 1100 : 2100, clock);
   }
 
