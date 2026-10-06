@@ -92,7 +92,8 @@ contract SolanaSpokeRegistryV6 {
                 asset.mint == 0 || asset.accountingId == address(0) || accountingId[asset.mint] != address(0)
                     || asset.accountingId != SolanaMandateV6.accountingId(asset.mint)
             ) revert InvalidNativeConfig();
-            bool isStock = asset.mint == 0x07e83582411fea1482f0994b80aa512a97c94f25df283bec5a67a381fc862b4a;
+            bool isStock = asset.mint == 0x07e83582411fea1482f0994b80aa512a97c94f25df283bec5a67a381fc862b4a
+                || asset.mint == 0x07e8a50e140fda5791f4566a957fd3ae3f873e6a3466ffc13d79119dfa9ab50a;
             bool isUsdc = asset.mint == 0xc6fa7af3bedbad3a3d65f36aabc97431b1bbe4c2d2f6e0e47ca60203452f5d61;
             bool isWrappedSol = asset.mint == 0x069b8857feab8184fb687f634618c035dac439dc1aeb3b5598a0f00000000001;
             if ((!isStock && !isUsdc && !isWrappedSol) || asset.stock != isStock) revert InvalidNativeConfig();
@@ -155,10 +156,14 @@ contract SolanaSpokeRegistryV6 {
                 ReportCodecV6.MintState memory state = states[stateIndex];
                 if (state.mint != mint) continue;
                 ++matches;
-                if (
-                    state.multiplierBits != 0x3ff0000000000000 || state.newMultiplierBits != 0x3ff0000000000000
-                        || state.paused || state.frozen || state.transferHook != 0
-                ) revert UnsafeStockState(mint);
+                bool nvda = mint == 0x07e8a50e140fda5791f4566a957fd3ae3f873e6a3466ffc13d79119dfa9ab50a;
+                bool multiplierSafe = nvda
+                    ? state.multiplierBits == 0x3ff003c2ac1bf43f && state.newMultiplierBits == 0x3ff006f7d589fea9
+                        && state.effectiveAt == 1_789_000_200 && block.timestamp >= uint64(state.effectiveAt)
+                    : state.multiplierBits == 0x3ff0000000000000 && state.newMultiplierBits == 0x3ff0000000000000;
+                if (!multiplierSafe || state.paused || state.frozen || state.transferHook != 0) {
+                    revert UnsafeStockState(mint);
+                }
             }
             if (matches != 1) revert UnsafeStockState(mint);
         }
