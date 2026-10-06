@@ -111,17 +111,17 @@ impl ReserveSnapshot {
             KaminoError::WrongReserve
         );
         require_keys_eq!(read_key(data, 2560)?, COLLATERAL, KaminoError::WrongReserve);
-        require_keys_eq!(read_key(data, 448)?, TOKEN, KaminoError::WrongReserve);
-        require!(read_u64(data, 280)? == 6, KaminoError::InvalidLayout);
+        require_keys_eq!(read_key(data, 408)?, TOKEN, KaminoError::WrongReserve);
+        require!(read_u64(data, 272)? == 6, KaminoError::InvalidLayout);
         let available = read_u64(data, 224)?;
         let liquidity_sf = (u128::from(available) * SCALE)
             .checked_add(read_u128(data, 232)?)
             .ok_or(KaminoError::MathOverflow)?
-            .checked_sub(read_u128(data, 384)?)
+            .checked_sub(read_u128(data, 344)?)
             .ok_or(KaminoError::MathOverflow)?
-            .checked_sub(read_u128(data, 400)?)
+            .checked_sub(read_u128(data, 360)?)
             .ok_or(KaminoError::MathOverflow)?
-            .checked_sub(read_u128(data, 416)?)
+            .checked_sub(read_u128(data, 376)?)
             .ok_or(KaminoError::MathOverflow)?;
         Ok(Self {
             slot: read_u64(data, 16)?,
