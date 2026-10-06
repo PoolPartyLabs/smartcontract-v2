@@ -11,8 +11,7 @@ import {CctpBridgeAdapter} from "../adapters/CctpBridgeAdapter.sol";
 import {CctpReceiveConnector} from "./CctpReceiveConnector.sol";
 
 /// @notice New-Fund-only CCTP Core entry points; existing CoreVault deployments are unchanged (DEC-188).
-/// @dev TODO(integration): T2a factory must commit every CctpRoute field and fee bound in the new Mandate hash (DEC-053).
-///      This separate deployable version is an integration seam, not an authorized production factory path.
+/// @dev CoreVaultV6 composes this with factory-bound native configuration (DEC-053, DEC-191, DEC-199).
 contract CoreVaultCctp is CoreVault, ICctpCoreVault {
     CctpBridgeAdapter public immutable cctpAdapter;
     CctpReceiveConnector public immutable cctpConnector;

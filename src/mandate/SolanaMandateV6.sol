@@ -4,6 +4,18 @@ import {ReportCodecV6} from "../libraries/ReportCodecV6.sol";
 
 /// @notice Immutable native identity commitment accompanying the EVM Mandate (DEC-188, DEC-190).
 library SolanaMandateV6 {
+    struct Transport {
+        address hubUsdc;
+        address tokenMessenger;
+        address messageTransmitter;
+        uint32 destinationDomain;
+        bytes32 mintRecipient;
+        bytes32 destinationCaller;
+        bytes32 remoteTokenMessenger;
+        bytes32 remoteVaultAuthority;
+        uint256 fastFeeCeiling;
+    }
+
     struct Asset {
         bytes32 mint;
         address accountingId;
@@ -27,6 +39,7 @@ library SolanaMandateV6 {
         uint256 chainId;
         Asset[] assets;
         Venue[] venues;
+        Transport transport;
     }
 
     /// @dev Namespaced accounting aliases, not truncated public keys; collisions are refused by the registry.
@@ -72,6 +85,7 @@ contract SolanaSpokeRegistryV6 {
         _config.usdcMint = config.usdcMint;
         _config.managerKey = config.managerKey;
         _config.chainId = config.chainId;
+        _config.transport = config.transport;
         for (uint256 index; index < config.assets.length; ++index) {
             SolanaMandateV6.Asset memory asset = config.assets[index];
             if (
