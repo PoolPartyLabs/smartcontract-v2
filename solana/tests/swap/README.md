@@ -7,6 +7,15 @@ the integration baseline. Never replace these with a Manager-provided allowlist.
 `execute_guarded` is the tested CPI primitive; `Conversion` is an internal
 principal conversion, never income (DEC-079, DEC-080, DEC-190, DEC-193).
 
+## Decision status (DEC-197/DEC-198)
+
+Jupiter is the chosen swap venue; Round 5 permits API-side venue filtering
+(DEC-197/DEC-198). Venue selection is not unresolved. TODO(decision): coordinator
+approval of the temporary V1 API/wire pin or a separately verified migration
+remains outstanding. The sealed loss/slippage reference is still unanswered;
+this slice makes no new decision about that reference or an independent loss
+bound and does not open the runtime handler.
+
 ## Verified Jupiter interface, October 6, 2026
 
 - Official program ID / source IDL:
@@ -34,8 +43,8 @@ principal conversion, never income (DEC-079, DEC-080, DEC-190, DEC-193).
   excludeDexes as mutually exclusive. V1 supports `onlyDirectRoutes=true`;
   V2's current OpenAPI does not list it. Route builder pins `Raydium CLMM`,
   direct route, maxAccounts 32; contract narrowing accepts only one-hop V1
-  CLMM variants 26/40. Round 5 permits API-side venue filtering; this narrower
-  decoder is a safety restriction, not a new closed-venue economic rule.
+  CLMM variants 26/40. DEC-197/DEC-198 permit API-side venue filtering; this
+  narrower decoder is a safety restriction, not a new closed-venue economic rule.
 - V1 response: `addressLookupTableAddresses`, fetched from RPC and checked active.
   V2: `addressesByLookupTableAddress` maps ALT addresses to account arrays.
   Do not interchange these response formats or V1 percent/V2 bps route encoding.
@@ -72,6 +81,10 @@ Ratio math uses arbitrary-precision raw-unit CLMM weights, clamped current
 sqrtPriceX64, 1..12 quote iterations (8 default). RPC pool price/range and current
 inventory are explicit inputs from UI; no trusted NAV is inferred. Approximate
 ratio is not guaranteed exact with rounded amounts; refresh LP sizing after swap.
+Every quote, including the full-balance single-sided range shortcut, must have
+positive u64 output and leave the recipient token-account balance within u64.
+Client tests cover zero/negative/oversized output, recipient overflow and the
+valid u64 boundary in both directions, plus in-range overflow regressions.
 
 ## Reproduce without Jupiter test calls
 
@@ -123,8 +136,9 @@ drain and metadata mutation detection is independently host-unit-tested.
    `SwapRequest`, call `execute_guarded`, persist returned principal conversion
    atomically in T1 ledger. Supply finalized T1 APIs/account order; no guessed
    state layout or new mandate is created here. Update builder account layout.
-2. Confirm Round 5 DEC IDs: supplied spec register stops at DEC-196; this slice
-   cites RULINGS R5.1/R5.2 plus existing DEC IDs, never invents new DEC numbers.
+2. Resolve the unanswered sealed loss/slippage reference and any independent
+   loss bound with T1. Jupiter selection and API-side venue filtering are already
+   recorded in DEC-197/DEC-198; no new economic decision is made here.
 3. Register track unit tests in coordinator runner if desired; tests remain under
    `tests/swap/` and shared runner/manifests are untouched.
 4. Approval or verified migration for temporary V1 API/wire pin; cross-process
