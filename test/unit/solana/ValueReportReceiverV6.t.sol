@@ -166,12 +166,13 @@ contract ValueReportReceiverV6Test is Test {
 
     function testRejectDifferentReportAgesAndDuplicateEmitters() public {
         SpokeConfig[] memory configs = SolanaFixture.spokes();
+        SolanaSpokeRegistryV6 registry = receiver.nativeRegistry();
         configs[1].maxReportAge = 1601;
         vm.expectRevert(ValueReportReceiverV6.InvalidConfiguration.selector);
-        new ValueReportReceiverV6(address(bridge), address(vault), bytes32(uint256(1)), configs, receiver.nativeRegistry());
+        new ValueReportReceiverV6(address(bridge), address(vault), bytes32(uint256(1)), configs, registry);
         configs[1] = configs[0];
         vm.expectRevert(ValueReportReceiverV6.InvalidConfiguration.selector);
-        new ValueReportReceiverV6(address(bridge), address(vault), bytes32(uint256(1)), configs, receiver.nativeRegistry());
+        new ValueReportReceiverV6(address(bridge), address(vault), bytes32(uint256(1)), configs, registry);
     }
 
     function testRejectRepeatedReportSequenceWithNewWormholeSequence() public {
