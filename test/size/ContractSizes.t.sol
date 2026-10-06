@@ -37,14 +37,19 @@ contract ContractSizesTest is Test {
 
     /// @dev Every top-level contract and library under `src/`, as `<path>:<name>`.
     function _entries() internal pure returns (Entry[] memory e) {
-        e = new Entry[](42);
+        e = new Entry[](54);
         uint256 i;
         // Contracts deployed on chain (the factory's roles, the protocol-level contracts and what they deploy).
         e[i++] = Entry("src/adapters/AaveV3Adapter.sol:AaveV3Adapter", Kind.Contract);
         e[i++] = Entry("src/adapters/AcrossBridgeAdapter.sol:AcrossBridgeAdapter", Kind.Contract);
+        e[i++] = Entry("src/adapters/CctpBridgeAdapter.sol:CctpBridgeAdapter", Kind.Contract);
         e[i++] = Entry("src/adapters/UniswapV3SwapAdapter.sol:UniswapV3SwapAdapter", Kind.Contract);
         e[i++] = Entry("src/adapters/UniswapV4Adapter.sol:UniswapV4Adapter", Kind.Contract);
         e[i++] = Entry("src/core/CoreVault.sol:CoreVault", Kind.Contract);
+        e[i++] = Entry("src/core/CoreVaultV6.sol:CoreVaultV6", Kind.Contract);
+        e[i++] = Entry("src/core/CoreVaultCctp.sol:CoreVaultCctp", Kind.Contract);
+        e[i++] = Entry("src/core/CctpReceiveConnector.sol:CctpReceiveConnector", Kind.Contract);
+        e[i++] = Entry("src/core/CoreVaultCctpLogic.sol:CoreVaultCctpLogic", Kind.LinkedLibrary);
         e[i++] = Entry("src/core/CoreVaultClosureLogic.sol:CoreVaultClosureLogic", Kind.LinkedLibrary);
         e[i++] = Entry("src/core/ManagerFeeVault.sol:ManagerFeeVault", Kind.Contract);
         e[i++] = Entry("src/core/ManagerRegistry.sol:ManagerRegistry", Kind.Contract);
@@ -52,8 +57,12 @@ contract ContractSizesTest is Test {
         e[i++] = Entry("src/core/TransitEscrow.sol:TransitEscrow", Kind.Contract);
         e[i++] = Entry("src/factory/Create3Deployer.sol:Create3Deployer", Kind.Contract);
         e[i++] = Entry("src/factory/FundFactory.sol:FundFactory", Kind.Contract);
+        e[i++] = Entry("src/factory/FundFactoryV6.sol:FundFactoryV6", Kind.Contract);
         e[i++] = Entry("src/report/ChainlinkPriceSource.sol:ChainlinkPriceSource", Kind.Contract);
         e[i++] = Entry("src/report/ValueReportReceiver.sol:ValueReportReceiver", Kind.Contract);
+        e[i++] = Entry("src/report/ValueReportReceiverV6.sol:ValueReportReceiverV6", Kind.Contract);
+        e[i++] = Entry("src/report/SolanaPriceSourceV6.sol:SolanaPriceSourceV6", Kind.Contract);
+        e[i++] = Entry("src/mandate/SolanaMandateV6.sol:SolanaSpokeRegistryV6", Kind.Contract);
         e[i++] = Entry("src/spoke/SpokeVault.sol:SpokeVault", Kind.Contract);
         // Linked libraries: deployed once per chain through the deterministic deployer (script/FactoryDeployment.sol).
         e[i++] = Entry("src/core/CoreVaultLogic.sol:CoreVaultLogic", Kind.LinkedLibrary);
@@ -77,6 +86,9 @@ contract ContractSizesTest is Test {
         e[i++] = Entry("src/libraries/OrderCodec.sol:OrderCodec", Kind.InlinedLibrary);
         e[i++] = Entry("src/libraries/OrderVerifier.sol:OrderVerifier", Kind.InlinedLibrary);
         e[i++] = Entry("src/libraries/ReportCodec.sol:ReportCodec", Kind.InlinedLibrary);
+        e[i++] = Entry("src/libraries/ReportCodecV6.sol:ReportCodecV6", Kind.InlinedLibrary);
+        e[i++] = Entry("src/libraries/CctpMessage.sol:CctpMessage", Kind.InlinedLibrary);
+        e[i++] = Entry("src/mandate/SolanaMandateV6.sol:SolanaMandateV6", Kind.InlinedLibrary);
         e[i++] = Entry("src/libraries/ShareMath.sol:ShareMath", Kind.InlinedLibrary);
         e[i++] = Entry("src/libraries/TransitMessage.sol:TransitMessage", Kind.InlinedLibrary);
         e[i++] = Entry("src/mandate/Mandate.sol:MandateLib", Kind.InlinedLibrary);
