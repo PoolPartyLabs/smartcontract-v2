@@ -11,6 +11,7 @@ use anchor_lang::prelude::*;
 pub struct ReceiveAndCredit<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
+    // TODO(decision): coordinate closed-Fund excess arrival handling with T1 (DEC-167).
     #[account(seeds = [b"fund", fund.hub_core.as_ref(), &fund.spoke_index.to_le_bytes()], bump = fund.bump, constraint = !fund.closed @ CctpError::Unauthorized)]
     pub fund: Account<'info, FundState>,
     /// CHECK: canonical vault signs as destinationCaller, never the relayer.

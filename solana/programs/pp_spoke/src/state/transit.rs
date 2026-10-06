@@ -8,6 +8,7 @@ pub struct CctpRoute {
     pub mandate_hash: [u8; 32],
     pub hub_connector: [u8; 20],
     pub solana_chain_id: u64,
+    /// TODO(decision): numeric immutable ceiling; no production default (DEC-191).
     pub max_fee_bps_scaled: u64,
     pub sealed: bool,
 }

@@ -31,6 +31,7 @@ pub struct SendToHub<'info> {
 }
 
 pub fn handler(ctx: Context<SendToHub>, payload: Vec<u8>) -> Result<()> {
+    // TODO(decision): canonical direction-qualified transit-id namespace (DEC-191).
     let params = SendParams::try_from_slice(&payload).map_err(|_| CctpError::InvalidPayload)?;
     require!(
         params.transit_id != [0; 32]
