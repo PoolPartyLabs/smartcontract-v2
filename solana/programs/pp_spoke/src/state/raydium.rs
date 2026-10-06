@@ -30,3 +30,16 @@ pub struct RaydiumPosition {
     pub closed: bool,
     pub bump: u8,
 }
+
+/// DEC-079, DEC-193: authenticated allocations, never raw balances, fund entries.
+/// TODO(decision): T1 must credit/debit this ledger atomically across all adapters.
+#[account]
+#[derive(InitSpace)]
+pub struct RaydiumLedger {
+    pub fund: Pubkey,
+    pub pool: Pubkey,
+    pub idle_principal_0: u64,
+    pub idle_principal_1: u64,
+    pub idle_income_0: u64,
+    pub idle_income_1: u64,
+}
