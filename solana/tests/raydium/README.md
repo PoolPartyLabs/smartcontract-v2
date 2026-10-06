@@ -52,8 +52,8 @@ revokes both delegates atomically. Vault tokens/NFT remain Fund-owned.
    entrypoint comments that still call implemented handlers scaffolds.
 6. Retained position-record rent is refundable only when the coordinator defines
    authenticated report acknowledgement/record retirement. No premature GC exists.
-7. Integration requirement: each successful open must checked-increment
-   `FundState.active_positions`; close must not decrement it until canonical
+7. Each successful open checked-increments `FundState.active_positions`;
+   close deliberately does not decrement it until canonical
    ledger/report reconciliation and authenticated record retirement are wired.
    Idle-only reports must remain fail-closed even after every Raydium NFT closes.
 
@@ -76,17 +76,17 @@ revokes both delegates atomically. Vault tokens/NFT remain Fund-owned.
 
 ## Reproduce safely
 
-The Raydium Fund fixture serializer still uses the pre-PR39 layout. After PR39
-lands and its integration is confirmed by the parent, use the parent-owned
+The Raydium Fund fixture serializer uses the parent-owned
 `tests/helpers/fund-state.ts` helper: `completeFundState` appends the 221-byte
 extension (empty assets/venues) and final 200-byte Transport to the 165-byte
-legacy prefix. Until then, fixture-based lifecycle runs are not current
-integration evidence. The latch assertions read the u16 counter at byte 372
+legacy prefix, producing a 586-byte empty-vector fixture. The latch assertions
+read the u16 counter at byte 372
 and require `build_report` without remaining accounts to reject with
 `AdapterNotIntegrated` after both open and close.
 
-Once that fixture integration is complete, run inside `solana/`, with local-only
-generated wallets:
+Run inside `solana/`, with local-only generated wallets. Rebuild the program/IDL
+and regenerate fixtures before lifecycle tests; pre-core runs do not validate
+the integrated layout or latch:
 
 ```sh
 export PP_LOCALNET_RPC_PORT=8940 PP_LOCALNET_FAUCET_PORT=9940

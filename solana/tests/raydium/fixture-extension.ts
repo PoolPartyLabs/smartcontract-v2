@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { PublicKey } from '@solana/web3.js';
 import { ADDRESSES, derive, fundAddresses, publicKey } from '../helpers/addresses.ts';
 import { discriminator, readKey } from '../helpers/layouts.ts';
+import { completeFundState } from '../helpers/fund-state.ts';
 import { testAta, testWallet } from '../helpers/localnet.ts';
 
 const root = fileURLToPath(new URL('../../.localnet/', import.meta.url));
@@ -55,7 +56,7 @@ export async function extendFixtures() {
     const fundData = Buffer.concat([discriminator('account', 'FundState'), hub, Buffer.from([1, 0]),
       Buffer.alloc(32, index + 1), mandateHash, Buffer.alloc(20, 3), manager.publicKey.toBuffer(),
       Buffer.alloc(16), Buffer.from([0, fundBump, vaultBump])]);
-    override(addresses.fund, ADDRESSES.spoke, fundData);
+    override(addresses.fund, ADDRESSES.spoke, completeFundState(fundData));
     override(addresses.vault, '11111111111111111111111111111111', Buffer.alloc(0), 0);
     const policy = derive(ADDRESSES.spoke, Buffer.from('raydium_policy'), fund.toBuffer(), publicKey(pool.address).toBuffer());
     const tickBounds = Buffer.alloc(8);

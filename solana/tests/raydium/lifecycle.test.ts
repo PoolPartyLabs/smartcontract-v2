@@ -5,6 +5,7 @@ import { Keypair, PublicKey, TransactionInstruction, Transaction, ComputeBudgetP
 import { ADDRESSES, derive, publicKey } from '../helpers/addresses.ts';
 import { decodePool, discriminator, readU128 } from '../helpers/layouts.ts';
 import { localConnection, testAta, testWallet } from '../helpers/localnet.ts';
+import { rejectIncompleteReport } from '../helpers/report-gate.ts';
 import { instruction, sendMeasured, u128 } from './client.ts';
 
 const memo = 'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr';
@@ -50,16 +51,7 @@ for (const fixture of fixtures) {
     const open = instruction('raydium_open_position', accounts, payload);
     const activePositionsBefore = (await connection.getAccountInfo(publicKey(fixture.fund)))!.data.readUInt16LE(372);
     async function assertReportLatched() {
-      const report = instruction('build_report', {
-        authority: manager.publicKey, fund: fixture.fund, vault: fixture.vault,
-        wormhole_program: ADDRESSES.wormhole,
-      }, Buffer.alloc(0));
-      const transaction = new Transaction({ feePayer: manager.publicKey, recentBlockhash: (await connection.getLatestBlockhash()).blockhash })
-        .add(report);
-      transaction.sign(manager);
-      const result = await connection.simulateTransaction(transaction);
-      assert.ok(result.value.err, 'idle-only report must fail while Raydium records remain unretired');
-      assert.match(result.value.logs?.join('\n') ?? '', /AdapterNotIntegrated/);
+      await rejectIncompleteReport(connection, manager, publicKey(fixture.fund), publicKey(fixture.vault), 'AdapterNotIntegrated');
     }
     async function negative(changes: Record<string, string | PublicKey | null>, badPayload = payload) {
       const bad = instruction('raydium_open_position', { ...accounts, ...changes }, badPayload);
