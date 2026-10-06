@@ -10,14 +10,14 @@ use anchor_lang::solana_program::{
     system_instruction,
 };
 
-/// DEC-093, DEC-120, DEC-121, DEC-122, DEC-192: provisional accounts; no CPI or state mutation is authorized by this stub.
+/// DEC-093, DEC-192, DEC-195: validated snapshot with keeper-paid reliable bridge CPI.
 #[derive(Accounts)]
 pub struct PublishReport<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
     #[account(mut)]
     pub fund: Account<'info, FundState>,
-    /// CHECK: owning track must enforce the per-Fund vault PDA; handler always fails meanwhile.
+    /// CHECK: compatibility account only; snapshot independently derives the custody PDA.
     #[account(mut)]
     pub vault: UncheckedAccount<'info>,
     /// CHECK: pinned executable mainnet core bridge; CPI owns its validated PDAs.

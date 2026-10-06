@@ -2,17 +2,17 @@ use super::snapshot::{encoded_snapshot, ReportError};
 use crate::state::FundState;
 use anchor_lang::prelude::*;
 
-/// DEC-093, DEC-120, DEC-121, DEC-122, DEC-192: provisional accounts; no CPI or state mutation is authorized by this stub.
+/// DEC-093, DEC-192: permissionless complete snapshot, never caller-supplied value.
 #[derive(Accounts)]
 pub struct BuildReport<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
     #[account(mut)]
     pub fund: Account<'info, FundState>,
-    /// CHECK: owning track must enforce the per-Fund vault PDA; handler always fails meanwhile.
+    /// CHECK: compatibility account only; snapshot independently derives the custody PDA.
     #[account(mut)]
     pub vault: UncheckedAccount<'info>,
-    /// CHECK: T1 must constrain the canonical bridge and authenticated posted VAA accounts.
+    /// CHECK: compatibility account only; snapshot performs no bridge CPI.
     pub wormhole_program: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
