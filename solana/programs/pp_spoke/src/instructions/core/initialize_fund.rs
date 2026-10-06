@@ -215,20 +215,41 @@ fn allocate<'info>(
     seeds: &[&[u8]],
 ) -> Result<()> {
     require!(
-        account.owner == &System::id() && account.data_is_empty() && account.lamports() == 0,
+        account.owner == &System::id() && account.data_is_empty(),
         CoreError::InvalidConfiguration
     );
-    invoke_signed(
-        &system_instruction::create_account(
-            payer.key,
-            account.key,
-            Rent::get()?.minimum_balance(space),
-            space as u64,
-            &crate::ID,
-        ),
-        &[payer.clone(), account.clone(), system.clone()],
-        &[seeds],
-    )?;
+    let rent = Rent::get()?.minimum_balance(space);
+    if account.lamports() == 0 {
+        invoke_signed(
+            &system_instruction::create_account(
+                payer.key,
+                account.key,
+                rent,
+                space as u64,
+                &crate::ID,
+            ),
+            &[payer.clone(), account.clone(), system.clone()],
+            &[seeds],
+        )?;
+    } else {
+        let needed = rent.saturating_sub(account.lamports());
+        if needed != 0 {
+            anchor_lang::solana_program::program::invoke(
+                &system_instruction::transfer(payer.key, account.key, needed),
+                &[payer.clone(), account.clone(), system.clone()],
+            )?;
+        }
+        invoke_signed(
+            &system_instruction::allocate(account.key, space as u64),
+            &[account.clone(), system.clone()],
+            &[seeds],
+        )?;
+        invoke_signed(
+            &system_instruction::assign(account.key, &crate::ID),
+            &[account.clone(), system.clone()],
+            &[seeds],
+        )?;
+    }
     Ok(())
 }
 
