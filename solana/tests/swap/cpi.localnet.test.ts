@@ -3,11 +3,14 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PublicKey, TransactionInstruction, TransactionMessage, VersionedTransaction, ComputeBudgetProgram } from '@solana/web3.js';
 import { localConnection, testWallet, requireLoopback } from '../helpers/localnet.ts';
+import type { Quote, SwapInstructions } from '../../clients/swap/jupiter.ts';
+
+type SwapFixture = { quote: Quote; instructions: SwapInstructions; probe: string; fund: string; vault: string };
 
 const connection = localConnection();
 const manager = testWallet();
 
-function fixture(pair: string) {
+function fixture(pair: string): SwapFixture {
   return JSON.parse(readFileSync(new URL(`./fixtures/${pair}.json`, import.meta.url), 'utf8'));
 }
 
@@ -48,7 +51,7 @@ async function build(pair: string, negative?: string) {
   return { transaction, blockhash, route, bytes: transaction.serialize().length };
 }
 
-async function balances(route: any) {
+async function balances(route: SwapFixture) {
   const accounts = await connection.getMultipleAccountsInfo(route.instructions.swapInstruction.accounts.slice(2, 4).map(account => new PublicKey(account.pubkey)));
   return accounts.map(account => account!.data.readBigUInt64LE(64));
 }

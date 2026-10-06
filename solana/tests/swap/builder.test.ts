@@ -4,13 +4,15 @@ import { readFileSync } from 'node:fs';
 import { AddressLookupTableAccount, PublicKey } from '@solana/web3.js';
 import type { Connection } from '@solana/web3.js';
 import { buildSwapToRatio } from '../../clients/swap/build.ts';
-import type { JupiterClient } from '../../clients/swap/jupiter.ts';
+import type { JupiterClient, Quote, SwapInstructions } from '../../clients/swap/jupiter.ts';
 import { Q64 } from '../../clients/swap/ratio.ts';
 import { ADDRESSES } from '../helpers/addresses.ts';
 
 for (const pair of ['tslax', 'nvdax', 'wsol']) {
   test(`builder returns an unsigned custody-bound ${pair} v0 transaction from fixture`, async () => {
-    const fixture = JSON.parse(readFileSync(new URL(`./fixtures/${pair}.json`, import.meta.url), 'utf8'));
+    const fixture = JSON.parse(readFileSync(new URL(`./fixtures/${pair}.json`, import.meta.url), 'utf8')) as {
+      quote: Quote; instructions: SwapInstructions; vault: string; probe: string; fund: string;
+    };
     const quote = fixture.quote;
     const vault = new PublicKey(fixture.vault);
     const mockRpc = {
