@@ -94,6 +94,7 @@ abstract contract CoreVaultTransit is CoreVaultIncome {
     /// @dev Security review S-4: see CoreVaultTransitLogic.recoverUnlistedArrival.
     function recoverUnlistedArrival(uint256 spokeIndex, bytes32 transitId)
         external
+        virtual
         nonReentrant
         returns (uint256 amount)
     {
@@ -107,7 +108,7 @@ abstract contract CoreVaultTransit is CoreVaultIncome {
     /// @inheritdoc ICoreVault
     /// @dev Confirms arrived transits and credits matched spoke-to-hub arrivals, in CoreVaultTransitLogic. Never
     ///      reverts because of an unknown or repeated transit id.
-    function onReportAccepted(uint256 spokeIndex) external nonReentrant {
+    function onReportAccepted(uint256 spokeIndex) external virtual nonReentrant {
         if (msg.sender != reportReceiver) revert NotReportReceiver(msg.sender);
         CoreVaultTransitLogic.applyReport(_s, _wiring(), spokeIndex);
     }

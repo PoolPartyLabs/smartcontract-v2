@@ -6,6 +6,8 @@
 
 ## Pool Party V2: live on mainnet
 
+Solana spoke development and local mainnet-state tests: [solana/README.md](solana/README.md).
+
 **An open-source On-Chain Asset Management System (OAMS), built during the Arbitrum Open House Singapore Buildathon and deployed on Arbitrum One and Robinhood Chain mainnet.** Managers create funds, commit to an immutable Mandate and operate DeFi positions. Investors access the fund through USDC-denominated shares on Arbitrum.
 
 **This is a live mainnet internal alpha with real capital and confirmed transactions.** The evidence includes manager-funded creation, investor deposits, Aave supply, Uniswap swaps and liquidity positions, Across transfers and Wormhole value reports. The external security audit is planned next, followed by the public V2 launch. V2 has not yet been audited by an independent third party.
