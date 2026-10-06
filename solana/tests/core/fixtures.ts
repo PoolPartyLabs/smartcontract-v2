@@ -1,6 +1,6 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
-import { PublicKey, Transaction, SendTransactionError } from '@solana/web3.js';
-import type { Connection, Keypair, TransactionInstruction } from '@solana/web3.js';
+import { PublicKey, Transaction, SendTransactionError, AddressLookupTableProgram, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
+import type { Connection, Keypair, TransactionInstruction, AddressLookupTableAccount } from '@solana/web3.js';
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { keccak_256 } from '@noble/hashes/sha3';
 import { ADDRESSES, fundAddresses, derive, publicKey } from '../helpers/addresses.ts';
@@ -104,12 +104,33 @@ export function prepareCoreFixtures() {
 
 export async function sendSignedLocal(connection: Connection, payer: Keypair, instructions: TransactionInstruction[], additional: Keypair[] = []) {
   requireLoopback(connection.rpcEndpoint);
+  let table: AddressLookupTableAccount | undefined;
+  if (instructions.some(instruction => instruction.data.subarray(0, 8).equals(discriminator('global', 'initialize_fund')))) {
+    const slot = await connection.getSlot('finalized');
+    const [create, address] = AddressLookupTableProgram.createLookupTable({ authority: payer.publicKey, payer: payer.publicKey, recentSlot: slot });
+    await sendSignedLocal(connection, payer, [create]);
+    const keys = [...new Map(instructions.flatMap(instruction => instruction.keys).filter(meta => !meta.isSigner).map(meta => [meta.pubkey.toBase58(), meta.pubkey])).values()];
+    for (let offset = 0; offset < keys.length; offset += 20) {
+      await sendSignedLocal(connection, payer, [AddressLookupTableProgram.extendLookupTable({ lookupTable: address,
+        authority: payer.publicKey, payer: payer.publicKey, addresses: keys.slice(offset, offset + 20) })]);
+    }
+    const extendedAt = await connection.getSlot('confirmed');
+    while (await connection.getSlot('confirmed') <= extendedAt) await new Promise(resolve => setTimeout(resolve, 100));
+    table = (await connection.getAddressLookupTable(address)).value ?? undefined;
+    if (!table) throw new Error('Local init lookup table is unavailable');
+  }
   for (let attempt = 0; attempt < 5; attempt++) {
     const blockhash = await connection.getLatestBlockhash('confirmed');
-    const transaction = new Transaction({ feePayer: payer.publicKey, recentBlockhash: blockhash.blockhash }).add(...instructions);
-    transaction.sign(payer, ...additional);
+    const transaction = table
+      ? new VersionedTransaction(new TransactionMessage({ payerKey: payer.publicKey, recentBlockhash: blockhash.blockhash, instructions }).compileToV0Message([table]))
+      : new Transaction({ feePayer: payer.publicKey, recentBlockhash: blockhash.blockhash }).add(...instructions);
+    if (transaction instanceof VersionedTransaction) transaction.sign([payer, ...additional]);
+    else transaction.sign(payer, ...additional);
+    const serialized = transaction.serialize();
+    if (serialized.length > 1232) throw new Error(`Local transaction exceeds packet limit: ${serialized.length}`);
+    if (table) console.log(`Versioned initialization transaction: ${serialized.length} bytes.`);
     let signature: string;
-    try { signature = await connection.sendRawTransaction(transaction.serialize(), { preflightCommitment: 'confirmed' }); }
+    try { signature = await connection.sendRawTransaction(serialized, { preflightCommitment: 'confirmed' }); }
     catch (error) {
       if (!(error instanceof SendTransactionError) || !error.message.startsWith('Simulation failed.')
           || !error.transactionError.message.includes('Program cache hit max limit') || attempt === 4) throw error;
