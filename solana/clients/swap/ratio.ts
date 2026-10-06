@@ -22,6 +22,19 @@ export function rangeWeights(inventory: RangeInventory): { weight0: bigint; weig
   };
 }
 
+function validateQuote(
+  inventory: RangeInventory,
+  zeroForOne: boolean,
+  amount: bigint,
+  expectedOutput: bigint,
+): { balance0: bigint; balance1: bigint } {
+  if (expectedOutput <= 0n || expectedOutput > U64_MAX) throw new Error('Invalid quote output');
+  const balance0 = inventory.balance0 + (zeroForOne ? -amount : expectedOutput);
+  const balance1 = inventory.balance1 + (zeroForOne ? expectedOutput : -amount);
+  if (balance0 > U64_MAX || balance1 > U64_MAX) throw new Error('Quote overflows token-account balance');
+  return { balance0, balance1 };
+}
+
 export async function solveRatio(
   inventory: RangeInventory,
   quote: (zeroForOne: boolean, amount: bigint) => Promise<bigint>,
@@ -35,7 +48,9 @@ export async function solveRatio(
   let lower = 0n;
   let upper = zeroForOne ? inventory.balance0 : inventory.balance1;
   if (weight0 === 0n || weight1 === 0n) {
-    return { zeroForOne, amount: upper, expectedOutput: await quote(zeroForOne, upper) };
+    const expectedOutput = await quote(zeroForOne, upper);
+    validateQuote(inventory, zeroForOne, upper, expectedOutput);
+    return { zeroForOne, amount: upper, expectedOutput };
   }
   let best: { zeroForOne: boolean; amount: bigint; expectedOutput: bigint } | null = null;
   let bestError = imbalance < 0n ? -imbalance : imbalance;
@@ -43,10 +58,7 @@ export async function solveRatio(
     const amount = (lower + upper) / 2n;
     if (amount === 0n) { lower = 1n; continue; }
     const expectedOutput = await quote(zeroForOne, amount);
-    if (expectedOutput <= 0n || expectedOutput > U64_MAX) throw new Error('Invalid quote output');
-    const balance0 = inventory.balance0 + (zeroForOne ? -amount : expectedOutput);
-    const balance1 = inventory.balance1 + (zeroForOne ? expectedOutput : -amount);
-    if (balance0 > U64_MAX || balance1 > U64_MAX) throw new Error('Quote overflows token-account balance');
+    const { balance0, balance1 } = validateQuote(inventory, zeroForOne, amount, expectedOutput);
     const residual = balance0 * weight1 - balance1 * weight0;
     const error = residual < 0n ? -residual : residual;
     if (error < bestError) { bestError = error; best = { zeroForOne, amount, expectedOutput }; }

@@ -30,6 +30,69 @@ test('ratio solver handles both directions, fees, one-sided ranges, and no-op', 
   await assert.rejects(solveRatio(inventory, async () => 0n), /Invalid quote/);
 });
 
+const u64Max = (1n << 64n) - 1n;
+
+for (const zeroForOne of [true, false]) {
+  const singleSided = {
+    ...inventory,
+    balance0: zeroForOne ? 10000n : 0n,
+    balance1: zeroForOne ? 0n : 10000n,
+    sqrtPriceX64: zeroForOne ? inventory.sqrtUpperX64 : inventory.sqrtLowerX64,
+  };
+  const direction = zeroForOne ? 'token0 to token1' : 'token1 to token0';
+
+  for (const expectedOutput of [0n, -1n, u64Max + 1n]) {
+    test(`single-sided ${direction} rejects quote output ${expectedOutput}`, async () => {
+      let calls = 0;
+      await assert.rejects(solveRatio(singleSided, async (quotedDirection, amount) => {
+        calls++;
+        assert.equal(quotedDirection, zeroForOne);
+        assert.equal(amount, 10000n);
+        return expectedOutput;
+      }), /Invalid quote output/);
+      assert.equal(calls, 1);
+    });
+  }
+
+  test(`single-sided ${direction} rejects destination balance overflow`, async () => {
+    const fullDestination = {
+      ...singleSided,
+      balance0: zeroForOne ? 10000n : u64Max,
+      balance1: zeroForOne ? u64Max : 10000n,
+    };
+    let calls = 0;
+    await assert.rejects(solveRatio(fullDestination, async (quotedDirection, amount) => {
+      calls++;
+      assert.equal(quotedDirection, zeroForOne);
+      assert.equal(amount, 10000n);
+      return 1n;
+    }), /Quote overflows token-account balance/);
+    assert.equal(calls, 1);
+  });
+
+  test(`single-sided ${direction} accepts the u64 destination boundary`, async () => {
+    assert.deepEqual(await solveRatio(singleSided, async () => u64Max),
+      { zeroForOne, amount: 10000n, expectedOutput: u64Max });
+    const nearlyFullDestination = {
+      ...singleSided,
+      balance0: zeroForOne ? 10000n : u64Max - 1n,
+      balance1: zeroForOne ? u64Max - 1n : 10000n,
+    };
+    assert.deepEqual(await solveRatio(nearlyFullDestination, async () => 1n),
+      { zeroForOne, amount: 10000n, expectedOutput: 1n });
+  });
+
+  test(`in-range ${direction} retains quote and destination overflow checks`, async () => {
+    const inRange = {
+      ...inventory,
+      balance0: zeroForOne ? u64Max : u64Max - 1n,
+      balance1: zeroForOne ? u64Max - 1n : u64Max,
+    };
+    await assert.rejects(solveRatio(inRange, async () => u64Max + 1n), /Invalid quote output/);
+    await assert.rejects(solveRatio(inRange, async () => 2n), /Quote overflows token-account balance/);
+  });
+}
+
 test('capacity-one token bucket serializes concurrent calls and honors cooldown', async () => {
   const time = clock();
   const bucket = new TokenBucket(2100, time);
