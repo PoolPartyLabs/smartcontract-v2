@@ -49,7 +49,7 @@ test('cloned mainnet programs execute and fixture balances are local-only', { ti
   console.log(`Kamino refresh_reserves_batch executed: ${transaction?.meta?.computeUnitsConsumed} CU, reserve update slot ${reserveAfter.lastUpdateSlot}.`);
 });
 
-test('loaded spoke initialize instruction returns NotImplemented without state changes', { timeout: 30_000 }, async () => {
+test('loaded spoke rejects incomplete initialization accounts without state changes', { timeout: 30_000 }, async () => {
   const connection = localConnection();
   const manager = testWallet();
   const instruction = new TransactionInstruction({
@@ -67,8 +67,8 @@ test('loaded spoke initialize instruction returns NotImplemented without state c
   transaction.sign(manager);
   const before = await connection.getAccountInfo(manager.publicKey);
   const result = await connection.simulateTransaction(transaction);
-  assert.deepEqual(result.value.err, { InstructionError: [0, { Custom: 6000 }] });
-  assert.ok(result.value.logs?.some(line => line.includes('NotImplemented')));
+  assert.deepEqual(result.value.err, { InstructionError: [0, { Custom: 3005 }] });
+  assert.ok(result.value.logs?.some(line => line.includes('AccountNotEnoughKeys')));
   const after = await connection.getAccountInfo(manager.publicKey);
   assert.equal(after?.lamports, before?.lamports);
   assert.ok(after?.data.equals(before!.data));
