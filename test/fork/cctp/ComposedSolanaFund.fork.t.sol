@@ -14,6 +14,8 @@ import {ValueReportReceiverV6} from "../../../src/report/ValueReportReceiverV6.s
 import {IFundFactory} from "../../../src/interfaces/IFundFactory.sol";
 import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
+import {SpokeUnwindTypes} from "../../../src/spoke/SpokeUnwindTypes.sol";
+import {CoreVaultConfig} from "../../../src/core/CoreVaultTypes.sol";
 import {CctpRoute} from "../../../src/interfaces/ICctpCoreVault.sol";
 import {CodeStore} from "../../../src/factory/CodeStore.sol";
 import {SolanaMandateV6, SolanaSpokeRegistryV6} from "../../../src/mandate/SolanaMandateV6.sol";
@@ -158,6 +160,10 @@ contract ComposedSolanaFundForkTest is Test, FactoryDeployment {
         Mandate memory mandate_ = _mandate();
         SolanaMandateV6.Config memory nativeConfig = native;
         assertEq(manager.code.length, 0);
+        CoreVaultConfig memory sizeConfig;
+        sizeConfig.shareName = "Pool Party Fund 1";
+        sizeConfig.shareSymbol = "PP-1";
+        assertLe(coreCode.length + abi.encode(mandate_, sizeConfig, address(1), address(2), address(3)).length, 49_152);
         vm.prank(manager);
         IFundFactory.FundAddresses memory result = factory.createFundV6(mandate_, params, nativeConfig, binding);
         return CoreVaultV6(result.coreVault);
@@ -217,7 +223,63 @@ contract ComposedSolanaFundForkTest is Test, FactoryDeployment {
         assertEq(IERC20(core.shareToken()).totalSupply(), supply);
     }
 
+    function testNativeIncomeResultSplitsFeesAndKeepsFeeSurplusPrincipal() public {
+        bytes32 transitId = keccak256("native-income-return");
+        receiver.deliver(bridge.craftVaa(1, native.spoke, ReportCodecV6.encode(_report(1, 0))));
+        ReportCodecV6.Report memory report = _report(2, 0);
+        report.cumulativeIncome = new ReportCodecV6.TokenAmount[](1);
+        report.cumulativeIncome[0] = ReportCodecV6.TokenAmount(native.usdcMint, 10e6);
+        report.inFlightToHub = new ReportCodec.HubBoundAmount[](1);
+        report.inFlightToHub[0] = ReportCodec.HubBoundAmount(transitId, 9_995_000, TransferKind.Income);
+        ReportCodecV6.CollectionResult[] memory results = new ReportCodecV6.CollectionResult[](1);
+        bytes32[] memory mints = new bytes32[](1);
+        mints[0] = native.usdcMint;
+        uint256[] memory sold = new uint256[](1);
+        sold[0] = 10e6;
+        results[0] = ReportCodecV6.CollectionResult(1, 1, transitId, 10e6, mints, sold, sold, 9_995_000);
+        report.collectionResults = abi.encode(results);
+        receiver.deliver(bridge.craftVaa(1, native.spoke, ReportCodecV6.encode(report)));
+        uint256 protocolBefore = IERC20(ARB_USDC).balanceOf(core.protocolRecipient());
+        _receive(transitId, TransferKind.Income, 10e6, 5000, 1000);
+        assertEq(core.idle(), 49_004_000);
+        assertEq(core.shareAssets(), 49_004_000);
+        assertEq(IERC20(ARB_USDC).balanceOf(core.protocolRecipient()), protocolBefore + 499_750);
+        assertEq(IERC20(ARB_USDC).balanceOf(core.managerFeeVault()), 499_750);
+        assertEq(core.unmatchedArrivals(), 0);
+        assertGt(core.incomeOwed(manager), 0);
+        uint256 balanceBefore = IERC20(ARB_USDC).balanceOf(manager);
+        vm.prank(manager);
+        uint256 withdrawn = core.withdrawIncome();
+        assertGt(withdrawn, 0);
+        assertEq(IERC20(ARB_USDC).balanceOf(manager), balanceBefore + withdrawn);
+        assertEq(core.shareAssets(), 49_004_000);
+    }
+
+    function testNativeClosureResultAndReturnUseExistingClosureAccounting() public {
+        vm.prank(manager);
+        core.closeFund();
+        bytes32 transitId = keccak256("native-closure-return");
+        ReportCodecV6.Report memory report = _report(1, 0);
+        report.inFlightToHub = new ReportCodec.HubBoundAmount[](1);
+        report.inFlightToHub[0] = ReportCodec.HubBoundAmount(transitId, 999_500, TransferKind.Principal);
+        SpokeUnwindTypes.OrderResult[] memory results = new SpokeUnwindTypes.OrderResult[](1);
+        results[0].orderId = keccak256("closure-order");
+        results[0].requestId = core.closureRequestId();
+        results[0].transitId = transitId;
+        results[0].amountSent = 1e6;
+        results[0].amountToArrive = 999_500;
+        report.unwindResults = SpokeUnwindTypes.encodeResults(results);
+        receiver.deliver(bridge.craftVaa(1, native.spoke, ReportCodecV6.encode(report)));
+        _receive(transitId, TransferKind.Principal, 1e6, 500, 100);
+        assertEq(core.idle(), 49_999_900);
+        assertEq(core.unmatchedArrivals(), 0);
+    }
+
     function _return(bytes32 transitId) private {
+        _receive(transitId, TransferKind.Principal, 9_999_000, 5000, 1000);
+    }
+
+    function _receive(bytes32 transitId, TransferKind kind, uint256 amount, uint256 maxFee, uint256 fee) private {
         CctpRoute memory route = CctpRoute(
             core.fundId(),
             1,
@@ -234,10 +296,10 @@ contract ComposedSolanaFundForkTest is Test, FactoryDeployment {
             MESSENGER,
             transitId,
             keccak256("composed-circle-nonce"),
-            TransferKind.Principal,
-            9_999_000,
-            5000,
-            1000
+            kind,
+            amount,
+            maxFee,
+            fee
         );
         (uint8 recovery, bytes32 signatureR, bytes32 signatureS) = vm.sign(ATTESTER_KEY, keccak256(message));
         core.cctpConnector().receiveCctpAndCredit(message, abi.encodePacked(signatureR, signatureS, recovery));
