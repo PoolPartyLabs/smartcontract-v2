@@ -61,7 +61,8 @@ pub fn handler(ctx: Context<KaminoRedeem>, payload: Vec<u8>) -> Result<()> {
         });
         return Ok(());
     }
-    let principal_now = position.principal.min(reserve.value(position.units)?);
+    let value_before = reserve.value(position.units)?;
+    let principal_now = position.principal.min(value_before);
     ctx.accounts.venue.invoke(
         ctx.accounts.vault.to_account_info(),
         &ctx.accounts.fund.key(),
@@ -99,7 +100,11 @@ pub fn handler(ctx: Context<KaminoRedeem>, payload: Vec<u8>) -> Result<()> {
         checked_add(position.cumulative_realized_income, income_paid)?;
     position.pending_units = 0;
     position.pending_min_liquidity = 0;
-    checkpoint(position, ctx.accounts.venue.refresh()?)?;
+    let refreshed = ctx.accounts.venue.refresh()?;
+    let rounding_shortfall =
+        (value_before - received).saturating_sub(refreshed.value(position.units)?);
+    position.principal = position.principal.saturating_sub(rounding_shortfall);
+    checkpoint(position, refreshed)?;
     emit!(KaminoRedeemed {
         fund: position.fund,
         units,

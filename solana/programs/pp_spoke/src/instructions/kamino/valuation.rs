@@ -39,6 +39,11 @@ pub fn refresh_and_value<'info>(
     market: &AccountInfo<'info>,
     reserve: &AccountInfo<'info>,
 ) -> Result<KaminoValue> {
+    require_keys_eq!(
+        *vault,
+        Pubkey::find_program_address(&[b"vault", position.fund.as_ref()], &crate::ID).0,
+        KaminoError::Unauthorized
+    );
     require_keys_eq!(position.reserve, RESERVE, KaminoError::WrongReserve);
     require!(
         token_balance(collateral, &COLLATERAL, vault, true)? >= position.units,
