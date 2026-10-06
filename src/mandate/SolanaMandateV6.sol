@@ -84,6 +84,7 @@ contract SolanaSpokeRegistryV6 {
             _config.assets.push(asset);
         }
         token(config.usdcMint);
+        if (stock[config.usdcMint]) revert InvalidNativeConfig();
         for (uint256 index; index < config.venues.length; ++index) {
             SolanaMandateV6.Venue memory venue = config.venues[index];
             if (venue.program == 0 || (venue.pool == 0) == (venue.reserve == 0)) revert InvalidNativeConfig();
@@ -106,18 +107,22 @@ contract SolanaSpokeRegistryV6 {
     }
 
     function validatePosition(ReportCodecV6.Position memory position) external view {
-        SolanaMandateV6.Venue memory venue = SolanaMandateV6.Venue(
-            position.program, position.pool, position.reserve, position.token0, position.token1
-        );
+        SolanaMandateV6.Venue memory venue =
+            SolanaMandateV6.Venue(position.program, position.pool, position.reserve, position.token0, position.token1);
         if (!_venues[keccak256(abi.encode(venue))] || position.position == 0) revert UnknownVenue();
         if (position.reserve != 0) {
-            if (position.token1 != 0 || position.liquidity != 0 || position.tickLower != 0 || position.tickUpper != 0) {
+            if (
+                position.token1 != 0 || position.liquidity != 0 || position.tickLower != 0 || position.tickUpper != 0
+                    || position.principal1 != 0 || position.income1 != 0
+            ) {
                 revert UnknownVenue();
             }
         } else if (
             position.token1 == 0 || position.tickLower >= position.tickUpper || position.tickLower < -443_636
                 || position.tickUpper > 443_636 || position.liquidity == 0
-        ) revert UnknownVenue();
+        ) {
+            revert UnknownVenue();
+        }
     }
 
     /// @dev DEC-194: unit-multiplier demo guard; no unauthenticated scalar and no mixed corporate-action pricing.
