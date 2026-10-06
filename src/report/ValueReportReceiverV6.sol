@@ -83,6 +83,7 @@ contract ValueReportReceiverV6 is IValueReportReceiver, ReentrancyGuard {
         if (message.emitterChainId == 1) {
             ReportCodecV6.Report memory native = ReportCodecV6.decode(message.payload);
             if (native.nativeMandateHash != nativeRegistry.nativeMandateHash()) revert InvalidNativeReport();
+            // TODO(decision): native command/result codec; never interpret EVM order results as Solana results.
             if (native.unwindResults.length != 0 || native.collectionResults.length != 0) revert InvalidNativeReport();
             nativeRegistry.validateMintStates(native.mintStates);
             report = _project(native);

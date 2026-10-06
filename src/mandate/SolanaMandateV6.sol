@@ -59,6 +59,7 @@ contract SolanaSpokeRegistryV6 {
         if (
             config.program == 0 || config.spoke == 0 || config.managerKey == 0 || config.usdcMint == 0
                 || config.chainId == 0 || config.assets.length == 0 || config.venues.length == 0
+                || config.usdcMint != 0xc6fa7af3bedbad3a3d65f36aabc97431b1bbe4c2d2f6e0e47ca60203452f5d61
         ) revert InvalidNativeConfig();
         nativeMandateHash = SolanaMandateV6.hash(config);
         managerKey = config.managerKey;
@@ -76,6 +77,10 @@ contract SolanaSpokeRegistryV6 {
                 asset.mint == 0 || asset.accountingId == address(0) || accountingId[asset.mint] != address(0)
                     || asset.accountingId != SolanaMandateV6.accountingId(asset.mint)
             ) revert InvalidNativeConfig();
+            bool isStock = asset.mint == 0x07e83582411fea1482f0994b80aa512a97c94f25df283bec5a67a381fc862b4a;
+            bool isUsdc = asset.mint == 0xc6fa7af3bedbad3a3d65f36aabc97431b1bbe4c2d2f6e0e47ca60203452f5d61;
+            bool isWrappedSol = asset.mint == 0x069b8857feab8184fb687f634618c035dac439dc1aeb3b5598a0f00000000001;
+            if ((!isStock && !isUsdc && !isWrappedSol) || asset.stock != isStock) revert InvalidNativeConfig();
             for (uint256 prior; prior < index; ++prior) {
                 if (config.assets[prior].accountingId == asset.accountingId) revert InvalidNativeConfig();
             }

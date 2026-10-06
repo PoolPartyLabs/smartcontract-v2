@@ -47,7 +47,7 @@ contract FundFactoryV6 is IFundFactory, ReentrancyGuardTransient, EIP712 {
     bytes32 public constant BINDING_TYPEHASH = keccak256(
         "ManagerSolanaBinding(bytes32 solanaKey,address fund,bytes32 spoke,uint256 spokeChainId,bytes32 nativeMandateHash,uint256 nonce,uint256 expiry)"
     );
-    bytes32 public constant ROLE_NATIVE_REGISTRY = "SolanaRegistryV6";
+    bytes32 internal constant ROLE_NATIVE_REGISTRY = "SolanaRegistryV6";
     mapping(address manager => uint256) public bindingNonce;
     mapping(address fund => bytes32) public bindingCommitment;
     SolanaMandateV6.Config private _pendingNative;
@@ -72,7 +72,7 @@ contract FundFactoryV6 is IFundFactory, ReentrancyGuardTransient, EIP712 {
 
     /// @notice Variation band handed to every receiver: 0, disabled (Q57 (d) OPEN, stance: slot reserved, not
     ///         enforced).
-    uint16 public constant VARIATION_BAND_BPS = 0;
+    uint16 internal constant VARIATION_BAND_BPS = 0;
 
     /// @inheritdoc IFundFactory
     uint256 public immutable NUMBER_OFFSET;

@@ -7,6 +7,7 @@ import {ReportCodecV6} from "../../../src/libraries/ReportCodecV6.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {IValueReportReceiver} from "../../../src/interfaces/IValueReportReceiver.sol";
 import {SolanaSpokeRegistryV6} from "../../../src/mandate/SolanaMandateV6.sol";
+import {SpokeConfig} from "../../../src/mandate/Mandate.sol";
 import {MockCoreBridge} from "../../mocks/receiver/MockCoreBridge.sol";
 import {MockReceiverCoreVault} from "../../mocks/receiver/MockReceiverCoreVault.sol";
 import {SolanaFixture} from "./SolanaFixture.sol";
@@ -161,5 +162,52 @@ contract ValueReportReceiverV6Test is Test {
         bridge.setInvalid("invalid signatures");
         vm.expectRevert(abi.encodeWithSelector(IValueReportReceiver.InvalidVaa.selector, "invalid signatures"));
         receiver.deliver(_message(32, SolanaFixture.report(uint64(block.timestamp))));
+    }
+
+    function testRejectDifferentReportAgesAndDuplicateEmitters() public {
+        SpokeConfig[] memory configs = SolanaFixture.spokes();
+        configs[1].maxReportAge = 1601;
+        vm.expectRevert(ValueReportReceiverV6.InvalidConfiguration.selector);
+        new ValueReportReceiverV6(address(bridge), address(vault), bytes32(uint256(1)), configs, receiver.nativeRegistry());
+        configs[1] = configs[0];
+        vm.expectRevert(ValueReportReceiverV6.InvalidConfiguration.selector);
+        new ValueReportReceiverV6(address(bridge), address(vault), bytes32(uint256(1)), configs, receiver.nativeRegistry());
+    }
+
+    function testRejectRepeatedReportSequenceWithNewWormholeSequence() public {
+        bytes memory raw = _message(32, SolanaFixture.report(uint64(block.timestamp)));
+        receiver.deliver(raw);
+        CoreBridgeVM memory message = abi.decode(raw, (CoreBridgeVM));
+        ++message.sequence;
+        vm.expectRevert(abi.encodeWithSelector(IValueReportReceiver.ReportSequenceNotIncreasing.selector, uint64(1), uint64(1)));
+        receiver.deliver(abi.encode(message));
+    }
+
+    function testRejectWrongFundChainAndNonemptyCommandResult() public {
+        ReportCodecV6.Report memory report = SolanaFixture.report(uint64(block.timestamp));
+        report.fundId = 0;
+        vm.expectRevert(IValueReportReceiver.ReportMismatch.selector);
+        receiver.deliver(_message(32, report));
+        report.fundId = bytes32(uint256(1));
+        report.spokeChainId = 4663;
+        vm.expectRevert(IValueReportReceiver.ReportMismatch.selector);
+        receiver.deliver(_message(32, report));
+        report.collectionResults = hex"01";
+        vm.expectRevert(ValueReportReceiverV6.InvalidNativeReport.selector);
+        receiver.deliver(_message(32, report));
+    }
+
+    function testFreshnessBoundaryAndGuardedReentry() public {
+        bytes memory raw = _message(32, SolanaFixture.report(uint64(block.timestamp)));
+        vault.setReentry(raw);
+        vm.expectRevert(abi.encodeWithSignature("ReentrancyGuardReentrantCall()"));
+        receiver.deliver(raw);
+        assertFalse(receiver.hasReport(1));
+        vault.setReentry("");
+        receiver.deliver(raw);
+        vm.warp(block.timestamp + 1600);
+        assertTrue(receiver.isReportFresh(1));
+        vm.warp(block.timestamp + 1);
+        assertFalse(receiver.isReportFresh(1));
     }
 }
