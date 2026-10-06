@@ -70,6 +70,38 @@ async function rejects(operation: TransactionInstruction, expected: string, paye
   assert.ok((await connection.getAccountInfo(addresses))!.data.equals(before));
 }
 
+async function exactSupplyAmount(identity: number, target: bigint): Promise<bigint> {
+  const addresses = fixture(identity);
+  const keys = [addresses.fund, addresses.position, addresses.usdc, addresses.collateral].map(publicKey);
+  const before = await connection.getMultipleAccountsInfo(keys);
+  const blockhash = (await connection.getLatestBlockhash()).blockhash;
+  for (let index = 0; index < 33; index++) {
+    const offset = BigInt(Math.ceil(index / 2)) * (index % 2 === 0 ? -1n : 1n);
+    const amount = target + offset;
+    const transaction = new Transaction({ feePayer: manager.publicKey, recentBlockhash: blockhash })
+      .add(budget, instruction('kamino_supply', identity, uint64(amount)));
+    transaction.sign(manager);
+    const simulation = await connection.simulateTransaction(transaction, undefined, keys);
+    const unchanged = await connection.getMultipleAccountsInfo(keys);
+    unchanged.forEach((account, accountIndex) => assert.ok(account!.data.equals(before[accountIndex]!.data),
+      'supply simulation does not change Fund, position or custody'));
+    if (simulation.value.err) {
+      assert.deepEqual(simulation.value.err, { InstructionError: [1, { Custom: 7311 }] });
+      assert.ok(simulation.value.logs?.some(line => line.includes('UnexpectedDelta')));
+      continue;
+    }
+    const after = simulation.value.accounts!.map(account => Buffer.from(account!.data[0], 'base64'));
+    assert.equal(before[2]!.data.readBigUInt64LE(64) - after[2].readBigUInt64LE(64), amount);
+    assert.ok(after[3].readBigUInt64LE(64) > before[3]!.data.readBigUInt64LE(64));
+    assert.equal(after[1].readBigUInt64LE(81) - before[1]!.data.readBigUInt64LE(81), amount);
+    assert.equal(before[1]!.data.readBigUInt64LE(89) - after[1].readBigUInt64LE(89), amount);
+    assert.equal(after[0].readUInt16LE(372), before[0]!.data.readUInt16LE(372) + 1);
+    console.log(`Exact-debit Kamino supply candidate: ${amount}; simulations=${index + 1}.`);
+    return amount;
+  }
+  assert.fail('No exact-debit Kamino supply in the bounded 33-candidate fixture range');
+}
+
 test('cloned Kamino supply, partial/full exit, fresh value and authorization negatives', { timeout: 120_000 }, async () => {
   const addresses = fixture(31);
   assert.equal(await balance(addresses.usdc), CREDIT + DONATION);
@@ -90,14 +122,15 @@ test('cloned Kamino supply, partial/full exit, fresh value and authorization neg
   await rejects(wrongVault, 'InvalidTokenAccount');
   await rejects(instruction('kamino_supply', 31, uint64(0n)), 'InvalidAmount');
   await rejects(instruction('kamino_supply', 33, uint64(1_000_000n)), 'EntryDisabled');
-  await execute(instruction('kamino_supply', 31, uint64(10_000_000n)), 'supply 10 USDC');
+  const supplied = await exactSupplyAmount(31, 10_000_000n);
+  await execute(instruction('kamino_supply', 31, uint64(supplied)), 'supply exact-debit USDC');
   assert.equal((await connection.getAccountInfo(publicKey(addresses.fund)))!.data.readUInt16LE(372), 1);
   await rejectIncompleteReport(connection, manager, publicKey(addresses.fund), publicKey(addresses.vault), 'AdapterNotIntegrated');
   let tracked = await position(31);
-  assert.equal(tracked.principal, 10_000_000n);
-  assert.equal(tracked.idlePrincipal, CREDIT - 10_000_000n);
+  assert.equal(tracked.principal, supplied);
+  assert.equal(tracked.idlePrincipal, CREDIT - supplied);
   assert.equal(await balance(addresses.collateral), tracked.units + COLLATERAL_DONATION);
-  assert.equal(await balance(addresses.usdc), CREDIT + DONATION - 10_000_000n);
+  assert.equal(await balance(addresses.usdc), CREDIT + DONATION - supplied);
   const reserve = (await connection.getAccountInfo(publicKey(ADDRESSES.reserve)))!.data;
   const total = reserve.readBigUInt64LE(224) * SCALE + readU128(reserve, 232)
     - readU128(reserve, 344) - readU128(reserve, 360) - readU128(reserve, 376);

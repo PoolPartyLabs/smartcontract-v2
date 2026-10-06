@@ -1,3 +1,4 @@
+pub mod guard;
 pub mod swap_exact_in;
 pub use swap_exact_in::SwapExactIn;
 pub(crate) use swap_exact_in::__client_accounts_swap_exact_in;
