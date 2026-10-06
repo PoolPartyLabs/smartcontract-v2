@@ -54,6 +54,19 @@ test('existing per-Fund PDA prevents initialization replay', async () => {
   assert.deepEqual((await connection.getAccountInfo(publicKey(addresses.fund)))?.data, before?.data);
 });
 
+test('sealed transport rejects substituted Circle targets, caller, custody and fee ceiling', async () => {
+  const connection = localConnection();
+  const manager = testWallet('manager');
+  const core = Buffer.alloc(20, 0x83);
+  const valid = bindingPayload(manager.publicKey, core, 2);
+  for (const offset of [0, 20, 40, 60, 64, 96, 128, 160, 192]) {
+    const changed = Buffer.from(valid);
+    changed[changed.length - 200 + offset] ^= 1;
+    await assert.rejects(sendSignedLocal(connection, manager, [init(manager.publicKey, core, 2, changed)]), /InvalidConfiguration/);
+  }
+  assert.equal(await connection.getAccountInfo(publicKey(fundAddresses(core, 2).fund)), null);
+});
+
 test('keeper cannot execute Manager instructions; Manager cannot choose excess recipient', async () => {
   const connection = localConnection();
   for (const name of ['collect_income_all', 'refresh_income_results', 'sweep_excess']) {
