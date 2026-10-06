@@ -18,6 +18,7 @@ import {CodeStore} from "./CodeStore.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {SolanaMandateV6, SolanaSpokeRegistryV6} from "../mandate/SolanaMandateV6.sol";
+import {SolanaDeploymentV6} from "./SolanaDeploymentV6.sol";
 
 /// @title FundFactoryV6
 /// @dev DEC-188, DEC-190: isolated new-Fund version; existing factories and deployed Funds remain unchanged.
@@ -204,22 +205,12 @@ contract FundFactoryV6 is IFundFactory, ReentrancyGuardTransient, EIP712 {
             binding.nonce != bindingNonce[m.manager] || nowTimestamp > binding.expiry
                 || ECDSA.recover(digest, binding.signature) != m.manager
         ) revert InvalidSolanaBinding();
-        _validateNativeMandate(m, native);
+        SolanaDeploymentV6.validate(m, native);
         ++bindingNonce[m.manager];
         bindingCommitment[predictedCore] = digest;
-        _pendingNative.program = native.program;
-        _pendingNative.spoke = native.spoke;
-        _pendingNative.usdcMint = native.usdcMint;
-        _pendingNative.managerKey = native.managerKey;
-        _pendingNative.chainId = native.chainId;
-        for (uint256 index; index < native.assets.length; ++index) {
-            _pendingNative.assets.push(native.assets[index]);
-        }
-        for (uint256 index; index < native.venues.length; ++index) {
-            _pendingNative.venues.push(native.venues[index]);
-        }
+        SolanaDeploymentV6.store(_pendingNative, native);
         addresses = _createFund(m, p);
-        delete _pendingNative;
+        SolanaDeploymentV6.clear(_pendingNative);
     }
 
     function bindingDigest(SolanaMandateV6.Config memory native, address fund, uint256 nonce, uint256 expiry)
@@ -227,20 +218,7 @@ contract FundFactoryV6 is IFundFactory, ReentrancyGuardTransient, EIP712 {
         view
         returns (bytes32)
     {
-        return _hashTypedDataV4(
-            keccak256(
-                abi.encode(
-                    BINDING_TYPEHASH,
-                    native.managerKey,
-                    fund,
-                    native.spoke,
-                    native.chainId,
-                    SolanaMandateV6.hash(native),
-                    nonce,
-                    expiry
-                )
-            )
-        );
+        return _hashTypedDataV4(SolanaDeploymentV6.bindingHash(native, fund, nonce, expiry, BINDING_TYPEHASH));
     }
 
     function _createFund(Mandate memory m, HubParams memory p) private returns (FundAddresses memory addresses) {
@@ -271,15 +249,17 @@ contract FundFactoryV6 is IFundFactory, ReentrancyGuardTransient, EIP712 {
         // Adapters first: the Spoke Vault and the Core Vault read them in their constructors.
         addresses.chains = new ChainAddresses[](1);
         addresses.chains[0] = _deployChainAdapters(m, fundId, chainId, addresses.coreVault, p.uniswapV4Pools);
+        SolanaDeploymentV6.deploy(_pendingNative, fundId, addresses.coreVault, _guardian);
         // The hub Spoke Vault publishes no report, so it takes no Wormhole Core (DEC-054).
         _deploySpokeVault(m, fundId, chainId, addresses.coreVault, address(0));
-        _deploy(fundId, ROLE_NATIVE_REGISTRY, chainId, abi.encode(_pendingNative));
-        address registry = _addressOf(fundId, ROLE_NATIVE_REGISTRY, chainId);
-        _deploy(
+        SolanaDeploymentV6.deployReports(
+            _pendingNative,
             fundId,
-            ROLE_VALUE_REPORT_RECEIVER,
-            chainId,
-            abi.encode(_wormholeCore, addresses.coreVault, fundId, m.spokes, registry)
+            addresses.coreVault,
+            _wormholeCore,
+            m.spokes,
+            _codeStores[ROLE_NATIVE_REGISTRY],
+            _codeStores[ROLE_VALUE_REPORT_RECEIVER]
         );
         _deployCoreVault(m, addresses, p.coreVaultCreationCode);
         _seed(addresses.coreVault, p.seedAmount);
@@ -436,7 +416,15 @@ contract FundFactoryV6 is IFundFactory, ReentrancyGuardTransient, EIP712 {
         }
         for (uint256 i; i < m.bridgeAdapters.length; ++i) {
             uint256 chainId = m.bridgeAdapters[i].chainId;
-            if (m.bridgeAdapters[i].spokeChainId == _nativeChain(m)) continue;
+            if (m.bridgeAdapters[i].spokeChainId == _nativeChain(m)) {
+                if (
+                    chainId == m.hubChainId
+                        && m.bridgeAdapters[i].adapter != _addressOf(fundId, "CctpBridgeAdapter", chainId)
+                ) {
+                    revert UnexpectedBridgeAdapter(chainId, m.bridgeAdapters[i].adapter);
+                }
+                continue;
+            }
             address adapter = m.bridgeAdapters[i].adapter;
             if (adapter != _addressOf(fundId, ROLE_ACROSS_BRIDGE_ADAPTER, chainId)) {
                 revert UnexpectedBridgeAdapter(chainId, adapter);
@@ -634,9 +622,7 @@ contract FundFactoryV6 is IFundFactory, ReentrancyGuardTransient, EIP712 {
         c.shareName = string.concat("Pool Party Fund ", number);
         c.shareSymbol = string.concat("PP-", number);
         address registry = _addressOf(a.fundId, ROLE_NATIVE_REGISTRY, chainId);
-        Create3.deploy(
-            saltOf(a.fundId, ROLE_CORE_VAULT, chainId), abi.encodePacked(creationCode, abi.encode(m, c, registry))
-        );
+        SolanaDeploymentV6.deployCore(m, c, registry, creationCode);
     }
 
     /// @dev DEC-127, DEC-061, DEC-113: the manager's seed. The factory pulls exactly what the seed costs at the initial
@@ -644,12 +630,7 @@ contract FundFactoryV6 is IFundFactory, ReentrancyGuardTransient, EIP712 {
     ///      DEC-035), approves the Core Vault for exactly that and calls `seed`, which pulls it back to zero allowance.
     ///      The Core Vault enforces `minFirstDeposit` and the one-share floor.
     function _seed(address coreVault, uint256 seedAmount) private {
-        (, uint256 usdcForShares, uint256 fee) =
-            ShareMath.previewDeposit(seedAmount, _flowFeeBps, ShareMath.INITIAL_SHARE_PRICE);
-        uint256 cost = usdcForShares + fee;
-        IERC20(_baseToken).safeTransferFrom(msg.sender, address(this), cost);
-        IERC20(_baseToken).forceApprove(coreVault, cost);
-        ICoreVaultLifecycle(coreVault).seed(seedAmount);
+        SolanaDeploymentV6.seed(coreVault, _baseToken, seedAmount, _flowFeeBps);
     }
 
     /// @dev CREATE3 at the fund's predicted address for `role` on `chainId`, from the stored creation code.
@@ -663,39 +644,5 @@ contract FundFactoryV6 is IFundFactory, ReentrancyGuardTransient, EIP712 {
             if (m.spokes[index].wormholeChainId == 1) return m.spokes[index].chainId;
         }
         revert NativeCreationRequired();
-    }
-
-    /// @dev DEC-188, DEC-192: native identity remains bytes32; aliases serve legacy accounting only.
-    function _validateNativeMandate(Mandate memory m, SolanaMandateV6.Config memory native) private pure {
-        if (m.hubChainId != 42_161 || _nativeChain(m) != native.chainId || native.chainId == m.hubChainId) {
-            revert InvalidSolanaBinding();
-        }
-        uint256 nativeCount;
-        for (uint256 index; index < m.spokes.length; ++index) {
-            SpokeConfig memory spoke = m.spokes[index];
-            if (spoke.maxReportAge != m.spokes[0].maxReportAge) revert InvalidSolanaBinding();
-            if (spoke.wormholeChainId != 1) continue;
-            ++nativeCount;
-            if (spoke.spokeVault != native.spoke || spoke.spokeToken != SolanaMandateV6.accountingId(native.usdcMint)) {
-                revert InvalidSolanaBinding();
-            }
-        }
-        if (nativeCount != 1) revert InvalidSolanaBinding();
-        uint256 tokenCount;
-        for (uint256 index; index < m.tokens.length; ++index) {
-            if (m.tokens[index].chainId != native.chainId) {
-                for (uint256 assetIndex; assetIndex < native.assets.length; ++assetIndex) {
-                    if (m.tokens[index].token == native.assets[assetIndex].accountingId) revert InvalidSolanaBinding();
-                }
-                continue;
-            }
-            ++tokenCount;
-            bool found;
-            for (uint256 assetIndex; assetIndex < native.assets.length; ++assetIndex) {
-                if (m.tokens[index].token == native.assets[assetIndex].accountingId) found = true;
-            }
-            if (!found) revert InvalidSolanaBinding();
-        }
-        if (tokenCount != native.assets.length) revert InvalidSolanaBinding();
     }
 }

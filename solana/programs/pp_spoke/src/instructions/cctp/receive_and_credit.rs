@@ -12,7 +12,7 @@ pub struct ReceiveAndCredit<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
     // TODO(decision): coordinate closed-Fund excess arrival handling with T1 (DEC-167).
-    #[account(seeds = [b"fund", fund.hub_core.as_ref(), &fund.spoke_index.to_le_bytes()], bump = fund.bump, constraint = !fund.closed @ CctpError::Unauthorized)]
+    #[account(mut, seeds = [b"fund", fund.hub_core.as_ref(), &fund.spoke_index.to_le_bytes()], bump = fund.bump, constraint = !fund.closed @ CctpError::Unauthorized)]
     pub fund: Account<'info, FundState>,
     /// CHECK: canonical vault signs as destinationCaller, never the relayer.
     #[account(seeds = [b"vault", fund.key().as_ref()], bump = fund.vault_bump)]
@@ -104,6 +104,12 @@ pub fn handler(ctx: Context<ReceiveAndCredit>, payload: Vec<u8>) -> Result<()> {
     );
     let surplus = arrival.max_fee - arrival.fee_executed;
     let ledger = &mut ctx.accounts.ledger;
+    ctx.accounts.fund.pending_transits = ctx
+        .accounts
+        .fund
+        .pending_transits
+        .checked_add(1)
+        .ok_or(CctpError::InvalidAmount)?;
     ledger.principal = ledger
         .principal
         .checked_add(credited)

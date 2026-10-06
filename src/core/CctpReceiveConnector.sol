@@ -5,6 +5,7 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
 import {ICctpCoreVault, CctpRoute} from "../interfaces/ICctpCoreVault.sol";
 import {IMessageTransmitterV2} from "../interfaces/external/ICctpV2.sol";
 import {CctpMessage} from "../libraries/CctpMessage.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @notice Permissionless keeper/manual receive with atomic Core custody and credit (DEC-191).
 /// @dev No approvals or custody. Circle authenticates signatures; this wrapper authenticates the Fund route.
@@ -54,6 +55,7 @@ contract CctpReceiveConnector is ReentrancyGuardTransient {
                 || receipt.destinationCaller != _address(address(this)) || receipt.burnToken != remoteToken
                 || receipt.mintRecipient != _address(core) || receipt.messageSender != remoteVaultAuthority
                 || receipt.fundId != fundId || receipt.originChainId != solanaChainId
+                || receipt.maxFee > Math.mulDiv(receipt.amount, 50_000, 100_000_000, Math.Rounding.Ceil)
         ) revert InvalidRoute();
         if (received[receipt.transitId]) revert AlreadyReceived(receipt.transitId);
         received[receipt.transitId] = true;

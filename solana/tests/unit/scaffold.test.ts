@@ -4,6 +4,7 @@ import test from 'node:test';
 import { ADDRESSES, fundAddresses, publicKey } from '../helpers/addresses.ts';
 import { decodePool, decodeReserve, discriminator, readKey, spotRatio } from '../helpers/layouts.ts';
 import { requireLoopback, testAta } from '../helpers/localnet.ts';
+import { completeFundState } from '../helpers/fund-state.ts';
 
 test('all mainnet constants are valid and match Rust pins', () => {
   const rust = readFileSync(new URL('../../programs/pp_spoke/src/constants.rs', import.meta.url), 'utf8');
@@ -24,6 +25,20 @@ test('Fund PDA isolation and token-program-qualified ATA derivation', () => {
   assert.notEqual(testAta(ADDRESSES.usdc, owner).toBase58(), testAta(ADDRESSES.tslax, owner).toBase58());
   assert.throws(() => fundAddresses(Buffer.alloc(32), 0));
   assert.throws(() => fundAddresses(Buffer.alloc(20), 65536));
+});
+
+test('legacy local fixtures serialize the complete sealed Fund state layout', () => {
+  const prefix = Buffer.alloc(165);
+  const encoded = completeFundState(prefix);
+  assert.equal(encoded.length, 586);
+  assert.equal(encoded.readBigUInt64LE(166), 42161n);
+  assert.equal(encoded.readBigUInt64LE(194), 1n);
+  assert.equal(encoded.readUInt16LE(338), 23);
+  assert.equal(encoded.readUInt16LE(372), 0);
+  assert.equal(encoded.readUInt16LE(374), 0);
+  assert.equal(encoded.readUInt32LE(378), 0);
+  assert.equal(encoded.readUInt32LE(382), 0);
+  assert.throws(() => completeFundState(prefix.subarray(1)));
 });
 
 test('transaction guard rejects non-local and credentialed endpoints', () => {

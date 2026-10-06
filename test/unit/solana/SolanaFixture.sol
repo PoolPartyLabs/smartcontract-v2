@@ -19,6 +19,17 @@ library SolanaFixture {
         config.usdcMint = USDC;
         config.managerKey = bytes32(uint256(200));
         config.chainId = CHAIN;
+        config.transport = SolanaMandateV6.Transport(
+            address(0),
+            0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d,
+            0x81D40F21F12A8F0E3252Bccb954D722d4c464B64,
+            5,
+            bytes32(uint256(9001)),
+            bytes32(uint256(9002)),
+            bytes32(uint256(1234)),
+            bytes32(uint256(9003)),
+            50_000
+        );
         config.assets = new SolanaMandateV6.Asset[](3);
         config.assets[0] = SolanaMandateV6.Asset(USDC, SolanaMandateV6.accountingId(USDC), false);
         config.assets[1] = SolanaMandateV6.Asset(STOCK, SolanaMandateV6.accountingId(STOCK), true);
