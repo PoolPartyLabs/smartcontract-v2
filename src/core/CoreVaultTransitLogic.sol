@@ -296,6 +296,7 @@ library CoreVaultTransitLogic {
         bytes32 transitId,
         uint32 deadline
     ) public view returns (bool) {
+        if (deadline == 0) return false;
         return _expiryByTime(s, spokeIndex, deadline) || _reportProvesNonArrival(s, w, spokeIndex, transitId, deadline);
     }
 
@@ -509,6 +510,7 @@ library CoreVaultTransitLogic {
     ///      send is also noted only at its refund.
     function attestExpiry(CoreVaultState storage s, CoreVaultWiring memory w, bytes32 transitId) public {
         Transit storage t = _knownTransit(s, transitId);
+        if (t.fillDeadline == 0) revert ICoreVault.ExpiryNotProvable(transitId);
         if (t.state != TransitState.Sent) revert ICoreVault.InvalidTransitState(transitId, uint8(t.state));
         uint32 deadline = t.fillDeadline;
         if (block.timestamp <= deadline) revert ICoreVault.FillDeadlineNotReached(transitId, deadline);
@@ -573,6 +575,7 @@ library CoreVaultTransitLogic {
         returns (uint256 amount)
     {
         Transit storage t = _knownTransit(s, transitId);
+        if (t.fillDeadline == 0) revert ICoreVault.NoRefund(transitId);
         if (t.state != TransitState.ExpiryAttested) revert ICoreVault.InvalidTransitState(transitId, uint8(t.state));
         address escrow = t.escrow;
         IERC20 token = IERC20(w.usdc);
