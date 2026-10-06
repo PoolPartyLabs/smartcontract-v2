@@ -13,3 +13,7 @@ pub(crate) use raydium_close_position::__client_accounts_raydium_close_position;
 pub mod raydium_collect_fees;
 pub use raydium_collect_fees::RaydiumCollectFees;
 pub(crate) use raydium_collect_fees::__client_accounts_raydium_collect_fees;
+pub mod error;
+pub mod math;
+pub mod wire;
+pub mod validation;
