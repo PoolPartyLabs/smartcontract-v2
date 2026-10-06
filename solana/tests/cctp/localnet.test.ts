@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { rejectIncompleteReport } from '../helpers/report-gate.ts';
 import test from 'node:test';
 import { AddressLookupTableProgram, ComputeBudgetProgram, Keypair, SystemProgram, TransactionInstruction, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
 import type { AccountMeta, Connection } from '@solana/web3.js';
@@ -18,7 +19,7 @@ const eventAuthority = pda(ADDRESSES.cctpMessenger, Buffer.from('__event_authori
 const transit = (id: Buffer) => pda(ADDRESSES.spoke, Buffer.from('transit'), publicKey(fund).toBuffer(), id);
 
 function base(payer: Keypair, id: Buffer): AccountMeta[] {
-  return [key(payer.publicKey.toBase58(), true, true), key(fund), key(vault), key(route), key(ledger, true), key(transit(id), true), key(recipient.toBase58(), true)];
+  return [key(payer.publicKey.toBase58(), true, true), key(fund, true), key(vault), key(route), key(ledger, true), key(transit(id), true), key(recipient.toBase58(), true)];
 }
 
 function receive(payer: Keypair, id: Buffer, nonce: Buffer, message: Buffer, feeAta: string): TransactionInstruction {
@@ -112,6 +113,8 @@ test('real cloned Circle V2 burn and signed receive are atomic and replay-safe',
   assert.equal(await connection.getAccountInfo(publicKey(transit(id))), null);
   assert.equal(await connection.getAccountInfo(publicKey(pda(ADDRESSES.cctpTransmitter, Buffer.from('used_nonce'), nonce))), null);
   await execute(keeper, valid);
+  assert.equal((await connection.getAccountInfo(publicKey(fund)))!.data.readUInt16LE(374), 1);
+  await rejectIncompleteReport(connection, keeper, publicKey(fund), publicKey(vault), 'TransitNotIntegrated');
   assert.equal(BigInt((await connection.getTokenAccountBalance(recipient)).value.amount), before + 999_900n);
   const ledgerData = (await connection.getAccountInfo(publicKey(ledger)))!.data;
   assert.equal(ledgerData.readBigUInt64LE(40), 10_999_900n);
@@ -121,6 +124,7 @@ test('real cloned Circle V2 burn and signed receive are atomic and replay-safe',
   await execute(keeper, freshNonceReplay, [], 'already in use');
   assert.equal(BigInt((await connection.getTokenAccountBalance(recipient)).value.amount), before + 999_900n);
   await execute(manager, outbound, [event]);
+  assert.equal((await connection.getAccountInfo(publicKey(fund)))!.data.readUInt16LE(374), 2);
   assert.equal(BigInt((await connection.getTokenAccountBalance(recipient)).value.amount), before - 100n);
   const afterLedger = (await connection.getAccountInfo(publicKey(ledger)))!.data;
   assert.equal(afterLedger.readBigUInt64LE(48), 1_000_000n);

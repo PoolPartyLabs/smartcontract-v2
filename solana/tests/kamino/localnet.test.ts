@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { rejectIncompleteReport } from '../helpers/report-gate.ts';
 import test from 'node:test';
 import { ComputeBudgetProgram, Transaction, TransactionInstruction } from '@solana/web3.js';
 import { ADDRESSES, publicKey } from '../helpers/addresses.ts';
@@ -19,7 +20,7 @@ function instruction(name: 'kamino_supply' | 'kamino_redeem' | 'kamino_refresh',
   const addresses = fixture(identity);
   const keys = [
     { pubkey: signer, isSigner: true, isWritable: false },
-    { pubkey: publicKey(addresses.fund), isSigner: false, isWritable: false },
+    { pubkey: publicKey(addresses.fund), isSigner: false, isWritable: name === 'kamino_supply' },
     { pubkey: publicKey(addresses.vault), isSigner: false, isWritable: false },
     { pubkey: publicKey(addresses.position), isSigner: false, isWritable: true },
   ];
@@ -90,6 +91,8 @@ test('cloned Kamino supply, partial/full exit, fresh value and authorization neg
   await rejects(instruction('kamino_supply', 31, uint64(0n)), 'InvalidAmount');
   await rejects(instruction('kamino_supply', 33, uint64(1_000_000n)), 'EntryDisabled');
   await execute(instruction('kamino_supply', 31, uint64(10_000_000n)), 'supply 10 USDC');
+  assert.equal((await connection.getAccountInfo(publicKey(addresses.fund)))!.data.readUInt16LE(372), 1);
+  await rejectIncompleteReport(connection, manager, publicKey(addresses.fund), publicKey(addresses.vault), 'AdapterNotIntegrated');
   let tracked = await position(31);
   assert.equal(tracked.principal, 10_000_000n);
   assert.equal(tracked.idlePrincipal, CREDIT - 10_000_000n);
