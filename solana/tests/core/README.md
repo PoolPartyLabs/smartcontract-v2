@@ -1,5 +1,19 @@
 # T1 core/report validation
 
+## Integration review follow-up
+
+The binding hash includes T2c's final signed Transport tuple, pinned Circle
+targets, domain 5, the 5-bps ceiling and derived Fund vault/USDC ATA identities.
+An independent `cast abi-encode` vector is checked by Rust. Authenticated Hub
+creation remains deliberately blocked by `BootstrapNotAuthenticated`.
+
+Until shared ledgers and complete adapter/transit reports are wired, successful
+Kamino supplies and CCTP sends/receipts retain nonzero Fund exposure counters.
+Reports fail closed even after a subsequent exit: only coordinated accounting
+and authenticated report retirement may clear these integration latches.
+Localnet tests assert the counters and actual `build_report` rejection; synthetic
+fixtures use the complete sealed Fund layout and do not prove bootstrap.
+
 DEC-188, DEC-190, DEC-192, DEC-195 govern this isolated test suite. No mainnet
 transaction is authorized. Use the mainnet-state harness, on this track's ports:
 

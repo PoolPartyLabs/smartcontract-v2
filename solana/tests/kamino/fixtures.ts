@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { PublicKey } from '@solana/web3.js';
+import { completeFundState } from '../helpers/fund-state.ts';
 import { ADDRESSES, fundAddresses, publicKey, derive } from '../helpers/addresses.ts';
 import { discriminator } from '../helpers/layouts.ts';
 import { testWallet, testAta } from '../helpers/localnet.ts';
@@ -55,7 +56,7 @@ export function prepareKaminoFixtures() {
     fund[offset++] = 0;
     fund[offset++] = PublicKey.findProgramAddressSync([Buffer.from('fund'), addresses.hub, Buffer.from([2, 0])], publicKey(ADDRESSES.spoke))[1];
     fund[offset++] = PublicKey.findProgramAddressSync([Buffer.from('vault'), publicKey(addresses.fund).toBuffer()], publicKey(ADDRESSES.spoke))[1];
-    snapshot(addresses.fund, ADDRESSES.spoke, fund.subarray(0, offset));
+    snapshot(addresses.fund, ADDRESSES.spoke, completeFundState(fund.subarray(0, offset)));
     const position = Buffer.alloc(8 + 64 + 1 + 11 * 8);
     discriminator('account', 'KaminoPosition').copy(position);
     publicKey(addresses.fund).toBuffer().copy(position, 8);
