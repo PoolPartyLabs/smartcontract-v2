@@ -5,8 +5,8 @@ import {SolanaMandateV6} from "../mandate/SolanaMandateV6.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @notice Immutable Arbitrum USD feeds for native Solana assets (DEC-123, DEC-188, DEC-194).
-/// @dev TSLAx raw units use the issuer multiplier before CLMM composition. The MVP permits only multiplier 1,
-///      authenticated in the v6 report by the registry; a non-unit multiplier requires a new version.
+/// @dev TSLAx uses the unit multiplier; NVDAx uses the pinned effective binary multiplier.
+///      The v6 registry authenticates both witnesses; changed issuer state requires a new version.
 contract SolanaPriceSourceV6 {
     struct NativeConfig {
         bytes32 stockMint;

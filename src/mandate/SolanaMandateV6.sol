@@ -36,7 +36,7 @@ library SolanaMandateV6 {
         bytes32 spoke;
         bytes32 usdcMint;
         bytes32 managerKey;
-        /// @dev TODO(decision): canonical accounting chain namespace; distinct from Circle/Wormhole IDs.
+        /// @dev This v6 cohort uses chain 1 for Solana accounting, independently of transport namespaces.
         uint256 chainId;
         Asset[] assets;
         Venue[] venues;
@@ -159,7 +159,7 @@ contract SolanaSpokeRegistryV6 {
         }
     }
 
-    /// @dev DEC-194: unit-multiplier demo guard; no unauthenticated scalar and no mixed corporate-action pricing.
+    /// @dev DEC-194, DEC-198: pinned issuer witnesses; no arbitrary scalar or mixed corporate-action pricing.
     function validateMintStates(ReportCodecV6.MintState[] memory states) external view {
         for (uint256 index; index < _config.assets.length; ++index) {
             bytes32 mint = _config.assets[index].mint;
