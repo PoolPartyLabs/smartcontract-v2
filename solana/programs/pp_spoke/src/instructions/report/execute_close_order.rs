@@ -1,4 +1,4 @@
-use crate::errors::SpokeError;
+use super::orders::{dispatch_unavailable, verify_order};
 use crate::state::FundState;
 use anchor_lang::prelude::*;
 
@@ -14,9 +14,18 @@ pub struct ExecuteCloseOrder<'info> {
     pub vault: UncheckedAccount<'info>,
     /// CHECK: T1 must constrain the canonical bridge and authenticated posted VAA accounts.
     pub wormhole_program: UncheckedAccount<'info>,
+    /// CHECK: exact canonical, guardian-verified PostedVAA validated by verify_order.
+    pub posted_vaa: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
-pub fn handler(_ctx: Context<ExecuteCloseOrder>, _payload: Vec<u8>) -> Result<()> {
-    err!(SpokeError::NotImplemented)
+pub fn handler(ctx: Context<ExecuteCloseOrder>, _payload: Vec<u8>) -> Result<()> {
+    verify_order(
+        &ctx.accounts.fund,
+        ctx.accounts.fund.key(),
+        &ctx.accounts.posted_vaa.to_account_info(),
+        Some(2),
+        Clock::get()?.unix_timestamp,
+    )?;
+    dispatch_unavailable()
 }

@@ -1,4 +1,4 @@
-use crate::errors::SpokeError;
+use super::snapshot::{encoded_snapshot, ReportError};
 use crate::state::FundState;
 use anchor_lang::prelude::*;
 
@@ -17,6 +17,15 @@ pub struct BuildReport<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn handler(_ctx: Context<BuildReport>, _payload: Vec<u8>) -> Result<()> {
-    err!(SpokeError::NotImplemented)
+pub fn handler(ctx: Context<BuildReport>, payload: Vec<u8>) -> Result<()> {
+    require!(payload.is_empty(), ReportError::InvalidAccounts);
+    let encoded = encoded_snapshot(
+        &ctx.accounts.fund,
+        ctx.accounts.fund.key(),
+        ctx.remaining_accounts,
+        &Clock::get()?,
+    )?;
+    require!(encoded.len() <= 1024, ReportError::ReportTooLarge);
+    anchor_lang::solana_program::program::set_return_data(&encoded);
+    Ok(())
 }
