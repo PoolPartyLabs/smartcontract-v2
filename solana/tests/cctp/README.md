@@ -31,6 +31,11 @@ clone addresses; the shared Circle clone inventory covers the CPIs.
 
 ## Synthetic override, not real Circle attestation
 
+The composed v6 fixture uses accounting chain 1 and a 50,000-scaled-unit
+(5-bps) fee ceiling. Its complete Fund layout is synthetic, not initialization
+proof. Successful sends/receipts persist a reporting latch until shared transit
+and ledger integration is complete; actual report rejection is tested.
+
 `fixtures.ts` replaces ONLY `signature_threshold` and `enabled_attesters` in
 the cloned MessageTransmitter state, preserving its original allocation, owner,
 lamports, pause, domain, version, authority keys and body-size limit. Threshold
@@ -48,7 +53,7 @@ state. Fixture preparation checks original SHA-256 against the current manifest
 and refreshes the backup after a new clone, refusing stale sources. No protocol
 mint, custody balance or USDC issuer authority is overridden.
 
-T1 initialization remains a scaffold at this integration point. Tests explicitly
+T1 initialization remains fail-closed pending authenticated Hub creation. Tests explicitly
 inject a synthetic FundState, sealed CctpRoute, isolated CctpLedger, and a native
 USDC ATA owned by the canonical Fund vault PDA at genesis. No production helper
 creates or seals those accounts. The vault PDA itself has zero SOL; payers fund
@@ -102,7 +107,7 @@ preparation only.
    these balances in report NAV. Donated ATA balance is excess, not principal.
 3. T1/T2a must pin the Hub registry Solana chain id and custody/caller identity;
    this module uses the vault PDA as destinationCaller and messageSender, and
-   ATA as mintRecipient. The test chain id is only a fixture. Do not configure
+   ATA as mintRecipient. The v6 cohort uses accounting chain 1. Do not configure
    the program id as a signer or a different receive PDA on the Hub.
 4. Hub-order execution must invoke a separately authenticated T1 dispatch path;
    arbitrary keepers cannot use the Manager-only send entry. No unverified
@@ -112,8 +117,7 @@ preparation only.
 
 ## TODO(decision) / limitations
 
-- TODO(decision): numerical immutable scaled fee ceiling is not ruled; tests use
-  2 bps (`20_000`) solely as a fixture, never a deployment default. Operational
+- DEC-199 fixes the immutable scaled fee ceiling at 5 bps (`50_000`). Operational
   quote freshness/alerts are not an invented signed-quote rule.
 - TODO(decision): canonical per-direction transit-id generation/namespace and
   shared T1 report acknowledgement are not sealed yet. Caller-provided ids must
@@ -126,9 +130,7 @@ preparation only.
   before enabling that path (DEC-092/191).
 - Reclaim success after five days is not proven by the initial end-to-end suite;
   the suite executes real Circle early-reclaim rejection and preserves the event.
-- The shared `npm test` scaffold assertion still requires every instruction file
-  to contain only `NotImplemented` and forbids CPIs; it necessarily fails once
-  tracks implement handlers. Coordinator must replace that obsolete baseline
-  assertion with entrypoint-aware tests. It is outside T1b's write scope.
+- The shared `npm test` now checks entrypoint/Accounts structure instead of
+  requiring implemented handlers to remain `NotImplemented` scaffolds.
 - EIP-712 binding, complete Fund launch, reports, mainnet attestation delivery,
   cross-chain mainnet execution and production deployment are not proved here.
