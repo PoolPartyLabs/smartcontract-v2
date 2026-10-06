@@ -126,17 +126,11 @@ library CoreVaultCctpLogic {
         receipt.kind = kind;
         state.unmatchedArrivals += receipt.surplus;
         CoreVaultTransitLogic.receiveHubBound(state, wiring, origin, id, kind, receipt.minimum);
-        settle(state, wiring, receipt, origin, id);
+        settle(state, receipt, origin, id);
     }
 
     /// @dev Only capped principal/income is classified by the report; unspent maxFee is principal (DEC-191).
-    function settle(
-        CoreVaultState storage state,
-        CoreVaultWiring memory wiring,
-        Receipt storage receipt,
-        uint256 origin,
-        bytes32 id
-    ) public {
+    function settle(CoreVaultState storage state, Receipt storage receipt, uint256 origin, bytes32 id) public {
         if (receipt.minimum == 0 || receipt.settled) return;
         HubBoundTransfer storage transfer = state.hubBound[CoreVaultLogic.hubBoundKey(origin, id)];
         if (transfer.listed == 0) return;
@@ -158,7 +152,7 @@ library CoreVaultCctpLogic {
         uint256 origin = state.mandate.spokes[spokeIndex].chainId;
         for (uint256 index; index < report.inFlightToHub.length; ++index) {
             bytes32 id = report.inFlightToHub[index].transitId;
-            settle(state, wiring, receipts[id], origin, id);
+            settle(state, receipts[id], origin, id);
         }
     }
 }

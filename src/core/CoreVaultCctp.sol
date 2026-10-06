@@ -43,6 +43,15 @@ contract CoreVaultCctp is CoreVault, ICctpCoreVault {
                 || connector.remoteToken() != route.remoteToken
                 || connector.remoteVaultAuthority() != route.remoteVaultAuthority
         ) revert InvalidCctpConfig();
+        bool listed;
+        for (uint256 index; index < mandate.bridgeAdapters.length; ++index) {
+            if (
+                mandate.bridgeAdapters[index].spokeChainId == route.solanaChainId
+                    && mandate.bridgeAdapters[index].chainId == mandate.hubChainId
+                    && mandate.bridgeAdapters[index].adapter == address(adapter)
+            ) listed = true;
+        }
+        if (!listed) revert InvalidCctpConfig();
         solanaSpokeIndex = spokeIndex;
         cctpAdapter = adapter;
         cctpConnector = connector;

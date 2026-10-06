@@ -289,6 +289,7 @@ library CoreVaultTransitLogic {
     ///      path applies. OQ-09, OQ-01: a listing below the transit's `amountToArrive` is not an arrival (see
     ///      `_confirmArrivals`), so a report built after the deadline that lists the id only below that amount proves
     ///      non-arrival as well: once the deadline has passed Across can no longer fill the deposit.
+    /// @dev DEC-191: zero deadline denotes a persistent CCTP claim and can never prove non-arrival.
     function nonArrivalProvable(
         CoreVaultState storage s,
         CoreVaultWiring memory w,
@@ -508,6 +509,7 @@ library CoreVaultTransitLogic {
     ///      proves nothing either for a send whose amount to arrive is below the Spoke Vault's listing minimum
     ///      (`SpokeVaultTypes.MIN_LISTED_ARRIVAL`, CS-OQ-6: such an arrival is credited but never listed), so that
     ///      send is also noted only at its refund.
+    /// @dev DEC-191: no expiry path for a deadline-free CCTP burn.
     function attestExpiry(CoreVaultState storage s, CoreVaultWiring memory w, bytes32 transitId) public {
         Transit storage t = _knownTransit(s, transitId);
         if (t.fillDeadline == 0) revert ICoreVault.ExpiryNotProvable(transitId);
@@ -570,6 +572,7 @@ library CoreVaultTransitLogic {
     ///      so the bridge adapter learns the expiry here. That proof is only the escrow balance: whoever pays
     ///      `amountSent` into a filled send's escrow (the payment becomes the fund's) also steps one send's fee, once
     ///      per send and within the cap (review round 1; a known limitation).
+    /// @dev DEC-191: no refund path for a deadline-free CCTP burn.
     function recognizeRefund(CoreVaultState storage s, CoreVaultWiring memory w, bytes32 transitId)
         public
         returns (uint256 amount)
