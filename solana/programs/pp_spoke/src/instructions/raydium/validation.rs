@@ -114,6 +114,18 @@ pub fn bitmap(account: &AccountInfo, pool: Pubkey, starts: [i32; 2], spacing: u1
 
 pub fn token_program(mint: Pubkey) -> Pubkey { if mint == TSLA { TOKEN_2022 } else { TOKEN } }
 
+pub fn nft(account: &AccountInfo, mint: Pubkey, vault: Pubkey) -> Result<()> {
+    require_keys_eq!(*account.owner, TOKEN_2022, RaydiumError::InvalidAccount);
+    require_keys_eq!(*account.key, Pubkey::find_program_address(&[vault.as_ref(), TOKEN_2022.as_ref(), mint.as_ref()], &ATA).0, RaydiumError::InvalidAccount);
+    let data = account.try_borrow_data()?;
+    require!(data.len() >= 165 && (data[108] == 1 || data[108] == 2)
+        && u64_at(&data, 64)? == 1 && u32::from_le_bytes(bytes(&data, 72)?) == 0
+        && u32::from_le_bytes(bytes(&data, 129)?) == 0, RaydiumError::InvalidAccount);
+    require_keys_eq!(key(&data, 0)?, mint, RaydiumError::InvalidAccount);
+    require_keys_eq!(key(&data, 32)?, vault, RaydiumError::InvalidAccount);
+    Ok(())
+}
+
 pub fn token(account: &AccountInfo, mint: Pubkey, owner: Pubkey, canonical: bool, frozen_ok: bool) -> Result<u64> {
     let program = token_program(mint);
     require_keys_eq!(*account.owner, program, RaydiumError::InvalidAccount);
