@@ -98,12 +98,19 @@ test('real cloned Circle V2 burn and signed receive are atomic and replay-safe',
     console.log(`${instruction.data.subarray(0, 8).equals(discriminator('global', 'send_to_hub')) ? 'Burn' : 'Receive'} executed: ${simulation.value.unitsConsumed} CU; local transaction confirmed.`);
   };
   const before = BigInt((await connection.getTokenAccountBalance(recipient)).value.amount);
+  const wrongAccounts = receive(keeper, id, nonce, message, feeAta);
+  wrongAccounts.keys[18] = key(minter);
+  await execute(keeper, wrongAccounts, [], 'InvalidAccount');
+  const expired = Buffer.from(message);
+  const expiry = Buffer.alloc(32); expiry.writeBigUInt64BE(1n, 24); expiry.copy(expired, 344);
+  await execute(keeper, receive(keeper, id, nonce, expired, feeAta), [], 'MessageExpired');
   await execute(keeper, receive(keeper, id, nonce, badCaller, feeAta), [], 'WrongCaller');
   await execute(keeper, receive(keeper, id, nonce, badRecipient, feeAta), [], 'WrongRecipient');
   await execute(keeper, badAttestation, [], 'Error');
   await execute(keeper, unauthorized, [event], 'Unauthorized');
   assert.equal(BigInt((await connection.getTokenAccountBalance(recipient)).value.amount), before);
   assert.equal(await connection.getAccountInfo(publicKey(transit(id))), null);
+  assert.equal(await connection.getAccountInfo(publicKey(pda(ADDRESSES.cctpTransmitter, Buffer.from('used_nonce'), nonce))), null);
   await execute(keeper, valid);
   assert.equal(BigInt((await connection.getTokenAccountBalance(recipient)).value.amount), before + 999_900n);
   const ledgerData = (await connection.getAccountInfo(publicKey(ledger)))!.data;
@@ -134,5 +141,5 @@ test('real cloned Circle V2 burn and signed receive are atomic and replay-safe',
   await execute(manager, reclaim, [], 'EventAccountWindowNotExpired');
   assert.ok(await connection.getAccountInfo(event.publicKey));
   assert.equal((await connection.getAccountInfo(publicKey(vault)))?.lamports ?? 0, 0);
-  console.log('Wrong caller/recipient/signature/Manager, exact deltas, business replay with new nonce, fee surplus, persistent burn and no Fund SOL verified.');
+  console.log('Wrong caller/recipient/signature/Manager/CPI accounts, expired attestation rollback/manual retry, exact deltas, business replay with new nonce, fee surplus, persistent burn, early rent-reclaim rejection and no Fund SOL verified.');
 });

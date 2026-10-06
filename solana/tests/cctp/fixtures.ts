@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { keccak_256 } from '@noble/hashes/sha3';
 import { PublicKey } from '@solana/web3.js';
+import { createHash } from 'node:crypto';
 import { ADDRESSES, derive, publicKey } from '../helpers/addresses.ts';
 import { discriminator } from '../helpers/layouts.ts';
 import { testAta, testWallet } from '../helpers/localnet.ts';
@@ -80,8 +81,13 @@ function write(address: string, data: Buffer, owner: string = ADDRESSES.spoke, l
 export function prepareCctpFixtures(): void {
   const transmitter = derive(ADDRESSES.cctpTransmitter, Buffer.from('message_transmitter'));
   const backup = `${root}/cctp-original-transmitter.json`;
-  const cloned = existsSync(backup) ? JSON.parse(readFileSync(backup, 'utf8')) : snapshot(transmitter);
-  if (!existsSync(backup)) writeFileSync(backup, JSON.stringify(cloned));
+  const current = snapshot(transmitter);
+  const manifest = JSON.parse(readFileSync(`${root}/manifest.json`, 'utf8'));
+  const sourceHash = manifest.accounts.find((account: { address: string }) => account.address === transmitter)?.sha256;
+  const hash = (account: any) => createHash('sha256').update(Buffer.from(account.account.data[0], 'base64')).digest('hex');
+  const cloned = hash(current) === sourceHash ? current : existsSync(backup) ? JSON.parse(readFileSync(backup, 'utf8')) : null;
+  if (!cloned || hash(cloned) !== sourceHash) throw new Error('Original Circle snapshot does not match current clone manifest; re-prepare first');
+  writeFileSync(backup, JSON.stringify(cloned));
   const original = Buffer.from(cloned.account.data[0], 'base64');
   if (cloned.account.owner !== ADDRESSES.cctpTransmitter || !original.subarray(0, 8).equals(discriminator('account', 'MessageTransmitter'))
       || original[136] !== 0 || original.readUInt32LE(137) !== 5 || original.readUInt32LE(141) !== 1) throw new Error('Unexpected cloned Circle transmitter layout');
