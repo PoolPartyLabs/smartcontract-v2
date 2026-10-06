@@ -23,6 +23,7 @@ library SolanaMandateV6 {
         bytes32 spoke;
         bytes32 usdcMint;
         bytes32 managerKey;
+        /// @dev TODO(decision): canonical accounting chain namespace; distinct from Circle/Wormhole IDs.
         uint256 chainId;
         Asset[] assets;
         Venue[] venues;

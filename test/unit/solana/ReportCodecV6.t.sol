@@ -42,12 +42,23 @@ contract ReportCodecV6Test is Test {
 
     function testPopulatedGoldenPreservesSignedTicksAndIncomeTransit() public view {
         bytes memory golden = vm.parseBytes(vm.readLine("test/fixtures/solana-report-v6-position.hex"));
-        ReportCodecV6.Report memory report = SolanaFixture.report(1791286864);
+        ReportCodecV6.Report memory report = SolanaFixture.report(1_791_286_864);
         report.nativeMandateHash = bytes32(uint256(3));
         report.positions = new ReportCodecV6.Position[](1);
         report.positions[0] = ReportCodecV6.Position(
-            bytes32(uint256(300)), bytes32(uint256(400)), 0, bytes32(type(uint256).max),
-            -100, 100, 1000, SolanaFixture.STOCK, SolanaFixture.USDC, 12, 34, 56, 78
+            bytes32(uint256(300)),
+            bytes32(uint256(400)),
+            0,
+            bytes32(type(uint256).max),
+            -100,
+            100,
+            1000,
+            SolanaFixture.STOCK,
+            SolanaFixture.USDC,
+            12,
+            34,
+            56,
+            78
         );
         report.inFlightToHub = new ReportCodec.HubBoundAmount[](1);
         report.inFlightToHub[0] = ReportCodec.HubBoundAmount(bytes32(uint256(901)), 48_000_000, TransferKind.Income);

@@ -180,7 +180,9 @@ contract ValueReportReceiverV6Test is Test {
         receiver.deliver(raw);
         CoreBridgeVM memory message = abi.decode(raw, (CoreBridgeVM));
         ++message.sequence;
-        vm.expectRevert(abi.encodeWithSelector(IValueReportReceiver.ReportSequenceNotIncreasing.selector, uint64(1), uint64(1)));
+        vm.expectRevert(
+            abi.encodeWithSelector(IValueReportReceiver.ReportSequenceNotIncreasing.selector, uint64(1), uint64(1))
+        );
         receiver.deliver(abi.encode(message));
     }
 

@@ -30,6 +30,21 @@ is declared in `src/interfaces/ISolanaTransportV6.sol`. No bridge adapter or Cor
 transit code was edited in this track. The local factory test uses a non-executing
 transport wiring fixture, not a CCTP mint/burn.
 
+### Final integration merge
+
+The final fetch merged T2b's `CoreVaultCctp`, `CoreVaultCctpLogic`,
+`CctpBridgeAdapter` and `CctpReceiveConnector`, plus the Solana scaffold. They are
+not automatically substituted for this factory's Core v6. T2b's Core constructor
+also requires a `CctpRoute`, adapter, connector and spoke index; that complete
+route/fee configuration still needs an immutable commitment and factory deployment
+composition. The scaffold does not yet supply a matching native report encoder;
+Rust byte-for-byte parity remains a release blocker.
+
+The size inventory includes those merged production declarations. The strict test
+correctly fails for merged `CoreVaultCctp` (24405 bytes, only 171 spare), while
+every T2a production contract meets the existing 1,000-byte-margin rule. That
+failure is not hidden or weakened; T2b/coordinator must reduce its size.
+
 ## Manager binding: exact EIP-712 definition
 
 Domain:
