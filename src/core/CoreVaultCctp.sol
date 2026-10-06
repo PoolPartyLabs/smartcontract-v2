@@ -17,6 +17,7 @@ contract CoreVaultCctp is CoreVault, ICctpCoreVault {
     CctpReceiveConnector public immutable cctpConnector;
     uint256 public immutable solanaSpokeIndex;
     mapping(bytes32 => CoreVaultCctpLogic.Receipt) public cctpReceipts;
+    mapping(bytes32 => uint256) private _cctpArrivalSurplus;
 
     error InvalidCctpConfig();
     error NotCctpConnector();
@@ -82,6 +83,7 @@ contract CoreVaultCctp is CoreVault, ICctpCoreVault {
         if (msg.sender != reportReceiver) revert NotReportReceiver(msg.sender);
         CoreVaultTransitLogic.applyReport(_s, _wiring(), spokeIndex);
         if (_s.fundState != FundState.Closed && spokeIndex == solanaSpokeIndex) {
+            CoreVaultCctpLogic.confirmFeeSurplus(_s, _wiring(), _cctpArrivalSurplus, spokeIndex, address(cctpAdapter));
             CoreVaultCctpLogic.settleReport(_s, _wiring(), cctpReceipts, spokeIndex);
         }
     }

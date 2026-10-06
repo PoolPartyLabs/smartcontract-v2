@@ -27,6 +27,28 @@ library CoreVaultCctpLogic {
 
     error ReceiptReportMismatch(bytes32 transitId);
 
+    /// @notice DEC-191: authentic actual arrival includes unspent outbound maxFee as principal, once only.
+    function confirmFeeSurplus(
+        CoreVaultState storage state,
+        CoreVaultWiring memory wiring,
+        mapping(bytes32 => uint256) storage surplusById,
+        uint256 spokeIndex,
+        address adapter
+    ) public {
+        (ReportCodec.Report memory report,,) = IValueReportReceiver(wiring.reportReceiver).latestReport(spokeIndex);
+        for (uint256 index; index < report.arrivedTransits.length; ++index) {
+            ReportCodec.TransitAmount memory arrival = report.arrivedTransits[index];
+            Transit storage transit = state.transits[arrival.transitId];
+            if (transit.bridgeAdapter != adapter || transit.state != TransitState.ArrivalConfirmed) continue;
+            if (arrival.amount > transit.amountSent) revert ReceiptReportMismatch(arrival.transitId);
+            if (arrival.amount <= transit.amountToArrive) continue;
+            uint256 surplus = arrival.amount - transit.amountToArrive;
+            if (surplus <= surplusById[arrival.transitId]) continue;
+            state.spokeBooks[spokeIndex].confirmedArrived += surplus - surplusById[arrival.transitId];
+            surplusById[arrival.transitId] = surplus;
+        }
+    }
+
     function send(
         CoreVaultState storage state,
         CoreVaultWiring memory wiring,
