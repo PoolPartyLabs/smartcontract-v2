@@ -3,7 +3,7 @@ import { Connection, Keypair, PublicKey, Transaction, SendTransactionError } fro
 import type { TransactionInstruction } from '@solana/web3.js';
 import { ADDRESSES, derive, publicKey } from './addresses.ts';
 
-export const LOCAL_RPC = 'http://127.0.0.1:8899';
+export const LOCAL_RPC = `http://127.0.0.1:${process.env.PP_LOCALNET_RPC_PORT ?? '8899'}`;
 
 export function requireLoopback(endpoint: string): string {
   const parsed = new URL(endpoint);

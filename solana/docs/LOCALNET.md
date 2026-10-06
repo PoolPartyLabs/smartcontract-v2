@@ -115,3 +115,6 @@ Wormhole guardian delivery or an end-to-end Fund. Those are owner-track gates.
 External deployed binaries are upgradeable and are not proven equal to the
 research source commits. No clone proves mainnet safety/capacity or authorizes
 mainnet transactions. DEC-188–195 remain the governing rules.
+
+Parallel tracks: set `PP_LOCALNET_RPC_PORT`, `PP_LOCALNET_FAUCET_PORT`, `PP_LOCALNET_GOSSIP_PORT` and
+`PP_LOCALNET_DYNAMIC_PORTS` per worktree so validators run side by side; the tests read `PP_LOCALNET_RPC_PORT`.

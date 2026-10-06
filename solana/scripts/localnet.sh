@@ -2,6 +2,11 @@
 set -euo pipefail
 ROOT="$(dirname "$(dirname "$(realpath "$0")")")"
 STATE="$ROOT/.localnet"
+# Per-worktree ports so parallel tracks can run validators side by side (defaults keep the single-run behavior).
+RPC_PORT="${PP_LOCALNET_RPC_PORT:-8899}"
+FAUCET_PORT="${PP_LOCALNET_FAUCET_PORT:-9900}"
+GOSSIP_PORT="${PP_LOCALNET_GOSSIP_PORT:-1024}"
+DYNAMIC_PORTS="${PP_LOCALNET_DYNAMIC_PORTS:-1025-1065}"
 case "${1:-}" in
   prepare)
     node "$ROOT/scripts/prepare-localnet.ts"
@@ -19,13 +24,14 @@ case "${1:-}" in
       printf '%s\n' 'This worktree validator is already running.' >&2
       exit 1
     fi
-    if lsof -iTCP:8899 -sTCP:LISTEN >/dev/null 2>&1; then
-      printf '%s\n' 'Port 8899 is occupied; stop its owner, never kill another worktree.' >&2
+    if lsof -iTCP:"$RPC_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+      printf '%s\n' "Port $RPC_PORT is occupied; stop its owner, never kill another worktree." >&2
       exit 1
     fi
     SLOT="$(node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1])).warpSlot))' "$STATE/manifest.json")"
     solana-test-validator --reset --quiet --bind-address 127.0.0.1 \
-      --rpc-port 8899 --ledger "$STATE/ledger" --warp-slot "$SLOT" \
+      --rpc-port "$RPC_PORT" --faucet-port "$FAUCET_PORT" \
+      --gossip-port "$GOSSIP_PORT" --dynamic-port-range "$DYNAMIC_PORTS" --ledger "$STATE/ledger" --warp-slot "$SLOT" \
       --account-dir "$STATE/accounts" --account-dir "$STATE/overrides" \
       --bpf-program Fg6PaFpoGXkYsidMpWxTWqkZ7FEfcYkgMQHGfVNLusVw "$ROOT/target/deploy/pp_spoke.so" \
       >"$STATE/validator.log" 2>&1 &
@@ -37,12 +43,12 @@ case "${1:-}" in
       fi
       if curl --silent --fail -H 'content-type: application/json' \
         --data '{"jsonrpc":"2.0","id":1,"method":"getHealth"}' \
-        http://127.0.0.1:8899 | grep -q '"ok"'; then
+        http://127.0.0.1:"$RPC_PORT" | grep -q '"ok"'; then
         FINALIZED="$(curl --silent --fail -H 'content-type: application/json' \
           --data '{"jsonrpc":"2.0","id":1,"method":"getSlot","params":[{"commitment":"finalized"}]}' \
-          http://127.0.0.1:8899 | node -e 'let input=""; process.stdin.on("data",chunk=>input+=chunk); process.stdin.on("end",()=>process.stdout.write(String(JSON.parse(input).result ?? 0)))')"
+          http://127.0.0.1:"$RPC_PORT" | node -e 'let input=""; process.stdin.on("data",chunk=>input+=chunk); process.stdin.on("end",()=>process.stdout.write(String(JSON.parse(input).result ?? 0)))')"
         if [[ "$FINALIZED" -gt "$SLOT" ]]; then
-          printf '%s\n' 'Cloned local validator ready with a post-warp finalized root on loopback port 8899.'
+          printf '%s\n' "Cloned local validator ready with a post-warp finalized root on loopback port $RPC_PORT."
           exit 0
         fi
       fi
