@@ -93,6 +93,8 @@ read-only mainnet RPC; test transactions are exclusively loopback. Scripts do
 not print credentials, RPC endpoints, or local key material.
 
 ```sh
+export PP_LOCALNET_RPC_PORT=8970 PP_LOCALNET_FAUCET_PORT=9970
+export PP_LOCALNET_GOSSIP_PORT=17000 PP_LOCALNET_DYNAMIC_PORTS=17001-17060
 npm ci --ignore-scripts
 cargo test --locked
 anchor build --no-idl
@@ -102,11 +104,18 @@ node tests/swap/record-fixtures.ts --replay
 cargo-build-sbf --manifest-path tests/swap/probe/Cargo.toml \
   --sbf-out-dir tests/swap/probe/target/deploy
 bash tests/swap/start-probe.sh
-PP_LOCALNET_RPC_PORT=8950 node --test tests/swap/cpi.localnet.test.ts
-PP_LOCALNET_RPC_PORT=8950 ./scripts/localnet.sh stop
+node --test tests/swap/cpi.localnet.test.ts
+./scripts/localnet.sh stop
 ```
 
+The probe launcher preserves supplied `PP_LOCALNET_*` values; its historical
+track defaults apply only when unset. The ports above are the assigned gate
+ports: do not run the launcher or localnet tests while the gate helper owns them.
+
 `prepare` removes unknown snapshots: apply the track clone extension **after** it.
+`record-fixtures.ts --replay` still rewrites tracked fixture JSON, including
+`fixtures/clone-extension.json`; inspect those diffs before committing. Replay
+generation behavior is unchanged by the launcher port fix.
 To intentionally refresh real Jupiter fixtures use `record-fixtures.ts` without
 `--replay` (three quote/instruction pairs through the limiter). Fixtures commit
 quote/instruction/account inventory/hash metadata, not dumped binaries or keys.
