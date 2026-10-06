@@ -132,7 +132,8 @@ pub fn execute_guarded<'info>(
     require!(accounts.len() >= 9 && accounts.len() <= 48, SwapError::Route);
     require!(*accounts[1].key == *vault.key && accounts[2].is_writable && accounts[3].is_writable
         && *accounts[5].key == request.output_mint
-        && *accounts[4].key == JUPITER && *accounts[6].key == JUPITER
+        && (*accounts[4].key == JUPITER || accounts[4].key == accounts[3].key)
+        && *accounts[6].key == JUPITER
         && *accounts[8].key == JUPITER, SwapError::Custody);
     let input_data = endpoint(&accounts[2], vault.key, &request.input_mint)?;
     let output_data = endpoint(&accounts[3], vault.key, &request.output_mint)?;
@@ -211,5 +212,22 @@ mod tests {
         assert!(route_amount(&invalid, &policy).is_err());
         assert!(route_amount(&request(), &SealedPolicy { mints: &[], max_slippage_bps: 100 }).is_err());
         assert!(route_amount(&request(), &SealedPolicy { mints: &mints, max_slippage_bps: 99 }).is_err());
+    }
+
+    #[test]
+    fn detect_extra_vault_drain_and_authority_mutation() {
+        let key = Pubkey::new_unique();
+        let mut lamports = 1_000_000;
+        let mut data = vec![0u8; 165];
+        data[64..72].copy_from_slice(&100u64.to_le_bytes());
+        let account = AccountInfo::new(&key, false, true, &mut lamports, &mut data, &TOKEN, false, 0);
+        let snapshot = Snapshot { account: account.clone(), owner: TOKEN, lamports: account.lamports(),
+            data: account.try_borrow_data().unwrap().to_vec() };
+        assert!(unchanged(&snapshot, None, 0).is_ok());
+        account.try_borrow_mut_data().unwrap()[64..72].copy_from_slice(&99u64.to_le_bytes());
+        assert!(unchanged(&snapshot, None, 0).is_err());
+        assert!(unchanged(&snapshot, Some(99), 0).is_ok());
+        account.try_borrow_mut_data().unwrap()[32] = 1;
+        assert!(unchanged(&snapshot, Some(99), 0).is_err());
     }
 }
