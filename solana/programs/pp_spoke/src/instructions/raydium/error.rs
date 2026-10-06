@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-#[error_code]
+#[error_code(offset = 7400)]
 pub enum RaydiumError {
     #[msg("Invalid pinned Raydium account or relationship")]
     InvalidAccount,

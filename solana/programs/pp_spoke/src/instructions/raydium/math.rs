@@ -175,7 +175,10 @@ mod tests {
             .unwrap();
             assert_eq!(
                 result,
-                [fields[7].parse().unwrap(), fields[8].parse().unwrap()],
+                [
+                    fields[7].parse::<u64>().unwrap(),
+                    fields[8].parse::<u64>().unwrap()
+                ],
                 "{line}"
             );
             count += 1;
