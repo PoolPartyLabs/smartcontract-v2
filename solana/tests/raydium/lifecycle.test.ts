@@ -48,6 +48,19 @@ for (const fixture of fixtures) {
     max.writeBigUInt64LE(1_000_000_000n, 0); max.writeBigUInt64LE(1_000_000_000n, 8);
     const payload = Buffer.concat([ticks, u128(liquidity), max, u128(liquidity)]);
     const open = instruction('raydium_open_position', accounts, payload);
+    const activePositionsBefore = (await connection.getAccountInfo(publicKey(fixture.fund)))!.data.readUInt16LE(372);
+    async function assertReportLatched() {
+      const report = instruction('build_report', {
+        authority: manager.publicKey, fund: fixture.fund, vault: fixture.vault,
+        wormhole_program: ADDRESSES.wormhole,
+      }, Buffer.alloc(0));
+      const transaction = new Transaction({ feePayer: manager.publicKey, recentBlockhash: (await connection.getLatestBlockhash()).blockhash })
+        .add(report);
+      transaction.sign(manager);
+      const result = await connection.simulateTransaction(transaction);
+      assert.ok(result.value.err, 'idle-only report must fail while Raydium records remain unretired');
+      assert.match(result.value.logs?.join('\n') ?? '', /AdapterNotIntegrated/);
+    }
     async function negative(changes: Record<string, string | PublicKey | null>, badPayload = payload) {
       const bad = instruction('raydium_open_position', { ...accounts, ...changes }, badPayload);
       const transaction = new Transaction({ feePayer: manager.publicKey, recentBlockhash: (await connection.getLatestBlockhash()).blockhash })
@@ -67,7 +80,12 @@ for (const fixture of fixtures) {
     const overBudget = Buffer.from(payload);
     overBudget.writeBigUInt64LE(100_000_000_001n, 24);
     await negative({}, overBudget);
+    assert.equal((await connection.getAccountInfo(publicKey(fixture.fund)))!.data.readUInt16LE(372), activePositionsBefore);
     const measuredOpen = await sendMeasured(connection, manager, open, [mint]);
+    const activePositionsAfterOpen = (await connection.getAccountInfo(publicKey(fixture.fund)))!.data.readUInt16LE(372);
+    assert.equal(activePositionsAfterOpen, activePositionsBefore + 1, 'successful open latches exactly one unretired position');
+    assert.ok(activePositionsAfterOpen > 0);
+    await assertReportLatched();
     assert.ok(measuredOpen.bytes <= 1232);
     assert.ok(measuredOpen.units! < 1_400_000);
     assert.equal(readU128((await connection.getAccountInfo(publicKey(personal)))!.data, 81), liquidity);
@@ -119,5 +137,8 @@ for (const fixture of fixtures) {
     const closed = (await connection.getAccountInfo(publicKey(record)))!.data;
     assert.equal(readU128(closed, 176), 0n);
     assert.equal(closed[208], 1);
+    assert.equal((await connection.getAccountInfo(publicKey(fixture.fund)))!.data.readUInt16LE(372), activePositionsAfterOpen,
+      'close retains the integration latch until canonical ledger/report retirement');
+    await assertReportLatched();
   });
 }
