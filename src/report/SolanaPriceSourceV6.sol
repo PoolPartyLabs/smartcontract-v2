@@ -2,10 +2,11 @@ pragma solidity 0.8.28;
 
 import {ChainlinkPriceSource} from "./ChainlinkPriceSource.sol";
 import {SolanaMandateV6} from "../mandate/SolanaMandateV6.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @notice Immutable Arbitrum USD feeds for native Solana assets (DEC-123, DEC-188, DEC-194).
-/// @dev TSLAx raw units use the issuer multiplier before CLMM composition. The MVP permits only multiplier 1,
-///      authenticated in the v6 report by the registry; a non-unit multiplier requires a new version.
+/// @dev TSLAx uses the unit multiplier; NVDAx uses the pinned effective binary multiplier.
+///      The v6 registry authenticates both witnesses; changed issuer state requires a new version.
 contract SolanaPriceSourceV6 {
     struct NativeConfig {
         bytes32 stockMint;
@@ -18,6 +19,8 @@ contract SolanaPriceSourceV6 {
     }
     address public constant TSLA_USD = 0x3609baAa0a9b1f0FE4d6CC01884585d0e191C3E3;
     address public constant SOL_USD = 0x24ceA4b8ce57cdA5058b924B9B9987992450590c;
+    address public constant NVDA_USD = 0x4881A4418b5F2460B21d6F08CD5aA0678a7f262F;
+    bytes32 public constant NVDA_MINT = 0x07e8a50e140fda5791f4566a957fd3ae3f873e6a3466ffc13d79119dfa9ab50a;
     bytes32 public constant TSLA_MINT = 0x07e83582411fea1482f0994b80aa512a97c94f25df283bec5a67a381fc862b4a;
     bytes32 public constant WSOL_MINT = 0x069b8857feab8184fb687f634618c035dac439dc1aeb3b5598a0f00000000001;
     bytes32 public constant USDC_MINT = 0xc6fa7af3bedbad3a3d65f36aabc97431b1bbe4c2d2f6e0e47ca60203452f5d61;
@@ -51,7 +54,7 @@ contract SolanaPriceSourceV6 {
         stockAccountingId = SolanaMandateV6.accountingId(config.stockMint);
         stockSessionOpen = config.sessionOpen;
         stockSessionClose = config.sessionClose;
-        ChainlinkPriceSource.FeedConfig[] memory feeds = new ChainlinkPriceSource.FeedConfig[](evmFeeds.length + 2);
+        ChainlinkPriceSource.FeedConfig[] memory feeds = new ChainlinkPriceSource.FeedConfig[](evmFeeds.length + 3);
         for (uint256 index; index < evmFeeds.length; ++index) {
             feeds[index] = evmFeeds[index];
         }
@@ -59,6 +62,8 @@ contract SolanaPriceSourceV6 {
         feeds[evmFeeds.length + 1] = ChainlinkPriceSource.FeedConfig(
             SolanaMandateV6.accountingId(config.wrappedSolMint), 9, SOL_USD, config.solMaxAge
         );
+        feeds[evmFeeds.length + 2] =
+            ChainlinkPriceSource.FeedConfig(SolanaMandateV6.accountingId(NVDA_MINT), 8, NVDA_USD, config.stockMaxAge);
         ChainlinkPriceSource.FixedConfig[] memory fixedTokens =
             new ChainlinkPriceSource.FixedConfig[](evmFixed.length + 1);
         for (uint256 index; index < evmFixed.length; ++index) {
@@ -70,13 +75,12 @@ contract SolanaPriceSourceV6 {
     }
 
     function priceInUsdc(address token) external view returns (uint256 price1e18, uint256 updatedAt) {
-        _checkSession(token);
-        return underlying.priceInUsdc(token);
+        return _price(token);
     }
 
     function usdcValue(address token, uint256 amount) external view returns (uint256 value, uint256 updatedAt) {
-        _checkSession(token);
-        return underlying.usdcValue(token, amount);
+        (uint256 price, uint256 timestamp) = _price(token);
+        return (Math.mulDiv(amount, price, 1e18), timestamp);
     }
 
     function maxPriceAge(address token) external view returns (uint256) {
@@ -85,13 +89,24 @@ contract SolanaPriceSourceV6 {
 
     function nativePrice(bytes32 mint) external view returns (uint256 price1e18, uint256 updatedAt) {
         address identity = SolanaMandateV6.accountingId(mint);
-        _checkSession(identity);
-        return underlying.priceInUsdc(identity);
+        return _price(identity);
+    }
+
+    /// @dev DEC-198: exact binary effective multiplier, authenticated by the registry; changes fail closed.
+    function _price(address token) private view returns (uint256 price, uint256 timestamp) {
+        _checkSession(token);
+        (price, timestamp) = underlying.priceInUsdc(token);
+        if (token == SolanaMandateV6.accountingId(NVDA_MINT)) {
+            price = Math.mulDiv(price, uint256(0x1006f7d589fea9), uint256(1) << 52);
+        }
     }
 
     function _checkSession(address token) private view {
         uint256 nowTimestamp = block.timestamp;
-        if (token == stockAccountingId && (nowTimestamp < stockSessionOpen || nowTimestamp >= stockSessionClose)) {
+        if (
+            (token == stockAccountingId || token == SolanaMandateV6.accountingId(NVDA_MINT))
+                && (nowTimestamp < stockSessionOpen || nowTimestamp >= stockSessionClose)
+        ) {
             revert StockMarketClosed();
         }
     }

@@ -33,7 +33,7 @@ contract CctpBridgeAdapter is AdapterGuard, IBridgeAdapter {
     error NoExpiry();
 
     /// @param maxFeeBps_ Immutable bound in 1/10,000 bps: Circle's 1.4 bps is 14,000.
-    /// @dev TODO(decision): founder must choose the deployment's numeric fee bound; no default is invented.
+    /// @dev DEC-199: deployments may tighten, never exceed the hard 5 bps ceiling.
     constructor(
         address guardian_,
         address vault_,
@@ -47,7 +47,7 @@ contract CctpBridgeAdapter is AdapterGuard, IBridgeAdapter {
                 || route.solanaChainId == 0 || route.solanaChainId == block.chainid || route.mintRecipient == bytes32(0)
                 || route.destinationCaller == bytes32(0)
         ) revert InvalidRoute();
-        if (maxFeeBps_ == 0 || maxFeeBps_ >= FEE_SCALE) revert InvalidFee();
+        if (maxFeeBps_ == 0 || maxFeeBps_ > 50_000) revert InvalidFee();
         vault = vault_;
         target = messenger_;
         usdc = usdc_;

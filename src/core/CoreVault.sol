@@ -50,40 +50,9 @@ contract CoreVault is CoreVaultPayout {
     {
         if (usdcAmount == 0) revert ZeroAmount();
         _requireOpen();
-        uint256 supply = _totalShares();
-        if (supply == 0) revert FundNotSeeded();
-        // DEC-096: Operating Cash top-up first, so the depositor enters at the post-expense price.
+        _requireSharePricing();
         _topUpOperatingCash();
-        // Q57 reading: a mint reverts on a stale spoke report or a stale price. DEC-014: the entrant's checkpoint below
-        // gives it no income collected before entry (ruling 2026-09-29: the index moves only at collection).
-        CoreVaultWiring memory w = _wiring();
-        (uint256 assets, NavConsolidation memory consolidation) = CoreVaultLogic.recordValuation(_s, w, true);
-        uint256 price = ShareMath.sharePrice(assets, supply);
-        // Independent verification plan MM-3 (DEC-035, DEC-061 residual OPEN): below one base unit per whole share a
-        // deposit's charge rounds to zero for whole shares, and repeated one-unit deposits compounded to more than 99%
-        // of the supply for nothing, a claim on every later recovery of value. Such a fund takes no new money.
-        if (price < ShareMath.PRICE_SCALE) revert SharePriceBelowOneUnit(price);
-        uint256 usdcForShares;
-        uint256 fee;
-        (shares, usdcForShares, fee) = ShareMath.previewDeposit(usdcAmount, flowFeeBps, price);
-        // DEC-035: a deposit below one share's price is rejected.
-        if (shares == 0) revert DepositBelowOneShare(usdcAmount - fee, price);
-        if (shares < minShares) revert SharesBelowMinimum(shares, minShares);
-        usdcCharged = usdcForShares + fee;
-
-        // DEC-014, Q60: the income hook checkpoints with the balance before the mint (WP-07 D2).
-        CoreVaultIncomeLogic.beforeBalanceChange(_s, w, msg.sender, _sharesOf(msg.sender));
-        _s.idle += usdcForShares;
-        emit Deposited(msg.sender, usdcForShares, fee, shares, price, assets, supply, consolidation);
-
-        IERC20(usdc).safeTransferFrom(msg.sender, address(this), usdcCharged);
-        // DEC-106: the flow fee goes to the protocol in the same transaction; security review S-12: if that transfer
-        // fails it is owed, never a reason to refuse the deposit.
-        CoreVaultLogic.payFee(_s, usdc, protocolRecipient, fee);
-        ShareToken(shareToken).mint(msg.sender, shares);
-        CoreVaultIncomeLogic.afterMint(_s, w, msg.sender, shares);
-        // DEC-146: the peak moves on every mint to the manager address.
-        if (msg.sender == manager) _recordManagerPeak();
+        return CoreVaultClosureLogic.deposit(_s, _wiring(), usdcAmount, minShares);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -150,16 +119,12 @@ contract CoreVault is CoreVaultPayout {
     }
 
     function exitClosedFund(address holder) external nonReentrant returns (uint256 paid) {
+        _requireSharePricing();
         return CoreVaultClosureLogic.exit(_s, _wiring(), holder);
     }
 
     /// @inheritdoc ICoreVaultLifecycle
     function managerPeakShares() external view returns (uint256) {
         return _s.managerPeakShares;
-    }
-
-    function _recordManagerPeak() private {
-        uint256 balance = _sharesOf(manager);
-        if (balance > _s.managerPeakShares) _s.managerPeakShares = balance;
     }
 }

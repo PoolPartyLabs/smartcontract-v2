@@ -10,13 +10,13 @@ import {Test, Vm, console2} from "forge-std/Test.sol";
 /// @dev Completeness: every top-level `contract` and `library` declared under `src/` must be listed in `_entries`, so
 ///      a new one fails `test_DEC131_everySourceDeclarationIsListed` until it is classified and sized here. Interfaces
 ///      and abstract contracts have no code of their own (theirs lands in the listed contracts that inherit them).
-///      A margin under 1,000 bytes is logged as a warning, not a failure: DEC-131 left a minimum reserve open.
+///      This integration branch requires at least 1,000 spare bytes for every deployable.
 /// @dev Run: forge test --match-path test/size/ContractSizes.t.sol -vv (fresh build; the sizes are of this build).
 contract ContractSizesTest is Test {
     /// @notice EIP-170 on Arbitrum One, the smallest code limit across the supported chains (DEC-131, b4).
     uint256 internal constant CODE_LIMIT = 24_576;
 
-    /// @notice Margin below which the log flags a contract (planning rule; DEC-131 left the reserve open).
+    /// @notice Required runtime reserve for every deployable in this integration cohort.
     uint256 internal constant LOW_MARGIN = 1000;
 
     /// @notice Largest deployed code of an inlined library: the bare stub every library compiles to (85 bytes with
@@ -37,7 +37,7 @@ contract ContractSizesTest is Test {
 
     /// @dev Every top-level contract and library under `src/`, as `<path>:<name>`.
     function _entries() internal pure returns (Entry[] memory e) {
-        e = new Entry[](54);
+        e = new Entry[](55);
         uint256 i;
         // Contracts deployed on chain (the factory's roles, the protocol-level contracts and what they deploy).
         e[i++] = Entry("src/adapters/AaveV3Adapter.sol:AaveV3Adapter", Kind.Contract);
@@ -58,6 +58,7 @@ contract ContractSizesTest is Test {
         e[i++] = Entry("src/factory/Create3Deployer.sol:Create3Deployer", Kind.Contract);
         e[i++] = Entry("src/factory/FundFactory.sol:FundFactory", Kind.Contract);
         e[i++] = Entry("src/factory/FundFactoryV6.sol:FundFactoryV6", Kind.Contract);
+        e[i++] = Entry("src/factory/SolanaDeploymentV6.sol:SolanaDeploymentV6", Kind.LinkedLibrary);
         e[i++] = Entry("src/report/ChainlinkPriceSource.sol:ChainlinkPriceSource", Kind.Contract);
         e[i++] = Entry("src/report/ValueReportReceiver.sol:ValueReportReceiver", Kind.Contract);
         e[i++] = Entry("src/report/ValueReportReceiverV6.sol:ValueReportReceiverV6", Kind.Contract);

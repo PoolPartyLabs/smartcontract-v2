@@ -215,6 +215,8 @@ abstract contract CoreVaultBase is ICoreVaultLifecycle, ICoreVault, ReentrancyGu
         if (state != FundState.Open) revert FundNotOpen(state);
     }
 
+    function _requireSharePricing() internal view virtual {}
+
     // ---------------------------------------------------------------------------------------------------------------
     // Views
     // ---------------------------------------------------------------------------------------------------------------

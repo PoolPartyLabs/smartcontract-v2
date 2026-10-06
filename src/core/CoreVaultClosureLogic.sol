@@ -33,6 +33,38 @@ library CoreVaultClosureLogic {
         uint256 paid;
     }
 
+    /// @notice DEC-014, DEC-035, DEC-106, DEC-146: identical deposit accounting in linked code (DEC-131).
+    function deposit(CoreVaultState storage state, CoreVaultWiring memory wiring, uint256 amount, uint256 minimum)
+        public
+        returns (uint256 shares, uint256 charged)
+    {
+        uint256 supply = IERC20(wiring.shareToken).totalSupply();
+        if (supply == 0) revert ICoreVaultLifecycle.FundNotSeeded();
+        (uint256 assets, ICoreVault.NavConsolidation memory consolidation) =
+            CoreVaultLogic.recordValuation(state, wiring, true);
+        uint256 price = ShareMath.sharePrice(assets, supply);
+        if (price < ShareMath.PRICE_SCALE) revert ICoreVault.SharePriceBelowOneUnit(price);
+        uint256 principal;
+        uint256 fee;
+        (shares, principal, fee) = ShareMath.previewDeposit(amount, wiring.flowFeeBps, price);
+        if (shares == 0) revert ICoreVault.DepositBelowOneShare(amount - fee, price);
+        if (shares < minimum) revert ICoreVault.SharesBelowMinimum(shares, minimum);
+        charged = principal + fee;
+        CoreVaultIncomeLogic.beforeBalanceChange(
+            state, wiring, msg.sender, IERC20(wiring.shareToken).balanceOf(msg.sender)
+        );
+        state.idle += principal;
+        emit ICoreVault.Deposited(msg.sender, principal, fee, shares, price, assets, supply, consolidation);
+        IERC20(wiring.usdc).safeTransferFrom(msg.sender, address(this), charged);
+        CoreVaultLogic.payFee(state, wiring.usdc, wiring.protocolRecipient, fee);
+        ShareToken(wiring.shareToken).mint(msg.sender, shares);
+        CoreVaultIncomeLogic.afterMint(state, wiring, msg.sender, shares);
+        if (msg.sender == wiring.manager) {
+            uint256 balance = IERC20(wiring.shareToken).balanceOf(wiring.manager);
+            if (balance > state.managerPeakShares) state.managerPeakShares = balance;
+        }
+    }
+
     function seed(
         CoreVaultState storage state,
         CoreVaultWiring memory wiring,
