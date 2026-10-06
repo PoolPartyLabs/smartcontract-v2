@@ -11,6 +11,8 @@ import {SpokeConfig} from "../../../src/mandate/Mandate.sol";
 import {MockCoreBridge} from "../../mocks/receiver/MockCoreBridge.sol";
 import {MockReceiverCoreVault} from "../../mocks/receiver/MockReceiverCoreVault.sol";
 import {SolanaFixture} from "./SolanaFixture.sol";
+import {SpokeUnwindTypes} from "../../../src/spoke/SpokeUnwindTypes.sol";
+import {SpokeIncomeTypes} from "../../../src/spoke/SpokeIncomeTypes.sol";
 
 contract ValueReportReceiverV6Test is Test {
     MockCoreBridge private bridge;
@@ -196,7 +198,7 @@ contract ValueReportReceiverV6Test is Test {
         vm.expectRevert(IValueReportReceiver.ReportMismatch.selector);
         receiver.deliver(_message(32, report));
         report.collectionResults = hex"01";
-        vm.expectRevert(ValueReportReceiverV6.InvalidNativeReport.selector);
+        vm.expectRevert();
         receiver.deliver(_message(32, report));
     }
 
@@ -212,5 +214,72 @@ contract ValueReportReceiverV6Test is Test {
         assertTrue(receiver.isReportFresh(1));
         vm.warp(block.timestamp + 1);
         assertFalse(receiver.isReportFresh(1));
+    }
+
+    function testNativeClosureUnwindAndCollectionPreserveEvmSemantics() public {
+        ReportCodecV6.Report memory report = SolanaFixture.report(uint64(block.timestamp));
+        SpokeUnwindTypes.OrderResult[] memory unwind = new SpokeUnwindTypes.OrderResult[](1);
+        unwind[0] = SpokeUnwindTypes.OrderResult(
+            bytes32(uint256(10)),
+            bytes32(uint256(11)),
+            2,
+            bytes32(uint256(12)),
+            100e6,
+            99_950_000,
+            101e6,
+            1e6,
+            500_000,
+            3,
+            4,
+            false,
+            5
+        );
+        report.unwindResults = SpokeUnwindTypes.encodeResults(unwind);
+        ReportCodecV6.CollectionResult[] memory collections = new ReportCodecV6.CollectionResult[](1);
+        bytes32[] memory mints = new bytes32[](2);
+        mints[0] = SolanaFixture.USDC;
+        mints[1] = SolanaFixture.STOCK;
+        uint256[] memory sold = new uint256[](2);
+        sold[0] = 10e6;
+        sold[1] = 1e8;
+        uint256[] memory obtained = new uint256[](2);
+        obtained[0] = 10e6;
+        obtained[1] = 380e6;
+        collections[0] =
+            ReportCodecV6.CollectionResult(1, 2, bytes32(uint256(13)), 390e6, mints, sold, obtained, 389_805_000);
+        report.collectionResults = abi.encode(collections);
+        receiver.deliver(_message(32, report));
+        (ReportCodec.Report memory projected,,) = receiver.latestReport(1);
+        assertEq(projected.unwindResults, report.unwindResults);
+        SpokeIncomeTypes.CollectionResult[] memory results =
+            abi.decode(projected.collectionResults, (SpokeIncomeTypes.CollectionResult[]));
+        assertEq(results[0].amountToArrive, collections[0].amountToArrive);
+        assertEq(results[0].tokens[0], receiver.nativeRegistry().token(SolanaFixture.USDC));
+        assertEq(results[0].tokens[1], receiver.nativeRegistry().token(SolanaFixture.STOCK));
+        assertEq(results[0].sold, sold);
+        assertEq(results[0].obtained, obtained);
+    }
+
+    function testNativeResultsRejectRefundsAndUnknownOrDuplicateMints() public {
+        ReportCodecV6.Report memory report = SolanaFixture.report(uint64(block.timestamp));
+        SpokeUnwindTypes.OrderResult[] memory unwind = new SpokeUnwindTypes.OrderResult[](1);
+        unwind[0].refunded = true;
+        report.unwindResults = SpokeUnwindTypes.encodeResults(unwind);
+        vm.expectRevert(ReportCodecV6.NonCanonicalReport.selector);
+        receiver.deliver(_message(32, report));
+        report.unwindResults = "";
+        ReportCodecV6.CollectionResult[] memory collections = new ReportCodecV6.CollectionResult[](1);
+        collections[0].mints = new bytes32[](2);
+        collections[0].mints[0] = SolanaFixture.USDC;
+        collections[0].mints[1] = SolanaFixture.USDC;
+        collections[0].sold = new uint256[](2);
+        collections[0].obtained = new uint256[](2);
+        report.collectionResults = abi.encode(collections);
+        vm.expectRevert(ReportCodecV6.NonCanonicalReport.selector);
+        receiver.deliver(_message(32, report));
+        collections[0].mints[1] = bytes32(type(uint256).max);
+        report.collectionResults = abi.encode(collections);
+        vm.expectRevert(abi.encodeWithSelector(SolanaSpokeRegistryV6.UnknownMint.selector, bytes32(type(uint256).max)));
+        receiver.deliver(_message(32, report));
     }
 }
