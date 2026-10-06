@@ -44,7 +44,9 @@ account directories because duplicate-address precedence must not determine
 the test attester set. Consequently the original shared manifest hash does not
 describe this modified account: `.localnet/cctp-fixture.json` explicitly records
 the exception. Re-run shared preparation before returning to unmodified Circle
-state. No protocol mint, custody balance or USDC issuer authority is overridden.
+state. Fixture preparation checks original SHA-256 against the current manifest
+and refreshes the backup after a new clone, refusing stale sources. No protocol
+mint, custody balance or USDC issuer authority is overridden.
 
 T1 initialization remains a scaffold at this integration point. Tests explicitly
 inject a synthetic FundState, sealed CctpRoute, isolated CctpLedger, and a native
@@ -124,5 +126,9 @@ preparation only.
   before enabling that path (DEC-092/191).
 - Reclaim success after five days is not proven by the initial end-to-end suite;
   the suite executes real Circle early-reclaim rejection and preserves the event.
+- The shared `npm test` scaffold assertion still requires every instruction file
+  to contain only `NotImplemented` and forbids CPIs; it necessarily fails once
+  tracks implement handlers. Coordinator must replace that obsolete baseline
+  assertion with entrypoint-aware tests. It is outside T1b's write scope.
 - EIP-712 binding, complete Fund launch, reports, mainnet attestation delivery,
   cross-chain mainnet execution and production deployment are not proved here.
