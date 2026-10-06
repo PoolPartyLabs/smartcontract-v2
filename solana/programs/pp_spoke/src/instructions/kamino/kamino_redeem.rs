@@ -1,22 +1,125 @@
-use crate::errors::SpokeError;
-use crate::state::FundState;
+use super::{accounts::*, protocol::*, valuation::checkpoint, KaminoError};
+use crate::state::{fund::FundState, kamino::KaminoPosition};
 use anchor_lang::prelude::*;
 
-/// DEC-068, DEC-193: provisional accounts; no CPI or state mutation is authorized by this stub.
+/// DEC-068, DEC-190: exits remain available when entry is disabled; only the Manager may request them.
 #[derive(Accounts)]
 pub struct KaminoRedeem<'info> {
-    #[account(mut)]
     pub authority: Signer<'info>,
-    #[account(mut)]
+    #[account(seeds = [b"fund", fund.hub_core.as_ref(), &fund.spoke_index.to_le_bytes()], bump = fund.bump,
+        constraint = fund.manager_solana == authority.key() @ KaminoError::Unauthorized,
+        constraint = !fund.closed @ KaminoError::EntryDisabled)]
     pub fund: Account<'info, FundState>,
-    /// CHECK: owning track must enforce the per-Fund vault PDA; handler always fails meanwhile.
-    #[account(mut)]
+    /// CHECK: canonical per-Fund vault signer.
+    #[account(seeds = [b"vault", fund.key().as_ref()], bump = fund.vault_bump)]
     pub vault: UncheckedAccount<'info>,
-    /// CHECK: T3 must constrain klend, market, reserve and token CPI relationships.
-    pub kamino_program: UncheckedAccount<'info>,
-    pub system_program: Program<'info, System>,
+    #[account(mut, seeds = [b"position", fund.key().as_ref(), RESERVE.as_ref()], bump,
+        has_one = fund, constraint = position.reserve == RESERVE @ KaminoError::WrongReserve)]
+    pub position: Account<'info, KaminoPosition>,
+    pub venue: KaminoVenue<'info>,
 }
 
-pub fn handler(_ctx: Context<KaminoRedeem>, _payload: Vec<u8>) -> Result<()> {
-    err!(SpokeError::NotImplemented)
+/// Payload: u64 cToken units, u64 minimum USDC; u64::MAX means all recorded units.
+/// DEC-068: never silently redeem a partial request; illiquid requests remain pending in cToken units.
+pub fn handler(ctx: Context<KaminoRedeem>, payload: Vec<u8>) -> Result<()> {
+    require!(payload.len() == 16, KaminoError::InvalidAmount);
+    let requested = read_u64(&payload, 0)?;
+    let minimum = read_u64(&payload, 8)?;
+    let position = &mut ctx.accounts.position;
+    let units = if requested == u64::MAX {
+        position.units
+    } else {
+        requested
+    };
+    require!(
+        units > 0 && units <= position.units,
+        KaminoError::InvalidAmount
+    );
+    require!(
+        position.pending_units == 0
+            || (position.pending_units == units && position.pending_min_liquidity == minimum),
+        KaminoError::PendingWithdrawal
+    );
+    let (usdc_before, units_before) = ctx
+        .accounts
+        .venue
+        .validate(&ctx.accounts.vault.key(), position.units)?;
+    let reserve = ctx.accounts.venue.refresh()?;
+    let expected = reserve.value(units)?;
+    require!(
+        expected >= minimum && expected > 0,
+        KaminoError::UnexpectedDelta
+    );
+    if expected > reserve.freely_available()? {
+        position.pending_units = units;
+        position.pending_min_liquidity = minimum;
+        checkpoint(position, reserve)?;
+        emit!(KaminoWithdrawalPending {
+            fund: position.fund,
+            units,
+            expected_liquidity: expected
+        });
+        return Ok(());
+    }
+    let principal_now = position.principal.min(reserve.value(position.units)?);
+    ctx.accounts.venue.invoke(
+        ctx.accounts.vault.to_account_info(),
+        &ctx.accounts.fund.key(),
+        ctx.accounts.fund.vault_bump,
+        units,
+        false,
+    )?;
+    let (usdc_after, units_after) = ctx
+        .accounts
+        .venue
+        .validate(&ctx.accounts.vault.key(), position.units - units)?;
+    let received = usdc_after
+        .checked_sub(usdc_before)
+        .ok_or(KaminoError::UnexpectedDelta)?;
+    require!(
+        received == expected
+            && received >= minimum
+            && units_before.checked_sub(units_after) == Some(units),
+        KaminoError::UnexpectedDelta
+    );
+    let principal_paid = received.min(principal_now);
+    let income_paid = received - principal_paid;
+    position.units -= units;
+    position.principal = if position.units == 0 || principal_paid == principal_now {
+        0
+    } else {
+        position
+            .principal
+            .checked_sub(principal_paid)
+            .ok_or(KaminoError::MathOverflow)?
+    };
+    position.idle_principal = checked_add(position.idle_principal, principal_paid)?;
+    position.idle_income = checked_add(position.idle_income, income_paid)?;
+    position.cumulative_realized_income =
+        checked_add(position.cumulative_realized_income, income_paid)?;
+    position.pending_units = 0;
+    position.pending_min_liquidity = 0;
+    checkpoint(position, ctx.accounts.venue.refresh()?)?;
+    emit!(KaminoRedeemed {
+        fund: position.fund,
+        units,
+        principal: principal_paid,
+        income: income_paid
+    });
+    Ok(())
+}
+
+#[event]
+pub struct KaminoWithdrawalPending {
+    pub fund: Pubkey,
+    pub units: u64,
+    pub expected_liquidity: u64,
+}
+
+#[event]
+pub struct KaminoRedeemed {
+    pub fund: Pubkey,
+    pub units: u64,
+    pub principal: u64,
+    pub income: u64,
 }

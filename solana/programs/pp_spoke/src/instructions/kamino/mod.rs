@@ -10,3 +10,8 @@ pub(crate) use kamino_refresh::__client_accounts_kamino_refresh;
 pub mod kamino_collect_income;
 pub use kamino_collect_income::KaminoCollectIncome;
 pub(crate) use kamino_collect_income::__client_accounts_kamino_collect_income;
+pub mod protocol;
+pub mod errors;
+pub use errors::KaminoError;
+pub mod accounts;
+pub mod valuation;
