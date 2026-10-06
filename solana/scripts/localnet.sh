@@ -38,8 +38,13 @@ case "${1:-}" in
       if curl --silent --fail -H 'content-type: application/json' \
         --data '{"jsonrpc":"2.0","id":1,"method":"getHealth"}' \
         http://127.0.0.1:8899 | grep -q '"ok"'; then
-        printf '%s\n' 'Cloned local validator ready on loopback port 8899.'
-        exit 0
+        FINALIZED="$(curl --silent --fail -H 'content-type: application/json' \
+          --data '{"jsonrpc":"2.0","id":1,"method":"getSlot","params":[{"commitment":"finalized"}]}' \
+          http://127.0.0.1:8899 | node -e 'let input=""; process.stdin.on("data",chunk=>input+=chunk); process.stdin.on("end",()=>process.stdout.write(String(JSON.parse(input).result ?? 0)))')"
+        if [[ "$FINALIZED" -gt "$SLOT" ]]; then
+          printf '%s\n' 'Cloned local validator ready with a post-warp finalized root on loopback port 8899.'
+          exit 0
+        fi
       fi
       sleep 1
     done

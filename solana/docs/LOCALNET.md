@@ -103,9 +103,13 @@ checks program-success logs, current-slot update and compute usage. This is
 stronger than an executable flag/read-only quote alone. It also simulates the
 compiled spoke and checks `NotImplemented` (6000) with unchanged local accounts.
 Agave 2.3.0 produced a transient `Program cache hit max limit` on the first
-Kamino preflight after genesis/warp; repeating the preflight succeeded. The local
-send helper retries **only** this exact preflight error with an empty transaction
-signature. It never retries a submitted transaction or economic/ABI failure.
+Kamino preflight after genesis/warp; repeating the preflight succeeded. The
+launcher waits for a finalized root strictly after the warp slot before returning
+ready; `getHealth` alone was insufficient for stable program-cache loading.
+send helper retries **only** this exact simulation/preflight error, before a
+transaction signature is returned. It never retries a submitted transaction or
+economic/ABI failure. Raw signed sends avoid web3.js's duplicate-signature
+blockhash cache during a preflight-only retry.
 It does not prove Raydium LP Token-2022 execution, Circle mint/attestation flows,
 Wormhole guardian delivery or an end-to-end Fund. Those are owner-track gates.
 External deployed binaries are upgradeable and are not proven equal to the

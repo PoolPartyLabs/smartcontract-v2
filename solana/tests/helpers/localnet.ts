@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { Connection, Keypair, PublicKey, Transaction, SendTransactionError, sendAndConfirmTransaction } from '@solana/web3.js';
+import { Connection, Keypair, PublicKey, Transaction, SendTransactionError } from '@solana/web3.js';
 import type { TransactionInstruction } from '@solana/web3.js';
 import { ADDRESSES, derive, publicKey } from './addresses.ts';
 
@@ -43,13 +43,21 @@ export async function fundSol(connection: Connection, wallet: PublicKey, sol = 1
 export async function sendLocal(connection: Connection, payer: Keypair, instructions: TransactionInstruction[]): Promise<string> {
   requireLoopback(connection.rpcEndpoint);
   for (let attempt = 0; attempt < 5; attempt++) {
+    const blockhash = await connection.getLatestBlockhash('confirmed');
+    const transaction = new Transaction({ feePayer: payer.publicKey, recentBlockhash: blockhash.blockhash }).add(...instructions);
+    transaction.sign(payer);
+    let signature: string;
     try {
-      return await sendAndConfirmTransaction(connection, new Transaction().add(...instructions), [payer], { commitment: 'confirmed' });
+      signature = await connection.sendRawTransaction(transaction.serialize(), { preflightCommitment: 'confirmed' });
     } catch (error) {
-      if (!(error instanceof SendTransactionError) || error.signature !== ''
-          || !error.transactionMessage.includes('Program cache hit max limit') || attempt === 4) throw error;
+      if (!(error instanceof SendTransactionError) || !error.message.startsWith('Simulation failed.')
+          || !error.transactionError.message.includes('Program cache hit max limit') || attempt === 4) throw error;
       await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+      continue;
     }
+    const result = await connection.confirmTransaction({ signature, ...blockhash }, 'confirmed');
+    if (result.value.err) throw new Error(`Submitted local transaction failed: ${JSON.stringify(result.value.err)}`);
+    return signature;
   }
   throw new Error('Local validator program cache did not become ready');
 }
