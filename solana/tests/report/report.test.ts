@@ -24,9 +24,10 @@ test('build_report returns complete bytes and rejects missing ledger witnesses',
   const instruction = new TransactionInstruction({ programId: publicKey(ADDRESSES.spoke), keys, data });
   const signature = await sendSignedLocal(connection, keeper, [instruction]);
   const transaction = await connection.getTransaction(signature, { commitment: 'confirmed', maxSupportedTransactionVersion: 0 });
-  const returned = transaction?.meta?.returnData;
-  assert.equal(returned?.programId, ADDRESSES.spoke);
-  assert.equal(Buffer.from(returned!.data[0], 'base64').length, 992);
+  const returnLog = transaction?.meta?.logMessages?.find(log => log.startsWith(`Program return: ${ADDRESSES.spoke} `));
+  const returned = returnLog?.split(' ')[3];
+  assert.ok(returned);
+  assert.equal(Buffer.from(returned, 'base64').length, 992);
   const withoutWitnesses = new TransactionInstruction({ programId: instruction.programId, keys: keys.slice(0, 5), data });
   const before = (await connection.getAccountInfo(publicKey(addresses.fund)))!.data;
   await assert.rejects(sendSignedLocal(connection, keeper, [withoutWitnesses]), /InvalidAccounts/);
