@@ -28,18 +28,24 @@ contract CoreVaultCctp is CoreVault, ICctpCoreVault {
         CoreVaultConfig memory config,
         CctpRoute memory route,
         uint256 spokeIndex,
-        address guardian,
-        address messenger,
-        address transmitter,
-        uint256 feeBound
+        CctpBridgeAdapter adapter,
+        CctpReceiveConnector connector
     ) CoreVault(mandate, config) {
         if (
             route.fundId != config.fundId || spokeIndex >= mandate.spokes.length
-                || mandate.spokes[spokeIndex].chainId != route.solanaChainId
+                || mandate.spokes[spokeIndex].chainId != route.solanaChainId || adapter.vault() != address(this)
+                || adapter.usdc() != config.usdc || adapter.fundId() != route.fundId
+                || adapter.solanaChainId() != route.solanaChainId || adapter.mintRecipient() != route.mintRecipient
+                || adapter.destinationCaller() != route.destinationCaller || connector.core() != address(this)
+                || connector.usdc() != config.usdc || connector.fundId() != route.fundId
+                || connector.solanaChainId() != route.solanaChainId || connector.tokenMessenger() != adapter.target()
+                || connector.remoteTokenMessenger() != route.remoteTokenMessenger
+                || connector.remoteToken() != route.remoteToken
+                || connector.remoteVaultAuthority() != route.remoteVaultAuthority
         ) revert InvalidCctpConfig();
         solanaSpokeIndex = spokeIndex;
-        cctpAdapter = new CctpBridgeAdapter(guardian, address(this), messenger, config.usdc, route, feeBound);
-        cctpConnector = new CctpReceiveConnector(address(this), config.usdc, transmitter, messenger, route);
+        cctpAdapter = adapter;
+        cctpConnector = connector;
     }
 
     /// @notice DEC-191: fees fixed at send; no escrow, deadline, refund or native SOL funding.
