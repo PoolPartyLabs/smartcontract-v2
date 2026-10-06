@@ -75,13 +75,17 @@ pub fn snapshot(
         report
             .unallocated
             .push([asset.mint.to_bytes(), word(u128::from(ledger.principal))]);
-        report.collected_income.push([
-            asset.mint.to_bytes(),
-            word(u128::from(ledger.collected_income)),
-        ]);
-        report
-            .cumulative_income
-            .push([asset.mint.to_bytes(), word(ledger.cumulative_income)]);
+        if ledger.collected_income != 0 {
+            report.collected_income.push([
+                asset.mint.to_bytes(),
+                word(u128::from(ledger.collected_income)),
+            ]);
+        }
+        if ledger.cumulative_income != 0 {
+            report
+                .cumulative_income
+                .push([asset.mint.to_bytes(), word(ledger.cumulative_income)]);
+        }
     }
     Ok(report)
 }
@@ -102,4 +106,38 @@ pub fn encoded_snapshot(
     clock: &Clock,
 ) -> Result<Vec<u8>> {
     codec::encode(&snapshot(fund, key, accounts, clock)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn never_silently_omit_unintegrated_exposure_or_stock_witness() {
+        let (mut fund, key) = crate::instructions::core::guards::fixture();
+        let clock = Clock {
+            slot: 100,
+            unix_timestamp: 1000,
+            ..Clock::default()
+        };
+        assert!(encoded_snapshot(&fund, key, &[], &clock).is_ok());
+        fund.active_positions = 1;
+        assert!(encoded_snapshot(&fund, key, &[], &clock).is_err());
+        fund.active_positions = 0;
+        fund.pending_transits = 1;
+        assert!(encoded_snapshot(&fund, key, &[], &clock).is_err());
+        fund.pending_transits = 0;
+        fund.pending_results = 1;
+        assert!(encoded_snapshot(&fund, key, &[], &clock).is_err());
+        fund.pending_results = 0;
+        fund.assets.push(crate::state::Asset {
+            mint: custody::TSLAX,
+            accounting_id: [1; 20],
+            stock: true,
+        });
+        assert!(encoded_snapshot(&fund, key, &[], &clock).is_err());
+        fund.assets.clear();
+        fund.report_sequence = u64::MAX;
+        assert!(encoded_snapshot(&fund, key, &[], &clock).is_err());
+    }
 }
