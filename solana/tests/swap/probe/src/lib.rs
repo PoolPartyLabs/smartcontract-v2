@@ -20,6 +20,7 @@ pub const ID: Pubkey = Pubkey::new_from_array([77; 32]);
 entrypoint!(process_instruction);
 
 fn process_instruction(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
+    if data.first() == Some(&3) { return scope_reference(accounts, &data[1..]).map_err(|error| { error.log(); error.into() }); }
     if data.first() == Some(&1) { return signed_swap(program_id, accounts, &data[1..]).map_err(|error| { error.log(); error.into() }); }
     if data.first() == Some(&2) { return stock_report(accounts, &data[1..]).map_err(|error| { error.log(); error.into() }); }
     let data = &data[1..];
@@ -41,6 +42,29 @@ fn process_instruction(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8
         &[b"vault", fund.key.as_ref(), &[bump]], &request,
         &SealedPolicy { mints: &mints, max_slippage_bps: 200 })?;
     msg!("TEST PROBE internal conversion: {} -> {}", conversion.input_units, conversion.output_units);
+    Ok(())
+}
+
+fn scope_reference(accounts: &[AccountInfo], data: &[u8]) -> Result<()> {
+    require!(accounts.len() == 3 && data.len() == 20, oracle::OracleError::InvalidAccount);
+    let mut clock = Clock::get()?;
+    let replay = i64::from_le_bytes(data[2..10].try_into().unwrap());
+    if replay != 0 { clock.unix_timestamp = replay; }
+    match data[1] {
+        1 => clock.unix_timestamp = 1_791_403_200,
+        2 => clock.unix_timestamp += 61,
+        3 => clock.unix_timestamp -= 1,
+        _ => {},
+    }
+    let policy = oracle::OraclePolicy { max_age_seconds: 120, max_confidence_bps: 100,
+        cross_check_deviation_bps: 50, block_cross_check: false, require_manager_bound: false,
+        stock_enabled: data[0] == 1 };
+    let price = scope::reference(&accounts[0], &accounts[1], &accounts[2], data[0] == 1, &policy, &clock)?;
+    let api_min = u64::from_le_bytes(data[10..18].try_into().unwrap());
+    let impact = u16::from_le_bytes(data[18..20].try_into().unwrap());
+    let minimum = oracle::minimum(25_000_000, oracle::Price { value: 100_000_000, exponent: -8 },
+        price, 6, 8, api_min, impact, &policy)?;
+    msg!("SCOPE PROBE: value {} exponent {} minimum {}", price.value, price.exponent, minimum);
     Ok(())
 }
 
