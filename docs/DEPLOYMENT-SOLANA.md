@@ -1,6 +1,6 @@
 # Solana v6 deployment rehearsal — founder approval packet
 
-Measured October 7, 2026, 11:40–11:46 UTC; integration baseline `c8be6be`.
+Measured October 7, 2026, 11:40–11:48 UTC; integration baseline `c8be6be`.
 **NOT APPROVED FOR MAINNET. No mainnet transactions were submitted.**
 This packet has verified factory dry runs and local loader deployment costs,
 not a complete three-chain production acceptance or exact total launch budget.
@@ -56,6 +56,12 @@ Sampled `eth_gasPrice` during the successful public dry runs:
 | --- | ---: | ---: | ---: | ---: |
 | Arbitrum / 512553166 | 94,389,550 | 20,052,000 | 0.001892699256600000 | 0.003792949771589550 |
 | Robinhood / 82445811 | 55,651,352 | 20,038,000 | 0.001115141791376000 | 0.002238965249315352 |
+
+Post-fetch final replay at 11:47–11:48 UTC also passed both scripts. Gas estimates
+were unchanged. New samples were 20,000,000 wei (Arbitrum) and 20,120,000 wei
+(Robinhood), giving **0.001887791000000000 ETH** and
+**0.001119705202240000 ETH** respectively. This observed drift is why the
+October 9 funding packet must be refreshed rather than treating one quote as fixed.
 
 Both commands printed **SIMULATION COMPLETE** without `--broadcast`.
 Foundry's estimate includes its default gas-estimate multiplier; these are
