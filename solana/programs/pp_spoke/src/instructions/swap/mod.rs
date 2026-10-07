@@ -11,3 +11,4 @@ pub mod quote;
 pub mod oracle;
 pub mod streams;
 pub mod authorized;
+pub mod config;
