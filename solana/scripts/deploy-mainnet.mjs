@@ -29,7 +29,7 @@ async function main() {
   const binaryPath = resolve(root, 'target/deploy/pp_spoke.so');
   const binary = readFileSync(binaryPath);
   const sha256 = createHash('sha256').update(binary).digest('hex');
-  if (sha256 !== manifest.binarySha256 || sha256 !== release.binarySha256
+  if (release.sourceCommit !== manifest.sourceCommit || sha256 !== manifest.binarySha256 || sha256 !== release.binarySha256
       || release.idlSha256 !== manifest.idlSha256 || release.programId !== manifest.programId
       || release.features.join(',') !== 'no-idl,no-log-ix-name' || manifest.maxLen !== binary.length
       || release.programId === 'Fg6PaFpoGXkYsidMpWxTWqkZ7FEfcYkgMQHGfVNLusVw') {

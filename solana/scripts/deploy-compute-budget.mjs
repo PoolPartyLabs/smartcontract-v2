@@ -13,7 +13,16 @@ ComputeBudgetProgram.setComputeUnitLimit = function (parameters) {
 };
 const simulate = Connection.prototype.simulateTransaction;
 Connection.prototype.simulateTransaction = async function (...parameters) {
-  const result = await simulate.apply(this, parameters);
+  let result;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    try {
+      result = await simulate.apply(this, parameters);
+      break;
+    } catch (error) {
+      if (!error.message?.includes('Transaction address table lookup uses an invalid index') || attempt === 19) throw error;
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }
   if (process.env.PP_REHEARSAL_METRICS) {
     appendFileSync(process.env.PP_REHEARSAL_METRICS, JSON.stringify({
       measuredAt: new Date().toISOString(), units: result.value.unitsConsumed,

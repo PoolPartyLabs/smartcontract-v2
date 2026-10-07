@@ -14,8 +14,14 @@ export NODE_OPTIONS="${NODE_OPTIONS:-} --import=$ROOT/solana/scripts/deploy-comp
 if [[ "$#" != 1 || ! "$1" =~ ^(core|production|legacy)$ ]]; then
   printf 'Usage: solana-release-rehearsal.sh core|production|legacy\n' >&2; exit 2
 fi
+MODE="$1"
 started=0
-cleanup() { if [[ "$started" == 1 ]]; then bash scripts/localnet.sh stop; fi; }
+cleanup() {
+  if [[ "$started" == 1 ]]; then
+    node scripts/deploy-operation-budget.mjs >"$STATE/$MODE-operation-budget.json" || true
+    bash scripts/localnet.sh stop
+  fi
+}
 trap cleanup EXIT
 if [[ ! -f .localnet/manifest.json ]]; then bash scripts/localnet.sh prepare; fi
 case "$1" in
