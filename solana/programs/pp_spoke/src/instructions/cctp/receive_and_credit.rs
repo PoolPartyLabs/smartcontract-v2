@@ -12,7 +12,7 @@ pub struct ReceiveAndCredit<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
     // TODO(decision): coordinate closed-Fund excess arrival handling with T1 (DEC-167).
-    #[account(mut, seeds = [b"fund", fund.hub_core.as_ref(), &fund.spoke_index.to_le_bytes(), fund.mandate_hash.as_ref()], bump = fund.bump, constraint = !fund.closed @ CctpError::Unauthorized)]
+    #[account(mut, seeds = [b"fund", &fund.hub_chain_id.to_le_bytes(), fund.hub_core.as_ref(), &fund.spoke_index.to_le_bytes(), fund.policy_hash.as_ref()], bump = fund.bump, constraint = !fund.closed @ CctpError::Unauthorized)]
     pub fund: Box<Account<'info, FundState>>,
     /// CHECK: canonical vault signs as destinationCaller, never the relayer.
     #[account(seeds = [b"vault", fund.key().as_ref()], bump = fund.vault_bump)]

@@ -77,9 +77,8 @@ pub fn handler(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
     let args = InitializePayload::try_from_slice(&payload)
         .map_err(|_| error!(CoreError::InvalidConfiguration))?;
     let index = args.spoke_index.to_le_bytes();
-    // TODO(decision): DEC-200 needs a non-circular Hub Mandate commitment when its spoke emitter derives from this PDA.
-    let (fund_key, bump) =
-        Pubkey::find_program_address(&[b"fund", &args.hub_core, &index, &args.mandate_hash], &crate::ID);
+    let chain = args.hub_chain_id.to_le_bytes();
+    let (fund_key, bump) = binding::fund_address(&args);
     require_keys_eq!(
         ctx.accounts.fund.key(),
         fund_key,
@@ -109,7 +108,7 @@ pub fn handler(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
         &ctx.accounts.fund.to_account_info(),
         &system,
         8 + FundState::INIT_SPACE,
-        &[b"fund", &args.hub_core, &index, &args.mandate_hash, &[bump]],
+        &[b"fund", &chain, &args.hub_core, &index, &args.policy_hash, &[bump]],
     )?;
     let route = CctpRoute {
         fund: fund_key,
@@ -151,6 +150,8 @@ pub fn handler(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
         transport: args.transport,
         position_registry: vec![],
         transit_registry: vec![],
+        policy_hash: args.policy_hash,
+        hub_policy_hash: args.hub_policy_hash,
     };
     fund.try_serialize(&mut &mut ctx.accounts.fund.try_borrow_mut_data()?[..])?;
     for (prefix, account, space) in [
@@ -277,11 +278,8 @@ pub(crate) fn allocate<'info>(
 }
 
 pub fn validate_config(args: &InitializePayload, manager: &Pubkey, emitter: &Pubkey) -> Result<()> {
-    let fund = Pubkey::find_program_address(
-        &[b"fund", &args.hub_core, &args.spoke_index.to_le_bytes(), &args.mandate_hash],
-        &crate::ID,
-    )
-    .0;
+    require!(args.hub_policy_hash != [0; 32] && args.policy_hash == binding::policy_hash(args, manager), CoreError::InvalidConfiguration);
+    let fund = binding::fund_address(args).0;
     let vault = Pubkey::find_program_address(&[b"vault", fund.as_ref()], &crate::ID).0;
     require!(
         args.transport.hub_usdc

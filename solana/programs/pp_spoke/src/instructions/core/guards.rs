@@ -30,9 +30,10 @@ pub fn require_fund_address(fund: &FundState, address: &Pubkey) -> Result<()> {
     let expected = Pubkey::create_program_address(
         &[
             b"fund",
+            &fund.hub_chain_id.to_le_bytes(),
             &fund.hub_core,
             &fund.spoke_index.to_le_bytes(),
-            &fund.mandate_hash,
+            &fund.policy_hash,
             &[fund.bump],
         ],
         &crate::ID,
@@ -46,7 +47,7 @@ pub fn require_fund_address(fund: &FundState, address: &Pubkey) -> Result<()> {
 pub(crate) fn fixture() -> (FundState, Pubkey) {
     let hub_core = [1; 20];
     let (key, bump) =
-        Pubkey::find_program_address(&[b"fund", &hub_core, &0u16.to_le_bytes(), &[3; 32]], &crate::ID);
+        Pubkey::find_program_address(&[b"fund", &42161u64.to_le_bytes(), &hub_core, &0u16.to_le_bytes(), &[3; 32]], &crate::ID);
     let (_, vault_bump) = Pubkey::find_program_address(&[b"vault", key.as_ref()], &crate::ID);
     let (_, emitter_bump) = Pubkey::find_program_address(&[b"emitter", key.as_ref()], &crate::ID);
     (
@@ -82,6 +83,8 @@ pub(crate) fn fixture() -> (FundState, Pubkey) {
             transport: crate::state::Transport::default(),
             position_registry: vec![],
             transit_registry: vec![],
+            policy_hash: [3; 32],
+            hub_policy_hash: [10; 32],
         },
         key,
     )

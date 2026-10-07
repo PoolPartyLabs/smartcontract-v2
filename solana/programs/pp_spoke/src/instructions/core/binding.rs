@@ -28,6 +28,8 @@ pub struct InitializePayload {
     pub assets: Vec<Asset>,
     pub venues: Vec<Venue>,
     pub transport: Transport,
+    pub hub_policy_hash: [u8; 32],
+    pub policy_hash: [u8; 32],
 }
 
 pub fn word(value: u128) -> [u8; 32] {
@@ -125,8 +127,8 @@ pub fn bootstrap_digest(payload: &InitializePayload, manager: &Pubkey, fund: &Pu
         address_word(&payload.factory),
     ]);
     let message = hash_words(&[
-        keccak::hash(b"SolanaBootstrap(uint256 hubChain,address core,bytes32 mandateHash,uint16 spokeIndex,bytes32 program,bytes32 fundPda,bytes32 solanaKey,bytes32 usdcAta,bytes32 tslaxAta,bytes32 nvdaxAta,bytes32 wsolAta,bytes32 nativeMandateHash,bytes32 fundId,uint256 nonce,uint256 expiry)").to_bytes(),
-        word(u128::from(payload.hub_chain_id)), address_word(&payload.hub_core), payload.mandate_hash,
+        keccak::hash(b"SolanaBootstrap(uint256 hubChain,address core,bytes32 mandateHash,bytes32 policyHash,uint16 spokeIndex,bytes32 program,bytes32 fundPda,bytes32 solanaKey,bytes32 usdcAta,bytes32 tslaxAta,bytes32 nvdaxAta,bytes32 wsolAta,bytes32 nativeMandateHash,bytes32 fundId,uint256 nonce,uint256 expiry)").to_bytes(),
+        word(u128::from(payload.hub_chain_id)), address_word(&payload.hub_core), payload.mandate_hash, payload.policy_hash,
         word(u128::from(payload.spoke_index)), crate::ID.to_bytes(), fund.to_bytes(), manager.to_bytes(),
         super::custody::associated_address(&vault, &super::custody::USDC)?.to_bytes(),
         super::custody::associated_address(&vault, &super::custody::TSLAX)?.to_bytes(),
@@ -140,6 +142,22 @@ pub fn bootstrap_digest(payload: &InitializePayload, manager: &Pubkey, fund: &Pu
 pub fn verify_bootstrap(payload: &InitializePayload, manager: &Pubkey, fund: &Pubkey, now: i64) -> Result<()> {
     require!(now >= 0 && now as u64 <= payload.expiry, CoreError::BindingExpired);
     verify_signature(&payload.manager_evm, &payload.signature, bootstrap_digest(payload, manager, fund)?)
+}
+
+/// DEC-200 coordinator refinement: hash policy with every Fund-derived identity zeroed.
+pub fn policy_hash(payload: &InitializePayload, manager: &Pubkey) -> [u8; 32] {
+    let mut transport = payload.transport.clone();
+    transport.mint_recipient = Pubkey::default();
+    transport.destination_caller = Pubkey::default();
+    transport.remote_vault_authority = Pubkey::default();
+    let native = native_mandate_hash(manager, &Pubkey::default(), payload.spoke_chain_id,
+        &payload.assets, &payload.venues, &transport);
+    hash_words(&[keccak::hash(b"PoolParty/SolanaPolicy/v6").to_bytes(), payload.hub_policy_hash, native])
+}
+
+pub fn fund_address(payload: &InitializePayload) -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[b"fund", &payload.hub_chain_id.to_le_bytes(), &payload.hub_core,
+        &payload.spoke_index.to_le_bytes(), &payload.policy_hash], &crate::ID)
 }
 
 /// DEC-053, DEC-190: canonical abi.encode(uint256(6), Config), not Borsh.
@@ -218,6 +236,7 @@ mod tests {
             expiry: 2_000_000_000,
             signature: fixed_hex("67f384b05c9b8f7b208e872b0ebb9f7c2a83f2b1a4820e9d3e8246abb15bf3994fa5587a8e452afa7010de273152237875c920a270f1c9fccbe4602722d2e3bd1c"),
             assets: vec![], venues: vec![], transport: Transport::default(),
+            hub_policy_hash: word(10), policy_hash: word(11),
         };
         (
             payload,
@@ -284,24 +303,45 @@ mod tests {
     }
 
     #[test]
+    fn canonical_policy_pda_matches_hub_golden_vector() {
+        let (mut payload, manager, _) = fixture();
+        payload.hub_core = [2;20];
+        payload.spoke_index = 1;
+        payload.policy_hash = [3;32];
+        let fund = fund_address(&payload).0;
+        assert_eq!(fund.to_bytes(), fixed_hex("59196f6ece881da9abd0e61ea5a6cdac8c533accd9f6c553f9db86832c36eb11"));
+        assert_eq!(Pubkey::find_program_address(&[b"vault", fund.as_ref()], &crate::ID).0.to_bytes(),
+            fixed_hex("c221b91f19582a11c828666b04134c6098e18f28c2e40039b17dfc4843d45487"));
+        let policy = policy_hash(&payload, &manager);
+        payload.transport.destination_caller = Pubkey::new_unique();
+        payload.transport.mint_recipient = Pubkey::new_unique();
+        assert_eq!(policy, policy_hash(&payload, &manager));
+        payload.transport.fast_fee_ceiling += 1;
+        assert_ne!(policy, policy_hash(&payload, &manager));
+        payload.hub_chain_id += 1;
+        assert_ne!(fund, fund_address(&payload).0);
+    }
+
+    #[test]
     fn exact_bootstrap_tuple_and_mandate_namespace_cannot_be_substituted() {
         let (payload, manager, _) = fixture();
-        let (fund, _) = Pubkey::find_program_address(&[b"fund", &payload.hub_core, &payload.spoke_index.to_le_bytes(), &payload.mandate_hash], &crate::ID);
+        let (fund, _) = fund_address(&payload);
         let expected = bootstrap_digest(&payload, &manager, &fund).unwrap();
         assert_ne!(expected, bootstrap_digest(&payload, &Pubkey::new_unique(), &fund).unwrap());
         assert_ne!(expected, bootstrap_digest(&payload, &manager, &Pubkey::new_unique()).unwrap());
-        for variant in 0..8 {
+        for variant in 0..9 {
             let mut changed = payload.clone();
             match variant {
                 0 => changed.mandate_hash[0] ^= 1, 1 => changed.spoke_index += 1,
                 2 => changed.hub_core[0] ^= 1, 3 => changed.hub_chain_id += 1,
                 4 => changed.nonce[31] += 1, 5 => changed.expiry += 1,
-                6 => changed.native_mandate_hash[0] ^= 1, _ => changed.fund_id[0] ^= 1,
+                6 => changed.native_mandate_hash[0] ^= 1, 7 => changed.fund_id[0] ^= 1,
+                _ => changed.policy_hash[0] ^= 1,
             }
             assert_ne!(expected, bootstrap_digest(&changed, &manager, &fund).unwrap());
         }
-        let mut squatter = payload.clone(); squatter.mandate_hash[0] ^= 1;
-        let (squatter_fund, _) = Pubkey::find_program_address(&[b"fund", &squatter.hub_core, &squatter.spoke_index.to_le_bytes(), &squatter.mandate_hash], &crate::ID);
+        let mut squatter = payload.clone(); squatter.policy_hash[0] ^= 1;
+        let (squatter_fund, _) = fund_address(&squatter);
         assert_ne!(fund, squatter_fund);
     }
 
