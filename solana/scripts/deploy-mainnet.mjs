@@ -43,7 +43,7 @@ async function main() {
   try { parsed = new URL(endpoint); } catch { fail('Explicit mainnet endpoint required; value suppressed'); }
   if (parsed.protocol !== 'https:' || parsed.username || parsed.password) fail('HTTPS mainnet endpoint required; value suppressed');
   const connection = new Connection(endpoint, 'finalized');
-  if (await connection.getGenesisHash() !== '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp') fail('Endpoint is not Solana mainnet');
+  if (await connection.getGenesisHash() !== '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d') fail('Endpoint is not Solana mainnet');
   const programId = new PublicKey(manifest.programId);
   const authority = new PublicKey(manifest.authority);
   async function verify() {

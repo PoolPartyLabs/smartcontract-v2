@@ -40,20 +40,14 @@ for (const chain of ['arbitrum', 'robinhood']) {
         const data = transaction.input ?? transaction.data ?? '0x';
         let executionWei = gas * gasPrice;
         let l1Wei;
-        if (chain === 'arbitrum') {
+        {
           const response = cast(['call', '0x00000000000000000000000000000000000000C8',
-            'gasEstimateComponents(address,bool,bytes)(uint64,uint64,uint256,uint256)',
+            'gasEstimateL1Component(address,bool,bytes)(uint64,uint256,uint256)',
             transaction.to ?? '0x0000000000000000000000000000000000000000', String(!transaction.to), data,
             '--from', transaction.from, '--rpc-url', rpc]);
           const values = response.split('\n').map(line => BigInt(line.split(' ')[0]));
-          l1Wei = values[1] * values[2];
-          executionWei = gas * values[2];
-        } else {
-          const serialized = cast(['mktx', ...(transaction.to ? [transaction.to] : ['--create']), '--data', data,
-            '--nonce', String(BigInt(transaction.nonce)), '--gas-limit', String(gas), '--gas-price', String(gasPrice),
-            '--legacy', '--chain-id', '4663', '--value', String(BigInt(transaction.value ?? '0x0'))]);
-          l1Wei = BigInt(cast(['call', '0x420000000000000000000000000000000000000F',
-            'getL1Fee(bytes)(uint256)', serialized, '--rpc-url', rpc]).split(' ')[0]);
+          l1Wei = values[0] * values[1];
+          executionWei = gas * values[1];
         }
         transactions.push({ gas: gas.toString(), executionWei: executionWei.toString(), l1Wei: l1Wei.toString(),
           totalWei: (executionWei + l1Wei).toString() });
@@ -67,6 +61,6 @@ for (const chain of ['arbitrum', 'robinhood']) {
   }
 }
 const output = { measuredAt: new Date().toISOString(), noMainnetTransactions: true, measurements: results,
-  limitations: 'Sequential dry-run artifacts use undeployed dependency addresses; live gasEstimateComponents may fail. Legacy scripts are evidence only, never additive launch requirements.' };
+  limitations: 'Both chains use Nitro NodeInterface L1-only quotes, which avoid executing undeployed dependencies. Gas limits may already contain an L1 buffer: sum is a conservative funding estimate, not an exact receipt. Legacy scripts are evidence only, never additive launch requirements.' };
 writeFileSync(resolve(root, 'evm-budget.json'), JSON.stringify(output, null, 2) + '\n');
 console.log(JSON.stringify(output, null, 2));

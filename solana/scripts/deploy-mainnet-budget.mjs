@@ -23,7 +23,7 @@ async function rpc(method, params = []) {
   throw new Error('Read-only budget RPC failed; endpoint/response suppressed');
 }
 async function main() {
-  if (await rpc('getGenesisHash') !== '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp') throw new Error('Mainnet required');
+  if (await rpc('getGenesisHash') !== '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d') throw new Error('Mainnet required');
   const samples = await rpc('getRecentPrioritizationFees');
   const ordered = samples.map(entry => entry.prioritizationFee).sort((left, right) => left - right);
   const percentile75 = ordered[Math.floor((ordered.length - 1) * 0.75)] ?? 0;
