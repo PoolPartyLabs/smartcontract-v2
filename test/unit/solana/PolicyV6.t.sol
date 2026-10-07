@@ -19,7 +19,7 @@ contract PolicyV6Test is Test {
     }
 
     function _nativeGoldenConfig() private pure returns (SolanaMandateV6.Config memory native) {
-        native.program = 0xda075cb2ff5ec6817613de530c085e191675062a1ce4a10189ea49d29d739f06;
+        native.program = 0x5eff0c25cc327968751dcaa4c851ae7a8b7ec9ab0114eedac8ffe275d912240d;
         native.spoke = 0x1ee39f01232b2e295e21e516f476e557768949820bc25b6f3b5466250070b0f1;
         native.usdcMint = 0xc6fa7af3bedbad3a3d65f36aabc97431b1bbe4c2d2f6e0e47ca60203452f5d61;
         native.managerKey = 0x0f0248bf50f38b8fa1b2f34e5ee9070476e3c10c3e72eefd4e4ddc58e0a5a3a1;
@@ -70,22 +70,22 @@ contract PolicyV6Test is Test {
 
     function testNativeAndIdentityFreePolicyRustParityGoldenVectors() public pure {
         SolanaMandateV6.Config memory native = _nativeGoldenConfig();
-        assertEq(SolanaMandateV6.hash(native), 0xeb92676e65ef6ae54d79f9da90f7004a3ebdacd462e96e26370d49220e315e54);
+        assertEq(SolanaMandateV6.hash(native), 0xa0255fb81787deef599f926eecb2d557d76600b1b5f141647f9084f5a2d4299b);
         assertEq(
             SolanaPolicyV6.nativePolicyHash(native), 0x13e19d911a00b433419f6eb322eb86d8497b0e0266ab586cba7ceeb116d7f912
         );
         assertEq(
             SolanaPolicyV6.hash(bytes32(uint256(10)), SolanaPolicyV6.nativePolicyHash(native)),
-            0xa3db19c185e184401fbc0fa32291aa263f4659c29af71f08546c627562ae8d95
+            0xb7fddab502fbdc7b371db5852876d1c2b941c758d1b38327620a63f4b6d331bc
         );
         native.swapPolicyHash = keccak256(_swapPolicyBorsh());
-        assertEq(SolanaMandateV6.hash(native), 0xb7f76f146f4b9b3d8f135b818649a86000ad2dafc980feda33bc4966236b3a10);
+        assertEq(SolanaMandateV6.hash(native), 0x5299f559747fb2fd875ef0ee88cfdab7a30cad907347b841b4776cb27eec51c9);
         assertEq(
             SolanaPolicyV6.nativePolicyHash(native), 0x6fd2b84a212e37c12f12daebe2d4b3f802b14a4ef1ffe5feb4aed5dfae943a88
         );
         assertEq(
             SolanaPolicyV6.hash(bytes32(uint256(10)), SolanaPolicyV6.nativePolicyHash(native)),
-            0xbced46d907ecb4ee054c8ab234a0c4b63fff5146aec07c4b796e004a0f69fb0f
+            0x553939cc41831b65ef9c684e5f01f959c03d62a5853a2a86795f316e426eef78
         );
     }
 
@@ -99,14 +99,14 @@ contract PolicyV6Test is Test {
     }
 
     function testCanonicalPdaGoldenVector() public pure {
-        bytes32 program = 0xda075cb2ff5ec6817613de530c085e191675062a1ce4a10189ea49d29d739f06;
+        bytes32 program = 0x5eff0c25cc327968751dcaa4c851ae7a8b7ec9ab0114eedac8ffe275d912240d;
         bytes32 fund = SolanaPdaV6.fund(42161, 0x0202020202020202020202020202020202020202, 1,
             0x0303030303030303030303030303030303030303030303030303030303030303, program);
-        assertEq(fund, 0x59196f6ece881da9abd0e61ea5a6cdac8c533accd9f6c553f9db86832c36eb11);
+        assertEq(fund, 0xd1b9221c16320fc20c41bf0882dff505f993aed5a8528fc8167b189b81c2bfd0);
         assertEq(SolanaPdaV6.derive(abi.encodePacked("vault", fund), program),
-            0xc221b91f19582a11c828666b04134c6098e18f28c2e40039b17dfc4843d45487);
+            0x8b8a8e84efec490d9b9907563a5d1d75b1022dca65502089f65f2451479b0ed9);
         assertEq(SolanaPdaV6.derive(abi.encodePacked("emitter", fund), program),
-            0x5de38779390fa0c56507176d77a6b982534d97b5348352ac9074025a46917432);
+            0xb03241cf3e6fb8a30fa4e17387598dd2693836bdc821ec7090eb40d23f821040);
     }
 
     function testIdentityFreePolicyRetainsManagerAndFeePolicy() public pure {

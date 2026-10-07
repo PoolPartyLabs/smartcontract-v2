@@ -14,13 +14,13 @@ const config = [pub(ADDRESSES.spoke), '0x1ee39f01232b2e295e21e516f476e5577689498
 const nativeHash = (values: any[]) => keccak256(abi.encode(['uint256', type], [6, values]));
 const policyHash = (values: any[]) => keccak256(abi.encode(['bytes32', 'bytes32', 'bytes32'], [keccak256(Buffer.from('PoolParty/SolanaPolicy/v6')), word(10), nativeHash(values)]));
 const withoutSwap = nativeHash(config);
-config[9] = '0x94cb3ff011a748f6413901cc90b64fa6cd56661a6176fb194e5b82ea355046dd';
+config[8] = '0x94cb3ff011a748f6413901cc90b64fa6cd56661a6176fb194e5b82ea355046dd';
 const withSwap = nativeHash(config);
 config[1] = zero;
-const transport = config[8] as any[];
+const transport = config[7] as any[];
 for (const index of [4, 5, 7]) transport[index] = zero;
 const withSwapPolicy = policyHash(config);
-config[9] = zero;
+config[8] = zero;
 const withoutSwapPolicy = policyHash(config);
 const target = fundAddresses(Buffer.alloc(20, 2), 1, Buffer.alloc(32, 3));
 console.log(JSON.stringify({ program: pub(ADDRESSES.spoke), withoutSwap, withSwap, withoutSwapPolicy, withSwapPolicy, fund: pub(target.fund), vault: pub(target.vault), emitter: pub(target.emitter) }, null, 2));

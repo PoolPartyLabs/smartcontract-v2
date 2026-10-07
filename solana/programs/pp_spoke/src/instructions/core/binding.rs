@@ -349,7 +349,7 @@ mod tests {
             token1: Pubkey::default(),
         }];
         let expected =
-            fixed_hex("eb92676e65ef6ae54d79f9da90f7004a3ebdacd462e96e26370d49220e315e54");
+            fixed_hex("a0255fb81787deef599f926eecb2d557d76600b1b5f141647f9084f5a2d4299b");
         assert_eq!(
             native_mandate_hash(&manager, &emitter, 1, &assets, &venues, &transport, &[0; 32]),
             expected
@@ -363,17 +363,17 @@ mod tests {
         let swap_hash = keccak::hash(&swap_policy().try_to_vec().unwrap()).to_bytes();
         assert_eq!(
             native_mandate_hash(&manager, &emitter, 1, &assets, &venues, &transport, &swap_hash),
-            fixed_hex("b7f76f146f4b9b3d8f135b818649a86000ad2dafc980feda33bc4966236b3a10")
+            fixed_hex("5299f559747fb2fd875ef0ee88cfdab7a30cad907347b841b4776cb27eec51c9")
         );
         let (mut payload, _, _) = fixture();
         payload.assets = assets;
         payload.venues = venues;
         payload.transport = transport;
         assert_eq!(policy_hash(&payload, &manager),
-            fixed_hex("a3db19c185e184401fbc0fa32291aa263f4659c29af71f08546c627562ae8d95"));
+            fixed_hex("b7fddab502fbdc7b371db5852876d1c2b941c758d1b38327620a63f4b6d331bc"));
         payload.swap_policy_hash = swap_hash;
         assert_eq!(policy_hash(&payload, &manager),
-            fixed_hex("bced46d907ecb4ee054c8ab234a0c4b63fff5146aec07c4b796e004a0f69fb0f"));
+            fixed_hex("553939cc41831b65ef9c684e5f01f959c03d62a5853a2a86795f316e426eef78"));
     }
 
     #[test]
@@ -388,9 +388,9 @@ mod tests {
         payload.spoke_index = 1;
         payload.policy_hash = [3;32];
         let fund = fund_address(&payload).0;
-        assert_eq!(fund.to_bytes(), fixed_hex("59196f6ece881da9abd0e61ea5a6cdac8c533accd9f6c553f9db86832c36eb11"));
+        assert_eq!(fund.to_bytes(), fixed_hex("d1b9221c16320fc20c41bf0882dff505f993aed5a8528fc8167b189b81c2bfd0"));
         assert_eq!(Pubkey::find_program_address(&[b"vault", fund.as_ref()], &crate::ID).0.to_bytes(),
-            fixed_hex("c221b91f19582a11c828666b04134c6098e18f28c2e40039b17dfc4843d45487"));
+            fixed_hex("8b8a8e84efec490d9b9907563a5d1d75b1022dca65502089f65f2451479b0ed9"));
         let policy = policy_hash(&payload, &manager);
         payload.transport.destination_caller = Pubkey::new_unique();
         payload.transport.mint_recipient = Pubkey::new_unique();
