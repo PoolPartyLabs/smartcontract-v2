@@ -9,7 +9,7 @@ function files(directory) {
   if (!existsSync(directory)) return [];
   return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
     const path = resolve(directory, entry.name);
-    return entry.isDirectory() ? files(path) : entry.name.endsWith('.json') && entry.name.includes('dry-run') ? [path] : [];
+    return entry.isDirectory() ? files(path) : entry.name.endsWith('.json') && path.includes('/dry-run/') ? [path] : [];
   });
 }
 function cast(args) {

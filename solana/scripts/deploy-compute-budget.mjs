@@ -27,3 +27,20 @@ Connection.prototype.simulateTransaction = async function (...parameters) {
   }
   return result;
 };
+const confirm = Connection.prototype.confirmTransaction;
+Connection.prototype.confirmTransaction = async function (...parameters) {
+  const result = await confirm.apply(this, parameters);
+  if (process.env.PP_REHEARSAL_METRICS && result.value.err === null) {
+    const signature = typeof parameters[0] === 'string' ? parameters[0] : parameters[0].signature;
+    const transaction = await this.getTransaction(signature, { commitment: 'confirmed', maxSupportedTransactionVersion: 0 });
+    if (transaction?.meta && !transaction.meta.err) {
+      const message = transaction.transaction.message;
+      const payer = (message.staticAccountKeys ?? message.accountKeys)[0].toBase58();
+      appendFileSync(process.env.PP_REHEARSAL_METRICS, JSON.stringify({ kind: 'confirmed', payer,
+        units: transaction.meta.computeUnitsConsumed, feeLamports: transaction.meta.fee,
+        payerDebitLamports: transaction.meta.preBalances[0] - transaction.meta.postBalances[0],
+        signatures: message.header.numRequiredSignatures, ceiling }) + '\n');
+    }
+  }
+  return result;
+};

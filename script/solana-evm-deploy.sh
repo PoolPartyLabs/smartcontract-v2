@@ -31,7 +31,20 @@ if [[ "$MODE" == --broadcast ]]; then
   if [[ "$MODULE" == factory-legacy || "$MODULE" == fund-legacy ]]; then printf 'Legacy deployment is dry-run only in this package\n' >&2; exit 1; fi
   ARGS+=(--broadcast --private-key "${PRIVATE_KEY:?EVM deployer key must be supplied through environment}")
 fi
-if forge "${ARGS[@]}" >"$STATE/run.log" 2>&1; then
+status=0
+forge "${ARGS[@]}" >"$STATE/run.log" 2>&1 || status=$?
+node --input-type=module - "$STATE/run.log" <<'NODE'
+import { readFileSync, writeFileSync } from 'node:fs';
+const path = process.argv[2];
+let text = readFileSync(path, 'utf8');
+for (const [name, value] of Object.entries(process.env)) {
+  if (/RPC|PRIVATE_KEY|SECRET|API_KEY/.test(name) && value?.length >= 4) text = text.replaceAll(value, '<suppressed>');
+}
+text = text.replace(/https?:\/\/[^\s"')]+/g, '<endpoint>');
+writeFileSync(path, text);
+NODE
+printf '%s\n' "$status" >"$STATE/status"
+if [[ "$status" == 0 ]]; then
   printf '%s %s %s PASS; evidence cache/sol-t9/evm-%s-%s\n' "$CHAIN" "$MODULE" "$MODE" "$CHAIN" "$MODULE"
 else
   printf '%s %s FAIL; inspect sanitized evidence, no endpoint printed\n' "$CHAIN" "$MODULE" >&2
