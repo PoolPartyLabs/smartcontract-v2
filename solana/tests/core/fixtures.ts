@@ -132,7 +132,7 @@ export async function sendSignedLocal(connection: Connection, payer: Keypair, in
     table = (await connection.getAddressLookupTable(address)).value ?? undefined;
     if (!table) throw new Error('Local init lookup table is unavailable');
   }
-  for (let attempt = 0; attempt < 5; attempt++) {
+  for (let attempt = 0; attempt < 20; attempt++) {
     const blockhash = await connection.getLatestBlockhash('confirmed');
     const transaction = table
       ? new VersionedTransaction(new TransactionMessage({ payerKey: payer.publicKey, recentBlockhash: blockhash.blockhash, instructions }).compileToV0Message([table]))
@@ -146,8 +146,8 @@ export async function sendSignedLocal(connection: Connection, payer: Keypair, in
     try { signature = await connection.sendRawTransaction(serialized, { preflightCommitment: 'confirmed' }); }
     catch (error) {
       if (!(error instanceof SendTransactionError) || !error.message.startsWith('Simulation failed.')
-          || !error.transactionError.message.includes('Program cache hit max limit') || attempt === 4) throw error;
-      await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+          || !error.transactionError.message.includes('Program cache hit max limit') || attempt === 19) throw error;
+      await new Promise(resolve => setTimeout(resolve, 1000 * Math.min(attempt + 1, 5)));
       continue;
     }
     const result = await connection.confirmTransaction({ signature, ...blockhash }, 'confirmed');
