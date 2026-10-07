@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "status": "NOT_APPROVED",
+  "approvedBy": null,
+  "approvedAt": null,
+  "sourceCommit": null,
+  "programId": "7PptZ653uyn5eoAFKqs4DXR1ijxH6sf49f2YAGMLTfCx",
+  "binarySha256": null,
+  "idlSha256": null,
+  "maxLen": null,
+  "authority": "6VTveiPVZVM7H9BWEsUsu4ivsrPjKw9ePrLQqHaFgJaA",
+  "priorityMicroLamportsPerCU": null,
+  "walletMinimumLamports": null,
+  "decisions": ["DEC-188", "DEC-189", "DEC-195"],
+  "coordinatorRequests": ["Restore Robinhood RPC quota and complete same-Fund fork repeat", "Review native role aliases and admitted asset choices", "Approve combined-wallet budget and all release gates"]
+}

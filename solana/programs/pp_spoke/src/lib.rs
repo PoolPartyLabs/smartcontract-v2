@@ -14,7 +14,7 @@ pub use instructions::raydium::*;
 pub use instructions::report::*;
 pub use instructions::swap::*;
 
-declare_id!("Fg6PaFpoGXkYsidMpWxTWqkZ7FEfcYkgMQHGfVNLusVw");
+declare_id!("7PptZ653uyn5eoAFKqs4DXR1ijxH6sf49f2YAGMLTfCx");
 
 #[program]
 pub mod pp_spoke {

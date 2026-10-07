@@ -1,4 +1,5 @@
 export const pendingLocalnetTests = [
+  { path: 'tests/swap/scope.localnet.test.ts', reason: 'Scope acceptance requires its dedicated cloned fixtures and probe executable; run scope.prepare.ts and scope.start.sh separately.' },
   { path: 'tests/cctp/localnet.test.ts', reason: 'T8b: legacy FundState genesis lacks sealed assets/transport; requires its own Circle attester overrides.' },
   { path: 'tests/kamino/localnet.test.ts', reason: 'T8b: legacy FundState/position genesis is incompatible with sealed assets/transport and exhaustive registries.' },
   { path: 'tests/raydium/lifecycle.test.ts', reason: 'T8b: legacy FundState genesis lacks sealed assets/transport; requires Raydium-specific policies and reward clones.' },

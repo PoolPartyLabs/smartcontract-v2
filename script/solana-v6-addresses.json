@@ -38,8 +38,8 @@
   },
   "solana": {
     "wormholeChainId": 1, "cctpDomain": 5, "reportConsistency": 32,
-    "programId": null,
-    "programIdStatus": "BLOCKED: coordinator must replace scaffold identity and rebuild",
+    "programId": "7PptZ653uyn5eoAFKqs4DXR1ijxH6sf49f2YAGMLTfCx",
+    "programIdStatus": "Persistent founder-machine identity; deployment NOT APPROVED (DEC-189)",
     "usdc": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
     "tslax": "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB",
     "nvdax": "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh",

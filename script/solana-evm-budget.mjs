@@ -1,0 +1,71 @@
+import { readFileSync, readdirSync, existsSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
+
+const root = resolve(process.argv[2] ?? 'cache/sol-t9');
+const modules = ['factory-v6', 'fund-v6', 'factory-legacy', 'fund-legacy', 'check-legacy'];
+const results = [];
+function files(directory) {
+  if (!existsSync(directory)) return [];
+  return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
+    const path = resolve(directory, entry.name);
+    return entry.isDirectory() ? files(path) : entry.name.endsWith('.json') && path.includes('/dry-run/') ? [path] : [];
+  });
+}
+function cast(args) {
+  const result = spawnSync('cast', args, { encoding: 'utf8', timeout: 60000 });
+  if (result.status !== 0) throw new Error('Read-only fee query failed');
+  return result.stdout.trim();
+}
+for (const chain of ['arbitrum', 'robinhood']) {
+  const rpc = process.env[chain === 'arbitrum' ? 'ARBITRUM_RPC_URL' : 'ROBINHOOD_RPC_URL'];
+  for (const module of modules) {
+    const directory = resolve(root, `evm-${chain}-${module}`);
+    const logPath = resolve(directory, 'run.log');
+    const entry = { chain, module, measuredAt: new Date().toISOString(), status: 'UNVERIFIED' };
+    try {
+      if (!rpc || !existsSync(logPath)) throw new Error('Missing dry run');
+      const log = readFileSync(logPath, 'utf8');
+      if (!log.includes('Script ran successfully.')) throw new Error('Simulation incomplete');
+      if (module === 'check-legacy') { entry.status = 'read-only verification; no deployment spend'; results.push(entry); continue; }
+      const candidates = files(resolve(directory, 'broadcast')).sort();
+      const artifact = candidates.find(path => path.endsWith('dry-run/run-latest.json'));
+      if (!artifact) throw new Error('Missing transaction artifact');
+      const simulation = JSON.parse(readFileSync(artifact));
+      if (!simulation.transactions?.length) throw new Error('Empty transaction artifact');
+      const gasPrice = BigInt(cast(['gas-price', '--rpc-url', rpc]));
+      const transactions = [];
+      for (const record of simulation.transactions) {
+        const transaction = record.transaction;
+        const gas = BigInt(transaction.gas);
+        const data = transaction.input ?? transaction.data ?? '0x';
+        let executionWei = gas * gasPrice;
+        let l1Wei;
+        {
+          const response = cast(['call', '0x00000000000000000000000000000000000000C8',
+            'gasEstimateL1Component(address,bool,bytes)(uint64,uint256,uint256)',
+            transaction.to ?? '0x0000000000000000000000000000000000000000', String(!transaction.to), data,
+            '--from', transaction.from, '--rpc-url', rpc]);
+          const values = response.split('\n').map(line => BigInt(line.split(' ')[0]));
+          l1Wei = values[0] * values[1];
+          executionWei = gas * values[1];
+        }
+        transactions.push({ gas: gas.toString(), executionWei: executionWei.toString(), l1Wei: l1Wei.toString(),
+          totalWei: (executionWei + l1Wei).toString() });
+      }
+      entry.status = 'L1-inclusive fee model at current query time; gas limits are conservative, not receipts';
+      entry.currentGasPriceWei = gasPrice.toString();
+      entry.transactions = transactions;
+      entry.totalWei = transactions.reduce((sum, transaction) => sum + BigInt(transaction.totalWei), 0n).toString();
+      entry.executionWei = transactions.reduce((sum, transaction) => sum + BigInt(transaction.executionWei), 0n).toString();
+      entry.l1Wei = transactions.reduce((sum, transaction) => sum + BigInt(transaction.l1Wei), 0n).toString();
+      entry.dryRunCommit = simulation.commit;
+      entry.forkPins = JSON.parse(readFileSync(resolve(root, 'evm-pins.json')));
+    } catch { entry.reason = 'Missing/failed fork, signed calldata, transaction artifacts or L1 oracle quote; never assume zero L1 fee'; }
+    results.push(entry);
+  }
+}
+const output = { measuredAt: new Date().toISOString(), noMainnetTransactions: true, measurements: results,
+  limitations: 'Both chains use Nitro NodeInterface L1-only quotes, which avoid executing undeployed dependencies. Gas limits may already contain an L1 buffer: sum is a conservative funding estimate, not an exact receipt. Legacy scripts are evidence only, never additive launch requirements.' };
+writeFileSync(resolve(root, 'evm-budget.json'), JSON.stringify(output, null, 2) + '\n');
+console.log(JSON.stringify(output, null, 2));

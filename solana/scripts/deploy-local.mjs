@@ -8,6 +8,9 @@ import { Keypair, Connection, PublicKey } from '@solana/web3.js';
 
 const require = createRequire(import.meta.url);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+if (process.argv.length !== 3 || process.argv[2] !== '--broadcast') {
+  throw new Error('Local deployment requires the explicit --broadcast flag; no transaction submitted');
+}
 const endpoint = process.env.PP_DEPLOY_LOCAL_RPC ?? 'http://127.0.0.1:8970';
 let url;
 try { url = new URL(endpoint); } catch { throw new Error('Invalid local validator endpoint; value suppressed'); }
@@ -29,14 +32,13 @@ try {
 } catch {
   throw new Error('Invalid deployer parameter; expected a 64-byte JSON array or base58 keypair');
 }
-if (process.argv.length !== 3 || process.argv[2] !== '--broadcast') {
-  throw new Error('Local deployment requires the explicit --broadcast flag; no transaction submitted');
-}
 async function main() {
 const binary = resolve(root, 'target/deploy/pp_spoke.so');
 const size = statSync(binary).size;
 const multiplier = Number(process.env.PP_DEPLOY_MAX_LEN_MULTIPLIER ?? '1');
 if (![1, 2].includes(multiplier)) throw new Error('Max length multiplier must be 1 or 2');
+const priority = Number(process.env.PP_BUDGET_PRIORITY_MICROLAMPORTS ?? '10000');
+if (!Number.isSafeInteger(priority) || priority < 1 || priority > 1000000) throw new Error('Invalid priority fee');
 const connection = new Connection(endpoint, 'confirmed');
 const directory = mkdtempSync(resolve(tmpdir(), 'pp-deploy-local-'));
 const payer = resolve(directory, 'payer.json');
@@ -61,12 +63,12 @@ try {
   }
   const balanceBefore = await connection.getBalance(deployer.publicKey);
   command(['program', 'write-buffer', binary, '--buffer', buffer, '--buffer-authority', payer,
-    '--max-len', String(size * multiplier)]);
+    '--max-len', String(size * multiplier), '--with-compute-unit-price', String(priority), '--use-rpc']);
   const afterBuffer = await connection.getBalance(deployer.publicKey);
   const bufferInfo = await connection.getAccountInfo(bufferKey.publicKey);
   if (!bufferInfo) throw new Error('Local buffer is absent');
   command(['program', 'deploy', '--buffer', buffer, '--program-id', program, '--upgrade-authority', payer,
-    '--max-len', String(size * multiplier)]);
+    '--max-len', String(size * multiplier), '--with-compute-unit-price', String(priority), '--use-rpc', '--no-auto-extend']);
   const info = await connection.getAccountInfo(programKey.publicKey);
   if (!info?.executable || !info.owner.equals(new PublicKey('BPFLoaderUpgradeab1e11111111111111111111111')))
     throw new Error('Local program is not loader-v3 executable');
@@ -78,6 +80,7 @@ try {
   if (!programData.data.subarray(45, 45 + size).equals(readFileSync(binary)))
     throw new Error('Deployed ELF bytes differ');
   console.log(JSON.stringify({ scope: 'local-validator-only', binaryBytes: size, maxLenMultiplier: multiplier,
+    priorityMicroLamportsPerCU: priority,
     maxLen: size * multiplier, programId: programKey.publicKey.toBase58(),
     programRentLamports: info.lamports, programDataRentLamports: programData.lamports,
     bufferRentLamports: bufferInfo.lamports, bufferAccountBytes: bufferInfo.data.length,

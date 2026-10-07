@@ -90,6 +90,7 @@ library SolanaDeploymentV6 {
         pending.managerKey = native.managerKey;
         pending.chainId = native.chainId;
         pending.transport = native.transport;
+        pending.swapPolicyHash = native.swapPolicyHash;
         for (uint256 index; index < native.assets.length; ++index) {
             pending.assets.push(native.assets[index]);
         }
@@ -105,6 +106,7 @@ library SolanaDeploymentV6 {
         delete pending.managerKey;
         delete pending.chainId;
         delete pending.transport;
+        delete pending.swapPolicyHash;
         delete pending.assets;
         delete pending.venues;
     }

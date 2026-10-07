@@ -57,10 +57,11 @@ npm run test:localnet
 ```
 
 The scripts generate local-only test keypairs under ignored `.localnet/`; never
-copy production keys into this workspace. `Anchor.toml`'s program address is a
-**local scaffold placeholder**, not a deployment identity. Tests load the built
-SBF binary at this address at genesis and do not need its private key. T1 must
-replace it with the approved deployer-controlled identity before deployment;
+copy production keys into this workspace. `Anchor.toml` pins the persistent
+founder-machine program identity `7PptZ653uyn5eoAFKqs4DXR1ijxH6sf49f2YAGMLTfCx`
+(DEC-189). Tests load the built SBF binary at this address at genesis and never
+load its private key. The key remains outside worktrees in the root repo's
+ignored `.keys/` directory. Identity assignment is not deployment approval;
 do not run `anchor keys sync` during parallel development.
 
 See [architecture](docs/ARCHITECTURE.md), [ownership](CODEOWNERS.md), and the
