@@ -12,6 +12,9 @@ contract DeploySolanaFundV6 is Script {
     function run() external {
         if (block.chainid != 42_161) revert InvalidCreationRequest();
         address factory = vm.envAddress("SOLANA_V6_FACTORY");
+        string memory manifest = vm.readFile("script/solana-v6-addresses.json");
+        address approvedFactory = vm.parseJsonAddress(manifest, ".arbitrum.approvedFactory");
+        if (approvedFactory == address(0) || factory != approvedFactory) revert InvalidCreationRequest();
         bytes memory request = vm.parseBytes(vm.readFile(vm.envString("SOLANA_V6_CREATION_CALLDATA_FILE")));
         if (factory.code.length == 0 || request.length < 4 || bytes4(request) != FundFactoryV6.createFundV6.selector) {
             revert InvalidCreationRequest();

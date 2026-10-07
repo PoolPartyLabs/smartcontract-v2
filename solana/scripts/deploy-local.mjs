@@ -8,8 +8,9 @@ import { Keypair, Connection, PublicKey } from '@solana/web3.js';
 
 const require = createRequire(import.meta.url);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const endpoint = process.env.PP_DEPLOY_LOCAL_RPC ?? 'http://127.0.0.1:8995';
-const url = new URL(endpoint);
+const endpoint = process.env.PP_DEPLOY_LOCAL_RPC ?? 'http://127.0.0.1:8970';
+let url;
+try { url = new URL(endpoint); } catch { throw new Error('Invalid local validator endpoint; value suppressed'); }
 if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)
     || url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
   throw new Error('Deployment is restricted to an explicit loopback HTTP validator');
@@ -20,11 +21,18 @@ if (!process.env.SOLANA_DEPLOYER_PRIVATE_KEY?.trim()) {
 const encoded = process.env.SOLANA_DEPLOYER_PRIVATE_KEY.trim();
 let deployer;
 try {
-  const secret = encoded.startsWith('[') ? Uint8Array.from(JSON.parse(encoded)) : require('bs58').decode(encoded);
+  const values = encoded.startsWith('[') ? JSON.parse(encoded) : require('bs58').decode(encoded);
+  if (values.length !== 64 || !Array.from(values).every(value => Number.isInteger(value) && value >= 0 && value <= 255))
+    throw new Error('Invalid key bytes');
+  const secret = Uint8Array.from(values);
   deployer = Keypair.fromSecretKey(secret);
 } catch {
   throw new Error('Invalid deployer parameter; expected a 64-byte JSON array or base58 keypair');
 }
+if (process.argv.length !== 3 || process.argv[2] !== '--broadcast') {
+  throw new Error('Local deployment requires the explicit --broadcast flag; no transaction submitted');
+}
+async function main() {
 const binary = resolve(root, 'target/deploy/pp_spoke.so');
 const size = statSync(binary).size;
 const multiplier = Number(process.env.PP_DEPLOY_MAX_LEN_MULTIPLIER ?? '1');
@@ -78,3 +86,8 @@ try {
 } finally {
   rmSync(directory, { recursive: true, force: true });
 }
+}
+main().catch(() => {
+  console.error('Local deployment failed; diagnostic output suppressed for key and endpoint safety');
+  process.exitCode = 1;
+});

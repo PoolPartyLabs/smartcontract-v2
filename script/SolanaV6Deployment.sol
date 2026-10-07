@@ -42,6 +42,7 @@ abstract contract SolanaV6Deployment is FactoryDeployment {
         bool hub = block.chainid == ARBITRUM;
         if (!hub && block.chainid != ROBINHOOD) revert InvalidDeploymentConfiguration();
         IFundFactory.ProtocolWiring memory wiring = _chainWiring(block.chainid);
+        _checkManifest(wiring, hub);
         wiring.protocolRecipient = recipient;
         wiring.guardian = guardian;
         wiring.apiSigner = apiSigner;
@@ -101,7 +102,20 @@ abstract contract SolanaV6Deployment is FactoryDeployment {
     function _checkRuntime(string memory role, string memory artifact) private view {
         string memory object = vm.parseJsonString(vm.readFile(artifact), ".deployedBytecode.object");
         uint256 size = (bytes(object).length - 2) / 2;
-        if (size > 24_576) revert OversizedRuntime(role, size);
+        if (size > 23_576) revert OversizedRuntime(role, size);
+    }
+
+    function _checkManifest(IFundFactory.ProtocolWiring memory wiring, bool hub) private view {
+        string memory manifest = vm.readFile("script/solana-v6-addresses.json");
+        string memory side = hub ? ".arbitrum" : ".robinhood";
+        if (
+            wiring.baseToken != vm.parseJsonAddress(manifest, string.concat(side, hub ? ".usdc" : ".baseToken"))
+                || wiring.wormholeCore != vm.parseJsonAddress(manifest, string.concat(side, ".wormhole"))
+                || wiring.acrossSpokePool != vm.parseJsonAddress(manifest, string.concat(side, ".across"))
+        ) revert InvalidDeploymentConfiguration();
+        if (hub && ARB_ETH_USD_FEED != vm.parseJsonAddress(manifest, ".arbitrum.ethUsd")) {
+            revert InvalidDeploymentConfiguration();
+        }
     }
 
     function _nativePriceSource(uint64 sessionOpen, uint64 sessionClose, uint32 maxAge)

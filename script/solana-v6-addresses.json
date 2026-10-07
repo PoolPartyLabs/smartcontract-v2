@@ -4,7 +4,8 @@
   "decisions": ["DEC-188", "DEC-191", "DEC-192", "DEC-193", "DEC-194", "DEC-198", "DEC-199", "DEC-202"],
   "arbitrum": {
     "chainId": 42161, "wormholeChainId": 23, "cctpDomain": 3,
-    "forkBlock": 512239244,
+    "forkBlock": 512553166,
+    "approvedFactory": null,
     "usdc": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
     "cctpMessengerV2": "0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d",
     "cctpTransmitterV2": "0x81D40F21F12A8F0E3252Bccb954D722d4c464B64",
@@ -16,7 +17,7 @@
     "ethUsd": "0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612"
   },
   "robinhood": {
-    "chainId": 4663, "wormholeChainId": 72, "forkBlock": 82439071,
+    "chainId": 4663, "wormholeChainId": 72, "forkBlock": 82445811,
     "baseToken": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
     "wormhole": "0x141fBa8AD5D61bdaB45A047cF60b5Ad9784987FB",
     "across": "0xD29C85F15DF544bA632C9E25829fd29d767d7978",
