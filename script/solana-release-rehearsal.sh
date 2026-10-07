@@ -29,6 +29,7 @@ case "$1" in
     node tests/core/prepare-fixtures.ts
     bash scripts/localnet.sh start
     started=1
+    node scripts/deploy-idl-smoke.mjs
     node scripts/run-localnet-tests.ts
     ;;
   production)
