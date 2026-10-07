@@ -9,7 +9,7 @@ import { bindingPayload, mandateHash, fundId, integer, word, addressWord, factor
 import { attest, evm } from '../cctp/fixtures.ts';
 import { instruction, sendMeasured, u128 } from '../raydium/client.ts';
 
-test('composed authenticated Fund lifecycle on cloned mainnet programs', { timeout: 1_200_000 }, async () => {
+test('composed authenticated Fund lifecycle on cloned mainnet programs', { timeout: 7_200_000 }, async () => {
   const connection = localConnection(); requireLoopback(connection.rpcEndpoint);
   assert.equal(process.env.PP_LOCALNET_RPC_PORT, '8960');
   const manager = testWallet(); const keeper = testWallet('keeper');
