@@ -33,6 +33,8 @@ export async function buildSwapToRatio(args: BuildSwapArgs) {
   const { connection, client, program, manager, fund, vault, mint0, mint1 } = args;
   if (!Number.isInteger(args.maxPriceImpactBps) || args.maxPriceImpactBps < 0 || args.maxPriceImpactBps > 65535
       || args.oracleAccounts.length !== 3 || typeof args.authorizeQuote !== 'function') throw new Error('API authorization and pinned oracle accounts required');
+  const pinnedOracles = ['7AviUf9nL62mcxNbQGKm4nKDQnPjswo6c5MX4D57HmyE', '6HAuqASbHEh4w4REJEUUUCginTLfj1kwCh215ZLtMkrT', 'CH31Xns5z3M1cTAbKW34jcxPPciazARpijcHj9rxtemt'];
+  if (args.oracleAccounts.some((key, index) => key.toBase58() !== pinnedOracles[index])) throw new Error('Unpinned oracle account');
   if (!PublicKey.findProgramAddressSync([Buffer.from('vault'), fund.toBuffer()], program)[0].equals(vault)
       || !args.sealedMints.some(mint => mint.equals(mint0)) || !args.sealedMints.some(mint => mint.equals(mint1))
       || mint0.equals(mint1) || args.slippageBps > args.sealedMaxSlippageBps) throw new Error('Invalid sealed swap policy or vault');
@@ -67,7 +69,7 @@ export async function buildSwapToRatio(args: BuildSwapArgs) {
       || apiQuote.quotedAmountIn !== result.amount || apiQuote.minAmountOut < minOut || !apiQuote.legsHash.equals(hash))
     throw new Error('API-signed quote does not bind the selected route');
   const trailer = Buffer.alloc(6); trailer.writeUInt16LE(args.maxPriceImpactBps); trailer.writeUInt32LE(route.length, 2);
-  const payload = Buffer.concat([encodeQuote(apiQuote), trailer, route]);
+  const payload = Buffer.concat([encodeQuote(apiQuote), trailer, route, Buffer.from([0])]);
   const length = Buffer.alloc(4);
   length.writeUInt32LE(payload.length);
   const instruction = new TransactionInstruction({ programId: program, keys: [

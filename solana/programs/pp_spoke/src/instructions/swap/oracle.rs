@@ -81,6 +81,23 @@ pub struct OracleDeviation {
     pub bound_bps: u16,
 }
 
+#[event]
+pub struct OracleCrossCheckUnavailable {
+    pub fund: Pubkey,
+    pub feed: Pubkey,
+}
+
+pub fn monitor_cross_check(fund: Pubkey, primary: Price, account: &AccountInfo, now: i64, policy: &OraclePolicy) -> Result<()> {
+    // TODO(decision): DEC-202 cross-check is advisory, including missing/stale observations.
+    match chainlink_sol(account, now, policy) {
+        Ok(secondary) => cross_check(fund, primary, secondary, policy),
+        Err(error) => {
+            emit!(OracleCrossCheckUnavailable { fund, feed: CHAINLINK_SOL });
+            if policy.block_cross_check { Err(error) } else { Ok(()) }
+        }
+    }
+}
+
 pub fn cross_check(fund: Pubkey, pyth_price: Price, chainlink_price: Price, policy: &OraclePolicy) -> Result<()> {
     let exponent = pyth_price.exponent.min(chainlink_price.exponent);
     let primary = checked_mul(pyth_price.value, power((pyth_price.exponent - exponent) as u32)?)?;
@@ -117,6 +134,7 @@ pub fn minimum(amount: u64, input: Price, output: Price, input_decimals: u8, out
     let bounded = max_impact_bps > 0 && max_impact_bps < 10_000;
     require!(!policy.require_manager_bound || bounded, OracleError::Impact);
     if !bounded { return Ok(api_min); }
+    require!((-18..=0).contains(&input.exponent) && (-18..=0).contains(&output.exponent), OracleError::InvalidPrice);
     let delta = input.exponent - output.exponent + i32::from(output_decimals) - i32::from(input_decimals);
     let mut numerator = [u128::from(amount), input.value, u128::from(10_000 - max_impact_bps), if delta > 0 { power(delta as u32)? } else { 1 }];
     let mut denominator = [output.value, 10_000, if delta < 0 { power(delta.unsigned_abs())? } else { 1 }];
@@ -196,5 +214,42 @@ mod tests {
         assert!(cross_check(Pubkey::default(), first, second, &policy()).is_ok());
         let mut strict = policy(); strict.block_cross_check = true;
         assert!(cross_check(Pubkey::default(), first, second, &strict).is_err());
+    }
+    #[test]
+    fn full_receiver_identity_confidence_and_age() {
+        let mut bytes = vec![0; 134];
+        bytes[..8].copy_from_slice(&hash(b"account:PriceUpdateV2").to_bytes()[..8]);
+        bytes[40] = 1; bytes[41..73].copy_from_slice(&SOL_FEED);
+        bytes[73..81].copy_from_slice(&12_000_000_000i64.to_le_bytes());
+        bytes[81..89].copy_from_slice(&1_000_000u64.to_le_bytes());
+        bytes[89..93].copy_from_slice(&(-8i32).to_le_bytes());
+        bytes[93..101].copy_from_slice(&100i64.to_le_bytes());
+        let mut lamports = 1;
+        let account = AccountInfo::new(&PYTH_SOL, false, false, &mut lamports, &mut bytes, &RECEIVER, false, 0);
+        assert_eq!(pyth(&account, &PYTH_SOL, &SOL_FEED, 220, &policy()).unwrap().value, 12_000_000_000);
+        assert!(pyth(&account, &PYTH_SOL, &SOL_FEED, 221, &policy()).is_err());
+        assert!(pyth(&account, &PYTH_SOL, &SOL_FEED, 99, &policy()).is_err());
+        assert!(pyth(&account, &PYTH_USDC, &SOL_FEED, 100, &policy()).is_err());
+        assert!(pyth(&account, &PYTH_SOL, &USDC_FEED, 100, &policy()).is_err());
+        account.try_borrow_mut_data().unwrap()[40] = 0;
+        assert!(pyth(&account, &PYTH_SOL, &SOL_FEED, 100, &policy()).is_err());
+        account.try_borrow_mut_data().unwrap()[40] = 1;
+        account.try_borrow_mut_data().unwrap()[81..89].copy_from_slice(&1_000_000_000u64.to_le_bytes());
+        assert!(pyth(&account, &PYTH_SOL, &SOL_FEED, 100, &policy()).is_err());
+    }
+    #[test]
+    fn current_mint_multiplier_changes_at_activation_without_float_math() {
+        let key = Pubkey::new_unique(); let mut lamports = 1;
+        let mut bytes = vec![0; 226]; bytes[165] = 1;
+        bytes[166..168].copy_from_slice(&25u16.to_le_bytes()); bytes[168..170].copy_from_slice(&56u16.to_le_bytes());
+        bytes[202..210].copy_from_slice(&1.001701196801074f64.to_le_bytes());
+        bytes[210..218].copy_from_slice(&200i64.to_le_bytes()); bytes[218..226].copy_from_slice(&2f64.to_le_bytes());
+        let account = AccountInfo::new(&key, false, false, &mut lamports, &mut bytes, &TOKEN_2022, false, 0);
+        let price = Price { value: 100_000_000_000_000_000_000, exponent: -18 };
+        let adjusted = stock_price(price, &account, 199).unwrap();
+        assert!(adjusted.value > 100_170_000_000_000_000_000 && adjusted.value < 100_171_000_000_000_000_000);
+        assert_eq!(stock_price(price, &account, 200).unwrap().value, 200_000_000_000_000_000_000);
+        account.try_borrow_mut_data().unwrap()[218..226].copy_from_slice(&f64::NAN.to_le_bytes());
+        assert!(stock_price(price, &account, 200).is_err());
     }
 }

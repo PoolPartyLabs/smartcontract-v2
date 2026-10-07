@@ -120,7 +120,9 @@ export class JupiterClient {
         || result.slippageBps !== slippageBps || result.swapMode !== 'ExactIn'
         || result.routePlan?.length !== 1 || result.routePlan[0].swapInfo.label !== 'Raydium CLMM'
         || !/^\d+$/.test(result.outAmount) || !/^\d+$/.test(result.otherAmountThreshold)
-        || BigInt(result.outAmount) <= 0n || BigInt(result.otherAmountThreshold) <= 0n) throw new Error('Unsupported Jupiter quote');
+        || BigInt(result.outAmount) <= 0n || BigInt(result.otherAmountThreshold) <= 0n) {
+      throw new Error(`Unsupported Jupiter quote: mode ${result.swapMode}, route count ${result.routePlan?.length}, labels ${result.routePlan?.map(step => step.swapInfo.label).join(',')}`);
+    }
     if (!result.swapInstruction || result.tipInstruction || result.cleanupInstruction || result.otherInstructions?.length)
       throw new Error('Unsupported Jupiter V2 build instructions');
     result.addressLookupTableAddresses = Object.keys(result.addressesByLookupTableAddress ?? {});

@@ -20,8 +20,11 @@ pub struct SwapToRatio<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn handler(_ctx: Context<SwapToRatio>, _payload: Vec<u8>) -> Result<()> {
-    // TODO(decision): T1 must supply canonical sealed-Mandate/config decoding and atomic ledger conversion.
+pub fn handler(_ctx: Context<SwapToRatio>, payload: Vec<u8>) -> Result<()> {
+    // DEC-202: legacy unsigned SwapRequest is not an instruction encoding.
+    require!(payload.len() <= 4096, SwapError::Route);
+    super::authorized::AuthorizedSwap::try_from_slice(&payload).map_err(|_| error!(SwapError::Route))?;
+    // DEC-202: coordinator must supply authenticated sealed swap config and atomic nonce/ledger persistence.
     // DEC-079, DEC-080, DEC-190: never trust a Manager-supplied token allowlist or book a swap as income.
     err!(SwapError::IntegrationPending)
 }

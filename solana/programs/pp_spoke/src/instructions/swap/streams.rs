@@ -65,8 +65,8 @@ pub fn verify_stock<'info>(program: &AccountInfo<'info>, accounts: &[AccountInfo
     require!(*program.key == VERIFIER && program.executable && accounts.len() == 4
         && accounts[2].is_signer, OracleError::InvalidAccount);
     let instruction = verify_instruction(stock, *accounts[2].key, report)?;
-    for (expected, actual) in instruction.accounts.iter().zip(accounts) {
-        require!(expected.pubkey == *actual.key && !actual.is_writable, OracleError::InvalidAccount);
+    for (index, (expected, actual)) in instruction.accounts.iter().zip(accounts).enumerate() {
+        require!(expected.pubkey == *actual.key && (index == 2 || !actual.is_writable), OracleError::InvalidAccount);
     }
     require!(*accounts[0].owner == VERIFIER, OracleError::InvalidAccount);
     let mut infos = accounts.to_vec(); infos.push(program.clone());
