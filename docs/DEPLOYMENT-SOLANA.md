@@ -84,7 +84,7 @@ The three native runs have independent genesis and own ports
 8983/9983/18300/18301–18360 by default. Builders explicitly cap requested compute
 at **900,000 CU**, preserving existing lower limits. This leaves 500,000 CU below
 the runtime maximum of 1,400,000; it does not waive a requirement to measure the
-heaviest operation. `cache/sol-t9/compute-metrics.jsonl` records simulation CU and
+heaviest operation. `cache/sol-t9/<mode>-compute-metrics.jsonl` records simulation CU and
 event-data counts. Operation-budget JSON enumerates local payer debit, fees,
 failure/ALT overhead and modeled priority fees. Legacy mode includes the V1
 fixture-only swap; it never substitutes for signed V2 production acceptance.
@@ -161,11 +161,13 @@ approved factories. No complete exact EVM launch total can be claimed yet.
 
    ```sh
    export PP_EVM_FOUNDER_APPROVED=YES
+   export PP_EVM_APPROVED_COMMIT="$APPROVED_SOURCE_COMMIT"
    bash script/solana-evm-deploy.sh arbitrum factory-v6 --broadcast
    bash script/solana-evm-deploy.sh robinhood factory-v6 --broadcast
    ```
 
-   The wrapper refuses sends without both the flag and approval parameter.
+   The wrapper refuses sends without the flag, approval parameter, exact clean
+   source commit and verified destination chain.
    After each receipt: verify chain id, deployed runtime hashes, EIP-170 sizes,
    factory owner/wiring, linked libraries, creation-code stores/hashes,
    `CoreVaultCctpLogic`, `ManagerRegistry` and `SolanaPriceSourceV6` feeds. Compare

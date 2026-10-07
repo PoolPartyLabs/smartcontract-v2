@@ -15,6 +15,15 @@ else
   RPC="${ROBINHOOD_RPC_URL:?Explicit RPC environment required}"; PIN="${ROBINHOOD_FORK_BLOCK:?Explicit fork pin required}"
 fi
 [[ "$PIN" =~ ^[1-9][0-9]*$ ]] || { printf 'Positive numeric fork pin required\n' >&2; exit 1; }
+if [[ "$MODE" == --broadcast ]]; then
+  EXPECTED_CHAIN=42161
+  if [[ "$CHAIN" == robinhood ]]; then EXPECTED_CHAIN=4663; fi
+  ACTUAL_CHAIN="$(cast chain-id --rpc-url "$RPC" 2>/dev/null)" || { printf 'Read-only chain verification failed\n' >&2; exit 1; }
+  if [[ "$ACTUAL_CHAIN" != "$EXPECTED_CHAIN" ]]; then printf 'RPC chain does not match approved destination\n' >&2; exit 1; fi
+  if [[ "$(git rev-parse HEAD)" != "${PP_EVM_APPROVED_COMMIT:?Exact approved source commit required}" || -n "$(git status --porcelain --untracked-files=no)" ]]; then
+    printf 'Broadcast requires the exact clean approved source checkout\n' >&2; exit 1
+  fi
+fi
 case "$MODULE" in
   factory-v6) SCRIPT=DeploySolanaV6 ;;
   fund-v6) SCRIPT=DeploySolanaFundV6 ;;
