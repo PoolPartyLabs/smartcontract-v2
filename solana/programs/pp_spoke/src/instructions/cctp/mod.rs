@@ -16,7 +16,7 @@ pub mod wire;
 
 use anchor_lang::prelude::*;
 
-#[error_code]
+#[error_code(offset = 7200)]
 pub enum CctpError {
     #[msg("Malformed CCTP instruction payload")]
     InvalidPayload,

@@ -1,7 +1,7 @@
 use crate::state::FundState;
 use anchor_lang::prelude::*;
 
-#[error_code]
+#[error_code(offset = 7000)]
 pub enum CoreError {
     InvalidBinding,
     BindingExpired,

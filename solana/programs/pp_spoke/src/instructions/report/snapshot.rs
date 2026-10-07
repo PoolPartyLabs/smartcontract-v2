@@ -3,7 +3,7 @@ use crate::instructions::core::{binding::word, custody, guards::require_fund_add
 use crate::state::{FundState, TokenLedger, kamino::KaminoPosition, raydium::RaydiumPosition, transit::Transit};
 use anchor_lang::prelude::*;
 
-#[error_code]
+#[error_code(offset = 7100)]
 pub enum ReportError {
     InvalidAccounts,
     AdapterNotIntegrated,

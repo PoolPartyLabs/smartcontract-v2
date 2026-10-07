@@ -8,7 +8,7 @@ pub const ATA: Pubkey = pubkey!("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 pub const WSOL: Pubkey = pubkey!("So11111111111111111111111111111111111111112");
 pub const ROUTE: [u8; 8] = [229, 23, 203, 151, 122, 227, 173, 42];
 
-#[error_code]
+#[error_code(offset = 7500)]
 pub enum SwapError {
     #[msg("Manager Solana Key is not authorized")]
     Unauthorized,
