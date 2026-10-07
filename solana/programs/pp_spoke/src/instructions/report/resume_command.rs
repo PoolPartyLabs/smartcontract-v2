@@ -95,6 +95,7 @@ pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, ResumeCommand<'info>>, pay
 fn finalize(ctx: Context<ResumeCommand>) -> Result<()> {
     require!(ctx.accounts.command.reserved == 0, ReportError::OrderExecutionNotIntegrated);
     if ctx.accounts.command.kind == 2 {
+        super::snapshot::require_settled_transits(&ctx.accounts.fund, ctx.accounts.fund.key(), ctx.remaining_accounts)?;
         let report = super::snapshot::snapshot(&ctx.accounts.fund, ctx.accounts.fund.key(), ctx.remaining_accounts, &Clock::get()?)?;
         require!(report.positions.is_empty() && report.in_flight.is_empty()
             && report.unallocated.iter().all(|entry| entry[1] == [0;32])

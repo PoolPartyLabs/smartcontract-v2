@@ -55,6 +55,9 @@ pub struct NativeReportPublished {
 pub fn handler(ctx: Context<PublishReport>, payload: Vec<u8>) -> Result<()> {
     require!(payload.is_empty(), ReportError::InvalidAccounts);
     let fund_key = ctx.accounts.fund.key();
+    if ctx.accounts.fund.close_requested && ctx.accounts.fund.active_command == Pubkey::default() {
+        super::snapshot::require_settled_transits(&ctx.accounts.fund, fund_key, ctx.remaining_accounts)?;
+    }
     let encoded = encoded_snapshot(
         &ctx.accounts.fund,
         fund_key,

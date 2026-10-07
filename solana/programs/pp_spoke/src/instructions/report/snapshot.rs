@@ -208,9 +208,54 @@ pub fn encoded_snapshot(
     codec::encode(&snapshot(fund, key, accounts, clock)?)
 }
 
+pub fn require_settled_transits(fund: &FundState, key: Pubkey, accounts: &[AccountInfo]) -> Result<()> {
+    require!(fund.pending_transits as usize == fund.transit_registry.len(), ReportError::TransitNotIntegrated);
+    for transit_key in &fund.transit_registry {
+        let account = accounts.iter().find(|account| account.key == transit_key).ok_or(ReportError::TransitNotIntegrated)?;
+        require_keys_eq!(*account.owner, crate::ID, ReportError::InvalidAccounts);
+        let transit = Transit::try_deserialize(&mut &account.try_borrow_data()?[..])?;
+        require_keys_eq!(transit.fund, key, ReportError::InvalidAccounts);
+        let prefix: &[u8] = if transit.outbound { b"transit_out" } else { b"transit_in" };
+        let seed = if transit.outbound { transit.nonce } else { transit.transit_id };
+        require_keys_eq!(*transit_key, Pubkey::find_program_address(&[prefix, key.as_ref(), &seed], &crate::ID).0, ReportError::InvalidAccounts);
+        require!(transit.received, ReportError::OrderExecutionNotIntegrated);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn close_rejects_pending_inbound_and_outbound_even_without_report_exposure() {
+        let (mut fund, key) = crate::instructions::core::guards::fixture();
+        require_settled_transits(&fund, key, &[]).unwrap();
+        for outbound in [false, true] {
+            let nonce = [9; 32];
+            let id = [10; 32];
+            let prefix: &[u8] = if outbound { b"transit_out" } else { b"transit_in" };
+            let seed = if outbound { nonce } else { id };
+            let transit_key = Pubkey::find_program_address(&[prefix, key.as_ref(), &seed], &crate::ID).0;
+            let bytes = vec![0; Transit::INIT_SPACE];
+            let mut transit = Transit::deserialize(&mut bytes.as_slice()).unwrap();
+            transit.fund = key;
+            transit.outbound = outbound;
+            transit.nonce = nonce;
+            transit.transit_id = id;
+            fund.transit_registry = vec![transit_key];
+            fund.pending_transits = 1;
+            for received in [false, true] {
+                transit.received = received;
+                let mut data = vec![];
+                transit.try_serialize(&mut data).unwrap();
+                let mut lamports = 1;
+                let account = AccountInfo::new(&transit_key, false, false, &mut lamports, &mut data, &crate::ID, false, 0);
+                assert_eq!(require_settled_transits(&fund, key, &[account]).is_ok(), received);
+            }
+            assert!(require_settled_transits(&fund, key, &[]).is_err());
+        }
+    }
 
     #[test]
     fn never_silently_omit_unintegrated_exposure_or_stock_witness() {
