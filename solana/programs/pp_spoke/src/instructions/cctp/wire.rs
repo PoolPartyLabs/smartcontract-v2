@@ -310,6 +310,16 @@ mod tests {
     }
 
     #[test]
+    fn outbound_business_id_seals_direction_fund_and_nonce() {
+        let id = outbound_id(&[1;32], &[2;32]).unwrap();
+        assert_ne!(id, [2;32]);
+        assert_ne!(id, outbound_id(&[3;32], &[2;32]).unwrap());
+        assert_ne!(id, outbound_id(&[1;32], &[3;32]).unwrap());
+        assert!(outbound_id(&[1;32], &[0;32]).is_err());
+        assert_eq!(hook_kind(&[1;32], 1, &id, 1)[128..], uint_word(1));
+    }
+
+    #[test]
     fn burn_cpi_has_pinned_borsh_offsets_and_abi_hook() {
         let params = SendParams {
             transit_id: [8; 32],

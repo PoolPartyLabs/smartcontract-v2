@@ -60,6 +60,32 @@ contract ValueReportReceiverV6Test is Test {
         assertTrue(receiver.isReportFresh(1));
     }
 
+    function testAcceptNativeCommandGoldenResults() public {
+        ReportCodecV6.Report memory report = SolanaFixture.report(uint64(block.timestamp));
+        report.unwindResults = _fixtureBytes("solana/tests/report/fixtures/command-unwind.hex");
+        report.collectionResults = _fixtureBytes("solana/tests/report/fixtures/command-collection.hex");
+        receiver.deliver(_message(32, report));
+        (ReportCodec.Report memory projected,,) = receiver.latestReport(1);
+        SpokeUnwindTypes.OrderResult[] memory unwind = abi.decode(projected.unwindResults, (SpokeUnwindTypes.OrderResult[]));
+        assertEq(unwind[0].orderId, bytes32(uint256(11)));
+        assertEq(unwind[0].amountToArrive, 999);
+        assertEq(unwind[0].delivered, 2);
+        SpokeIncomeTypes.CollectionResult[] memory income = abi.decode(projected.collectionResults, (SpokeIncomeTypes.CollectionResult[]));
+        assertEq(income[0].resultId, 7);
+        assertEq(income[0].round, 12);
+        assertEq(income[0].tokens[0], SolanaMandateAlias());
+        assertEq(income[0].sold[0], 1000);
+        assertEq(income[0].amountToArrive, 999);
+    }
+
+    function _fixtureBytes(string memory path) private view returns (bytes memory) {
+        bytes memory text = bytes(vm.readFile(path));
+        while (text.length != 0 && uint8(text[text.length - 1]) <= 32) {
+            assembly ("memory-safe") { mstore(text, sub(mload(text), 1)) }
+        }
+        return vm.parseBytes(string.concat("0x", string(text)));
+    }
+
     function SolanaMandateAlias() private view returns (address) {
         return receiver.nativeRegistry().token(SolanaFixture.USDC);
     }

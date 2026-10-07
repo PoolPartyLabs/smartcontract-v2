@@ -107,4 +107,28 @@ mod tests {
         assert!(fraction(11, &word(3), &word(2)).is_err());
         assert!(fraction(11, &word(u128::MAX), &word(u128::MAX)).is_err());
     }
+
+    #[test]
+    fn command_result_bytes_match_hub_decoded_fixtures() {
+        let bytes = vec![0; HubCommand::INIT_SPACE];
+        let mut command = HubCommand::deserialize(&mut bytes.as_slice()).unwrap();
+        command.order_id = word(11);
+        command.request_id = word(12);
+        command.attempt = 1;
+        command.sequence = 7;
+        command.transit_id = word(13);
+        command.amount_sent = 1000;
+        command.amount_to_arrive = 999;
+        command.delivered = 2;
+        fn hex(encoded: &str) -> Vec<u8> {
+            encoded.trim().as_bytes().chunks_exact(2).map(|pair|
+                u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap()).collect()
+        }
+        assert_eq!(unwind_result(&command), hex(include_str!("../../../../../tests/report/fixtures/command-unwind.hex")));
+        assert_eq!(collection_result(&command), hex(include_str!("../../../../../tests/report/fixtures/command-collection.hex")));
+        let appended = append_collection(&collection_result(&command), &command).unwrap();
+        assert_eq!(read_u64(&appended[32..64]).unwrap(), 2);
+        assert_eq!(read_u64(&appended[64..96]).unwrap(), 64);
+        assert_eq!(read_u64(&appended[96..128]).unwrap(), 512);
+    }
 }
