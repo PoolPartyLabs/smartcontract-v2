@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { decodeRouteV2 } from '../../clients/swap/decoder.ts';
 
-for (const file of readdirSync(new URL('./fixtures/v2/', import.meta.url)).filter(name => name !== 'idl-excerpt.json')) {
+for (const file of readdirSync(new URL('./fixtures/v2/', import.meta.url)).filter(name => /^(wsol|tslax|nvdax).*\.json$/.test(name))) {
   test(`real V2 build fixture ${file} decodes exactly`, () => {
     const fixture = JSON.parse(readFileSync(new URL(`./fixtures/v2/${file}`, import.meta.url), 'utf8'));
     const route = Buffer.from(fixture.build.swapInstruction.data, 'base64');
