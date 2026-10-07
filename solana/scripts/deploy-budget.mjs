@@ -20,9 +20,11 @@ const program = await rent(36);
 const modes = [];
 for (const multiplier of [1, 2]) {
   const programData = await rent(45 + size * multiplier);
-  const buffer = await rent(37 + size * multiplier);
+  const buffer = await rent(45 + size * multiplier);
+  const minimumLoaderBuffer = await rent(37 + size * multiplier);
   modes.push({ multiplier, maxLen: size * multiplier, programLamports: program,
     programDataLamports: programData, bufferLamports: buffer,
+    minimumLoaderBufferLamports: minimumLoaderBuffer,
     conservativePeakRentLamports: program + programData + buffer });
 }
 console.log(JSON.stringify({ measuredAt: new Date().toISOString(), binaryBytes: size,

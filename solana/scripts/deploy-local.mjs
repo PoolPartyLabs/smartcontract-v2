@@ -35,7 +35,8 @@ const payer = resolve(directory, 'payer.json');
 const buffer = resolve(directory, 'buffer.json');
 const program = resolve(directory, 'program.json');
 const programKey = Keypair.generate();
-for (const [path, key] of [[payer, deployer], [buffer, Keypair.generate()], [program, programKey]]) {
+const bufferKey = Keypair.generate();
+for (const [path, key] of [[payer, deployer], [buffer, bufferKey], [program, programKey]]) {
   writeFileSync(path, JSON.stringify(Array.from(key.secretKey)), { mode: 0o600 });
 }
 const childEnv = { ...process.env };
@@ -54,6 +55,8 @@ try {
   command(['program', 'write-buffer', binary, '--buffer', buffer, '--buffer-authority', payer,
     '--max-len', String(size * multiplier)]);
   const afterBuffer = await connection.getBalance(deployer.publicKey);
+  const bufferInfo = await connection.getAccountInfo(bufferKey.publicKey);
+  if (!bufferInfo) throw new Error('Local buffer is absent');
   command(['program', 'deploy', '--buffer', buffer, '--program-id', program, '--upgrade-authority', payer,
     '--max-len', String(size * multiplier)]);
   const info = await connection.getAccountInfo(programKey.publicKey);
@@ -69,6 +72,7 @@ try {
   console.log(JSON.stringify({ scope: 'local-validator-only', binaryBytes: size, maxLenMultiplier: multiplier,
     maxLen: size * multiplier, programId: programKey.publicKey.toBase58(),
     programRentLamports: info.lamports, programDataRentLamports: programData.lamports,
+    bufferRentLamports: bufferInfo.lamports, bufferAccountBytes: bufferInfo.data.length,
     bufferStageDebitLamports: balanceBefore - afterBuffer,
     totalDebitLamports: balanceBefore - await connection.getBalance(deployer.publicKey) }));
 } finally {
