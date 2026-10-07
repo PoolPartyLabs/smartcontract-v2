@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "status": "NOT_APPROVED",
+  "approvedBy": null,
+  "approvedAt": null,
+  "sourceCommit": null,
+  "programId": null,
+  "binarySha256": null,
+  "idlSha256": null,
+  "maxLen": null,
+  "authority": "6VTveiPVZVM7H9BWEsUsu4ivsrPjKw9ePrLQqHaFgJaA",
+  "priorityMicroLamportsPerCU": null,
+  "walletMinimumLamports": null,
+  "decisions": ["DEC-188", "DEC-189", "DEC-195"],
+  "coordinatorRequests": ["Replace the scaffold program identity and rebuild before approval", "Approve combined-wallet budget and all release gates"]
+}

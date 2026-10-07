@@ -10,6 +10,7 @@ export PP_LOCALNET_GOSSIP_PORT="${PP_LOCALNET_GOSSIP_PORT:-18300}"
 export PP_LOCALNET_DYNAMIC_PORTS="${PP_LOCALNET_DYNAMIC_PORTS:-18301-18360}"
 export PP_REHEARSAL_CU_LIMIT=900000
 export PP_REHEARSAL_METRICS="$STATE/compute-metrics.jsonl"
+export NODE_OPTIONS="${NODE_OPTIONS:-} --import=$ROOT/solana/scripts/deploy-compute-budget.mjs"
 if [[ "$#" != 1 || ! "$1" =~ ^(core|production|legacy)$ ]]; then
   printf 'Usage: solana-release-rehearsal.sh core|production|legacy\n' >&2; exit 2
 fi
@@ -22,20 +23,20 @@ case "$1" in
     node tests/core/prepare-fixtures.ts
     bash scripts/localnet.sh start
     started=1
-    node --import ./scripts/deploy-compute-budget.mjs scripts/run-localnet-tests.ts
+    node scripts/run-localnet-tests.ts
     ;;
   production)
     node tests/swap/production.prepare.ts
     bash tests/swap/production.start.sh
     started=1
-    node --import ./scripts/deploy-compute-budget.mjs --test tests/swap/production.localnet.test.ts
+    node --test tests/swap/production.localnet.test.ts
     ;;
   legacy)
     anchor build -- --features no-idl,no-log-ix-name,rehearsal-v1-swap
     node tests/rehearsal/prepare.ts
     bash scripts/localnet.sh start
     started=1
-    node --import ./scripts/deploy-compute-budget.mjs --test tests/rehearsal/lifecycle.test.ts
+    node --test tests/rehearsal/lifecycle.test.ts
     ;;
 esac
 printf 'Local cloned leg only; no correlated three-chain or mainnet acceptance claimed.\n'
