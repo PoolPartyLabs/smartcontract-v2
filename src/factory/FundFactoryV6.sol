@@ -15,7 +15,6 @@ import {TransitEscrow} from "../core/TransitEscrow.sol";
 import {ShareMath} from "../libraries/ShareMath.sol";
 import {Create3} from "./Create3.sol";
 import {CodeStore} from "./CodeStore.sol";
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {SolanaMandateV6, SolanaSpokeRegistryV6} from "../mandate/SolanaMandateV6.sol";
 import {SolanaDeploymentV6} from "./SolanaDeploymentV6.sol";
@@ -70,38 +69,46 @@ contract FundFactoryV6 is IFundFactory, ReentrancyGuardTransient, EIP712 {
 
     /// @notice DEC-190/200: the same EOA signature authorizes Hub creation and native bootstrap.
     function createFundV6Committed(
-        Mandate memory mandate_, HubParams memory params, SolanaMandateV6.Config memory native,
-        SolanaPolicyV6.Commitment memory commitment, Binding memory binding
+        Mandate memory mandate_,
+        HubParams memory params,
+        SolanaMandateV6.Config memory native,
+        SolanaPolicyV6.Commitment memory commitment,
+        Binding memory binding
     ) external nonReentrant returns (FundAddresses memory addresses) {
-        if (msg.sender != mandate_.manager || mandate_.manager.code.length != 0 || native.managerKey == 0) {
-            revert InvalidSolanaBinding();
-        }
-        SolanaPolicyV6.validate(mandate_, native, commitment);
         bytes32 id = _fundIdOf(mandate_.hubChainId, params.creationNumber, mandate_.manager);
         address core = _addressOf(id, ROLE_CORE_VAULT, mandate_.hubChainId);
-        SolanaPolicyV6.validateIdentities(mandate_.hubChainId, core, native, commitment);
-        bytes32 digest = bootstrapDigest(mandate_.hash(), native, commitment, core, id, binding.nonce, binding.expiry);
-        if (
-            msg.sender != mandate_.manager || mandate_.manager.code.length != 0
-                || binding.nonce != bindingNonce[mandate_.manager] || block.timestamp > binding.expiry
-                || ECDSA.recover(digest, binding.signature) != mandate_.manager
-        ) revert InvalidSolanaBinding();
+        SolanaPolicyV6.Authorization memory auth;
+        auth.core = core;
+        auth.fundId = id;
+        auth.nonce = binding.nonce;
+        auth.expectedNonce = bindingNonce[mandate_.manager];
+        auth.expiry = binding.expiry;
+        auth.signature = binding.signature;
+        auth.domainSeparator = _domainSeparatorV4();
+        (bytes32 digest, bytes32 envelope) = SolanaPolicyV6.authorize(mandate_, native, commitment, auth);
         SolanaDeploymentV6.validate(mandate_, native);
         ++bindingNonce[mandate_.manager];
         bindingCommitment[core] = digest;
-        fullSolanaCommitment[core] = SolanaPolicyV6.fullHash(mandate_.hash(), SolanaMandateV6.hash(native), commitment);
+        fullSolanaCommitment[core] = envelope;
         SolanaDeploymentV6.store(_pendingNative, native);
         addresses = _createFund(mandate_, params);
         SolanaDeploymentV6.clear(_pendingNative);
     }
 
     function bootstrapDigest(
-        bytes32 mandateHash, SolanaMandateV6.Config memory native, SolanaPolicyV6.Commitment memory commitment,
-        address core, bytes32 fundId, uint256 nonce, uint256 expiry
+        bytes32 mandateHash,
+        SolanaMandateV6.Config memory native,
+        SolanaPolicyV6.Commitment memory commitment,
+        address core,
+        bytes32 fundId,
+        uint256 nonce,
+        uint256 expiry
     ) internal view returns (bytes32) {
-        return _hashTypedDataV4(SolanaPolicyV6.bootstrapHash(
-            BOOTSTRAP_TYPEHASH, block.chainid, core, mandateHash, native, commitment, fundId, nonce, expiry
-        ));
+        return _hashTypedDataV4(
+            SolanaPolicyV6.bootstrapHash(
+                BOOTSTRAP_TYPEHASH, block.chainid, core, mandateHash, native, commitment, fundId, nonce, expiry
+            )
+        );
     }
 
     /// @notice Salt roles (the fund contract each salt deploys).
@@ -231,14 +238,14 @@ contract FundFactoryV6 is IFundFactory, ReentrancyGuardTransient, EIP712 {
     /// @notice Creates only new Funds with an EOA Manager's signed native commitment (DEC-188, DEC-190).
     /// @dev Solana acceptance is enforced by the Solana init instruction, not inferred from an EVM signature.
     function createFundV6(Mandate memory, HubParams memory, SolanaMandateV6.Config memory, Binding memory)
-        external pure returns (FundAddresses memory)
+        external
+        pure
+        returns (FundAddresses memory)
     {
         revert NativeCreationRequired();
     }
 
-    function bindingDigest(SolanaMandateV6.Config memory, address, uint256, uint256)
-        external pure returns (bytes32)
-    {
+    function bindingDigest(SolanaMandateV6.Config memory, address, uint256, uint256) external pure returns (bytes32) {
         revert NativeCreationRequired();
     }
 

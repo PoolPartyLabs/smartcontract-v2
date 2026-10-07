@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 import {Mandate, MandateLib} from "./Mandate.sol";
 import {SolanaMandateV6} from "./SolanaMandateV6.sol";
 import {SolanaPdaV6} from "./SolanaPdaV6.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 /// @notice DEC-200 coordinator refinement: identity-free policy precedes native derivation.
 library SolanaPolicyV6 {
@@ -17,6 +18,47 @@ library SolanaPolicyV6 {
     }
 
     error InvalidPolicyCommitment();
+    error InvalidSolanaBinding();
+
+    struct Authorization {
+        address core;
+        bytes32 fundId;
+        uint256 nonce;
+        uint256 expectedNonce;
+        uint256 expiry;
+        bytes signature;
+        bytes32 domainSeparator;
+    }
+
+    function authorize(
+        Mandate memory mandate_,
+        SolanaMandateV6.Config memory native,
+        Commitment memory commitment,
+        Authorization memory auth
+    ) public view returns (bytes32 digest, bytes32 envelope) {
+        if (
+            msg.sender != mandate_.manager || mandate_.manager.code.length != 0 || native.managerKey == 0
+                || auth.nonce != auth.expectedNonce || block.timestamp > auth.expiry
+        ) revert InvalidSolanaBinding();
+        validate(mandate_, native, commitment);
+        validateIdentities(mandate_.hubChainId, auth.core, native, commitment);
+        bytes32 structHash = bootstrapHash(
+            keccak256(
+                "SolanaBootstrap(uint256 hubChain,address core,bytes32 mandateHash,bytes32 policyHash,uint16 spokeIndex,bytes32 program,bytes32 fundPda,bytes32 solanaKey,bytes32 usdcAta,bytes32 tslaxAta,bytes32 nvdaxAta,bytes32 wsolAta,bytes32 nativeMandateHash,bytes32 fundId,uint256 nonce,uint256 expiry)"
+            ),
+            block.chainid,
+            auth.core,
+            MandateLib.hash(mandate_),
+            native,
+            commitment,
+            auth.fundId,
+            auth.nonce,
+            auth.expiry
+        );
+        digest = keccak256(abi.encodePacked(hex"1901", auth.domainSeparator, structHash));
+        if (ECDSA.recover(digest, auth.signature) != mandate_.manager) revert InvalidSolanaBinding();
+        envelope = fullHash(MandateLib.hash(mandate_), SolanaMandateV6.hash(native), commitment);
+    }
 
     function hubPolicyHash(Mandate memory mandate_, uint16 index) public pure returns (bytes32) {
         if (index >= mandate_.spokes.length || mandate_.spokes[index].wormholeChainId != 1) {
@@ -43,7 +85,9 @@ library SolanaPolicyV6 {
     }
 
     function validate(Mandate memory mandate_, SolanaMandateV6.Config memory native, Commitment memory commitment)
-        public pure returns (bytes32 hubPolicy)
+        public
+        pure
+        returns (bytes32 hubPolicy)
     {
         hubPolicy = hubPolicyHash(mandate_, commitment.spokeIndex);
         if (
@@ -53,33 +97,52 @@ library SolanaPolicyV6 {
         ) revert InvalidPolicyCommitment();
     }
 
-    function validateIdentities(uint256 hubChain, address core, SolanaMandateV6.Config memory native, Commitment memory commitment)
-        public pure
-    {
+    function validateIdentities(
+        uint256 hubChain,
+        address core,
+        SolanaMandateV6.Config memory native,
+        Commitment memory commitment
+    ) public pure {
         bytes32 fund = SolanaPdaV6.fund(hubChain, core, commitment.spokeIndex, commitment.policyHash, native.program);
         bytes32 vault = SolanaPdaV6.derive(abi.encodePacked("vault", fund), native.program);
         bytes32 token = 0x06ddf6e1d765a193d9cbe146ceeb79ac1cb485ed5f5b37913a8cf5857eff00a9;
         bytes32 token2022 = 0x06ddf6e1ee758fde18425dbce46ccddab61afc4d83b90d27febdf928d8a18bfc;
         if (
-            fund != commitment.fundPda || native.spoke != SolanaPdaV6.derive(abi.encodePacked("emitter", fund), native.program)
+            fund != commitment.fundPda
+                || native.spoke != SolanaPdaV6.derive(abi.encodePacked("emitter", fund), native.program)
                 || native.transport.destinationCaller != vault || native.transport.remoteVaultAuthority != vault
                 || commitment.usdcAta != SolanaPdaV6.ata(vault, native.usdcMint, token)
-                || commitment.stockAta != SolanaPdaV6.ata(vault, 0x07e83582411fea1482f0994b80aa512a97c94f25df283bec5a67a381fc862b4a, token2022)
-                || commitment.nvdaxAta != SolanaPdaV6.ata(vault, 0x07e8a50e140fda5791f4566a957fd3ae3f873e6a3466ffc13d79119dfa9ab50a, token2022)
-                || commitment.wsolAta != SolanaPdaV6.ata(vault, 0x069b8857feab8184fb687f634618c035dac439dc1aeb3b5598a0f00000000001, token)
+                || commitment.stockAta
+                    != SolanaPdaV6.ata(
+                        vault, 0x07e83582411fea1482f0994b80aa512a97c94f25df283bec5a67a381fc862b4a, token2022
+                    )
+                || commitment.nvdaxAta
+                    != SolanaPdaV6.ata(
+                        vault, 0x07e8a50e140fda5791f4566a957fd3ae3f873e6a3466ffc13d79119dfa9ab50a, token2022
+                    )
+                || commitment.wsolAta
+                    != SolanaPdaV6.ata(vault, 0x069b8857feab8184fb687f634618c035dac439dc1aeb3b5598a0f00000000001, token)
         ) revert InvalidPolicyCommitment();
     }
 
     function fullHash(bytes32 mandateHash, bytes32 nativeHash, Commitment memory commitment)
-        public pure returns (bytes32)
+        public
+        pure
+        returns (bytes32)
     {
         return keccak256(abi.encode(uint256(6), mandateHash, nativeHash, commitment));
     }
 
     function bootstrapHash(
-        bytes32 typehash, uint256 hubChain, address core, bytes32 mandateHash,
-        SolanaMandateV6.Config memory native, Commitment memory commitment,
-        bytes32 fundId, uint256 nonce, uint256 expiry
+        bytes32 typehash,
+        uint256 hubChain,
+        address core,
+        bytes32 mandateHash,
+        SolanaMandateV6.Config memory native,
+        Commitment memory commitment,
+        bytes32 fundId,
+        uint256 nonce,
+        uint256 expiry
     ) public pure returns (bytes32) {
         bytes32[17] memory words;
         words[0] = typehash;
