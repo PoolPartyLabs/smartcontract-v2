@@ -13,7 +13,7 @@ export const COLLATERAL_DONATION = 17n;
 
 export function fixture(identity: number) {
   const hub = Buffer.alloc(20, identity);
-  const addresses = fundAddresses(hub, 2);
+  const addresses = fundAddresses(hub, 2, Buffer.alloc(32, 99));
   return { ...addresses, hub,
     position: derive(ADDRESSES.spoke, Buffer.from('position'), publicKey(addresses.fund).toBuffer(), publicKey(ADDRESSES.reserve).toBuffer()),
     usdc: testAta(ADDRESSES.usdc, publicKey(addresses.vault)).toBase58(),
@@ -54,9 +54,8 @@ export function prepareKaminoFixtures() {
     manager.toBuffer().copy(fund, offset); offset += 32;
     offset += 16;
     fund[offset++] = 0;
-    fund[offset++] = PublicKey.findProgramAddressSync([Buffer.from('fund'), addresses.hub, Buffer.from([2, 0])], publicKey(ADDRESSES.spoke))[1];
+    fund[offset++] = PublicKey.findProgramAddressSync([Buffer.from('fund'), addresses.hub, Buffer.from([2, 0]), Buffer.alloc(32, 99)], publicKey(ADDRESSES.spoke))[1];
     fund[offset++] = PublicKey.findProgramAddressSync([Buffer.from('vault'), publicKey(addresses.fund).toBuffer()], publicKey(ADDRESSES.spoke))[1];
-    snapshot(addresses.fund, ADDRESSES.spoke, completeFundState(fund.subarray(0, offset)));
     const position = Buffer.alloc(8 + 64 + 1 + 11 * 8);
     discriminator('account', 'KaminoPosition').copy(position);
     publicKey(addresses.fund).toBuffer().copy(position, 8);
@@ -68,6 +67,14 @@ export function prepareKaminoFixtures() {
     if (identity === 34) position.writeBigUInt64LE(500_000n, 81);
     position.writeBigUInt64LE(CREDIT, 89);
     snapshot(addresses.position, ADDRESSES.spoke, position);
+    const venue = Buffer.concat([publicKey(ADDRESSES.kamino).toBuffer(), Buffer.alloc(32), publicKey(ADDRESSES.reserve).toBuffer(), publicKey(ADDRESSES.usdc).toBuffer(), Buffer.alloc(32)]);
+    const fundData = completeFundState(fund.subarray(0, offset), [venue], [addresses.position]);
+    fundData.writeUInt16LE(units > 0n ? 1 : 0, 372);
+    snapshot(addresses.fund, ADDRESSES.spoke, fundData);
+    const mint = publicKey(ADDRESSES.usdc); const fundKey = publicKey(addresses.fund);
+    const [ledger, bump] = PublicKey.findProgramAddressSync([Buffer.from('ledger'), fundKey.toBuffer(), mint.toBuffer()], publicKey(ADDRESSES.spoke));
+    const buckets = Buffer.alloc(32); buckets.writeBigUInt64LE(CREDIT);
+    snapshot(ledger.toBase58(), ADDRESSES.spoke, Buffer.concat([discriminator('account', 'TokenLedger'), fundKey.toBuffer(), mint.toBuffer(), buckets, Buffer.from([bump])]));
     snapshot(addresses.usdc, ADDRESSES.token, token(ADDRESSES.usdc, addresses.vault, CREDIT + DONATION));
     snapshot(addresses.collateral, ADDRESSES.token, token(COLLATERAL, addresses.vault, units + COLLATERAL_DONATION));
   }

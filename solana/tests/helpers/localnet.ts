@@ -23,7 +23,7 @@ export function testWallet(role: 'manager' | 'keeper' = 'manager'): Keypair {
 }
 
 export function testAta(mint: string, owner: PublicKey): PublicKey {
-  const token = mint === ADDRESSES.tslax ? ADDRESSES.token2022 : ADDRESSES.token;
+  const token = [ADDRESSES.tslax, 'Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh'].includes(mint) ? ADDRESSES.token2022 : ADDRESSES.token;
   return publicKey(derive(ADDRESSES.ata, owner.toBuffer(), publicKey(token).toBuffer(), publicKey(mint).toBuffer()));
 }
 

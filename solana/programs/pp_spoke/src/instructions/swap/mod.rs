@@ -1,4 +1,6 @@
 pub mod guard;
+#[cfg(feature = "rehearsal-v1-swap")]
+pub mod rehearsal_guard;
 pub mod swap_exact_in;
 pub use swap_exact_in::SwapExactIn;
 pub(crate) use swap_exact_in::__client_accounts_swap_exact_in;

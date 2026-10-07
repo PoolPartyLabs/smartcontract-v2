@@ -8,7 +8,7 @@ pub struct ExecuteUnwindOrder<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
     #[account(mut)]
-    pub fund: Account<'info, FundState>,
+    pub fund: Box<Account<'info, FundState>>,
     /// CHECK: owning track must enforce the per-Fund vault PDA; handler always fails meanwhile.
     #[account(mut)]
     pub vault: UncheckedAccount<'info>,

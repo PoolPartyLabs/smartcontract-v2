@@ -324,7 +324,7 @@ PDA seed definitions match the current read-only `solana/docs/ARCHITECTURE.md`:
 
 | Identity | Seeds under the committed program |
 | --- | --- |
-| FundState | `[b"fund", hub_core_20_bytes, spoke_index_u16_le]` |
+| FundState | `[b"fund", hub_core_20_bytes, spoke_index_u16_le, mandate_hash_32_bytes]` |
 | Fund vault authority | `[b"vault", fund_state_pubkey]` |
 | Wormhole emitter | `[b"emitter", fund_state_pubkey]` |
 | Immutable mandate | `[b"mandate", fund_state_pubkey]` |

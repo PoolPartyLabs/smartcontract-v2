@@ -8,7 +8,7 @@ pub struct BuildReport<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
     #[account(mut)]
-    pub fund: Account<'info, FundState>,
+    pub fund: Box<Account<'info, FundState>>,
     /// CHECK: compatibility account only; snapshot independently derives the custody PDA.
     #[account(mut)]
     pub vault: UncheckedAccount<'info>,

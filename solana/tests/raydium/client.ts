@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { Connection, Keypair, PublicKey, TransactionInstruction, ComputeBudgetProgram,
   AddressLookupTableProgram, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
 import type { AccountMeta } from '@solana/web3.js';
-import { ADDRESSES, publicKey } from '../helpers/addresses.ts';
+import { ADDRESSES, publicKey, derive } from '../helpers/addresses.ts';
 import { discriminator } from '../helpers/layouts.ts';
 import { requireLoopback, sendLocal } from '../helpers/localnet.ts';
 
@@ -20,6 +20,12 @@ export function instruction(name: string, accounts: Record<string, string | Publ
   function flatten(entries: IdlAccount[]): AccountMeta[] {
     return entries.flatMap(entry => {
       if (entry.accounts) return flatten(entry.accounts);
+      if (['token_ledger_0', 'token_ledger_1'].includes(entry.name)) {
+        const side = entry.name.endsWith('0') ? 'mint_0' : 'mint_1';
+        const mint = accounts[side]; const fund = accounts.fund;
+        if (!mint || !fund) throw new Error('Canonical ledger needs Fund and mint');
+        accounts[entry.name] = derive(ADDRESSES.spoke, Buffer.from('ledger'), (typeof fund === 'string' ? publicKey(fund) : fund).toBuffer(), (typeof mint === 'string' ? publicKey(mint) : mint).toBuffer());
+      }
       const address = accounts[entry.name] ?? entry.address ?? (entry.optional ? ADDRESSES.spoke : undefined);
       if (!address) throw new Error(`Missing ${name} account ${entry.name}`);
       const omitted = entry.optional && address === ADDRESSES.spoke;
@@ -52,6 +58,7 @@ export async function sendMeasured(connection: Connection, payer: Keypair, opera
   const transaction = new VersionedTransaction(message);
   transaction.sign([payer, ...extraSigners]);
   const serialized = transaction.serialize();
+  if (serialized.length > 1232) throw new Error(`Local transaction exceeds packet limit: ${serialized.length}`);
   const simulation = await connection.simulateTransaction(transaction, { commitment: 'confirmed', sigVerify: true });
   if (simulation.value.err) throw new Error(`Local simulation failed: ${JSON.stringify(simulation.value.err)}\n${simulation.value.logs?.join('\n')}`);
   const signature = await connection.sendRawTransaction(serialized, { preflightCommitment: 'confirmed' });

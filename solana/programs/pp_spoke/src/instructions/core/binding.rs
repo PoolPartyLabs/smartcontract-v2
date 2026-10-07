@@ -42,6 +42,16 @@ pub fn address_word(address: &[u8; 20]) -> [u8; 32] {
     result
 }
 
+/// DEC-191, DEC-199: exact Hub factory CREATE3 connector namespace, not the Core.
+pub fn hub_connector(factory: &[u8;20], fund_id: &[u8;32], chain: u64) -> [u8;20] {
+    let mut role = [0u8;32];
+    role[..20].copy_from_slice(b"CctpReceiveConnector");
+    let salt = hash_words(&[*fund_id, role, word(u128::from(chain))]);
+    let proxy_code = [0x75,0x36,0x3d,0x3d,0x37,0x36,0x3d,0x34,0xf0,0x60,0x14,0x57,0x3d,0x60,0x00,0x80,0x3e,0x3d,0x60,0x00,0xfd,0x5b,0x00,0x3d,0x52,0x60,0x16,0x60,0x0a,0xf3];
+    let proxy_hash = keccak::hashv(&[&[0xff], factory, &salt, &keccak::hash(&proxy_code).to_bytes()]).to_bytes();
+    keccak::hashv(&[&[0xd6,0x94], &proxy_hash[12..], &[1]]).to_bytes()[12..].try_into().unwrap()
+}
+
 pub fn hash_words(words: &[[u8; 32]]) -> [u8; 32] {
     keccak::hash(&words.concat()).to_bytes()
 }
@@ -78,8 +88,13 @@ pub fn verify_binding(
         now >= 0 && now as u64 <= payload.expiry,
         CoreError::BindingExpired
     );
-    require!(payload.manager_evm != [0; 20], CoreError::InvalidBinding);
-    let signature = &payload.signature;
+    let digest = binding_digest(payload, manager, emitter);
+    verify_signature(&payload.manager_evm, &payload.signature, digest)?;
+    Ok(digest)
+}
+
+fn verify_signature(manager: &[u8; 20], signature: &[u8; 65], digest: [u8; 32]) -> Result<()> {
+    require!(*manager != [0; 20], CoreError::InvalidBinding);
     let scalar: [u8; 32] = signature[32..64].try_into().unwrap();
     require!(
         scalar != [0; 32] && scalar <= HALF_ORDER,
@@ -89,15 +104,42 @@ pub fn verify_binding(
         signature[64] == 27 || signature[64] == 28,
         CoreError::InvalidBinding
     );
-    let digest = binding_digest(payload, manager, emitter);
     let recovered = secp256k1_recover(&digest, signature[64] - 27, &signature[..64])
         .map_err(|_| error!(CoreError::InvalidBinding))?;
     let public_hash = keccak::hash(&recovered.to_bytes()).to_bytes();
     require!(
-        public_hash[12..] == payload.manager_evm,
+        public_hash[12..] == *manager,
         CoreError::InvalidBinding
     );
-    Ok(digest)
+    Ok(())
+}
+
+/// DEC-190, R6.1: native consent binds the exact tuple; Hub factory consent is separate.
+pub fn bootstrap_digest(payload: &InitializePayload, manager: &Pubkey, fund: &Pubkey) -> Result<[u8; 32]> {
+    let vault = Pubkey::find_program_address(&[b"vault", fund.as_ref()], &crate::ID).0;
+    let domain = hash_words(&[
+        keccak::hash(DOMAIN.as_bytes()).to_bytes(),
+        keccak::hash(b"PoolParty Solana Fund").to_bytes(),
+        keccak::hash(b"6").to_bytes(),
+        word(u128::from(payload.hub_chain_id)),
+        address_word(&payload.factory),
+    ]);
+    let message = hash_words(&[
+        keccak::hash(b"SolanaBootstrap(uint256 hubChain,address core,bytes32 mandateHash,uint16 spokeIndex,bytes32 program,bytes32 fundPda,bytes32 solanaKey,bytes32 usdcAta,bytes32 tslaxAta,bytes32 nvdaxAta,bytes32 wsolAta,bytes32 nativeMandateHash,bytes32 fundId,uint256 nonce,uint256 expiry)").to_bytes(),
+        word(u128::from(payload.hub_chain_id)), address_word(&payload.hub_core), payload.mandate_hash,
+        word(u128::from(payload.spoke_index)), crate::ID.to_bytes(), fund.to_bytes(), manager.to_bytes(),
+        super::custody::associated_address(&vault, &super::custody::USDC)?.to_bytes(),
+        super::custody::associated_address(&vault, &super::custody::TSLAX)?.to_bytes(),
+        super::custody::associated_address(&vault, &super::custody::NVDAX)?.to_bytes(),
+        super::custody::associated_address(&vault, &super::custody::WSOL)?.to_bytes(),
+        payload.native_mandate_hash, payload.fund_id, payload.nonce, word(u128::from(payload.expiry)),
+    ]);
+    Ok(keccak::hashv(&[b"\x19\x01", &domain, &message]).to_bytes())
+}
+
+pub fn verify_bootstrap(payload: &InitializePayload, manager: &Pubkey, fund: &Pubkey, now: i64) -> Result<()> {
+    require!(now >= 0 && now as u64 <= payload.expiry, CoreError::BindingExpired);
+    verify_signature(&payload.manager_evm, &payload.signature, bootstrap_digest(payload, manager, fund)?)
 }
 
 /// DEC-053, DEC-190: canonical abi.encode(uint256(6), Config), not Borsh.
@@ -234,6 +276,33 @@ mod tests {
             native_mandate_hash(&manager, &emitter, 1, &assets, &venues, &changed),
             expected
         );
+    }
+
+    #[test]
+    fn connector_matches_hub_create3_namespace() {
+        assert_eq!(hub_connector(&[3;20], &word(1), 42161), fixed_hex("8c5438e4a5361b9b8d5a0e91a04c80083967ef9d"));
+    }
+
+    #[test]
+    fn exact_bootstrap_tuple_and_mandate_namespace_cannot_be_substituted() {
+        let (payload, manager, _) = fixture();
+        let (fund, _) = Pubkey::find_program_address(&[b"fund", &payload.hub_core, &payload.spoke_index.to_le_bytes(), &payload.mandate_hash], &crate::ID);
+        let expected = bootstrap_digest(&payload, &manager, &fund).unwrap();
+        assert_ne!(expected, bootstrap_digest(&payload, &Pubkey::new_unique(), &fund).unwrap());
+        assert_ne!(expected, bootstrap_digest(&payload, &manager, &Pubkey::new_unique()).unwrap());
+        for variant in 0..8 {
+            let mut changed = payload.clone();
+            match variant {
+                0 => changed.mandate_hash[0] ^= 1, 1 => changed.spoke_index += 1,
+                2 => changed.hub_core[0] ^= 1, 3 => changed.hub_chain_id += 1,
+                4 => changed.nonce[31] += 1, 5 => changed.expiry += 1,
+                6 => changed.native_mandate_hash[0] ^= 1, _ => changed.fund_id[0] ^= 1,
+            }
+            assert_ne!(expected, bootstrap_digest(&changed, &manager, &fund).unwrap());
+        }
+        let mut squatter = payload.clone(); squatter.mandate_hash[0] ^= 1;
+        let (squatter_fund, _) = Pubkey::find_program_address(&[b"fund", &squatter.hub_core, &squatter.spoke_index.to_le_bytes(), &squatter.mandate_hash], &crate::ID);
+        assert_ne!(fund, squatter_fund);
     }
 
     #[test]

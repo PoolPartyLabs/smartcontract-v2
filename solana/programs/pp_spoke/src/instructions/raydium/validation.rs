@@ -41,9 +41,10 @@ pub fn authority(
     program: &AccountInfo,
 ) -> Result<()> {
     require_keys_eq!(fund.manager_solana, manager, RaydiumError::Unauthorized);
+    crate::instructions::core::guards::require_fund_address(fund, &fund.key())?;
     require!(!fund.closed, RaydiumError::Unauthorized);
     let expected_fund = Pubkey::find_program_address(
-        &[b"fund", &fund.hub_core, &fund.spoke_index.to_le_bytes()],
+        &[b"fund", &fund.hub_core, &fund.spoke_index.to_le_bytes(), &fund.mandate_hash],
         &crate::ID,
     );
     require_keys_eq!(expected_fund.0, fund.key(), RaydiumError::InvalidAccount);
@@ -71,6 +72,7 @@ pub fn policy(
         &crate::ID,
     )
     .0;
+    crate::instructions::core::admission::venue(fund, CLMM, pool, Pubkey::default())?;
     require_keys_eq!(expected, policy.key(), RaydiumError::InvalidPolicy);
     require_keys_eq!(policy.fund, fund.key(), RaydiumError::InvalidPolicy);
     require_keys_eq!(policy.pool, pool, RaydiumError::InvalidPolicy);

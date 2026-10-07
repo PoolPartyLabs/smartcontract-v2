@@ -8,7 +8,7 @@ pub struct RefreshIncomeResults<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
     #[account(mut)]
-    pub fund: Account<'info, FundState>,
+    pub fund: Box<Account<'info, FundState>>,
     /// CHECK: no vault CPI is enabled until result dispatch is integrated.
     #[account(mut)]
     pub vault: UncheckedAccount<'info>,

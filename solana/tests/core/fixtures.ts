@@ -1,5 +1,5 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
-import { PublicKey, Transaction, SendTransactionError, AddressLookupTableProgram, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
+import { PublicKey, Transaction, SendTransactionError, AddressLookupTableProgram, TransactionMessage, VersionedTransaction, ComputeBudgetProgram } from '@solana/web3.js';
 import type { Connection, Keypair, TransactionInstruction, AddressLookupTableAccount } from '@solana/web3.js';
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { keccak_256 } from '@noble/hashes/sha3';
@@ -11,7 +11,7 @@ export const hubCore = Buffer.alloc(20, 0x71);
 export const factory = Buffer.alloc(20, 0x72);
 export const fundId = Buffer.alloc(32, 0x73);
 export const mandateHash = Buffer.alloc(32, 0x74);
-export const addresses = fundAddresses(hubCore, 1);
+export const addresses = fundAddresses(hubCore, 1, mandateHash);
 export const word = (value: bigint | number) => Buffer.from(BigInt(value).toString(16).padStart(64, '0'), 'hex');
 export const hash = (data: Uint8Array) => Buffer.from(keccak_256(data));
 export const addressWord = (value: Buffer) => Buffer.concat([Buffer.alloc(12), value]);
@@ -26,13 +26,17 @@ export function integer(value: number | bigint, size: number): Buffer {
   return bytes;
 }
 
-export function nativeConfig(manager: PublicKey, emitter: PublicKey, fund = publicKey(addresses.fund)) {
+export function nativeConfig(manager: PublicKey, emitter: PublicKey, fund = publicKey(addresses.fund), lp?: { mint0: string; mint1: string }) {
   const mint = publicKey(ADDRESSES.usdc).toBuffer();
   const namespace = Buffer.from('PoolParty/SolanaAsset/v6');
   const paddedNamespace = Buffer.concat([namespace, Buffer.alloc(32 - namespace.length)]);
   const alias = hash(Buffer.concat([word(96), word(1), mint, word(namespace.length), paddedNamespace])).subarray(12);
   const asset = Buffer.concat([mint, alias, integer(0, 1)]);
   const venue = Buffer.concat([publicKey(ADDRESSES.kamino).toBuffer(), Buffer.alloc(32), publicKey(ADDRESSES.reserve).toBuffer(), mint, Buffer.alloc(32)]);
+  const stockMint = publicKey(ADDRESSES.tslax).toBuffer();
+  const stockAlias = hash(Buffer.concat([word(96), word(1), stockMint, word(namespace.length), paddedNamespace])).subarray(12);
+  const stockAsset = Buffer.concat([stockMint, stockAlias, integer(1, 1)]);
+  const lpVenue = lp ? Buffer.concat([publicKey(ADDRESSES.raydium).toBuffer(), publicKey(ADDRESSES.tslaxPool).toBuffer(), Buffer.alloc(32), publicKey(lp.mint0).toBuffer(), publicKey(lp.mint1).toBuffer()]) : Buffer.alloc(0);
   const hubUsdc = Buffer.from('af88d065e77c8cc2239327c5edb3a432268e5831', 'hex');
   const messenger = Buffer.from('28b5a0e9c621a5badaa536219b3a228c8168cf5d', 'hex');
   const transmitter = Buffer.from('81d40f21f12a8f0e3252bccb954d722d4c464b64', 'hex');
@@ -41,15 +45,16 @@ export function nativeConfig(manager: PublicKey, emitter: PublicKey, fund = publ
   const remoteMessenger = publicKey(ADDRESSES.cctpMessenger).toBuffer();
   const transport = Buffer.concat([hubUsdc, messenger, transmitter, integer(5, 4), recipient, vault.toBuffer(), remoteMessenger, vault.toBuffer(), integer(50_000, 8)]);
   const abi = Buffer.concat([word(6), word(64), publicKey(ADDRESSES.spoke).toBuffer(), emitter.toBuffer(), mint, manager.toBuffer(),
-    word(1), word(512), word(640), addressWord(hubUsdc), addressWord(messenger), addressWord(transmitter), word(5), recipient,
-    vault.toBuffer(), remoteMessenger, vault.toBuffer(), word(50_000), word(1), mint, addressWord(alias), word(0), word(1), venue]);
-  return { nativeHash: hash(abi), assets: Buffer.concat([integer(1, 4), asset]), venues: Buffer.concat([integer(1, 4), venue]), transport };
+    word(1), word(512), word(lp ? 736 : 640), addressWord(hubUsdc), addressWord(messenger), addressWord(transmitter), word(5), recipient,
+    vault.toBuffer(), remoteMessenger, vault.toBuffer(), word(50_000), word(lp ? 2 : 1), mint, addressWord(alias), word(0),
+    ...(lp ? [stockMint, addressWord(stockAlias), word(1)] : []), word(lp ? 2 : 1), venue, lpVenue]);
+  return { nativeHash: hash(abi), assets: Buffer.concat([integer(lp ? 2 : 1, 4), asset, ...(lp ? [stockAsset] : [])]), venues: Buffer.concat([integer(lp ? 2 : 1, 4), venue, lpVenue]), transport };
 }
 
-export function bindingPayload(manager: PublicKey, core = hubCore, index = 1, expiry = 2_000_000_000n) {
-  const target = fundAddresses(core, index);
+export function bindingPayload(manager: PublicKey, core = hubCore, index = 1, expiry = 2_000_000_000n, lp?: { mint0: string; mint1: string }) {
+  const target = fundAddresses(core, index, mandateHash);
   const emitter = publicKey(target.emitter);
-  const config = nativeConfig(manager, emitter, publicKey(target.fund));
+  const config = nativeConfig(manager, emitter, publicKey(target.fund), lp);
   const nonce = word(9);
   const type = 'ManagerSolanaBinding(bytes32 solanaKey,address fund,bytes32 spoke,uint256 spokeChainId,bytes32 nativeMandateHash,uint256 nonce,uint256 expiry)';
   const domain = hash(Buffer.concat([hash(Buffer.from('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)')),
@@ -57,24 +62,31 @@ export function bindingPayload(manager: PublicKey, core = hubCore, index = 1, ex
   const struct = hash(Buffer.concat([hash(Buffer.from(type)), manager.toBuffer(), addressWord(core), emitter.toBuffer(), word(1), config.nativeHash, nonce, word(expiry)]));
   const digest = hash(Buffer.concat([Buffer.from([25, 1]), domain, struct]));
   const ephemeralKey = secp256k1.utils.randomPrivateKey();
-  const signature = secp256k1.sign(digest, ephemeralKey);
   const managerEvm = hash(Buffer.from(secp256k1.getPublicKey(ephemeralKey, false)).subarray(1)).subarray(12);
+  const vault = publicKey(target.vault);
+  const nvdax = 'Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh';
+  const bootstrapType = 'SolanaBootstrap(uint256 hubChain,address core,bytes32 mandateHash,uint16 spokeIndex,bytes32 program,bytes32 fundPda,bytes32 solanaKey,bytes32 usdcAta,bytes32 tslaxAta,bytes32 nvdaxAta,bytes32 wsolAta,bytes32 nativeMandateHash,bytes32 fundId,uint256 nonce,uint256 expiry)';
+  const bootstrapStruct = hash(Buffer.concat([hash(Buffer.from(bootstrapType)), word(42161), addressWord(core), mandateHash,
+    word(index), publicKey(ADDRESSES.spoke).toBuffer(), publicKey(target.fund).toBuffer(), manager.toBuffer(),
+    ...[ADDRESSES.usdc, ADDRESSES.tslax, nvdax, ADDRESSES.wsol].map(mint => testAta(mint, vault).toBuffer()), config.nativeHash, fundId, nonce, word(expiry)]));
+  const bootstrap = secp256k1.sign(hash(Buffer.concat([Buffer.from([25, 1]), domain, bootstrapStruct])), ephemeralKey);
   return Buffer.concat([core, integer(index, 2), fundId, mandateHash, managerEvm, factory, integer(42161, 8), integer(1, 8),
-    config.nativeHash, nonce, integer(expiry, 8), Buffer.from(signature.toCompactRawBytes()), integer(signature.recovery + 27, 1), config.assets, config.venues, config.transport]);
+    config.nativeHash, nonce, integer(expiry, 8),
+    Buffer.from(bootstrap.toCompactRawBytes()), integer(bootstrap.recovery + 27, 1), config.assets, config.venues, config.transport]);
 }
 
 export function fixtureFund(manager: PublicKey) {
   const fund = publicKey(addresses.fund);
   const program = publicKey(ADDRESSES.spoke);
   const index = integer(1, 2);
-  const bump = PublicKey.findProgramAddressSync([Buffer.from('fund'), hubCore, index], program)[1];
+  const bump = PublicKey.findProgramAddressSync([Buffer.from('fund'), hubCore, index, mandateHash], program)[1];
   const vaultBump = PublicKey.findProgramAddressSync([Buffer.from('vault'), fund.toBuffer()], program)[1];
   const emitterBump = PublicKey.findProgramAddressSync([Buffer.from('emitter'), fund.toBuffer()], program)[1];
   const config = nativeConfig(manager, publicKey(addresses.emitter));
   return Buffer.concat([discriminator('account', 'FundState'), hubCore, index, fundId, mandateHash, Buffer.alloc(20, 1), manager.toBuffer(),
     integer(0, 8), integer(0, 8), integer(0, 1), integer(bump, 1), integer(vaultBump, 1), integer(emitterBump, 1),
     integer(42161, 8), factory, integer(1, 8), config.nativeHash, word(9), Buffer.alloc(32, 1), integer(2_000_000_000, 8),
-    addressWord(hubCore), integer(23, 2), integer(0, 16), integer(0, 16), integer(0, 2), integer(0, 2), integer(0, 2), config.assets, config.venues, config.transport]);
+    addressWord(hubCore), integer(23, 2), integer(0, 16), integer(0, 16), integer(0, 2), integer(0, 2), integer(0, 2), config.assets, config.venues, config.transport, Buffer.alloc(8)]);
 }
 
 export function fixtureLedger() {
@@ -106,6 +118,7 @@ export async function sendSignedLocal(connection: Connection, payer: Keypair, in
   requireLoopback(connection.rpcEndpoint);
   let table: AddressLookupTableAccount | undefined;
   if (instructions.some(instruction => instruction.data.subarray(0, 8).equals(discriminator('global', 'initialize_fund')))) {
+    instructions = [ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }), ...instructions];
     const slot = await connection.getSlot('finalized');
     const [create, address] = AddressLookupTableProgram.createLookupTable({ authority: payer.publicKey, payer: payer.publicKey, recentSlot: slot });
     await sendSignedLocal(connection, payer, [create]);

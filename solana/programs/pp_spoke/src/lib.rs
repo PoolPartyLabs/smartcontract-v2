@@ -25,6 +25,11 @@ pub mod pp_spoke {
         instructions::core::initialize_fund::handler(ctx, payload)
     }
 
+    /// DEC-190, DEC-193: materialize only a sealed adapter admission.
+    pub fn initialize_adapter(ctx: Context<InitializeAdapter>, payload: Vec<u8>) -> Result<()> {
+        instructions::core::initialize_adapter::handler(ctx, payload)
+    }
+
     /// DEC-188, DEC-190, DEC-195: fail-closed track-owned scaffold; payload is not a stable wire API.
     pub fn sweep_excess(ctx: Context<SweepExcess>, payload: Vec<u8>) -> Result<()> {
         instructions::core::sweep_excess::handler(ctx, payload)
@@ -162,7 +167,7 @@ pub mod pp_spoke {
     }
 
     /// DEC-136, DEC-193: fail-closed track-owned scaffold; payload is not a stable wire API.
-    pub fn swap_to_ratio(ctx: Context<SwapToRatio>, payload: Vec<u8>) -> Result<()> {
+    pub fn swap_to_ratio<'info>(ctx: Context<'_, '_, '_, 'info, SwapToRatio<'info>>, payload: Vec<u8>) -> Result<()> {
         instructions::swap::swap_to_ratio::handler(ctx, payload)
     }
 }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { rejectIncompleteReport } from '../helpers/report-gate.ts';
 import test from 'node:test';
-import { ComputeBudgetProgram, Transaction, TransactionInstruction } from '@solana/web3.js';
+import { ComputeBudgetProgram, Transaction, TransactionInstruction, PublicKey } from '@solana/web3.js';
 import { ADDRESSES, publicKey } from '../helpers/addresses.ts';
 import { discriminator, readU128 } from '../helpers/layouts.ts';
 import { localConnection, sendLocal, testWallet } from '../helpers/localnet.ts';
@@ -20,7 +20,7 @@ function instruction(name: 'kamino_supply' | 'kamino_redeem' | 'kamino_refresh',
   const addresses = fixture(identity);
   const keys = [
     { pubkey: signer, isSigner: true, isWritable: false },
-    { pubkey: publicKey(addresses.fund), isSigner: false, isWritable: name === 'kamino_supply' },
+    { pubkey: publicKey(addresses.fund), isSigner: false, isWritable: name !== 'kamino_refresh' },
     { pubkey: publicKey(addresses.vault), isSigner: false, isWritable: false },
     { pubkey: publicKey(addresses.position), isSigner: false, isWritable: true },
   ];
@@ -34,6 +34,7 @@ function instruction(name: 'kamino_supply' | 'kamino_redeem' | 'kamino_refresh',
     ['Sysvar1nstructions1111111111111111111111111', false],
   ];
   for (const [address, writable] of venue) keys.push({ pubkey: publicKey(address), isSigner: false, isWritable: writable });
+  if (name !== 'kamino_refresh') keys.push({ pubkey: PublicKey.findProgramAddressSync([Buffer.from('ledger'), publicKey(addresses.fund).toBuffer(), publicKey(ADDRESSES.usdc).toBuffer()], publicKey(ADDRESSES.spoke))[0], isSigner: false, isWritable: true });
   const length = Buffer.alloc(4); length.writeUInt32LE(payload.length);
   return new TransactionInstruction({ programId: publicKey(ADDRESSES.spoke), keys,
     data: Buffer.concat([discriminator('global', name), length, payload]) });
@@ -43,7 +44,9 @@ async function position(identity: number) {
   const data = (await connection.getAccountInfo(publicKey(fixture(identity).position)))!.data;
   const values = Array.from({ length: 11 }, (_, index) => data.readBigUInt64LE(73 + index * 8));
   const [units, principal, idlePrincipal, idleIncome, cumulativeIncome, pendingUnits, pendingMin, value, principalNow, income, slot] = values;
-  return { units, principal, idlePrincipal, idleIncome, cumulativeIncome, pendingUnits, pendingMin, value, principalNow, income, slot, data };
+  const ledgerKey = PublicKey.findProgramAddressSync([Buffer.from('ledger'), publicKey(fixture(identity).fund).toBuffer(), publicKey(ADDRESSES.usdc).toBuffer()], publicKey(ADDRESSES.spoke))[0];
+  const ledger = (await connection.getAccountInfo(ledgerKey))!.data;
+  return { units, principal, idlePrincipal: ledger.readBigUInt64LE(72), idleIncome: ledger.readBigUInt64LE(80), cumulativeIncome, pendingUnits, pendingMin, value, principalNow, income, slot, data };
 }
 
 async function balance(address: string) {
@@ -94,7 +97,7 @@ async function exactSupplyAmount(identity: number, target: bigint): Promise<bigi
     assert.equal(before[2]!.data.readBigUInt64LE(64) - after[2].readBigUInt64LE(64), amount);
     assert.ok(after[3].readBigUInt64LE(64) > before[3]!.data.readBigUInt64LE(64));
     assert.equal(after[1].readBigUInt64LE(81) - before[1]!.data.readBigUInt64LE(81), amount);
-    assert.equal(before[1]!.data.readBigUInt64LE(89) - after[1].readBigUInt64LE(89), amount);
+    assert.equal(before[1]!.data.readBigUInt64LE(89), after[1].readBigUInt64LE(89));
     assert.equal(after[0].readUInt16LE(372), before[0]!.data.readUInt16LE(372) + 1);
     console.log(`Exact-debit Kamino supply candidate: ${amount}; simulations=${index + 1}.`);
     return amount;

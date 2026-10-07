@@ -10,8 +10,8 @@ use anchor_lang::prelude::*;
 #[derive(Accounts)]
 pub struct KaminoRefresh<'info> {
     pub authority: Signer<'info>,
-    #[account(seeds = [b"fund", fund.hub_core.as_ref(), &fund.spoke_index.to_le_bytes()], bump = fund.bump)]
-    pub fund: Account<'info, FundState>,
+    #[account(seeds = [b"fund", fund.hub_core.as_ref(), &fund.spoke_index.to_le_bytes(), fund.mandate_hash.as_ref()], bump = fund.bump)]
+    pub fund: Box<Account<'info, FundState>>,
     /// CHECK: canonical per-Fund vault authority.
     #[account(seeds = [b"vault", fund.key().as_ref()], bump = fund.vault_bump)]
     pub vault: UncheckedAccount<'info>,
@@ -30,6 +30,7 @@ pub struct KaminoRefresh<'info> {
 }
 
 pub fn handler(ctx: Context<KaminoRefresh>, payload: Vec<u8>) -> Result<()> {
+    crate::instructions::core::admission::venue(&ctx.accounts.fund, PROGRAM, Pubkey::default(), RESERVE)?;
     require!(payload.is_empty(), KaminoError::InvalidAmount);
     let value = refresh_and_value(
         &mut ctx.accounts.position,

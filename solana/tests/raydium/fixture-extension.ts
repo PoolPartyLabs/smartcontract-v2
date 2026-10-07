@@ -47,16 +47,17 @@ export async function extendFixtures() {
   const fixtures = [];
   for (const [index, pool] of manifest.pools.entries()) {
     const hub = Buffer.alloc(20, index + 1);
-    const addresses = fundAddresses(hub, 1);
+    const mandateHash = createHash('sha256').update(`local-raydium-mandate-${index}`).digest();
+    const addresses = fundAddresses(hub, 1, mandateHash);
     const fund = publicKey(addresses.fund);
     const vault = publicKey(addresses.vault);
-    const fundBump = PublicKey.findProgramAddressSync([Buffer.from('fund'), hub, Buffer.from([1, 0])], publicKey(ADDRESSES.spoke))[1];
+    const fundBump = PublicKey.findProgramAddressSync([Buffer.from('fund'), hub, Buffer.from([1, 0]), mandateHash], publicKey(ADDRESSES.spoke))[1];
     const vaultBump = PublicKey.findProgramAddressSync([Buffer.from('vault'), fund.toBuffer()], publicKey(ADDRESSES.spoke))[1];
-    const mandateHash = createHash('sha256').update(`local-raydium-mandate-${index}`).digest();
     const fundData = Buffer.concat([discriminator('account', 'FundState'), hub, Buffer.from([1, 0]),
       Buffer.alloc(32, index + 1), mandateHash, Buffer.alloc(20, 3), manager.publicKey.toBuffer(),
       Buffer.alloc(16), Buffer.from([0, fundBump, vaultBump])]);
-    override(addresses.fund, ADDRESSES.spoke, completeFundState(fundData));
+    const venue = Buffer.concat([publicKey(ADDRESSES.raydium).toBuffer(), publicKey(pool.address).toBuffer(), Buffer.alloc(32), publicKey(pool.mint0).toBuffer(), publicKey(pool.mint1).toBuffer()]);
+    override(addresses.fund, ADDRESSES.spoke, completeFundState(fundData, [venue]));
     override(addresses.vault, '11111111111111111111111111111111', Buffer.alloc(0), 0);
     const policy = derive(ADDRESSES.spoke, Buffer.from('raydium_policy'), fund.toBuffer(), publicKey(pool.address).toBuffer());
     const tickBounds = Buffer.alloc(8);
@@ -78,6 +79,9 @@ export async function extendFixtures() {
       data[108] = 1;
       data.fill(0, 129, 165);
       override(testAta(mint, vault).toBase58(), template.account.owner, data);
+      const [canonicalLedger, ledgerBump] = PublicKey.findProgramAddressSync([Buffer.from('ledger'), fund.toBuffer(), publicKey(mint).toBuffer()], publicKey(ADDRESSES.spoke));
+      const canonicalBuckets = Buffer.alloc(32); canonicalBuckets.writeBigUInt64LE(100_000_000_000n);
+      override(canonicalLedger.toBase58(), ADDRESSES.spoke, Buffer.concat([discriminator('account', 'TokenLedger'), fund.toBuffer(), publicKey(mint).toBuffer(), canonicalBuckets, Buffer.from([ledgerBump])]));
       if (mint === ADDRESSES.wsol) {
         const managerData = Buffer.from(data);
         manager.publicKey.toBuffer().copy(managerData, 32);

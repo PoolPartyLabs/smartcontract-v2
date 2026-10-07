@@ -105,6 +105,7 @@ pub fn handler(ctx: Context<RaydiumClosePosition>, payload: Vec<u8>) -> Result<(
         rent,
     )?;
     operation.position_record.closed = true;
+    operation.fund.active_positions = operation.fund.active_positions.checked_sub(1).ok_or(RaydiumError::Arithmetic)?;
     emit!(RaydiumPositionClosed {
         fund: fund_key,
         position: operation.personal_position.key(),

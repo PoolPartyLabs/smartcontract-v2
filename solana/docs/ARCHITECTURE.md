@@ -12,9 +12,12 @@ The EVM Manager stays the Fund's identity. Initialization must verify EOA EIP-71
 authorization plus Solana acceptance, bound to Fund, Hub Core, spoke index,
 Mandate hash, Manager key, domain and replay protection. The commitment is fixed
 at creation, reusable only through separate per-Fund authorizations (DEC-190).
-No rotate-manager instruction or live-Mandate setter exists. `Vec<u8>` payloads
-are **temporary stubs, not approved instruction encodings**. Every handler fails
-with `NotImplemented`; provisional Accounts structs confer no authorization.
+No rotate-manager instruction or live-Mandate setter exists. DEC-200 bootstrap
+verifies the native EIP-712 tuple and the bound Solana transaction signer, with
+the Mandate hash in Fund PDA seeds. No extra Hub message is required. Capital
+and commands remain independently gated by the sealed transport/emitter.
+Payloads use bounded instruction-specific encodings. Non-ACK Hub commands,
+income-result dispatch and production swap execution still fail closed.
 
 ## Accounts and derivations
 
@@ -22,19 +25,20 @@ Engineering seed convention (not a new economic DEC), all under `pp_spoke`:
 
 | Account | Seeds / purpose | Owner track |
 | --- | --- | --- |
-| `FundState` | `[b"fund", hub_core_20_bytes, spoke_index_u16_le]` | T1 |
+| `FundState` | `[b"fund", hub_core_20_bytes, spoke_index_u16_le, mandate_hash_32_bytes]` | T1 |
 | Fund vault authority | `[b"vault", fund_state_pubkey]` | T1 |
 | Wormhole emitter authority | `[b"emitter", fund_state_pubkey]` | T1 |
-| Immutable Mandate/config | `[b"mandate", fund_state_pubkey]`; policy/pool/program allowlists | T1 |
+| Immutable Mandate/config | Embedded and sealed in `FundState`; no separate Mandate PDA | T1/T8a |
 | Token ledger | `[b"ledger", fund_state_pubkey, mint]`; principal/income/excess separated | T1 |
 | Transit | `[b"transit", fund_state_pubkey, transit_id_32_bytes]`; persistent pending claim | T1b |
 | Position record | `[b"position", fund_state_pubkey, venue_position_key]`; recorded units/checkpoints | T3/T4 |
 | Order/result | `[b"order", fund_state_pubkey, hub_order_id]`; replay and completed step/result book | T1 |
 
-Only `FundState` has a provisional Rust layout. Other rows reserve namespaces;
-owners add bounded accounts rather than competing to extend the root state.
-Ledger account sizes, retention/GC and canonical transit IDs remain owner design
-work; do not silently discard an unreceived transit (DEC-191).
+FundState persists up to 32 position records and 64 transit records. Reports
+require every registered record, including closed/received records; supplied
+account subsets are not exhaustive snapshots. Confirmed outbound arrival ACKs
+retire claims, not their accounts. No expiry, sweep or write-off is enabled.
+Order/result PDAs in the table remain reserved, not implemented execution.
 
 USDC and WSOL use legacy SPL Token; TSLAx uses Token-2022 (DEC-194). Fund vault
 PDA owns their ATAs; derive each ATA with the correct token-program ID. Kamino
@@ -43,7 +47,9 @@ The Fund has **no spendable native SOL**; mandatory rent lamports on accounts
 are not NAV or Operating Cash. Manager pays operations/position rent; keeper
 pays receives/posts; tracked rent refunds go to the original payer (DEC-195).
 WSOL in the strategy is a token position, not a gas treasury. Never unwrap Fund
-WSOL to pay fees. No Chainlink CPI: economic USD pricing remains on the Hub.
+WSOL to pay fees. Economic USD NAV pricing remains on the Hub. T5b provides
+Solana reference-price and verifier primitives for swap safety, but production
+swap remains disabled pending sealed policy and founder oracle decisions.
 
 ## Why adapters are modules, not programs
 

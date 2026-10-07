@@ -3,7 +3,7 @@ use super::{
     custody,
     guards::CoreError,
 };
-use crate::state::{FundState, TokenLedger};
+use crate::state::{FundState, TokenLedger, transit::{CctpLedger, CctpRoute}};
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::{program::invoke_signed, system_instruction};
 
@@ -44,6 +44,12 @@ pub struct InitializeFund<'info> {
     /// CHECK: per-Fund, per-mint ledger PDA validated before allocation.
     #[account(mut)]
     pub wsol_ledger: UncheckedAccount<'info>,
+    /// CHECK: sealed CCTP route PDA allocated only after dual consent.
+    #[account(mut)]
+    pub cctp_route: UncheckedAccount<'info>,
+    /// CHECK: transport metrics PDA; TokenLedger is the canonical spendable balance.
+    #[account(mut)]
+    pub cctp_ledger: UncheckedAccount<'info>,
     /// CHECK: pinned executable Token program.
     #[account(address = custody::TOKEN, executable)]
     pub token_program: UncheckedAccount<'info>,
@@ -71,8 +77,9 @@ pub fn handler(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
     let args = InitializePayload::try_from_slice(&payload)
         .map_err(|_| error!(CoreError::InvalidConfiguration))?;
     let index = args.spoke_index.to_le_bytes();
+    // TODO(decision): DEC-200 needs a non-circular Hub Mandate commitment when its spoke emitter derives from this PDA.
     let (fund_key, bump) =
-        Pubkey::find_program_address(&[b"fund", &args.hub_core, &index], &crate::ID);
+        Pubkey::find_program_address(&[b"fund", &args.hub_core, &index, &args.mandate_hash], &crate::ID);
     require_keys_eq!(
         ctx.accounts.fund.key(),
         fund_key,
@@ -93,8 +100,8 @@ pub fn handler(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
         Pubkey::find_program_address(&[b"emitter", fund_key.as_ref()], &crate::ID);
     let manager = ctx.accounts.authority.key();
     validate_config(&args, &manager, &emitter)?;
-    let digest = binding::verify_binding(&args, &manager, &emitter, Clock::get()?.unix_timestamp)?;
-    authenticate_hub_creation()?;
+    binding::verify_bootstrap(&args, &manager, &fund_key, Clock::get()?.unix_timestamp)?;
+    let digest = binding::bootstrap_digest(&args, &manager, &fund_key)?;
     let payer = ctx.accounts.authority.to_account_info();
     let system = ctx.accounts.system_program.to_account_info();
     allocate(
@@ -102,8 +109,16 @@ pub fn handler(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
         &ctx.accounts.fund.to_account_info(),
         &system,
         8 + FundState::INIT_SPACE,
-        &[b"fund", &args.hub_core, &index, &[bump]],
+        &[b"fund", &args.hub_core, &index, &args.mandate_hash, &[bump]],
     )?;
+    let route = CctpRoute {
+        fund: fund_key,
+        mandate_hash: args.mandate_hash,
+        hub_connector: binding::hub_connector(&args.factory, &args.fund_id, args.hub_chain_id),
+        solana_chain_id: args.spoke_chain_id,
+        max_fee_bps_scaled: args.transport.fast_fee_ceiling,
+        sealed: true,
+    };
     let fund = FundState {
         hub_core: args.hub_core,
         spoke_index: args.spoke_index,
@@ -134,8 +149,21 @@ pub fn handler(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
         assets: args.assets,
         venues: args.venues,
         transport: args.transport,
+        position_registry: vec![],
+        transit_registry: vec![],
     };
     fund.try_serialize(&mut &mut ctx.accounts.fund.try_borrow_mut_data()?[..])?;
+    for (prefix, account, space) in [
+        (b"cctp_route".as_slice(), &ctx.accounts.cctp_route, 8 + CctpRoute::INIT_SPACE),
+        (b"cctp_ledger".as_slice(), &ctx.accounts.cctp_ledger, 8 + CctpLedger::INIT_SPACE),
+    ] {
+        let (expected, account_bump) = Pubkey::find_program_address(&[prefix, fund_key.as_ref()], &crate::ID);
+        require_keys_eq!(account.key(), expected, CoreError::InvalidConfiguration);
+        allocate(&payer, &account.to_account_info(), &system, space, &[prefix, fund_key.as_ref(), &[account_bump]])?;
+    }
+    route.try_serialize(&mut &mut ctx.accounts.cctp_route.try_borrow_mut_data()?[..])?;
+    CctpLedger { fund: fund_key, principal: 0, outbound_gross: 0, outbound_in_flight: 0, received_principal: 0, fee_surplus_principal: 0 }
+        .try_serialize(&mut &mut ctx.accounts.cctp_ledger.try_borrow_mut_data()?[..])?;
     for (mint, ata, ledger, token) in [
         (
             &ctx.accounts.usdc_mint,
@@ -202,13 +230,7 @@ pub fn handler(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
     Ok(())
 }
 
-fn authenticate_hub_creation() -> Result<()> {
-    // TODO(decision): DEC-190 requires authenticated factory creation/EOA/config evidence.
-    // T2a's binding signature proves consent, not deployment, EOA status or the EVM Mandate hash.
-    err!(CoreError::BootstrapNotAuthenticated)
-}
-
-fn allocate<'info>(
+pub(crate) fn allocate<'info>(
     payer: &AccountInfo<'info>,
     account: &AccountInfo<'info>,
     system: &AccountInfo<'info>,
@@ -256,7 +278,7 @@ fn allocate<'info>(
 
 pub fn validate_config(args: &InitializePayload, manager: &Pubkey, emitter: &Pubkey) -> Result<()> {
     let fund = Pubkey::find_program_address(
-        &[b"fund", &args.hub_core, &args.spoke_index.to_le_bytes()],
+        &[b"fund", &args.hub_core, &args.spoke_index.to_le_bytes(), &args.mandate_hash],
         &crate::ID,
     )
     .0;
@@ -303,12 +325,7 @@ pub fn validate_config(args: &InitializePayload, manager: &Pubkey, emitter: &Pub
         CoreError::InvalidConfiguration
     );
     for (index, asset) in args.assets.iter().enumerate() {
-        custody::token_program(&asset.mint)?;
-        require!(
-            asset.stock == (asset.mint == custody::TSLAX)
-                && asset.accounting_id == binding::accounting_alias(&asset.mint),
-            CoreError::InvalidConfiguration
-        );
+        validate_asset(asset)?;
         require!(!args.assets[..index].iter().any(|prior| prior.mint == asset.mint
             || prior.accounting_id == asset.accounting_id), CoreError::InvalidConfiguration);
     }
@@ -329,6 +346,7 @@ pub fn validate_config(args: &InitializePayload, manager: &Pubkey, emitter: &Pub
         if venue.reserve != Pubkey::default() {
             require!(
                 venue.program == pubkey!("KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD")
+                    && venue.reserve == crate::instructions::kamino::protocol::RESERVE
                     && venue.token0 == custody::USDC
                     && venue.token1 == Pubkey::default(),
                 CoreError::InvalidConfiguration
@@ -336,6 +354,7 @@ pub fn validate_config(args: &InitializePayload, manager: &Pubkey, emitter: &Pub
         } else {
             require!(
                 venue.program == pubkey!("CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK")
+                    && [crate::instructions::raydium::wire::TSLA_POOL, crate::instructions::raydium::wire::SOL_POOL].contains(&venue.pool)
                     && venue.token0 != venue.token1
                     && args.assets.iter().any(|asset| asset.mint == venue.token1),
                 CoreError::InvalidConfiguration
@@ -355,4 +374,40 @@ pub fn validate_config(args: &InitializePayload, manager: &Pubkey, emitter: &Pub
         CoreError::InvalidConfiguration
     );
     Ok(())
+}
+
+fn validate_asset(asset: &crate::state::Asset) -> Result<()> {
+    require!(asset.mint != custody::NVDAX, CoreError::InvalidConfiguration);
+    custody::token_program(&asset.mint)?;
+    require!(
+        asset.stock == (asset.mint == custody::TSLAX)
+            && asset.accounting_id == binding::accounting_alias(&asset.mint),
+        CoreError::InvalidConfiguration
+    );
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deferred_nvdax_admission_rejects_both_stock_classifications() {
+        for stock in [false, true] {
+            let asset = crate::state::Asset {
+                mint: custody::NVDAX,
+                accounting_id: binding::accounting_alias(&custody::NVDAX),
+                stock,
+            };
+            assert!(validate_asset(&asset).is_err());
+        }
+        for mint in [custody::USDC, custody::TSLAX, custody::WSOL] {
+            let asset = crate::state::Asset {
+                mint,
+                accounting_id: binding::accounting_alias(&mint),
+                stock: mint == custody::TSLAX,
+            };
+            assert!(validate_asset(&asset).is_ok());
+        }
+    }
 }

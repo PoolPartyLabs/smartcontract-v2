@@ -35,6 +35,50 @@ pub struct FundState {
     #[max_len(8)]
     pub venues: Vec<Venue>,
     pub transport: Transport,
+    #[max_len(32)]
+    pub position_registry: Vec<Pubkey>,
+    #[max_len(64)]
+    pub transit_registry: Vec<Pubkey>,
+}
+
+impl FundState {
+    /// DEC-093, DEC-191, DEC-193: persistent exhaustive inventory; never truncate a report.
+    pub fn register_position(&mut self, position: Pubkey) -> Result<()> {
+        if !self.position_registry.contains(&position) {
+            require!(self.position_registry.len() < 32, crate::instructions::core::guards::CoreError::ArithmeticOverflow);
+            self.position_registry.push(position);
+        }
+        Ok(())
+    }
+
+    pub fn register_transit(&mut self, transit: Pubkey) -> Result<()> {
+        require!(self.transit_registry.len() < 64 && !self.transit_registry.contains(&transit), crate::instructions::core::guards::CoreError::ArithmeticOverflow);
+        self.transit_registry.push(transit);
+        self.pending_transits = self.transit_registry.len() as u16;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod registry_tests {
+    use super::*;
+
+    #[test]
+    fn registry_is_persistent_unique_and_bounded() {
+        let (mut fund, _) = crate::instructions::core::guards::fixture();
+        let position = Pubkey::new_unique();
+        fund.register_position(position).unwrap();
+        fund.register_position(position).unwrap();
+        assert_eq!(fund.position_registry.len(), 1);
+        for _ in 1..32 { fund.register_position(Pubkey::new_unique()).unwrap(); }
+        assert!(fund.register_position(Pubkey::new_unique()).is_err());
+        let transit = Pubkey::new_unique();
+        fund.register_transit(transit).unwrap();
+        assert!(fund.register_transit(transit).is_err());
+        for _ in 1..64 { fund.register_transit(Pubkey::new_unique()).unwrap(); }
+        assert!(fund.register_transit(Pubkey::new_unique()).is_err());
+        assert_eq!(fund.pending_transits, 64);
+    }
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, InitSpace, Default)]

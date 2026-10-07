@@ -82,9 +82,12 @@ for (const fixture of fixtures) {
     assert.ok(measuredOpen.units! < 1_400_000);
     assert.equal(readU128((await connection.getAccountInfo(publicKey(personal)))!.data, 81), liquidity);
     assert.equal((await connection.getTokenAccountBalance(publicKey(nft))).value.amount, '1');
-    const ledgerAfterOpen = (await connection.getAccountInfo(publicKey(fixture.ledger)))!.data;
-    assert.ok(ledgerAfterOpen.readBigUInt64LE(72) < 100_000_000_000n || ledgerAfterOpen.readBigUInt64LE(80) < 100_000_000_000n);
-    assert.equal(ledgerAfterOpen.readBigUInt64LE(88) + ledgerAfterOpen.readBigUInt64LE(96), 0n);
+    const canonicalLedgers = await Promise.all([pool.mint0, pool.mint1].map(async mintAddress => {
+      const canonical = derive(ADDRESSES.spoke, Buffer.from('ledger'), publicKey(fixture.fund).toBuffer(), publicKey(mintAddress).toBuffer());
+      return (await connection.getAccountInfo(publicKey(canonical)))!.data;
+    }));
+    assert.ok(canonicalLedgers.some(ledger => ledger.readBigUInt64LE(72) < 100_000_000_000n));
+    assert.ok(canonicalLedgers.every(ledger => ledger.readBigUInt64LE(80) === 0n));
     for (const source of [accounts.token_account_0, accounts.token_account_1]) {
       const data = (await connection.getAccountInfo(source as PublicKey))!.data;
       assert.equal(data.readUInt32LE(72), 0, 'temporary Manager delegate revoked');
@@ -114,9 +117,11 @@ for (const fixture of fixtures) {
     await sendMeasured(connection, manager, instruction('raydium_collect_fees', accounts, Buffer.alloc(0)));
     const recordData = (await connection.getAccountInfo(publicKey(record)))!.data;
     assert.ok(recordData.readBigUInt64LE(192) + recordData.readBigUInt64LE(200) > 0n, 'trading fees realized after direct pool swap');
-    const ledgerAfterCollect = (await connection.getAccountInfo(publicKey(fixture.ledger)))!.data;
-    assert.equal(ledgerAfterCollect.readBigUInt64LE(88), recordData.readBigUInt64LE(192));
-    assert.equal(ledgerAfterCollect.readBigUInt64LE(96), recordData.readBigUInt64LE(200));
+    for (const [index, mintAddress] of [pool.mint0, pool.mint1].entries()) {
+      const canonical = derive(ADDRESSES.spoke, Buffer.from('ledger'), publicKey(fixture.fund).toBuffer(), publicKey(mintAddress).toBuffer());
+      const ledgerAfterCollect = (await connection.getAccountInfo(publicKey(canonical)))!.data;
+      assert.equal(ledgerAfterCollect.readBigUInt64LE(80), recordData.readBigUInt64LE(192 + index * 8));
+    }
     for (const reward of fixture.rewards) {
       assert.equal((await connection.getTokenAccountBalance(publicKey(reward.quarantine))).value.amount, '0');
     }
@@ -129,8 +134,6 @@ for (const fixture of fixtures) {
     const closed = (await connection.getAccountInfo(publicKey(record)))!.data;
     assert.equal(readU128(closed, 176), 0n);
     assert.equal(closed[208], 1);
-    assert.equal((await connection.getAccountInfo(publicKey(fixture.fund)))!.data.readUInt16LE(372), activePositionsAfterOpen,
-      'close retains the integration latch until canonical ledger/report retirement');
-    await assertReportLatched();
+    assert.equal((await connection.getAccountInfo(publicKey(fixture.fund)))!.data.readUInt16LE(372), activePositionsBefore);
   });
 }

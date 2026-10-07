@@ -29,13 +29,14 @@ export function derive(program: string, ...seeds: Buffer[]): string {
   return PublicKey.findProgramAddressSync(seeds, publicKey(program))[0].toBase58();
 }
 
-export function fundAddresses(hubCore: Buffer, spokeIndex: number) {
+export function fundAddresses(hubCore: Buffer, spokeIndex: number, mandateHash = Buffer.alloc(32)) {
   if (hubCore.length !== 20 || !Number.isInteger(spokeIndex) || spokeIndex < 0 || spokeIndex > 65535) {
     throw new Error('Expected 20-byte Hub Core and u16 spoke index');
   }
+  if (mandateHash.length !== 32) throw new Error('Expected 32-byte Mandate hash');
   const index = Buffer.alloc(2);
   index.writeUInt16LE(spokeIndex);
-  const fund = derive(ADDRESSES.spoke, Buffer.from('fund'), hubCore, index);
+  const fund = derive(ADDRESSES.spoke, Buffer.from('fund'), hubCore, index, mandateHash);
   return {
     fund,
     vault: derive(ADDRESSES.spoke, Buffer.from('vault'), publicKey(fund).toBuffer()),
