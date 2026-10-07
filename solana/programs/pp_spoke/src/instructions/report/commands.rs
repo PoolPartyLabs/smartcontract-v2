@@ -23,6 +23,11 @@ pub fn accept<'info>(fund: &mut Account<'info, FundState>, payer: &AccountInfo<'
     require!(!fund.closed && (!fund.close_requested || kind == 2)
         && fund.active_command == Pubkey::default() && fund.command_registry.len() < 8,
         ReportError::OrderExecutionNotIntegrated);
+    if kind != 2 {
+        // TODO(decision): do not lock capital behind unavailable proportional exits or multi-asset collection.
+        require!(fund.active_positions == 0 && fund.position_registry.is_empty() && fund.assets.len() == 1,
+            ReportError::OrderExecutionNotIntegrated);
+    }
     require!(accounts.len() == 2, ReportError::InvalidAccounts);
     let data = posted.try_borrow_data()?;
     let payload = &data[95..];

@@ -276,6 +276,34 @@ contract FundFactoryV6Test is Test, FactoryDeployment {
         assertTrue(digest != _bootstrapDigest(1, mandate_, native, commitments[1], binding));
     }
 
+    function testRejectSquattedFundAndChangedDerivedAta() public {
+        SolanaMandateV6.Config memory native = _nativeConfig();
+        FundFactoryV6.Binding memory binding = _binding(1, native);
+        Mandate memory mandate_ = _mandate(1);
+        mandate_.spokes[1].spokeVault = native.spoke;
+        SolanaPolicyV6.Commitment memory commitment = commitments[1];
+        commitment.fundPda = bytes32(uint256(99));
+        IFundFactory.HubParams memory params = _params(1);
+        vm.expectRevert(SolanaPolicyV6.InvalidPolicyCommitment.selector);
+        vm.prank(manager);
+        factory.createFundV6Committed(mandate_, params, native, commitment, binding);
+        commitment = commitments[1];
+        commitment.stockAta = bytes32(uint256(98));
+        vm.expectRevert(SolanaPolicyV6.InvalidPolicyCommitment.selector);
+        vm.prank(manager);
+        factory.createFundV6Committed(mandate_, params, native, commitment, binding);
+        assertEq(factory.bindingNonce(manager), 0);
+    }
+
+    function testRejectLegacyCircularCreation() public {
+        Mandate memory mandate_ = _mandate(1);
+        IFundFactory.HubParams memory params = _params(1);
+        SolanaMandateV6.Config memory native = _nativeConfig();
+        FundFactoryV6.Binding memory binding;
+        vm.expectRevert(FundFactoryV6.NativeCreationRequired.selector);
+        factory.createFundV6(mandate_, params, native, binding);
+    }
+
     function testRejectAcrossNativeTransportAtCoreCreation() public {
         SolanaMandateV6.Config memory native = _nativeConfig();
         Mandate memory mandate_ = _mandate(1);

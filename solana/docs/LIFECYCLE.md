@@ -47,6 +47,8 @@ writable canonical command PDA and canonical USDC ledger as remaining accounts.
 The command seeds are `[b"command", fund, OrderCodec.orderId]`. Acceptance
 reserves the proportional USDC principal or USDC collected income, records the
 exact Hub payload, and consumes the Wormhole sequence. It is not completion.
+Unwind/collect acceptance currently requires USDC-only inventory and no
+registered positions; unsupported shapes reject before locking custody.
 
 | Reference | Native behavior / remaining gap |
 | --- | --- |
