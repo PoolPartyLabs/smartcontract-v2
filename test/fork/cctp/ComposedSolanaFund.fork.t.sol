@@ -48,7 +48,6 @@ contract ComposedSolanaFundForkTest is Test, FactoryDeployment {
 
     function setUp() public {
         vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envOr("CCTP_ARBITRUM_FORK_BLOCK", uint256(512_239_244)));
-        vm.warp(1_791_379_800);
         manager = vm.addr(MANAGER_KEY);
         Deployment memory deployment;
         _deployLibraries(true, deployment);
