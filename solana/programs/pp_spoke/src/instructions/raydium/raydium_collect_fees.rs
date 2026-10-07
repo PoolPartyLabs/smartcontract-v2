@@ -340,10 +340,12 @@ pub fn decrease<'info>(
         RaydiumError::Slippage
     );
     for (index, before) in reward_balances.iter().enumerate() {
-        require!(
-            check::u64_at(&reward_accounts[index * 3 + 1].try_borrow_data()?, 64)? >= *before,
-            RaydiumError::RewardClaim
-        );
+        let after = check::u64_at(&reward_accounts[index * 3 + 1].try_borrow_data()?, 64)?;
+        require!(after >= *before, RaydiumError::RewardClaim);
+        if after > *before {
+            emit!(RaydiumRewardQuarantined { fund: fund_key,
+                mint: *reward_accounts[index * 3 + 2].key, amount: after - *before });
+        }
     }
     let after = [
         check::token(
@@ -417,4 +419,12 @@ pub struct RaydiumFeesCollected {
     pub position: Pubkey,
     pub fees_0: u64,
     pub fees_1: u64,
+}
+
+/// DEC-206: incidental exit rewards stay outside principal, income and NAV.
+#[event]
+pub struct RaydiumRewardQuarantined {
+    pub fund: Pubkey,
+    pub mint: Pubkey,
+    pub amount: u64,
 }

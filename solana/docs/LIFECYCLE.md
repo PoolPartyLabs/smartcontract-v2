@@ -17,7 +17,10 @@ release or full-liquidation acceptance. No mainnet transactions authorized.**
 5. Native Fund seeds are `[b"fund", hubChain_u64_le, core_20_bytes,
    spokeIndex_u16_le, policyHash_32_bytes]`. Vault/emitter and canonical ATAs
    derive from that Fund. The native init payload appends `hub_policy_hash`
-   and `policy_hash` after transport.
+   and `policy_hash` after transport, followed by `swap_policy_hash`.
+   Native Config includes final `bytes32 swapPolicyHash`: zero disables swaps;
+   otherwise it commits every byte of the validated Borsh swap policy before
+   the policy-qualified Fund PDA is derived.
 6. Fill the native Config and Hub Mandate with the derived identities. Sign
    the exact `SolanaBootstrap` EIP-712 type declared by `BOOTSTRAP_TYPEHASH`
    in `FundFactoryV6` and native `bootstrap_digest`.
@@ -40,6 +43,11 @@ by the full payload with `spoke_chain_id` and `native_mandate_hash` omitted.
 The native chain is fixed to 1 and the native hash is recomputed from the signer,
 derived emitter and sealed configuration before checking the identical signed
 bootstrap tuple. No consent field is removed from the signature.
+Large creation payloads use Manager-signed `stage_swap_policy` chunks and
+version 2 initialization after sealing. Stage PDA includes Fund and Manager;
+chunks are contiguous, policy-hash bound and write-once. Initialization checks
+the complete payload and signatures again, then refunds staging rent only to
+that Manager. Unused-stage cancellation remains `TODO(decision)`.
 
 Shared Hub/native PDA golden vector: Hub 42161, Core `0x02` repeated 20 bytes,
 index 1, policy `0x03` repeated 32 bytes, scaffold program:

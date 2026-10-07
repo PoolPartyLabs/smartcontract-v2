@@ -5,7 +5,7 @@ import { Keypair, PublicKey, SystemProgram, TransactionInstruction, SYSVAR_CLOCK
 import { ADDRESSES, derive, fundAddresses, publicKey } from '../helpers/addresses.ts';
 import { decodePool, discriminator } from '../helpers/layouts.ts';
 import { localConnection, testAta, testWallet, requireLoopback } from '../helpers/localnet.ts';
-import { bindingPayload, mandateHash, fundId, integer, word, addressWord, factory, policyAddresses } from '../core/fixtures.ts';
+import { bindingPayload, initializationPlan, mandateHash, fundId, integer, word, addressWord, factory, policyAddresses } from '../core/fixtures.ts';
 import { attest, evm } from '../cctp/fixtures.ts';
 import { instruction, sendMeasured, u128 } from '../raydium/client.ts';
 
@@ -37,9 +37,11 @@ test('composed authenticated Fund lifecycle on cloned mainnet programs', { timeo
     tslax_ledger: ledger(ADDRESSES.tslax), wsol_ledger: ledger(ADDRESSES.wsol), cctp_route: route, cctp_ledger: transportLedger,
     token_program: ADDRESSES.token, token_2022_program: ADDRESSES.token2022, ata_program: ADDRESSES.ata };
   const fullBootstrap = bindingPayload(manager.publicKey, core, 8, 2_000_000_000n, pool);
-  const compactBootstrap = Buffer.concat([Buffer.from([1]), fullBootstrap.subarray(0, 134), fullBootstrap.subarray(174)]);
-  const initialize = instruction('initialize_fund', initAccounts, compactBootstrap);
+  const planned = initializationPlan(instruction('initialize_fund', initAccounts, fullBootstrap), manager.publicKey);
+  for (const [index, chunk] of planned.instructions.entries()) await send(`stage initialization chunk ${index}`, chunk);
+  const initialize = planned.operation;
   await send('initialize dual consent', initialize);
+  if (planned.stage) assert.equal(await connection.getAccountInfo(planned.stage), null);
   assert.equal((await connection.getAccountInfo(fund))!.owner.toBase58(), ADDRESSES.spoke);
   await assert.rejects(sendMeasured(connection, manager, initialize), /InvalidConfiguration/);
   const unbound = instruction('initialize_adapter', { ...common, authority: keeper.publicKey, venue_program: ADDRESSES.kamino,

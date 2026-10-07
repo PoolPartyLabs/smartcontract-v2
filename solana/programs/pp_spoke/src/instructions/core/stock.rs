@@ -6,6 +6,7 @@ use anchor_lang::prelude::*;
 pub fn witness(mint: &AccountInfo, custody_account: &AccountInfo) -> Result<[[u8; 32]; 7]> {
     require!([custody::TSLAX, custody::NVDAX].contains(mint.key), CoreError::InvalidConfiguration);
     require_keys_eq!(*mint.owner, custody::TOKEN_2022, CoreError::InvalidCustody);
+    require!(!mint.is_writable, CoreError::InvalidCustody);
     let data = mint.try_borrow_data()?;
     require!(data.len() >= 166 && data[44] == 8 && data[45] == 1 && data[165] == 1, CoreError::InvalidCustody);
     let token = custody_account.try_borrow_data()?;
@@ -37,7 +38,7 @@ pub fn witness(mint: &AccountInfo, custody_account: &AccountInfo) -> Result<[[u8
                 multiplier = u64::from_le_bytes(value[32..40].try_into().unwrap());
                 effective_at = i64::from_le_bytes(value[40..48].try_into().unwrap());
                 next_multiplier = u64::from_le_bytes(value[48..56].try_into().unwrap());
-                require!(multiplier == 1f64.to_bits() && next_multiplier == 1f64.to_bits(), CoreError::InvalidCustody);
+                crate::instructions::raydium::validation::stock_multiplier(*mint.key, multiplier, next_multiplier, effective_at)?;
             }
             26 => require!(length == 33 && value[32] == 0, CoreError::InvalidCustody),
             _ => return err!(CoreError::InvalidCustody),

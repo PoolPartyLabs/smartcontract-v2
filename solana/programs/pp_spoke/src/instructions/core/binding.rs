@@ -30,6 +30,7 @@ pub struct InitializePayload {
     pub transport: Transport,
     pub hub_policy_hash: [u8; 32],
     pub policy_hash: [u8; 32],
+    pub swap_policy_hash: [u8; 32],
 }
 
 pub fn word(value: u128) -> [u8; 32] {
@@ -151,7 +152,7 @@ pub fn policy_hash(payload: &InitializePayload, manager: &Pubkey) -> [u8; 32] {
     transport.destination_caller = Pubkey::default();
     transport.remote_vault_authority = Pubkey::default();
     let native = native_mandate_hash(manager, &Pubkey::default(), payload.spoke_chain_id,
-        &payload.assets, &payload.venues, &transport);
+        &payload.assets, &payload.venues, &transport, &payload.swap_policy_hash);
     hash_words(&[keccak::hash(b"PoolParty/SolanaPolicy/v6").to_bytes(), payload.hub_policy_hash, native])
 }
 
@@ -168,6 +169,7 @@ pub fn native_mandate_hash(
     assets: &[Asset],
     venues: &[Venue],
     transport: &Transport,
+    swap_policy_hash: &[u8; 32],
 ) -> [u8; 32] {
     let mut words = vec![
         word(6),
@@ -177,8 +179,8 @@ pub fn native_mandate_hash(
         super::custody::USDC.to_bytes(),
         manager.to_bytes(),
         word(u128::from(chain)),
-        word(512),
-        word(512 + 32 + (assets.len() as u128) * 96),
+        word(544),
+        word(544 + 32 + (assets.len() as u128) * 96),
         address_word(&transport.hub_usdc),
         address_word(&transport.token_messenger),
         address_word(&transport.message_transmitter),
@@ -188,6 +190,7 @@ pub fn native_mandate_hash(
         transport.remote_token_messenger.to_bytes(),
         transport.remote_vault_authority.to_bytes(),
         word(u128::from(transport.fast_fee_ceiling)),
+        *swap_policy_hash,
         word(assets.len() as u128),
     ];
     for asset in assets {
@@ -221,6 +224,7 @@ pub fn accounting_alias(mint: &Pubkey) -> [u8; 20] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::instructions::swap::config::SwapPolicy;
 
     fn fixed_hex<const SIZE: usize>(input: &str) -> [u8; SIZE] {
         std::array::from_fn(|index| {
@@ -236,7 +240,7 @@ mod tests {
             expiry: 2_000_000_000,
             signature: fixed_hex("67f384b05c9b8f7b208e872b0ebb9f7c2a83f2b1a4820e9d3e8246abb15bf3994fa5587a8e452afa7010de273152237875c920a270f1c9fccbe4602722d2e3bd1c"),
             assets: vec![], venues: vec![], transport: Transport::default(),
-            hub_policy_hash: word(10), policy_hash: word(11),
+            hub_policy_hash: word(10), policy_hash: word(11), swap_policy_hash: [0; 32],
         };
         (
             payload,
@@ -245,6 +249,67 @@ mod tests {
                 "07f093b39a102fb41eb5f221512e72f5af084d7db72b1a5158313f7db556efbd",
             )),
         )
+    }
+
+    fn swap_policy() -> SwapPolicy {
+        SwapPolicy {
+            api_signer: [1; 20],
+            sol_account: Pubkey::new_from_array([2; 32]),
+            usdc_account: Pubkey::new_from_array([3; 32]),
+            sol_feed: [4; 32],
+            usdc_feed: [5; 32],
+            max_age_seconds: 120,
+            max_confidence_bps: 100,
+            cross_check_deviation_bps: 50,
+            max_slippage_bps: 100,
+            reference_mode: 0,
+            stock_enabled: false,
+        }
+    }
+
+    #[test]
+    fn swap_policy_borsh_commitment_covers_every_field() {
+        let original = swap_policy();
+        let bytes = original.try_to_vec().unwrap();
+        assert_eq!(bytes.len(), 164);
+        assert_eq!(&bytes[148..], &fixed_hex::<16>("78000000000000006400320064000000"));
+        let expected = fixed_hex("94cb3ff011a748f6413901cc90b64fa6cd56661a6176fb194e5b82ea355046dd");
+        assert_eq!(keccak::hash(&bytes).to_bytes(), expected);
+        let (mut payload, manager, _) = fixture();
+        let disabled = policy_hash(&payload, &manager);
+        payload.swap_policy_hash = expected;
+        let enabled = policy_hash(&payload, &manager);
+        assert_ne!(disabled, enabled);
+        for variant in 0..11 {
+            let mut changed = original.clone();
+            match variant {
+                0 => changed.api_signer[0] ^= 1,
+                1 => changed.sol_account = Pubkey::new_from_array([6; 32]),
+                2 => changed.usdc_account = Pubkey::new_from_array([6; 32]),
+                3 => changed.sol_feed[0] ^= 1,
+                4 => changed.usdc_feed[0] ^= 1,
+                5 => changed.max_age_seconds += 1,
+                6 => changed.max_confidence_bps += 1,
+                7 => changed.cross_check_deviation_bps += 1,
+                8 => changed.max_slippage_bps += 1,
+                9 => changed.reference_mode += 1,
+                _ => changed.stock_enabled = true,
+            }
+            payload.swap_policy_hash = keccak::hash(&changed.try_to_vec().unwrap()).to_bytes();
+            assert_ne!(payload.swap_policy_hash, expected);
+            assert_ne!(policy_hash(&payload, &manager), enabled);
+        }
+    }
+
+    #[test]
+    fn initialize_payload_appends_fixed_width_swap_commitment() {
+        let (mut payload, _, _) = fixture();
+        payload.swap_policy_hash = keccak::hash(&swap_policy().try_to_vec().unwrap()).to_bytes();
+        let bytes = payload.try_to_vec().unwrap();
+        assert_eq!(&bytes[bytes.len() - 32..], &payload.swap_policy_hash);
+        let decoded = InitializePayload::try_from_slice(&bytes).unwrap();
+        assert_eq!(decoded.swap_policy_hash, payload.swap_policy_hash);
+        assert!(InitializePayload::try_from_slice(&bytes[..bytes.len() - 32]).is_err());
     }
 
     #[test]
@@ -284,17 +349,31 @@ mod tests {
             token1: Pubkey::default(),
         }];
         let expected =
-            fixed_hex("8bedf458b0756b03aef050251911a6ab3494ed4085546059c31f352e802e2d40");
+            fixed_hex("eb92676e65ef6ae54d79f9da90f7004a3ebdacd462e96e26370d49220e315e54");
         assert_eq!(
-            native_mandate_hash(&manager, &emitter, 1, &assets, &venues, &transport),
+            native_mandate_hash(&manager, &emitter, 1, &assets, &venues, &transport, &[0; 32]),
             expected
         );
         let mut changed = transport.clone();
         changed.fast_fee_ceiling += 1;
         assert_ne!(
-            native_mandate_hash(&manager, &emitter, 1, &assets, &venues, &changed),
+            native_mandate_hash(&manager, &emitter, 1, &assets, &venues, &changed, &[0; 32]),
             expected
         );
+        let swap_hash = keccak::hash(&swap_policy().try_to_vec().unwrap()).to_bytes();
+        assert_eq!(
+            native_mandate_hash(&manager, &emitter, 1, &assets, &venues, &transport, &swap_hash),
+            fixed_hex("b7f76f146f4b9b3d8f135b818649a86000ad2dafc980feda33bc4966236b3a10")
+        );
+        let (mut payload, _, _) = fixture();
+        payload.assets = assets;
+        payload.venues = venues;
+        payload.transport = transport;
+        assert_eq!(policy_hash(&payload, &manager),
+            fixed_hex("a3db19c185e184401fbc0fa32291aa263f4659c29af71f08546c627562ae8d95"));
+        payload.swap_policy_hash = swap_hash;
+        assert_eq!(policy_hash(&payload, &manager),
+            fixed_hex("bced46d907ecb4ee054c8ab234a0c4b63fff5146aec07c4b796e004a0f69fb0f"));
     }
 
     #[test]

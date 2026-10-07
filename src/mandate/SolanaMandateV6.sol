@@ -41,6 +41,7 @@ library SolanaMandateV6 {
         Asset[] assets;
         Venue[] venues;
         Transport transport;
+        bytes32 swapPolicyHash;
     }
 
     /// @dev Namespaced accounting aliases, not truncated public keys; collisions are refused by the registry.
@@ -87,6 +88,7 @@ contract SolanaSpokeRegistryV6 {
         _config.managerKey = config.managerKey;
         _config.chainId = config.chainId;
         _config.transport = config.transport;
+        _config.swapPolicyHash = config.swapPolicyHash;
         for (uint256 index; index < config.assets.length; ++index) {
             SolanaMandateV6.Asset memory asset = config.assets[index];
             if (

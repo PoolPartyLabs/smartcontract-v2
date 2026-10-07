@@ -21,7 +21,7 @@ pub mod pp_spoke {
     use super::*;
 
     /// DEC-188, DEC-190, DEC-195: fail-closed track-owned scaffold; payload is not a stable wire API.
-    pub fn initialize_fund(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
+    pub fn initialize_fund<'info>(ctx: Context<'_, '_, '_, 'info, InitializeFund<'info>>, payload: Vec<u8>) -> Result<()> {
         instructions::core::initialize_fund::handler(ctx, payload)
     }
 
@@ -171,8 +171,12 @@ pub mod pp_spoke {
         instructions::raydium::raydium_collect_fees::handler(ctx, payload)
     }
 
+    pub fn stage_swap_policy(ctx: Context<StageSwapPolicy>, payload: Vec<u8>) -> Result<()> {
+        instructions::swap::stage_swap_policy::handler(ctx, payload)
+    }
+
     /// DEC-136, DEC-193: fail-closed track-owned scaffold; payload is not a stable wire API.
-    pub fn swap_exact_in(ctx: Context<SwapExactIn>, payload: Vec<u8>) -> Result<()> {
+    pub fn swap_exact_in<'info>(ctx: Context<'_, '_, '_, 'info, SwapExactIn<'info>>, payload: Vec<u8>) -> Result<()> {
         instructions::swap::swap_exact_in::handler(ctx, payload)
     }
 

@@ -72,9 +72,29 @@ pub struct CoreFundInitialized {
     pub binding_digest: [u8; 32],
 }
 
-pub fn handler(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
+pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, InitializeFund<'info>>, payload: Vec<u8>) -> Result<()> {
     require!(payload.len() <= 2048, CoreError::InvalidConfiguration);
-    let (mut args, compact) = decode_payload(&payload)?;
+    let staged = payload == [2];
+    let expected_stage = Pubkey::find_program_address(&[b"swap_policy_stage", ctx.accounts.fund.key().as_ref(), ctx.accounts.authority.key().as_ref()], &crate::ID).0;
+    let stage_index = if staged {
+        Some(ctx.remaining_accounts.iter().position(|account| *account.key == expected_stage).ok_or(CoreError::InvalidConfiguration)?)
+    } else { None };
+    let staged_bytes = if staged {
+        let stage = &ctx.remaining_accounts[stage_index.unwrap()];
+        require!(stage.is_writable && *stage.owner == crate::ID, CoreError::InvalidConfiguration);
+        let state = crate::instructions::swap::config::StagedPolicy::try_deserialize(&mut &stage.try_borrow_data()?[..])?;
+        require!(state.sealed && state.payload.len() == usize::from(state.total_len) && state.fund == ctx.accounts.fund.key() && state.manager_solana == ctx.accounts.authority.key(), CoreError::InvalidConfiguration);
+        Some(state.payload)
+    } else { None };
+    let payload_bytes = staged_bytes.as_deref().unwrap_or(&payload);
+    let (mut args, compact, swap_creation) = decode_creation(payload_bytes)?;
+    let has_nvda = args.assets.iter().any(|asset| asset.mint == custody::NVDAX);
+    if staged {
+        require!(stage_index == Some(usize::from(swap_creation.is_some())), CoreError::InvalidConfiguration);
+        let state = crate::instructions::swap::config::StagedPolicy::try_deserialize(&mut &ctx.remaining_accounts[stage_index.unwrap()].try_borrow_data()?[..])?;
+        require!(state.policy_hash == args.policy_hash, CoreError::InvalidConfiguration);
+    }
+    require!(ctx.remaining_accounts.len() == usize::from(swap_creation.is_some()) + usize::from(staged) + if has_nvda { 3 } else { 0 }, CoreError::InvalidConfiguration);
     let index = args.spoke_index.to_le_bytes();
     let chain = args.hub_chain_id.to_le_bytes();
     let (fund_key, bump) = binding::fund_address(&args);
@@ -99,11 +119,21 @@ pub fn handler(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
     let manager = ctx.accounts.authority.key();
     if compact {
         args.native_mandate_hash = binding::native_mandate_hash(&manager, &emitter, args.spoke_chain_id,
-            &args.assets, &args.venues, &args.transport);
+            &args.assets, &args.venues, &args.transport, &args.swap_policy_hash);
     }
     validate_config(&args, &manager, &emitter)?;
     binding::verify_bootstrap(&args, &manager, &fund_key, Clock::get()?.unix_timestamp)?;
     let digest = binding::bootstrap_digest(&args, &manager, &fund_key)?;
+    let swap_policy_hash = match &swap_creation {
+        Some(creation) => anchor_lang::solana_program::keccak::hash(&creation.policy.try_to_vec()?).to_bytes(),
+        None => [0;32],
+    };
+    require!(args.swap_policy_hash == swap_policy_hash, CoreError::InvalidConfiguration);
+    if let Some(creation) = &swap_creation {
+        crate::instructions::swap::config::verify(creation, &digest, &fund_key, &args.manager_evm,
+            &crate::instructions::swap::quote::QuoteDomain { chain_id: args.hub_chain_id,
+                verifying_contract: args.hub_core, program: crate::ID })?;
+    }
     let payer = ctx.accounts.authority.to_account_info();
     let system = ctx.accounts.system_program.to_account_info();
     allocate(
@@ -121,7 +151,7 @@ pub fn handler(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
         max_fee_bps_scaled: args.transport.fast_fee_ceiling,
         sealed: true,
     };
-    let fund = FundState {
+    let fund = Box::new(FundState {
         hub_core: args.hub_core,
         spoke_index: args.spoke_index,
         fund_id: args.fund_id,
@@ -148,9 +178,9 @@ pub fn handler(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
         active_positions: 0,
         pending_transits: 0,
         pending_results: 0,
-        assets: args.assets,
-        venues: args.venues,
-        transport: args.transport,
+        assets: args.assets.clone(),
+        venues: args.venues.clone(),
+        transport: args.transport.clone(),
         position_registry: vec![],
         transit_registry: vec![],
         policy_hash: args.policy_hash,
@@ -158,7 +188,7 @@ pub fn handler(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
         active_command: Pubkey::default(),
         close_requested: false,
         command_registry: vec![],
-    };
+    });
     fund.try_serialize(&mut &mut ctx.accounts.fund.try_borrow_mut_data()?[..])?;
     for (prefix, account, space) in [
         (b"cctp_route".as_slice(), &ctx.accounts.cctp_route, 8 + CctpRoute::INIT_SPACE),
@@ -171,6 +201,33 @@ pub fn handler(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
     route.try_serialize(&mut &mut ctx.accounts.cctp_route.try_borrow_mut_data()?[..])?;
     CctpLedger { fund: fund_key, principal: 0, outbound_gross: 0, outbound_in_flight: 0, received_principal: 0, fee_surplus_principal: 0 }
         .try_serialize(&mut &mut ctx.accounts.cctp_ledger.try_borrow_mut_data()?[..])?;
+    if let Some(creation) = swap_creation {
+        let config_account = &ctx.remaining_accounts[0];
+        require!(config_account.is_writable, CoreError::InvalidConfiguration);
+        let (expected, config_bump) = Pubkey::find_program_address(&[b"swap_config", fund_key.as_ref()], &crate::ID);
+        require_keys_eq!(*config_account.key, expected, CoreError::InvalidConfiguration);
+        allocate(&payer, config_account, &system, 8 + crate::instructions::swap::config::SwapConfig::INIT_SPACE,
+            &[b"swap_config", fund_key.as_ref(), &[config_bump]])?;
+        crate::instructions::swap::config::SwapConfig { fund: fund_key, binding_digest: digest,
+            policy: creation.policy, next_nonce: 0 }.try_serialize(&mut &mut config_account.try_borrow_mut_data()?[..])?;
+    }
+    if has_nvda {
+        let offset = ctx.remaining_accounts.len() - 3;
+        let mint = &ctx.remaining_accounts[offset];
+        let ata = &ctx.remaining_accounts[offset + 1];
+        let ledger = &ctx.remaining_accounts[offset + 2];
+        require_keys_eq!(*mint.key, custody::NVDAX, CoreError::InvalidCustody);
+        require!(ata.is_writable && ledger.is_writable, CoreError::InvalidCustody);
+        custody::create_ata(payer.clone(), ata.clone(), ctx.accounts.vault.to_account_info(), mint.clone(),
+            system.clone(), ctx.accounts.token_2022_program.to_account_info(), ctx.accounts.ata_program.to_account_info())?;
+        super::stock::witness(mint, ata)?;
+        let (expected, ledger_bump) = Pubkey::find_program_address(&[b"ledger", fund_key.as_ref(), mint.key.as_ref()], &crate::ID);
+        require_keys_eq!(*ledger.key, expected, CoreError::InvalidCustody);
+        allocate(&payer, ledger, &system, 8 + TokenLedger::INIT_SPACE,
+            &[b"ledger", fund_key.as_ref(), mint.key.as_ref(), &[ledger_bump]])?;
+        TokenLedger { fund: fund_key, mint: *mint.key, bump: ledger_bump, ..TokenLedger::default() }
+            .try_serialize(&mut &mut ledger.try_borrow_mut_data()?[..])?;
+    }
     for (mint, ata, ledger, token) in [
         (
             &ctx.accounts.usdc_mint,
@@ -234,6 +291,13 @@ pub fn handler(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
         native_mandate_hash: fund.native_mandate_hash,
         binding_digest: digest
     });
+    if staged {
+        let stage = &ctx.remaining_accounts[stage_index.unwrap()];
+        let refund = stage.lamports();
+        **payer.try_borrow_mut_lamports()? = payer.lamports().checked_add(refund).ok_or(CoreError::ArithmeticOverflow)?;
+        **stage.try_borrow_mut_lamports()? = 0;
+        stage.try_borrow_mut_data()?.fill(0);
+    }
     Ok(())
 }
 
@@ -358,7 +422,8 @@ pub fn validate_config(args: &InitializePayload, manager: &Pubkey, emitter: &Pub
         } else {
             require!(
                 venue.program == pubkey!("CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK")
-                    && [crate::instructions::raydium::wire::TSLA_POOL, crate::instructions::raydium::wire::SOL_POOL].contains(&venue.pool)
+                    && [crate::instructions::raydium::wire::TSLA_POOL, crate::instructions::raydium::wire::SOL_POOL,
+                        crate::instructions::raydium::wire::NVDA_POOL].contains(&venue.pool)
                     && venue.token0 != venue.token1
                     && args.assets.iter().any(|asset| asset.mint == venue.token1),
                 CoreError::InvalidConfiguration
@@ -373,7 +438,8 @@ pub fn validate_config(args: &InitializePayload, manager: &Pubkey, emitter: &Pub
                 args.spoke_chain_id,
                 &args.assets,
                 &args.venues,
-                &args.transport
+                &args.transport,
+                &args.swap_policy_hash
             ),
         CoreError::InvalidConfiguration
     );
@@ -381,24 +447,36 @@ pub fn validate_config(args: &InitializePayload, manager: &Pubkey, emitter: &Pub
 }
 
 fn validate_asset(asset: &crate::state::Asset) -> Result<()> {
-    require!(asset.mint != custody::NVDAX, CoreError::InvalidConfiguration);
     custody::token_program(&asset.mint)?;
     require!(
-        asset.stock == (asset.mint == custody::TSLAX)
+        asset.stock == ([custody::TSLAX, custody::NVDAX].contains(&asset.mint))
             && asset.accounting_id == binding::accounting_alias(&asset.mint),
         CoreError::InvalidConfiguration
     );
     Ok(())
 }
 
-fn decode_payload(payload: &[u8]) -> Result<(InitializePayload, bool)> {
+#[inline(never)]
+fn decode_payload(payload: &[u8]) -> Result<(Box<InitializePayload>, bool)> {
     if let Ok(args) = InitializePayload::try_from_slice(payload) {
-        return Ok((args, false));
+        return Ok((Box::new(args), false));
     }
     require!(payload.first() == Some(&1) && payload.len() > 135, CoreError::InvalidConfiguration);
     let expanded = [payload[1..135].to_vec(), 1u64.to_le_bytes().to_vec(), vec![0; 32], payload[135..].to_vec()].concat();
     let args = InitializePayload::try_from_slice(&expanded).map_err(|_| error!(CoreError::InvalidConfiguration))?;
-    Ok((args, true))
+    Ok((Box::new(args), true))
+}
+
+#[inline(never)]
+fn decode_creation(payload: &[u8]) -> Result<(Box<InitializePayload>, bool, Option<Box<crate::instructions::swap::config::CreationPolicy>>)> {
+    if let Ok((args, compact)) = decode_payload(payload) {
+        return Ok((args, compact, None));
+    }
+    let mut bytes = payload;
+    let args = InitializePayload::deserialize(&mut bytes).map_err(|_| error!(CoreError::InvalidConfiguration))?;
+    let creation = crate::instructions::swap::config::CreationPolicy::try_from_slice(bytes)
+        .map_err(|_| error!(CoreError::InvalidConfiguration))?;
+    Ok((Box::new(args), false, Some(Box::new(creation))))
 }
 
 #[cfg(test)]
@@ -407,7 +485,7 @@ mod tests {
 
     #[test]
     fn compact_bootstrap_omits_only_recomputed_fields_and_rejects_bad_versions() {
-        let bytes = vec![0; 134 + 40 + 32 + 8 + 65 + 4 + 4 + 200 + 64];
+        let bytes = vec![0; 134 + 40 + 32 + 8 + 65 + 4 + 4 + 200 + 96];
         let (full, compact) = decode_payload(&bytes).unwrap();
         assert!(!compact);
         let encoded = [vec![1], bytes[..134].to_vec(), bytes[174..].to_vec()].concat();
@@ -423,14 +501,14 @@ mod tests {
     }
 
     #[test]
-    fn deferred_nvdax_admission_rejects_both_stock_classifications() {
+    fn admit_nvdax_only_as_stock_with_canonical_alias() {
         for stock in [false, true] {
             let asset = crate::state::Asset {
                 mint: custody::NVDAX,
                 accounting_id: binding::accounting_alias(&custody::NVDAX),
                 stock,
             };
-            assert!(validate_asset(&asset).is_err());
+            assert_eq!(validate_asset(&asset).is_ok(), stock);
         }
         for mint in [custody::USDC, custody::TSLAX, custody::WSOL] {
             let asset = crate::state::Asset {

@@ -11,3 +11,7 @@ pub mod quote;
 pub mod oracle;
 pub mod streams;
 pub mod authorized;
+pub mod config;
+pub mod stage_swap_policy;
+pub use stage_swap_policy::StageSwapPolicy;
+pub(crate) use stage_swap_policy::__client_accounts_stage_swap_policy;

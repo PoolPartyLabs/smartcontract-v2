@@ -6,4 +6,5 @@ export const pendingLocalnetTests = [
   { path: 'tests/swap/cpi.localnet.test.ts', reason: 'T8c: standalone V1 probe requires its own executable, route ALTs and genesis; replace production acceptance with signed V2.' },
   { path: 'tests/swap/authorized.localnet.test.ts', reason: 'T8c: signed V2 standalone probe needs prepare-v2 oracle clones, probe binary, synthetic Fund state and route ALTs; absent from core/report genesis.' },
   { path: 'tests/swap/streams.localnet.test.ts', reason: 'T8c: requires verifier-fixture genesis and local DON config; not prepared by core/report setup.' },
+  { path: 'tests/swap/production.localnet.test.ts', reason: 'T8c: required separate signed-production gate needs freshly cloned oracles, canonical reward quarantine and default SBF; never substitute the default core gate.' },
 ];

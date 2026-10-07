@@ -4,8 +4,8 @@ import { PublicKey, SystemProgram, TransactionInstruction } from '@solana/web3.j
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { ADDRESSES, publicKey, derive } from '../helpers/addresses.ts';
 import { localConnection, testWallet, testAta } from '../helpers/localnet.ts';
-import { discriminator } from '../helpers/layouts.ts';
-import { nativeConfig, hash, word, addressWord, integer, factory, fundId, mandateHash, sendSignedLocal } from './fixtures.ts';
+import { decodePool, discriminator } from '../helpers/layouts.ts';
+import { nativeConfig, bindingPayload, initializationPlan, policyAddresses, hash, word, addressWord, integer, factory, fundId, mandateHash, sendSignedLocal } from './fixtures.ts';
 
 const bootstrapType = 'SolanaBootstrap(uint256 hubChain,address core,bytes32 mandateHash,bytes32 policyHash,uint16 spokeIndex,bytes32 program,bytes32 fundPda,bytes32 solanaKey,bytes32 usdcAta,bytes32 tslaxAta,bytes32 nvdaxAta,bytes32 wsolAta,bytes32 nativeMandateHash,bytes32 fundId,uint256 nonce,uint256 expiry)';
 
@@ -14,9 +14,9 @@ function policyInit(manager: PublicKey, core: Buffer, changePolicy = false) {
   const hubPolicy = Buffer.alloc(32, 0x11);
   const empty = nativeConfig(manager, PublicKey.default, PublicKey.default);
   const nativePolicy = hash(Buffer.concat([word(6), word(64), program.toBuffer(), Buffer.alloc(32),
-    publicKey(ADDRESSES.usdc).toBuffer(), manager.toBuffer(), word(1), word(512), word(640),
+    publicKey(ADDRESSES.usdc).toBuffer(), manager.toBuffer(), word(1), word(544), word(672),
     ...[0, 20, 40].map(offset => addressWord(empty.transport.subarray(offset, offset + 20))), word(5),
-    Buffer.alloc(64), publicKey(ADDRESSES.cctpMessenger).toBuffer(), Buffer.alloc(32), word(50_000), word(1),
+    Buffer.alloc(64), publicKey(ADDRESSES.cctpMessenger).toBuffer(), Buffer.alloc(32), word(50_000), Buffer.alloc(32), word(1),
     empty.assets.subarray(4, 36), addressWord(empty.assets.subarray(36, 56)), word(0), word(1), empty.venues.subarray(4)]));
   const policyHash = hash(Buffer.concat([hash(Buffer.from('PoolParty/SolanaPolicy/v6')), hubPolicy, nativePolicy]));
   const fund = PublicKey.findProgramAddressSync([Buffer.from('fund'), integer(42161, 8), core, integer(1, 2), policyHash], program)[0];
@@ -37,7 +37,7 @@ function policyInit(manager: PublicKey, core: Buffer, changePolicy = false) {
   if (changePolicy) submittedPolicy[0] ^= 1;
   const payload = Buffer.concat([core, integer(1, 2), fundId, mandateHash, managerEvm, factory, integer(42161, 8), integer(1, 8),
     config.nativeHash, word(9), integer(expiry, 8), Buffer.from(signature.toCompactRawBytes()), integer(signature.recovery + 27, 1),
-    config.assets, config.venues, config.transport, hubPolicy, submittedPolicy]);
+    config.assets, config.venues, config.transport, hubPolicy, submittedPolicy, Buffer.alloc(32)]);
   const keys = [
     { pubkey: manager, isSigner: true, isWritable: true }, { pubkey: fund, isSigner: false, isWritable: true },
     { pubkey: vault, isSigner: false, isWritable: false },
@@ -81,4 +81,34 @@ test('compact policy bootstrap recomputes omitted hash without weakening consent
   await sendSignedLocal(connection, manager, [operation]);
   assert.equal((await connection.getAccountInfo(valid.fund))?.owner.toBase58(), ADDRESSES.spoke);
   await assert.rejects(sendSignedLocal(connection, manager, [operation]));
+});
+
+test('oversized LP bootstrap stages generic creation without a swap configuration', async () => {
+  const connection = localConnection();
+  const manager = testWallet('manager');
+  const core = Buffer.alloc(20, 0x94);
+  const pool = decodePool((await connection.getAccountInfo(publicKey(ADDRESSES.tslaxPool)))!.data);
+  const target = policyAddresses(manager.publicKey, core, 1, pool);
+  const payload = bindingPayload(manager.publicKey, core, 1, 2_000_000_000n, pool);
+  const template = policyInit(manager.publicKey, core).instruction;
+  const vault = publicKey(target.vault);
+  const keys = template.keys.map((account, index) => {
+    if (index === 1) return { ...account, pubkey: publicKey(target.fund) };
+    if (index === 2) return { ...account, pubkey: vault };
+    if (index >= 6 && index < 9) return { ...account, pubkey: testAta([ADDRESSES.usdc, ADDRESSES.tslax, ADDRESSES.wsol][index - 6], vault) };
+    if (index >= 9 && index < 12) return { ...account, pubkey: publicKey(derive(ADDRESSES.spoke, Buffer.from('ledger'), publicKey(target.fund).toBuffer(),
+      publicKey([ADDRESSES.usdc, ADDRESSES.tslax, ADDRESSES.wsol][index - 9]).toBuffer())) };
+    if (index === 12 || index === 13) return { ...account, pubkey: publicKey(derive(ADDRESSES.spoke,
+      Buffer.from(index === 12 ? 'cctp_route' : 'cctp_ledger'), publicKey(target.fund).toBuffer())) };
+    return account;
+  });
+  const operation = new TransactionInstruction({ programId: template.programId, keys,
+    data: Buffer.concat([discriminator('global', 'initialize_fund'), integer(payload.length, 4), payload]) });
+  const planned = initializationPlan(operation, manager.publicKey);
+  assert.ok(planned.stage);
+  assert.equal(planned.operation.keys.length, 19);
+  for (const chunk of planned.instructions) await sendSignedLocal(connection, manager, [chunk]);
+  await sendSignedLocal(connection, manager, [planned.operation]);
+  assert.equal((await connection.getAccountInfo(publicKey(target.fund)))?.owner.toBase58(), ADDRESSES.spoke);
+  assert.equal(await connection.getAccountInfo(planned.stage), null);
 });

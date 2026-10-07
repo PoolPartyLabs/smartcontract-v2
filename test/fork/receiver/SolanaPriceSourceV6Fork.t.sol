@@ -6,6 +6,7 @@ import {ChainlinkPriceSource} from "../../../src/report/ChainlinkPriceSource.sol
 import {IChainlinkAggregatorV3} from "../../../src/interfaces/external/IChainlinkAggregatorV3.sol";
 import {SolanaFixture} from "../../unit/solana/SolanaFixture.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {SolanaMandateV6} from "../../../src/mandate/SolanaMandateV6.sol";
 
 /// @notice Read-only Arbitrum fork; real TSLA and SOL feed proxies (DEC-194).
 contract SolanaPriceSourceV6ForkTest is Test {
@@ -43,6 +44,20 @@ contract SolanaPriceSourceV6ForkTest is Test {
         vm.warp(1_791_316_800);
         vm.expectRevert(SolanaPriceSourceV6.StockMarketClosed.selector);
         source.nativePrice(mint);
+    }
+
+    function testRealNvdaRawAmountsApplyExactlyOneMultiplier() public {
+        IChainlinkAggregatorV3 feed = IChainlinkAggregatorV3(source.NVDA_USD());
+        (, int256 answer,, uint256 timestamp,) = feed.latestRoundData();
+        vm.warp(1_791_293_400);
+        (uint256 price, uint256 reportedAt) = source.nativePrice(source.NVDA_MINT());
+        uint256 expected = Math.mulDiv(uint256(answer) * 1e8, 0x1006f7d589fea9, uint256(1) << 52);
+        assertEq(price, expected);
+        assertEq(reportedAt, timestamp);
+        assertGt(price, uint256(answer) * 1e8);
+        (uint256 value, uint256 valueTimestamp) = source.usdcValue(SolanaMandateV6.accountingId(source.NVDA_MINT()), 123_456_789);
+        assertEq(value, Math.mulDiv(123_456_789, expected, 1e18));
+        assertEq(valueTimestamp, timestamp);
     }
 
     function _assertFeed(address proxy, bytes32 mint, uint256 oneToken, string memory description) private {
