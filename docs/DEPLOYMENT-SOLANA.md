@@ -1,5 +1,35 @@
 # Solana v6 deployment rehearsal — founder approval packet
 
+## Finish-work safety and default suite
+
+Local deployment is opt-in: `node solana/scripts/deploy-local.mjs --broadcast`.
+Without that explicit flag, even a valid supplied key cannot submit transactions.
+It remains loopback-only; this flag does not authorize any mainnet deployment.
+Per-Fund creation refuses an unapproved destination: `arbitrum.approvedFactory`
+in the committed manifest is null until a reviewed deployment identity is pinned.
+Never substitute an arbitrary environment address for that approval.
+
+Default cloned tests require `node tests/core/prepare-fixtures.ts` before starting
+the plain-build validator. `npm run test:localnet` excludes the explicitly named
+pending set in `solana/scripts/pending-localnet-tests.ts`, printing every path and
+reason. Coverage is preserved unchanged; `node scripts/run-localnet-tests.ts --pending`
+runs it separately, but is NOT acceptance. Legacy CCTP/Kamino/Raydium genesis lacks
+the sealed assets/transport fields; T8b must reconcile it. V1 composed/probe and
+Streams fixtures require separate genesis/builds and T8c V2 replacement. They
+must not be claimed green or silently mixed into the core/report genesis.
+Use isolated ports 8970/9970/17000/17001–17060 for this run.
+The core fixture send helper retries only unsigned preflight failures reporting
+`Program cache hit max limit`, bounded to 20 attempts and five-second backoff;
+it never retries a submitted transaction or masks an economic/ABI failure.
+Replaying stateful local tests requires restarting the owned validator from
+genesis; a second discovery run against mutated state is not an independent gate.
+
+Later founder rulings DEC-203/204 seal the on-chain reference mode and prohibit
+placeholder impact; only stock oracle source admission remains open. DEC-205
+requires all CCTP transits credited before closure; DEC-206 quarantines farm
+rewards on exit. T8b/T8c still own implementation and acceptance; none of these
+decisions is invented or implemented by deployment tooling.
+
 Measured October 7, 2026, 11:40–11:48 UTC; integration baseline `c8be6be`.
 **NOT APPROVED FOR MAINNET. No mainnet transactions were submitted.**
 This packet has verified factory dry runs and local loader deployment costs,
@@ -188,7 +218,9 @@ transactions into this deployment. `solana-three-chain-rehearsal.sh` says this
 explicitly and never claims a complete three-chain lifecycle.
 
 Do not run the global discovery runner as acceptance: track fixtures and swap
-probe/verifier genesis requirements differ. The documented prepared core/report
+probe/verifier genesis requirements differ. The explicitly named pending runner
+preserves that coverage separately; the default runner executes only compatible
+core/report, smoke and offline swap tests. The documented prepared core/report
 suite passes independently. The existing full native rehearsal requires a
 `rehearsal-v1-swap` build; it is NOT DEC-201/202 production V2 acceptance and
 must NEVER become the deployment artifact.
