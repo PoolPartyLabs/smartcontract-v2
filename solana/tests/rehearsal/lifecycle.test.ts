@@ -11,7 +11,7 @@ import { instruction, sendMeasured, u128 } from '../raydium/client.ts';
 
 test('composed authenticated Fund lifecycle on cloned mainnet programs', { timeout: 7_200_000 }, async () => {
   const connection = localConnection(); requireLoopback(connection.rpcEndpoint);
-  assert.equal(process.env.PP_LOCALNET_RPC_PORT, '8960');
+  assert.equal(new URL(connection.rpcEndpoint).port, process.env.PP_LOCALNET_RPC_PORT ?? '8899');
   const manager = testWallet(); const keeper = testWallet('keeper');
   const core = Buffer.alloc(20, 0xa8); const target = fundAddresses(core, 8, mandateHash);
   const fund = publicKey(target.fund); const vault = publicKey(target.vault);

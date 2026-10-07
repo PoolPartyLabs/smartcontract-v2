@@ -12,9 +12,9 @@ recorded V1 rehearsal leg, not DEC-201/202 signed V2 production acceptance.
 Run from this worktree's `solana/` directory. Ports must remain isolated:
 
 ```sh
-export PP_LOCALNET_RPC_PORT=8960 PP_LOCALNET_FAUCET_PORT=9960
-export PP_LOCALNET_GOSSIP_PORT=16000
-export PP_LOCALNET_DYNAMIC_PORTS=16001-16060
+export PP_LOCALNET_RPC_PORT=8970 PP_LOCALNET_FAUCET_PORT=9970
+export PP_LOCALNET_GOSSIP_PORT=17000
+export PP_LOCALNET_DYNAMIC_PORTS=17001-17060
 cargo test --locked
 cargo test --locked --features rehearsal-v1-swap
 npm test
