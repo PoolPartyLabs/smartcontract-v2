@@ -10,7 +10,7 @@ optimizer = true
 optimizer_runs = 800
 via_ir = false
 gas_reports = ["*"]
-fs_permissions = [{ access = "read", path = "./" }]
+fs_permissions = [{ access = "read", path = "./" }, { access = "read-write", path = "./cache/sol-t11" }]
 ffi = false
 
 [fuzz]
