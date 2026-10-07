@@ -11,7 +11,7 @@ pub struct RaydiumOpenPosition<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
     #[account(mut)]
-    pub fund: Account<'info, FundState>,
+    pub fund: Box<Account<'info, FundState>>,
     /// CHECK: canonical Fund vault checked in handler and signs only bounded CPIs.
     pub vault: UncheckedAccount<'info>,
     /// CHECK: pinned executable CLMM checked in handler.
@@ -22,9 +22,9 @@ pub struct RaydiumOpenPosition<'info> {
         has_one = fund, has_one = pool)]
     pub ledger: Account<'info, RaydiumLedger>,
     #[account(mut)]
-    pub token_ledger_0: Account<'info, crate::state::TokenLedger>,
+    pub token_ledger_0: Box<Account<'info, crate::state::TokenLedger>>,
     #[account(mut)]
-    pub token_ledger_1: Account<'info, crate::state::TokenLedger>,
+    pub token_ledger_1: Box<Account<'info, crate::state::TokenLedger>>,
     #[account(init, payer = authority, space = 8 + RaydiumPosition::INIT_SPACE,
         seeds = [b"position", fund.key().as_ref(), personal_position.key().as_ref()], bump)]
     pub position_record: Account<'info, RaydiumPosition>,

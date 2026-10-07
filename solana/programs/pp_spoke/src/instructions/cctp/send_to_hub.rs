@@ -12,7 +12,7 @@ pub struct SendToHub<'info> {
     #[account(mut, address = fund.manager_solana @ CctpError::Unauthorized)]
     pub authority: Signer<'info>,
     #[account(mut, seeds = [b"fund", fund.hub_core.as_ref(), &fund.spoke_index.to_le_bytes(), fund.mandate_hash.as_ref()], bump = fund.bump, constraint = !fund.closed @ CctpError::Unauthorized)]
-    pub fund: Account<'info, FundState>,
+    pub fund: Box<Account<'info, FundState>>,
     /// CHECK: canonical per-Fund vault, signs only the pinned Circle burn CPI.
     #[account(seeds = [b"vault", fund.key().as_ref()], bump = fund.vault_bump)]
     pub vault: UncheckedAccount<'info>,
@@ -27,7 +27,7 @@ pub struct SendToHub<'info> {
     pub usdc_ata: UncheckedAccount<'info>,
     #[account(mut, seeds = [b"ledger", fund.key().as_ref(), USDC.as_ref()], bump = token_ledger.bump, has_one = fund,
         constraint = token_ledger.mint == USDC @ CctpError::InvalidAccount)]
-    pub token_ledger: Account<'info, crate::state::TokenLedger>,
+    pub token_ledger: Box<Account<'info, crate::state::TokenLedger>>,
     #[account(mut)]
     pub event_account: Signer<'info>,
     pub system_program: Program<'info, System>,

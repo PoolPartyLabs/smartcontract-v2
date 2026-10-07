@@ -9,7 +9,7 @@ use anchor_lang::prelude::*;
 #[derive(Accounts)]
 pub struct RaydiumCollectFees<'info> {
     pub authority: Signer<'info>,
-    pub fund: Account<'info, FundState>,
+    pub fund: Box<Account<'info, FundState>>,
     /// CHECK: canonical Fund vault signs bounded venue CPIs.
     #[account(mut)]
     pub vault: UncheckedAccount<'info>,
@@ -22,9 +22,9 @@ pub struct RaydiumCollectFees<'info> {
         has_one = fund, has_one = pool)]
     pub ledger: Account<'info, RaydiumLedger>,
     #[account(mut)]
-    pub token_ledger_0: Account<'info, crate::state::TokenLedger>,
+    pub token_ledger_0: Box<Account<'info, crate::state::TokenLedger>>,
     #[account(mut)]
-    pub token_ledger_1: Account<'info, crate::state::TokenLedger>,
+    pub token_ledger_1: Box<Account<'info, crate::state::TokenLedger>>,
     /// CHECK: canonical vault-owned Token-2022 position NFT.
     #[account(mut)]
     pub nft_account: UncheckedAccount<'info>,

@@ -10,7 +10,7 @@ pub struct KaminoRedeem<'info> {
     #[account(mut, seeds = [b"fund", fund.hub_core.as_ref(), &fund.spoke_index.to_le_bytes(), fund.mandate_hash.as_ref()], bump = fund.bump,
         constraint = fund.manager_solana == authority.key() @ KaminoError::Unauthorized,
         constraint = !fund.closed @ KaminoError::EntryDisabled)]
-    pub fund: Account<'info, FundState>,
+    pub fund: Box<Account<'info, FundState>>,
     /// CHECK: canonical per-Fund vault signer.
     #[account(seeds = [b"vault", fund.key().as_ref()], bump = fund.vault_bump)]
     pub vault: UncheckedAccount<'info>,
@@ -20,7 +20,7 @@ pub struct KaminoRedeem<'info> {
     pub venue: KaminoVenue<'info>,
     #[account(mut, seeds = [b"ledger", fund.key().as_ref(), USDC.as_ref()], bump = token_ledger.bump, has_one = fund,
         constraint = token_ledger.mint == USDC @ KaminoError::InvalidTokenAccount)]
-    pub token_ledger: Account<'info, crate::state::TokenLedger>,
+    pub token_ledger: Box<Account<'info, crate::state::TokenLedger>>,
 }
 
 /// Payload: u64 cToken units, u64 minimum USDC; u64::MAX means all recorded units.

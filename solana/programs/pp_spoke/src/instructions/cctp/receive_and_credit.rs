@@ -13,7 +13,7 @@ pub struct ReceiveAndCredit<'info> {
     pub authority: Signer<'info>,
     // TODO(decision): coordinate closed-Fund excess arrival handling with T1 (DEC-167).
     #[account(mut, seeds = [b"fund", fund.hub_core.as_ref(), &fund.spoke_index.to_le_bytes(), fund.mandate_hash.as_ref()], bump = fund.bump, constraint = !fund.closed @ CctpError::Unauthorized)]
-    pub fund: Account<'info, FundState>,
+    pub fund: Box<Account<'info, FundState>>,
     /// CHECK: canonical vault signs as destinationCaller, never the relayer.
     #[account(seeds = [b"vault", fund.key().as_ref()], bump = fund.vault_bump)]
     pub vault: UncheckedAccount<'info>,
@@ -28,7 +28,7 @@ pub struct ReceiveAndCredit<'info> {
     pub usdc_ata: UncheckedAccount<'info>,
     #[account(mut, seeds = [b"ledger", fund.key().as_ref(), USDC.as_ref()], bump = token_ledger.bump, has_one = fund,
         constraint = token_ledger.mint == USDC @ CctpError::InvalidAccount)]
-    pub token_ledger: Account<'info, crate::state::TokenLedger>,
+    pub token_ledger: Box<Account<'info, crate::state::TokenLedger>>,
     pub system_program: Program<'info, System>,
 }
 

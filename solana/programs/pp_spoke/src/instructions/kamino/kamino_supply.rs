@@ -10,7 +10,7 @@ pub struct KaminoSupply<'info> {
     #[account(mut, seeds = [b"fund", fund.hub_core.as_ref(), &fund.spoke_index.to_le_bytes(), fund.mandate_hash.as_ref()], bump = fund.bump,
         constraint = fund.manager_solana == authority.key() @ KaminoError::Unauthorized,
         constraint = !fund.closed @ KaminoError::EntryDisabled)]
-    pub fund: Account<'info, FundState>,
+    pub fund: Box<Account<'info, FundState>>,
     /// CHECK: canonical per-Fund vault signer, never the Manager wallet.
     #[account(seeds = [b"vault", fund.key().as_ref()], bump = fund.vault_bump)]
     pub vault: UncheckedAccount<'info>,
@@ -21,7 +21,7 @@ pub struct KaminoSupply<'info> {
     pub venue: KaminoVenue<'info>,
     #[account(mut, seeds = [b"ledger", fund.key().as_ref(), USDC.as_ref()], bump = token_ledger.bump, has_one = fund,
         constraint = token_ledger.mint == USDC @ KaminoError::InvalidTokenAccount)]
-    pub token_ledger: Account<'info, crate::state::TokenLedger>,
+    pub token_ledger: Box<Account<'info, crate::state::TokenLedger>>,
 }
 
 /// Payload: exact u64 little-endian USDC units. No amount is inferred from wallet balances (DEC-080).

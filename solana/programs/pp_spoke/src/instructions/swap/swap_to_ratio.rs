@@ -9,7 +9,7 @@ pub struct SwapToRatio<'info> {
     pub authority: Signer<'info>,
     #[account(mut, seeds = [b"fund", fund.hub_core.as_ref(), &fund.spoke_index.to_le_bytes(), fund.mandate_hash.as_ref()], bump = fund.bump,
         constraint = !fund.closed @ SwapError::Closed)]
-    pub fund: Account<'info, FundState>,
+    pub fund: Box<Account<'info, FundState>>,
     /// CHECK: DEC-190, DEC-195: PDA signs token transfers, never holds Fund SOL.
     #[account(seeds = [b"vault", fund.key().as_ref()], bump = fund.vault_bump,
         constraint = vault.lamports() == 0 @ SwapError::Custody)]

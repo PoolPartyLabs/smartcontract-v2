@@ -8,7 +8,7 @@ pub struct SweepExcess<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
     #[account(mut)]
-    pub fund: Account<'info, FundState>,
+    pub fund: Box<Account<'info, FundState>>,
     /// CHECK: no vault CPI is enabled until the excess recipient is committed.
     #[account(mut)]
     pub vault: UncheckedAccount<'info>,
