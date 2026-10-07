@@ -8,7 +8,7 @@ const require = createRequire(new URL('../solana/package.json', import.meta.url)
 const { Keypair } = require('@solana/web3.js');
 
 test('DEC-189: deploy refuses a public endpoint before key handling', () => {
-  const result = spawnSync(process.execPath, ['solana/scripts/deploy-local.mjs'], {
+  const result = spawnSync(process.execPath, ['solana/scripts/deploy-local.mjs', '--broadcast'], {
     env: { ...process.env, PP_DEPLOY_LOCAL_RPC: 'https://api.mainnet-beta.solana.com', SOLANA_DEPLOYER_PRIVATE_KEY: '' },
     encoding: 'utf8',
   });
@@ -17,7 +17,7 @@ test('DEC-189: deploy refuses a public endpoint before key handling', () => {
 });
 
 test('DEC-189: no implicit deployer or default CLI authority', () => {
-  const result = spawnSync(process.execPath, ['solana/scripts/deploy-local.mjs'], {
+  const result = spawnSync(process.execPath, ['solana/scripts/deploy-local.mjs', '--broadcast'], {
     env: { ...process.env, PP_DEPLOY_LOCAL_RPC: 'http://127.0.0.1:8995', SOLANA_DEPLOYER_PRIVATE_KEY: '' }, encoding: 'utf8',
   });
   assert.notEqual(result.status, 0);
@@ -32,7 +32,7 @@ test('DEC-188: EVM orchestration contains no broadcast or private-key argument',
 
 test('invalid key errors never include the supplied secret', () => {
   const marker = 'INVALID_SECRET_MUST_NOT_BE_PRINTED';
-  const result = spawnSync(process.execPath, ['solana/scripts/deploy-local.mjs'], {
+  const result = spawnSync(process.execPath, ['solana/scripts/deploy-local.mjs', '--broadcast'], {
     env: { ...process.env, PP_DEPLOY_LOCAL_RPC: 'http://127.0.0.1:8995', SOLANA_DEPLOYER_PRIVATE_KEY: marker }, encoding: 'utf8',
   });
   assert.notEqual(result.status, 0);
@@ -52,7 +52,7 @@ test('valid local key cannot deploy without explicit broadcast', () => {
 
 test('malformed endpoint and embedded credentials are never disclosed', () => {
   for (const endpoint of ['SECRET_RPC_NOT_A_URL', 'http://user:SECRET_RPC@127.0.0.1:8970/']) {
-    const result = spawnSync(process.execPath, ['solana/scripts/deploy-local.mjs'], {
+    const result = spawnSync(process.execPath, ['solana/scripts/deploy-local.mjs', '--broadcast'], {
       env: { ...process.env, PP_DEPLOY_LOCAL_RPC: endpoint }, encoding: 'utf8',
     });
     assert.notEqual(result.status, 0);
@@ -63,7 +63,7 @@ test('malformed endpoint and embedded credentials are never disclosed', () => {
 test('out-of-range JSON key bytes cannot silently coerce to a valid key', () => {
   const values = Array.from(Keypair.generate().secretKey);
   values[0] += 256;
-  const result = spawnSync(process.execPath, ['solana/scripts/deploy-local.mjs'], {
+  const result = spawnSync(process.execPath, ['solana/scripts/deploy-local.mjs', '--broadcast'], {
     env: { ...process.env, SOLANA_DEPLOYER_PRIVATE_KEY: JSON.stringify(values) }, encoding: 'utf8',
   });
   assert.notEqual(result.status, 0);
