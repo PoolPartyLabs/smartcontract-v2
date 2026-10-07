@@ -91,6 +91,50 @@ pub fn dispatch_unavailable() -> Result<()> {
     err!(ReportError::OrderExecutionNotIntegrated)
 }
 
+/// DEC-191: only the sealed Hub's confirmed-arrival ACK retires a perpetual claim.
+pub fn execute_acknowledgement(fund: &mut Account<FundState>, posted: &AccountInfo, accounts: &[AccountInfo]) -> Result<()> {
+    let data = posted.try_borrow_data()?;
+    let payload = &data[95..];
+    require!(payload[63] == 4, ReportError::OrderExecutionNotIntegrated);
+    let sequence = u64::from_le_bytes(data[49..57].try_into().unwrap());
+    if payload[192..224] != word(u128::from(fund.spoke_chain_id)) {
+        fund.order_sequence = sequence;
+        return Ok(());
+    }
+    require!(payload[224..256] == word(2) && accounts.len() == 2, ReportError::InvalidOrder);
+    let id: [u8;32] = payload[96..128].try_into().unwrap();
+    let key = Pubkey::find_program_address(&[b"transit", fund.key().as_ref(), &id], &crate::ID).0;
+    require_keys_eq!(*accounts[0].key, key, ReportError::InvalidOrder);
+    require_keys_eq!(*accounts[0].owner, crate::ID, ReportError::InvalidOrder);
+    require!(accounts[0].is_writable && accounts[1].is_writable, ReportError::InvalidOrder);
+    let mut transit = crate::state::transit::Transit::try_deserialize(&mut &accounts[0].try_borrow_data()?[..])?;
+    require!(transit.fund == fund.key() && transit.outbound && transit.transit_id == id, ReportError::InvalidOrder);
+    let ledger_key = Pubkey::find_program_address(&[b"cctp_ledger", fund.key().as_ref()], &crate::ID).0;
+    require_keys_eq!(*accounts[1].key, ledger_key, ReportError::InvalidOrder);
+    require_keys_eq!(*accounts[1].owner, crate::ID, ReportError::InvalidOrder);
+    let mut ledger = crate::state::transit::CctpLedger::try_deserialize(&mut &accounts[1].try_borrow_data()?[..])?;
+    require_keys_eq!(ledger.fund, fund.key(), ReportError::InvalidOrder);
+    if !transit.received {
+        let index = fund.transit_registry.iter().position(|entry| *entry == key).ok_or(ReportError::InvalidOrder)?;
+        ledger.outbound_in_flight = ledger.outbound_in_flight.checked_sub(transit.in_flight).ok_or(ReportError::InvalidOrder)?;
+        fund.transit_registry.remove(index);
+        fund.pending_transits = fund.transit_registry.len() as u16;
+        transit.received = true;
+        transit.try_serialize(&mut &mut accounts[0].try_borrow_mut_data()?[..])?;
+        ledger.try_serialize(&mut &mut accounts[1].try_borrow_mut_data()?[..])?;
+    }
+    fund.order_sequence = sequence;
+    emit!(HubArrivalAcknowledged { fund: fund.key(), transit_id: id, sequence });
+    Ok(())
+}
+
+#[event]
+pub struct HubArrivalAcknowledged {
+    pub fund: Pubkey,
+    pub transit_id: [u8;32],
+    pub sequence: u64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

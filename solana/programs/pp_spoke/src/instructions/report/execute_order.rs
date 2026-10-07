@@ -1,4 +1,4 @@
-use super::orders::{dispatch_unavailable, verify_order};
+use super::orders::verify_order;
 use crate::state::FundState;
 use anchor_lang::prelude::*;
 
@@ -19,7 +19,8 @@ pub struct ExecuteOrder<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn handler(ctx: Context<ExecuteOrder>, _payload: Vec<u8>) -> Result<()> {
+pub fn handler(ctx: Context<ExecuteOrder>, payload: Vec<u8>) -> Result<()> {
+    require!(payload.is_empty(), super::snapshot::ReportError::InvalidOrder);
     verify_order(
         &ctx.accounts.fund,
         ctx.accounts.fund.key(),
@@ -27,5 +28,5 @@ pub fn handler(ctx: Context<ExecuteOrder>, _payload: Vec<u8>) -> Result<()> {
         None,
         Clock::get()?.unix_timestamp,
     )?;
-    dispatch_unavailable()
+    super::orders::execute_acknowledgement(&mut ctx.accounts.fund, &ctx.accounts.posted_vaa, ctx.remaining_accounts)
 }
