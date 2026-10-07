@@ -20,7 +20,7 @@ pub struct SendToHub<'info> {
     pub route: Account<'info, CctpRoute>,
     #[account(mut, seeds = [b"cctp_ledger", fund.key().as_ref()], bump, has_one = fund)]
     pub ledger: Account<'info, CctpLedger>,
-    #[account(init, payer = authority, space = 8 + Transit::INIT_SPACE, seeds = [b"transit".as_ref(), b"out".as_ref(), fund.key().as_ref(), outbound_id(&fund.fund_id, transit_seed(&payload)?)?.as_ref()], bump)]
+    #[account(init, payer = authority, space = 8 + Transit::INIT_SPACE, seeds = [b"transit_out", fund.key().as_ref(), transit_seed(&payload)?], bump)]
     pub transit: Account<'info, Transit>,
     /// CHECK: legacy native USDC ATA layout and custody checked before and after CPI.
     #[account(mut, address = cpi::ata(&vault.key()))]
@@ -36,6 +36,7 @@ pub struct SendToHub<'info> {
 pub fn handler(ctx: Context<SendToHub>, payload: Vec<u8>) -> Result<()> {
     crate::instructions::core::guards::require_fund_address(&ctx.accounts.fund, &ctx.accounts.fund.key())?;
     let mut params = SendParams::try_from_slice(&payload).map_err(|_| CctpError::InvalidPayload)?;
+    let business_nonce = params.transit_id;
     params.transit_id = outbound_id(&ctx.accounts.fund.fund_id, &params.transit_id)?;
     let active = ctx.accounts.fund.active_command;
     let mut command = if active != Pubkey::default() {
@@ -131,11 +132,12 @@ pub fn handler(ctx: Context<SendToHub>, payload: Vec<u8>) -> Result<()> {
         credited: 0,
         fee_executed: 0,
         fee_surplus_principal: 0,
-        nonce: [0; 32],
+        nonce: business_nonce,
         message_hash: [0; 32],
         event_account: ctx.accounts.event_account.key(),
         rent_payer: ctx.accounts.authority.key(),
         received: false,
+        transfer_kind: u8::from(income),
     });
     emit!(CctpTransitRecorded {
         fund: fund_key,

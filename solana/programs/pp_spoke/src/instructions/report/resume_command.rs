@@ -32,7 +32,8 @@ pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, ResumeCommand<'info>>, pay
     let mut adapter_payload = payload[1..].to_vec();
     let (entry, step) = match opcode {
         1 => {
-            require!(command.kind != 3 && accounts.len() > 3, ReportError::InvalidOrder);
+            // TODO(decision): proportional withdrawal Market Cost evidence is not integrated.
+            require!(command.kind == 2 && accounts.len() > 3, ReportError::OrderExecutionNotIntegrated);
             let position = crate::state::kamino::KaminoPosition::try_deserialize(&mut &accounts[3].try_borrow_data()?[..])?;
             require!(position.fund == ctx.accounts.fund.key() && *accounts[3].owner == crate::ID, ReportError::InvalidAccounts);
             let units = commands::fraction(position.units, &command.payload[192..224], &command.payload[224..256])?;

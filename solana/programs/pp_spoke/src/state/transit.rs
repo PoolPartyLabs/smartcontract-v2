@@ -43,4 +43,5 @@ pub struct Transit {
     pub event_account: Pubkey,
     pub rent_payer: Pubkey,
     pub received: bool,
+    pub transfer_kind: u8,
 }

@@ -130,11 +130,14 @@ pub fn snapshot(
         require_keys_eq!(*account.owner, crate::ID, ReportError::InvalidAccounts);
         let transit = Transit::try_deserialize(&mut &account.try_borrow_data()?[..])?;
         require_keys_eq!(transit.fund, key, ReportError::InvalidAccounts);
-        let direction: &[u8] = if transit.outbound { b"out" } else { b"in" };
-        require_keys_eq!(*transit_key, Pubkey::find_program_address(&[b"transit", direction, key.as_ref(), &transit.transit_id], &crate::ID).0, ReportError::InvalidAccounts);
+        let prefix: &[u8] = if transit.outbound { b"transit_out" } else { b"transit_in" };
+        let seed = if transit.outbound { transit.nonce } else { transit.transit_id };
+        require_keys_eq!(*transit_key, Pubkey::find_program_address(&[prefix, key.as_ref(), &seed], &crate::ID).0, ReportError::InvalidAccounts);
+        if transit.outbound { require!(transit.transit_id == crate::instructions::cctp::wire::outbound_id(&fund.fund_id, &transit.nonce)?, ReportError::InvalidAccounts); }
         require!(transit.in_flight == transit.amount.checked_sub(transit.max_fee).ok_or(ReportError::InvalidAccounts)?, ReportError::InvalidAccounts);
         if transit.outbound {
-            report.in_flight.push([transit.transit_id, word(u128::from(transit.in_flight)), word(0)]);
+            require!(transit.transfer_kind <= 1, ReportError::InvalidAccounts);
+            report.in_flight.push([transit.transit_id, word(u128::from(transit.in_flight)), word(u128::from(transit.transfer_kind))]);
         } else {
             require!(transit.received && transit.credited == transit.amount.checked_sub(transit.fee_executed).ok_or(ReportError::InvalidAccounts)?, ReportError::InvalidAccounts);
             report.arrived.push([transit.transit_id, word(u128::from(transit.credited))]);

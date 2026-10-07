@@ -64,8 +64,8 @@ pub mod pp_spoke {
     }
 
     /// DEC-191: fail-closed track-owned scaffold; payload is not a stable wire API.
-    pub fn retry_receive(ctx: Context<RetryReceive>, payload: Vec<u8>) -> Result<()> {
-        instructions::cctp::retry_receive::handler(ctx, payload)
+    pub fn retry_receive(ctx: Context<ReceiveAndCredit>, payload: Vec<u8>) -> Result<()> {
+        instructions::cctp::receive_and_credit::handler(ctx, payload)
     }
 
     /// DEC-191: fail-closed track-owned scaffold; payload is not a stable wire API.
