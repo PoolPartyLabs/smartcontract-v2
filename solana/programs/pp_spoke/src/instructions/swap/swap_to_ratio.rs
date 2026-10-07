@@ -1,4 +1,4 @@
-use super::guard::{SwapError, JUPITER};
+use super::guard::{SwapError, JUPITER, SwapRequest, SealedPolicy, execute_guarded};
 use crate::state::FundState;
 use anchor_lang::prelude::*;
 
@@ -20,8 +20,27 @@ pub struct SwapToRatio<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn handler(_ctx: Context<SwapToRatio>, _payload: Vec<u8>) -> Result<()> {
-    // TODO(decision): T1 must supply canonical sealed-Mandate/config decoding and atomic ledger conversion.
-    // DEC-079, DEC-080, DEC-190: never trust a Manager-supplied token allowlist or book a swap as income.
-    err!(SwapError::IntegrationPending)
+pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, SwapToRatio<'info>>, payload: Vec<u8>) -> Result<()> {
+    require!(cfg!(feature = "rehearsal-v1-swap"), SwapError::IntegrationPending);
+    crate::instructions::core::admission::manager(&ctx.accounts.fund, &ctx.accounts.authority.to_account_info())?;
+    let request = SwapRequest::try_from_slice(&payload).map_err(|_| SwapError::Route)?;
+    require!(ctx.remaining_accounts.len() >= 2, SwapError::Custody);
+    let ledger_offset = ctx.remaining_accounts.len() - 2;
+    let input_account = &ctx.remaining_accounts[ledger_offset];
+    let output_account = &ctx.remaining_accounts[ledger_offset + 1];
+    let mut input = crate::instructions::core::admission::read_ledger(input_account, ctx.accounts.fund.key(), request.input_mint)?;
+    let mut output = crate::instructions::core::admission::read_ledger(output_account, ctx.accounts.fund.key(), request.output_mint)?;
+    require!(request.requested_input <= input.principal, SwapError::Custody);
+    let mints: Vec<Pubkey> = ctx.accounts.fund.assets.iter().map(|asset| asset.mint).collect();
+    let policy = SealedPolicy { mints: &mints, max_slippage_bps: request.slippage_bps };
+    // DEC-197, R6.2/R6.3: guarded V1 rehearsal path only; T5b replaces pricing/quote/decoder.
+    let fund_key = ctx.accounts.fund.key();
+    let bump = [ctx.accounts.fund.vault_bump];
+    let seeds = [b"vault".as_slice(), fund_key.as_ref(), bump.as_slice()];
+    let conversion = execute_guarded(&ctx.accounts.swap_program.to_account_info(), &ctx.accounts.vault.to_account_info(),
+        &ctx.remaining_accounts[..ledger_offset], &seeds, &request, &policy)?;
+    input.debit_principal(conversion.input_units)?;
+    output.credit_principal(conversion.output_units)?;
+    crate::instructions::core::admission::write_ledger(input_account, &input)?;
+    crate::instructions::core::admission::write_ledger(output_account, &output)
 }

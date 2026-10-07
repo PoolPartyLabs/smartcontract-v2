@@ -167,7 +167,7 @@ pub mod pp_spoke {
     }
 
     /// DEC-136, DEC-193: fail-closed track-owned scaffold; payload is not a stable wire API.
-    pub fn swap_to_ratio(ctx: Context<SwapToRatio>, payload: Vec<u8>) -> Result<()> {
+    pub fn swap_to_ratio<'info>(ctx: Context<'_, '_, '_, 'info, SwapToRatio<'info>>, payload: Vec<u8>) -> Result<()> {
         instructions::swap::swap_to_ratio::handler(ctx, payload)
     }
 }

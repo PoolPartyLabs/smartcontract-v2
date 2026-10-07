@@ -18,6 +18,7 @@ idl-build = ["anchor-lang/idl-build"]
 anchor-debug = []
 custom-heap = []
 custom-panic = []
+rehearsal-v1-swap = []
 
 [dependencies]
 anchor-lang = { workspace = true }
