@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import test from 'node:test';
-import { secp256k1 } from '@noble/curves/secp256k1';
 import { Keypair, PublicKey, SystemProgram, TransactionInstruction, SYSVAR_CLOCK_PUBKEY, SYSVAR_RENT_PUBKEY,
   ComputeBudgetProgram, TransactionMessage, VersionedTransaction, AddressLookupTableProgram } from '@solana/web3.js';
 import { ADDRESSES, publicKey, derive } from '../helpers/addresses.ts';
@@ -10,14 +9,14 @@ import { localConnection, requireLoopback, testWallet, testAta, sendLocal } from
 import { instruction, sendMeasured, u128 } from '../raydium/client.ts';
 import { integer, word, fundId, addressWord } from '../core/fixtures.ts';
 import { attest, evm } from '../cctp/fixtures.ts';
-import { creation, signedSwap, NVDA, NVDA_POOL, SOL_PRICE, USDC_PRICE, CROSS_CHECK } from './production-client.ts';
+import { creation, productionApiKey, stageSwapPolicy, signedSwap, NVDA, NVDA_POOL, SOL_PRICE, USDC_PRICE, CROSS_CHECK } from './production-client.ts';
 
 test('production signed swap plus open, real countertrade fees and NVDAx report', { timeout: 900_000 }, async () => {
   const connection = localConnection(); requireLoopback(connection.rpcEndpoint);
   const manager = testWallet(); const keeper = testWallet('keeper');
-  const core = Buffer.alloc(20, 0xc8); const apiKey = secp256k1.utils.randomPrivateKey();
+  const core = Buffer.alloc(20, 0xc8); const apiKey = productionApiKey();
   const pool = decodePool((await connection.getAccountInfo(publicKey(ADDRESSES.solPool)))!.data);
-  const { bootstrapPayload, stagedPayload, bindingDigest, policy, target } = creation(manager.publicKey, core, 18, pool, apiKey, true);
+  const { payload, policyHash, bindingDigest, policy, target } = creation(manager.publicKey, core, 18, pool, apiKey, true);
   const fund = publicKey(target.fund); const vault = publicKey(target.vault);
   const ledger = (mint: string) => derive(ADDRESSES.spoke, Buffer.from('ledger'), fund.toBuffer(), publicKey(mint).toBuffer());
   const pda = (...seeds: Buffer[]) => derive(ADDRESSES.spoke, ...seeds);
@@ -25,22 +24,46 @@ test('production signed swap plus open, real countertrade fees and NVDAx report'
   const config = pda(Buffer.from('swap_config'), fund.toBuffer());
   const common = { authority: manager.publicKey, fund, vault, system_program: SystemProgram.programId };
   const key = (address: string | PublicKey, writable = false, signer = false) => ({ pubkey: typeof address === 'string' ? publicKey(address) : address, isWritable: writable, isSigner: signer });
-  const stage = Keypair.generate();
-  const stageInstruction = instruction('swap_exact_in', { ...common, swap_program: 'JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4' }, stagedPayload);
-  stageInstruction.keys.push(key(stage.publicKey, true, true));
-  await sendMeasured(connection, manager, stageInstruction, [stage]);
+  const { stage, instructions: stageInstructions } = stageSwapPolicy(manager.publicKey, fund, policyHash, payload);
+  assert.ok(stageInstructions.length >= 2);
+  await sendMeasured(connection, manager, stageInstructions[0]);
+  const partialStage = (await connection.getAccountInfo(stage))!.data;
+  async function rejectsStageMutation(operation: TransactionInstruction, payer = manager) {
+    const before = (await connection.getAccountInfo(stage))!.data;
+    await assert.rejects(sendMeasured(connection, payer, operation), /Route|Custody|ConstraintSeeds|InvalidConfiguration/);
+    assert.deepEqual((await connection.getAccountInfo(stage))!.data, before);
+    assert.equal(await connection.getAccountInfo(fund), null);
+  }
+  const wrongHash = new TransactionInstruction({ programId: stageInstructions[1].programId,
+    keys: stageInstructions[1].keys, data: Buffer.from(stageInstructions[1].data) });
+  wrongHash.data[12] ^= 1;
+  await rejectsStageMutation(wrongHash);
+  const wrongOrder = new TransactionInstruction({ programId: stageInstructions[1].programId,
+    keys: stageInstructions[1].keys, data: Buffer.from(stageInstructions[1].data) });
+  wrongOrder.data.writeUInt16LE(0, 46);
+  await rejectsStageMutation(wrongOrder);
+  const wrongStageSigner = new TransactionInstruction({ programId: stageInstructions[1].programId,
+    keys: stageInstructions[1].keys.map(account => account.pubkey.equals(manager.publicKey) ? key(keeper.publicKey, true, true) : account),
+    data: stageInstructions[1].data });
+  await rejectsStageMutation(wrongStageSigner, keeper);
+  assert.deepEqual((await connection.getAccountInfo(stage))!.data, partialStage);
+  for (const stageInstruction of stageInstructions.slice(1)) await sendMeasured(connection, manager, stageInstruction);
+  await rejectsStageMutation(stageInstructions[stageInstructions.length - 1]);
+  await rejectsStageMutation(stageInstructions[0]);
   const init = instruction('initialize_fund', { ...common, usdc_mint: ADDRESSES.usdc, tslax_mint: ADDRESSES.tslax, wsol_mint: ADDRESSES.wsol,
     usdc_ata: testAta(ADDRESSES.usdc, vault), tslax_ata: testAta(ADDRESSES.tslax, vault), wsol_ata: testAta(ADDRESSES.wsol, vault),
     usdc_ledger: ledger(ADDRESSES.usdc), tslax_ledger: ledger(ADDRESSES.tslax), wsol_ledger: ledger(ADDRESSES.wsol),
     cctp_route: pda(Buffer.from('cctp_route'), fund.toBuffer()), cctp_ledger: pda(Buffer.from('cctp_ledger'), fund.toBuffer()),
-    token_program: ADDRESSES.token, token_2022_program: ADDRESSES.token2022, ata_program: ADDRESSES.ata }, bootstrapPayload);
-  init.keys.push(key(config, true), key(stage.publicKey, true), key(NVDA), key(testAta(NVDA, vault), true), key(ledger(NVDA), true));
-  const tampered = new TransactionInstruction({ programId: init.programId, keys: init.keys, data: Buffer.from(init.data) });
-  tampered.data[12 + 230] ^= 1;
-  await assert.rejects(sendMeasured(connection, manager, tampered), /InvalidBinding|InvalidConfiguration/);
+    token_program: ADDRESSES.token, token_2022_program: ADDRESSES.token2022, ata_program: ADDRESSES.ata }, Buffer.from([2]));
+  init.keys.push(key(config, true), key(stage, true), key(NVDA), key(testAta(NVDA, vault), true), key(ledger(NVDA), true));
+  const staged = (await connection.getAccountInfo(stage))!.data;
+  const wrongManager = new TransactionInstruction({ programId: init.programId,
+    keys: init.keys.map(account => account.pubkey.equals(manager.publicKey) ? key(keeper.publicKey, true, true) : account), data: init.data });
+  await assert.rejects(sendMeasured(connection, keeper, wrongManager));
   assert.equal(await connection.getAccountInfo(fund), null);
+  assert.deepEqual((await connection.getAccountInfo(stage))!.data, staged);
   await sendMeasured(connection, manager, init);
-  assert.equal(await connection.getAccountInfo(stage.publicKey), null);
+  assert.equal(await connection.getAccountInfo(stage), null);
   const sealed = (await connection.getAccountInfo(publicKey(config)))!.data;
   assert.deepEqual(sealed.subarray(40, 72), bindingDigest);
   assert.deepEqual(sealed.subarray(72, 72 + policy.length), policy);
@@ -61,7 +84,7 @@ test('production signed swap plus open, real countertrade fees and NVDAx report'
   word(30_000_000).copy(arrival, 216); addressWord(core).copy(arrival, 248); word(10_000).copy(arrival, 280); word(100).copy(arrival, 312);
   Buffer.concat([word(1), fundId, word(42161), inbound, word(0)]).copy(arrival, 376);
   const attestation = attest(arrival);
-  const transit = pda(Buffer.from('transit'), fund.toBuffer(), inbound);
+  const transit = pda(Buffer.from('transit_in'), fund.toBuffer(), inbound);
   const receive = instruction('receive_and_credit', { ...common, authority: keeper.publicKey,
     route: pda(Buffer.from('cctp_route'), fund.toBuffer()), ledger: pda(Buffer.from('cctp_ledger'), fund.toBuffer()),
     transit, usdc_ata: usdc, token_ledger: ledger(ADDRESSES.usdc) },

@@ -1,8 +1,10 @@
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { PublicKey, SystemProgram, TransactionInstruction } from '@solana/web3.js';
 import { ADDRESSES, fundAddresses, publicKey } from '../helpers/addresses.ts';
 import { testAta } from '../helpers/localnet.ts';
-import { factory, fundId, mandateHash, integer, word, hash, addressWord } from '../core/fixtures.ts';
+import { factory, fundId, mandateHash, hubPolicyHash, integer, word, hash, addressWord } from '../core/fixtures.ts';
+export { stageSwapPolicy } from '../core/fixtures.ts';
 import { quoteDigest, encodeQuote, routeHash } from '../../clients/swap/quote.ts';
 import { instruction } from '../raydium/client.ts';
 
@@ -13,6 +15,31 @@ export const USDC_PRICE = '6HAuqASbHEh4w4REJEUUUCginTLfj1kwCh215ZLtMkrT';
 export const CROSS_CHECK = 'CH31Xns5z3M1cTAbKW34jcxPPciazARpijcHj9rxtemt';
 export const SOL_FEED = Buffer.from('ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d', 'hex');
 export const USDC_FEED = Buffer.from('eaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a', 'hex');
+
+export function productionApiKey(create = false): Uint8Array {
+  const root = new URL('../../.localnet/', import.meta.url);
+  const path = new URL('production-api-key.json', root);
+  if (create) {
+    mkdirSync(root, { recursive: true });
+    const fixtureKey = hash(Buffer.from('PoolParty/localnet/production-api/v1'));
+    try {
+      writeFileSync(path, JSON.stringify(Array.from(fixtureKey)), { flag: 'wx', mode: 0o600 });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw new Error('Unable to create local production API fixture');
+    }
+  }
+  try {
+    const value: unknown = JSON.parse(readFileSync(path, 'utf8'));
+    if (!Array.isArray(value) || value.length !== 32 || !value.every(byte => Number.isInteger(byte) && byte >= 0 && byte <= 255)) {
+      throw new Error('Invalid local fixture');
+    }
+    const key = Uint8Array.from(value);
+    if (!secp256k1.utils.isValidPrivateKey(key)) throw new Error('Invalid local fixture');
+    return key;
+  } catch {
+    throw new Error('Production API fixture missing or invalid; run local production preparation');
+  }
+}
 
 export function policyBytes(apiKey: Uint8Array) {
   const signer = hash(secp256k1.getPublicKey(apiKey, false).subarray(1)).subarray(12);
@@ -29,8 +56,8 @@ export function policyDigest(policy: Buffer, bindingDigest: Buffer, fund: Public
 }
 
 export function creation(manager: PublicKey, core: Buffer, index: number, pool: { mint0: string; mint1: string }, apiKey: Uint8Array, includeNvda = true) {
-  const target = fundAddresses(core, index, mandateHash);
-  const fund = publicKey(target.fund); const vault = publicKey(target.vault);
+  const policy = policyBytes(apiKey);
+  const swapPolicyHash = hash(policy);
   const mints = [ADDRESSES.usdc, ADDRESSES.wsol, ...(includeNvda ? [NVDA] : [])];
   const assetWords = mints.map(mint => {
     const namespace = Buffer.from('PoolParty/SolanaAsset/v6');
@@ -43,34 +70,38 @@ export function creation(manager: PublicKey, core: Buffer, index: number, pool: 
   const usdc = Buffer.from('af88d065e77c8cc2239327c5edb3a432268e5831', 'hex');
   const messenger = Buffer.from('28b5a0e9c621a5badaa536219b3a228c8168cf5d', 'hex');
   const transmitter = Buffer.from('81d40f21f12a8f0e3252bccb954d722d4c464b64', 'hex');
+  const nativeAbi = (emitter: PublicKey, recipient: PublicKey, vault: PublicKey) => Buffer.concat([
+    word(6), word(64), publicKey(ADDRESSES.spoke).toBuffer(), emitter.toBuffer(),
+    publicKey(ADDRESSES.usdc).toBuffer(), manager.toBuffer(), word(1), word(544), word(544 + 32 + assetWords.length * 96),
+    addressWord(usdc), addressWord(messenger), addressWord(transmitter), word(5), recipient.toBuffer(), vault.toBuffer(),
+    publicKey(ADDRESSES.cctpMessenger).toBuffer(), vault.toBuffer(), word(50_000), swapPolicyHash, word(assetWords.length),
+    ...assetWords.flatMap(asset => [publicKey(asset.mint).toBuffer(), addressWord(asset.alias), word(Number(asset.stock))]),
+    word(venues.length), ...venues.flatMap(venue => venue.map(address => publicKey(address).toBuffer()))]);
+  const nativePolicyHash = hash(nativeAbi(PublicKey.default, PublicKey.default, PublicKey.default));
+  const policyHash = hash(Buffer.concat([hash(Buffer.from('PoolParty/SolanaPolicy/v6')), hubPolicyHash, nativePolicyHash]));
+  const target = fundAddresses(core, index, policyHash);
+  const fund = publicKey(target.fund); const vault = publicKey(target.vault);
   const transport = Buffer.concat([usdc, messenger, transmitter, integer(5, 4), testAta(ADDRESSES.usdc, vault).toBuffer(),
     vault.toBuffer(), publicKey(ADDRESSES.cctpMessenger).toBuffer(), vault.toBuffer(), integer(50_000, 8)]);
-  const nativeHash = hash(Buffer.concat([word(6), word(64), publicKey(ADDRESSES.spoke).toBuffer(), publicKey(target.emitter).toBuffer(),
-    publicKey(ADDRESSES.usdc).toBuffer(), manager.toBuffer(), word(1), word(512), word(512 + 32 + assetWords.length * 96),
-    addressWord(usdc), addressWord(messenger), addressWord(transmitter), word(5), testAta(ADDRESSES.usdc, vault).toBuffer(), vault.toBuffer(),
-    publicKey(ADDRESSES.cctpMessenger).toBuffer(), vault.toBuffer(), word(50_000), word(assetWords.length),
-    ...assetWords.flatMap(asset => [publicKey(asset.mint).toBuffer(), addressWord(asset.alias), word(Number(asset.stock))]),
-    word(venues.length), ...venues.flatMap(venue => venue.map(address => publicKey(address).toBuffer()))]));
+  const nativeHash = hash(nativeAbi(publicKey(target.emitter), testAta(ADDRESSES.usdc, vault), vault));
   const domain = hash(Buffer.concat([hash(Buffer.from('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)')),
     hash(Buffer.from('PoolParty Solana Fund')), hash(Buffer.from('6')), word(42161), addressWord(factory)]));
   const nonce = word(9); const expiry = 2_000_000_000n;
-  const message = hash(Buffer.concat([hash(Buffer.from('SolanaBootstrap(uint256 hubChain,address core,bytes32 mandateHash,uint16 spokeIndex,bytes32 program,bytes32 fundPda,bytes32 solanaKey,bytes32 usdcAta,bytes32 tslaxAta,bytes32 nvdaxAta,bytes32 wsolAta,bytes32 nativeMandateHash,bytes32 fundId,uint256 nonce,uint256 expiry)')),
-    word(42161), addressWord(core), mandateHash, word(index), publicKey(ADDRESSES.spoke).toBuffer(), fund.toBuffer(), manager.toBuffer(),
+  const message = hash(Buffer.concat([hash(Buffer.from('SolanaBootstrap(uint256 hubChain,address core,bytes32 mandateHash,bytes32 policyHash,uint16 spokeIndex,bytes32 program,bytes32 fundPda,bytes32 solanaKey,bytes32 usdcAta,bytes32 tslaxAta,bytes32 nvdaxAta,bytes32 wsolAta,bytes32 nativeMandateHash,bytes32 fundId,uint256 nonce,uint256 expiry)')),
+    word(42161), addressWord(core), mandateHash, policyHash, word(index), publicKey(ADDRESSES.spoke).toBuffer(), fund.toBuffer(), manager.toBuffer(),
     ...[ADDRESSES.usdc, ADDRESSES.tslax, NVDA, ADDRESSES.wsol].map(mint => testAta(mint, vault).toBuffer()), nativeHash, fundId, nonce, word(expiry)]));
   const bindingDigest = hash(Buffer.concat([Buffer.from([25, 1]), domain, message]));
   const managerKey = secp256k1.utils.randomPrivateKey();
   const evm = hash(secp256k1.getPublicKey(managerKey, false).subarray(1)).subarray(12);
   const signature = secp256k1.sign(bindingDigest, managerKey);
-  const policy = policyBytes(apiKey);
   const consent = secp256k1.sign(policyDigest(policy, bindingDigest, fund, core), managerKey);
   const payload = Buffer.concat([core, integer(index, 2), fundId, mandateHash, evm, factory, integer(42161, 8), integer(1, 8), nativeHash, nonce, integer(expiry, 8),
     Buffer.from(signature.toCompactRawBytes()), Buffer.from([signature.recovery + 27]), integer(assetWords.length, 4),
     ...assetWords.map(asset => Buffer.concat([publicKey(asset.mint).toBuffer(), asset.alias, Buffer.from([Number(asset.stock)])])),
     integer(venues.length, 4), ...venues.map(venue => Buffer.concat(venue.map(address => publicKey(address).toBuffer()))), transport,
+    hubPolicyHash, policyHash, swapPolicyHash,
     policy, Buffer.from(consent.toCompactRawBytes()), Buffer.from([consent.recovery + 27])]);
-  return { payload, bootstrapPayload: payload.subarray(0, payload.length - policy.length - 65),
-    stagedPayload: Buffer.concat([bindingDigest, policy, Buffer.from(consent.toCompactRawBytes()), Buffer.from([consent.recovery + 27])]),
-    bindingDigest, policy, target };
+  return { payload, bindingDigest, policy, policyHash, swapPolicyHash, nativeHash, nativePolicyHash, target };
 }
 
 export function signedSwap(recorded: any, common: Record<string, any>, core: Buffer, apiKey: Uint8Array, config: string, ledger: (mint: string) => string,

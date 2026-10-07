@@ -77,6 +77,31 @@ All measured transactions fit the 1232-byte packet limit. Initializer has only
 evidence. Maximum observed step was 325189 CU; there is no proof of maximum
 registry occupancy fitting a transaction/report memory budget.
 
+### Policy-bootstrap repeat — PR #47
+
+Final-source finish-work repeat passed: 13 measured operations, 2,176 report
+bytes, zero failures/cancelled/skipped. Logs `/tmp/sol-finish-47-rehearsal-final.log`.
+
+| Step | CU | Signed bytes |
+| --- | ---: | ---: |
+| Policy bootstrap, compact version 1 | 187721 | 1231 |
+| CCTP receive and exact credit | 263682 | 952 |
+| Initialize Kamino admission | 50048 | 278 |
+| Kamino supply | 143989 | 296 |
+| Recorded V1 rehearsal ratio leg, not production V2 | 125998 | 438 |
+| Initialize Raydium admission | 28498 | 278 |
+| Raydium open | 224623 | 462 |
+| Publish finalized exhaustive v6 report | 295394 | 411 |
+| Raydium collect fees | 295943 | 314 |
+| Raydium close | 341961 | 333 |
+| Kamino withdraw all | 135521 | 304 |
+| CCTP principal home | 129405 | 450 |
+| Sealed Hub ACK, local guardian fixture | 19809 | 272 |
+
+Maximum is 341,961 CU and 1,231 signed bytes. The bootstrap has one byte of
+packet reserve; configuration expansion requires fresh packet-fit evidence.
+This is not full native command liquidation, reward-accrual acceptance or GC.
+
 ## Assertions and negatives
 
 - Exact inbound principal is 49999900 raw USDC after a 100-unit executed fee.
@@ -96,10 +121,11 @@ registry occupancy fitting a transaction/report memory budget.
 
 ## Release gates — do not claim a full three-chain production lifecycle
 
-1. **TODO(decision), DEC-200:** EVM Mandate includes native emitter identity,
-   while Fund PDA uses that Mandate hash and emitter derives from Fund PDA.
-   Resolve the commitment/address derivation cycle before creating a real Fund.
-   This rehearsal uses a fixture Mandate hash, not jointly deployed Hub consent.
+1. **DEC-200 engineering refinement:** the policy commitment excludes derived
+   identities before PDA derivation. Native bootstrap signs both policy and full
+   Mandate hashes; the compact wire format recomputes only native hash/chain.
+   This rehearsal uses fixture Hub policy/Mandate hashes, not jointly deployed
+   three-chain consent. See `LIFECYCLE.md` and the finish-work report.
 2. **TODO(decision), DEC-202/LC-173:** signer/domain/oracle policy, stock streams
    and nonce persistence are not sealed in this creation ABI. Production V2
    `swap_to_ratio` stays `IntegrationPending`. T5b pricing/decoder were not altered.
@@ -112,8 +138,8 @@ registry occupancy fitting a transaction/report memory budget.
    nonzero fees. Do not infer yield evidence from a successful collection CPI.
 6. NVDAx is not admitted in this cohort; changed/nonunit witnesses fail closed.
    Four ATA derivations are signed, but only USDC/TSLAx/WSOL custody is initialized.
-7. Registry retention/GC and direction-qualified transit IDs remain undecided.
-   Bounds fail closed; no receipt sweep/write-off. Large exhaustive snapshots
+7. Direction-qualified transit IDs are integrated. Registry retention/GC remains
+   partial; bounds fail closed with no receipt sweep/write-off. Large snapshots
    need CU, heap, forwarded-account and report-size stress evidence.
 8. Rebuild with plain `anchor build` before any separately approved deployment.
    Never deploy the `rehearsal-v1-swap` feature binary. Deployment remains unapproved.

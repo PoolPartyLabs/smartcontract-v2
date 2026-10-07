@@ -13,27 +13,49 @@ and per-Fund `SwapConfig`. The EVM Manager signs an additional typed consent:
 
 `SolanaSwapPolicy(bytes32 fund,bytes32 bindingDigest,bytes32 policyHash)`
 
-The domain matches quote v2, with program ID as salt; `policyHash` is Keccak of
-the exact Borsh policy. The bootstrap signature format remains unchanged.
-`TODO(decision)`: approve the additional policy-consent domain/ABI with T8b.
+The domain matches quote v2, with program ID as salt; this consent's `policyHash`
+is Keccak of the exact Borsh `SwapPolicy` (the initializer's `swap_policy_hash`).
+The native Config ABI adds final `bytes32 swapPolicyHash`, so its tuple header
+is 544 bytes. Both the native mandate hash and identity-free native policy hash
+include this commitment. Identity-free hashing zeros the emitter, mint recipient,
+destination caller and remote vault authority, not the swap-policy commitment.
+The canonical Fund `policyHash` is Keccak of the concatenated policy namespace
+hash, `hub_policy_hash` and identity-free native policy hash. Fund seeds are
+`[fund, LE64(hubChain), core, LE16(spokeIndex), policyHash]`.
+Bootstrap typed data adds `bytes32 policyHash` immediately after `mandateHash`.
+`InitializePayload` ends with `hub_policy_hash`, `policy_hash`, `swap_policy_hash`,
+each 32 bytes, before the appended `CreationPolicy`.
+Canonical bootstrap/native/Fund binding to the swap-policy commitment is solved.
+The prior coordinator escalation concerns only approval/removal of the additional
+redundant policy-consent domain/ABI, not missing commitment binding.
 This is cryptographic consent, not a rule allowing Manager/API oracle replacement.
 
-Large configs require staging. Until the coordinator adds a named instruction,
-`swap_exact_in` is **staging only**, not a token swap. Its payload is
-`StageRequest { binding_digest, creation }`; one remaining signer account is a
-Manager-rent-funded temporary account. Anyone may stage only with their own
-signatures/rent; unverified staging never admits a Fund or authorizes capital.
-The creation handler validates the EVM consent against the bootstrap digest,
-Fund and fixed Solana signer, atomically seals `swap_config`, zeros the consumed
-temporary account and refunds only Manager rent (DEC-195). No live setter exists.
-Unconsumed staging rent has no cancellation path yet; clients must pre-simulate.
+Large configs use the named `stage_swap_policy` instruction, never
+`swap_exact_in`. Its accounts are `[authority mut signer, fund unchecked,
+stage mut PDA, system_program]`; stage seeds are
+`[swap_policy_stage, fund, manager]`. The Borsh request is
+`StageRequest { policy_hash: [u8;32], total_len: u16, offset: u16,
+chunk: Vec<u8>, seal: bool }`. Stage the full `InitializePayload + CreationPolicy`
+in ordered chunks of at most 600 bytes, sealing only the final chunk. Requests
+are wrapped in the instruction's Borsh `Vec<u8>`. Unverified staging never
+admits a Fund or authorizes capital.
 
-`initialize_fund` accepts either an appended `CreationPolicy`, or unchanged
-bootstrap payload plus remaining `[swap_config, staged_policy]`. Append
-`[NVDAx mint, NVDAx ATA, NVDAx ledger]` when admitted. Without policy no production
-swap can execute. Large Mandates can still exceed the 1232-byte packet ceiling;
-the verified fixture admits USDC/WSOL/NVDAx and one SOL/USDC venue. Larger
-Kamino + multiple-LP configurations require T8b's compact commitment/bootstrap.
+`initialize_fund` receives the one-byte payload `[2]`, with remaining
+`[swap_config mut, stage mut]`, followed by `[NVDAx mint, NVDAx ATA, NVDAx ledger]`
+when admitted. Initialization revalidates the stage's Fund, Manager, policy hash,
+bootstrap and policy-consent signatures, seals `swap_config`, and closes/refunds
+the stage to the Manager (DEC-195). No live setter exists. Without policy no
+production swap can execute. The composed fixture admits USDC/WSOL/NVDAx and
+one SOL/USDC venue; chunking keeps the initialization packet compact.
+
+Generic no-swap initialization uses the same stage PDA and requests with a zero
+`swap_policy_hash`; remaining accounts are `[stage mut]`, followed by any NVDAx
+mint/ATA/ledger. Core send helpers estimate the complete v0 packet using a lookup
+table and stage payloads that exceed 1232 bytes. The rehearsal stages the full
+LP initializer rather than relying on the previously borderline compact packet.
+`npm test` includes offline production hash/signature, chunk reconstruction,
+replay-model rejection and generic full/compact packet regression tests. The
+replay model tests client fixtures, not on-chain validator enforcement.
 
 `swap_to_ratio` accepts existing `AuthorizedSwap`; remaining accounts are:
 
@@ -66,32 +88,48 @@ by this fixture; its RAY quarantine remains zero during this run.
 
 ## Reproduce (local transactions only)
 
-Run from `solana/`, never a mainnet transaction endpoint:
+Only run after the main engineer authorizes validator testing. Run from
+`solana/`, never a mainnet transaction endpoint. Preparation refreshes finalized
+accounts using read-only `getAccountInfo`, recording slots and hashes in
+`swap-production-clones.json`. Source the approved read-only RPC environment
+script before preparing when required; `SOLANA_MAINNET_RPC` overrides the public
+default without printing its value. No EVM request or mainnet transaction is
+sent by this helper. Refresh oracle snapshots immediately before the rehearsal;
+old snapshots do not bypass the strict oracle age checks.
 
 ```sh
 npm ci
 anchor build
-./scripts/localnet.sh prepare
-node tests/swap/prepare-v2.ts
 node tests/swap/production.prepare.ts
-bash tests/swap/production.start.sh
-PP_LOCALNET_RPC_PORT=8990 node --test tests/swap/production.localnet.test.ts
+PP_LOCALNET_RPC_PORT=8970 PP_LOCALNET_FAUCET_PORT=9970 \
+  PP_LOCALNET_GOSSIP_PORT=17000 PP_LOCALNET_DYNAMIC_PORTS=17001-17060 \
+  bash tests/swap/production.start.sh
+PP_LOCALNET_RPC_PORT=8970 node --test tests/swap/production.localnet.test.ts
 ./scripts/localnet.sh stop
 ```
 
-Track extension changes only local clones, synthetic Manager WSOL/reward
+Preparation creates/retains `production-api-key.json` under ignored `.localnet/`
+with owner-only permissions on creation. Its default is a deterministic public
+test-only key, never a production credential. The test loads the same local
+file without regeneration; preparation derives reward quarantine addresses and
+owners from the resulting canonical Fund and vault. Do not print key contents.
+Changing/removing this file requires preparing quarantine fixtures again.
+
+Track extension changes only local snapshots, synthetic Manager WSOL/reward
 quarantine accounts, and Circle's explicitly local attester fixture. Protocol
 mint/pool/oracle bytes stay cloned. The launcher uses 32-slot epochs so a huge
 mainnet-slot warp does not advance Clock by ~15 hours against fresh oracle bytes.
 Mainnet epoch behavior is not proven by that local timing setting. Ports are
-8990/9990/19000/19001–19060. Reclone immediately before the suite: oracle freshness
-is intentionally strict. `prepare-v2.ts` rewrites its tracked extension inventory;
-restore that generated metadata unless intentionally publishing new evidence.
+8970/9970/17000/17001–17060 by default, with the four port overrides shown above.
+Oracle freshness is intentionally strict; preparation refreshes the oracle
+snapshots instead of loosening policy. No RPC URL or secret is printed by these helpers.
 
-Verified composed run: signed swap + open **387197 CU / 799 bytes**, collected
+Historical pre-#47 composed run: signed swap + open **387197 CU / 799 bytes**, collected
 **10 raw USDC** trading fees with principal unchanged, **1952 report bytes**,
 consistency **32**, NVDAx witness present, position close and zero Fund SOL.
 Forged/expired/wrong-nonce/impact/stock-disabled requests fail; a submitted
 swap + invalid-open transaction fails with unchanged nonce/ledgers/custody.
 The committed report fixture round-trips the actual Hub v6 decoder.
-Evidence is clone-based, not deployment approval or mainnet readiness.
+These historical metrics do not validate the new commitment/chunked-staging
+schema; an authorized composed rerun is required. Evidence is clone-based,
+not deployment approval or mainnet readiness.

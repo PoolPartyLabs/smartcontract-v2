@@ -4,8 +4,12 @@ This workspace is isolated from Foundry. **No mainnet transactions are authorize
 by these scripts.** Implemented track primitives coexist with fail-closed
 entrypoints. Authenticated bootstrap, canonical adapter accounting and exhaustive
 reports are integrated, with a measured cloned lifecycle in `docs/REHEARSAL.md`.
-Production signed V2 swap policy and non-ACK Hub commands remain blocked; this
-workspace is not launch-ready.
+Signed V2 SOL/USDC swaps use a creation-committed policy and write-once chunk
+staging; stock swaps stay unavailable pending an approved reference source.
+Full Hub command parity remains blocked; T8b adds policy-qualified bootstrap
+and guarded resumable command primitives, not completed liquidation.
+See `tests/swap/PRODUCTION.md` and `docs/LIFECYCLE.md` for ABI changes and requests.
+This workspace is not launch-ready.
 New Funds only (DEC-188); closed-team upgradeable demo only (DEC-189).
 
 ## Pinned toolchain

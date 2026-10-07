@@ -1,6 +1,6 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
-import { PublicKey, Transaction, SendTransactionError, AddressLookupTableProgram, TransactionMessage, VersionedTransaction, ComputeBudgetProgram } from '@solana/web3.js';
-import type { Connection, Keypair, TransactionInstruction, AddressLookupTableAccount } from '@solana/web3.js';
+import { PublicKey, SystemProgram, TransactionInstruction, Transaction, SendTransactionError, AddressLookupTableAccount, AddressLookupTableProgram, TransactionMessage, VersionedTransaction, ComputeBudgetProgram } from '@solana/web3.js';
+import type { Connection, Keypair } from '@solana/web3.js';
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { keccak_256 } from '@noble/hashes/sha3';
 import { ADDRESSES, fundAddresses, derive, publicKey } from '../helpers/addresses.ts';
@@ -26,7 +26,7 @@ export function integer(value: number | bigint, size: number): Buffer {
   return bytes;
 }
 
-export function nativeConfig(manager: PublicKey, emitter: PublicKey, fund = publicKey(addresses.fund), lp?: { mint0: string; mint1: string }) {
+export function nativeConfig(manager: PublicKey, emitter: PublicKey, fund = publicKey(addresses.fund), lp?: { mint0: string; mint1: string }, swapPolicyHash = Buffer.alloc(32)) {
   const mint = publicKey(ADDRESSES.usdc).toBuffer();
   const namespace = Buffer.from('PoolParty/SolanaAsset/v6');
   const paddedNamespace = Buffer.concat([namespace, Buffer.alloc(32 - namespace.length)]);
@@ -45,14 +45,25 @@ export function nativeConfig(manager: PublicKey, emitter: PublicKey, fund = publ
   const remoteMessenger = publicKey(ADDRESSES.cctpMessenger).toBuffer();
   const transport = Buffer.concat([hubUsdc, messenger, transmitter, integer(5, 4), recipient, vault.toBuffer(), remoteMessenger, vault.toBuffer(), integer(50_000, 8)]);
   const abi = Buffer.concat([word(6), word(64), publicKey(ADDRESSES.spoke).toBuffer(), emitter.toBuffer(), mint, manager.toBuffer(),
-    word(1), word(512), word(lp ? 736 : 640), addressWord(hubUsdc), addressWord(messenger), addressWord(transmitter), word(5), recipient,
-    vault.toBuffer(), remoteMessenger, vault.toBuffer(), word(50_000), word(lp ? 2 : 1), mint, addressWord(alias), word(0),
+    word(1), word(544), word(lp ? 768 : 672), addressWord(hubUsdc), addressWord(messenger), addressWord(transmitter), word(5), recipient,
+    vault.toBuffer(), remoteMessenger, vault.toBuffer(), word(50_000), swapPolicyHash, word(lp ? 2 : 1), mint, addressWord(alias), word(0),
     ...(lp ? [stockMint, addressWord(stockAlias), word(1)] : []), word(lp ? 2 : 1), venue, lpVenue]);
-  return { nativeHash: hash(abi), assets: Buffer.concat([integer(lp ? 2 : 1, 4), asset, ...(lp ? [stockAsset] : [])]), venues: Buffer.concat([integer(lp ? 2 : 1, 4), venue, lpVenue]), transport };
+  const policy = Buffer.from(abi);
+  policy.fill(0, 96, 128);
+  policy.fill(0, 416, 480);
+  policy.fill(0, 512, 544);
+  return { nativeHash: hash(abi), nativePolicyHash: hash(policy), assets: Buffer.concat([integer(lp ? 2 : 1, 4), asset, ...(lp ? [stockAsset] : [])]), venues: Buffer.concat([integer(lp ? 2 : 1, 4), venue, lpVenue]), transport };
+}
+
+export const hubPolicyHash = Buffer.alloc(32, 0x11);
+export function policyAddresses(manager: PublicKey, core = hubCore, index = 1, lp?: { mint0: string; mint1: string }) {
+  const config = nativeConfig(manager, PublicKey.default, PublicKey.default, lp);
+  const policyHash = hash(Buffer.concat([hash(Buffer.from('PoolParty/SolanaPolicy/v6')), hubPolicyHash, config.nativePolicyHash]));
+  return { ...fundAddresses(core, index, policyHash), policyHash };
 }
 
 export function bindingPayload(manager: PublicKey, core = hubCore, index = 1, expiry = 2_000_000_000n, lp?: { mint0: string; mint1: string }) {
-  const target = fundAddresses(core, index, mandateHash);
+  const target = policyAddresses(manager, core, index, lp);
   const emitter = publicKey(target.emitter);
   const config = nativeConfig(manager, emitter, publicKey(target.fund), lp);
   const nonce = word(9);
@@ -65,28 +76,28 @@ export function bindingPayload(manager: PublicKey, core = hubCore, index = 1, ex
   const managerEvm = hash(Buffer.from(secp256k1.getPublicKey(ephemeralKey, false)).subarray(1)).subarray(12);
   const vault = publicKey(target.vault);
   const nvdax = 'Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh';
-  const bootstrapType = 'SolanaBootstrap(uint256 hubChain,address core,bytes32 mandateHash,uint16 spokeIndex,bytes32 program,bytes32 fundPda,bytes32 solanaKey,bytes32 usdcAta,bytes32 tslaxAta,bytes32 nvdaxAta,bytes32 wsolAta,bytes32 nativeMandateHash,bytes32 fundId,uint256 nonce,uint256 expiry)';
+  const bootstrapType = 'SolanaBootstrap(uint256 hubChain,address core,bytes32 mandateHash,bytes32 policyHash,uint16 spokeIndex,bytes32 program,bytes32 fundPda,bytes32 solanaKey,bytes32 usdcAta,bytes32 tslaxAta,bytes32 nvdaxAta,bytes32 wsolAta,bytes32 nativeMandateHash,bytes32 fundId,uint256 nonce,uint256 expiry)';
   const bootstrapStruct = hash(Buffer.concat([hash(Buffer.from(bootstrapType)), word(42161), addressWord(core), mandateHash,
-    word(index), publicKey(ADDRESSES.spoke).toBuffer(), publicKey(target.fund).toBuffer(), manager.toBuffer(),
+    target.policyHash, word(index), publicKey(ADDRESSES.spoke).toBuffer(), publicKey(target.fund).toBuffer(), manager.toBuffer(),
     ...[ADDRESSES.usdc, ADDRESSES.tslax, nvdax, ADDRESSES.wsol].map(mint => testAta(mint, vault).toBuffer()), config.nativeHash, fundId, nonce, word(expiry)]));
   const bootstrap = secp256k1.sign(hash(Buffer.concat([Buffer.from([25, 1]), domain, bootstrapStruct])), ephemeralKey);
   return Buffer.concat([core, integer(index, 2), fundId, mandateHash, managerEvm, factory, integer(42161, 8), integer(1, 8),
     config.nativeHash, nonce, integer(expiry, 8),
-    Buffer.from(bootstrap.toCompactRawBytes()), integer(bootstrap.recovery + 27, 1), config.assets, config.venues, config.transport]);
+    Buffer.from(bootstrap.toCompactRawBytes()), integer(bootstrap.recovery + 27, 1), config.assets, config.venues, config.transport, hubPolicyHash, target.policyHash, Buffer.alloc(32)]);
 }
 
 export function fixtureFund(manager: PublicKey) {
   const fund = publicKey(addresses.fund);
   const program = publicKey(ADDRESSES.spoke);
   const index = integer(1, 2);
-  const bump = PublicKey.findProgramAddressSync([Buffer.from('fund'), hubCore, index, mandateHash], program)[1];
+  const bump = PublicKey.findProgramAddressSync([Buffer.from('fund'), integer(42161, 8), hubCore, index, mandateHash], program)[1];
   const vaultBump = PublicKey.findProgramAddressSync([Buffer.from('vault'), fund.toBuffer()], program)[1];
   const emitterBump = PublicKey.findProgramAddressSync([Buffer.from('emitter'), fund.toBuffer()], program)[1];
   const config = nativeConfig(manager, publicKey(addresses.emitter));
   return Buffer.concat([discriminator('account', 'FundState'), hubCore, index, fundId, mandateHash, Buffer.alloc(20, 1), manager.toBuffer(),
     integer(0, 8), integer(0, 8), integer(0, 1), integer(bump, 1), integer(vaultBump, 1), integer(emitterBump, 1),
     integer(42161, 8), factory, integer(1, 8), config.nativeHash, word(9), Buffer.alloc(32, 1), integer(2_000_000_000, 8),
-    addressWord(hubCore), integer(23, 2), integer(0, 16), integer(0, 16), integer(0, 2), integer(0, 2), integer(0, 2), config.assets, config.venues, config.transport, Buffer.alloc(8)]);
+    addressWord(hubCore), integer(23, 2), integer(0, 16), integer(0, 16), integer(0, 2), integer(0, 2), integer(0, 2), config.assets, config.venues, config.transport, Buffer.alloc(8), mandateHash, hubPolicyHash, Buffer.alloc(37)]);
 }
 
 export function fixtureLedger() {
@@ -114,10 +125,76 @@ export function prepareCoreFixtures() {
   write(testAta(ADDRESSES.usdc, publicKey(addresses.vault)).toBase58(), token, ADDRESSES.token);
 }
 
+export function stageSwapPolicy(manager: PublicKey, fund: PublicKey, policyHash: Buffer, payload: Buffer, chunkSize = 600) {
+  if (policyHash.length !== 32 || policyHash.equals(Buffer.alloc(32)) || payload.length === 0 || payload.length > 4096
+    || !Number.isInteger(chunkSize) || chunkSize < 1 || chunkSize > 600) throw new Error('Invalid staged policy payload');
+  const programId = publicKey(ADDRESSES.spoke);
+  const stage = PublicKey.findProgramAddressSync([Buffer.from('swap_policy_stage'), fund.toBuffer(), manager.toBuffer()], programId)[0];
+  const instructions: TransactionInstruction[] = [];
+  for (let offset = 0; offset < payload.length; offset += chunkSize) {
+    const chunk = payload.subarray(offset, offset + chunkSize);
+    const request = Buffer.concat([policyHash, integer(payload.length, 2), integer(offset, 2), integer(chunk.length, 4), chunk,
+      Buffer.from([Number(offset + chunk.length === payload.length)])]);
+    instructions.push(new TransactionInstruction({ programId, keys: [
+      { pubkey: manager, isSigner: true, isWritable: true },
+      { pubkey: fund, isSigner: false, isWritable: false },
+      { pubkey: stage, isSigner: false, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ], data: Buffer.concat([discriminator('global', 'stage_swap_policy'), integer(request.length, 4), request]) }));
+  }
+  return { stage, instructions };
+}
+
+export function initializationPlan(operation: TransactionInstruction, payer: PublicKey) {
+  const accounts = [...new Map(operation.keys.filter(account => !account.isSigner).map(account => [account.pubkey.toBase58(), account.pubkey])).values()];
+  const table = new AddressLookupTableAccount({ key: PublicKey.default, state: {
+    deactivationSlot: (1n << 64n) - 1n, lastExtendedSlot: 0, lastExtendedSlotStartIndex: 0, addresses: accounts,
+  } });
+  const message = new TransactionMessage({ payerKey: payer, recentBlockhash: PublicKey.default.toBase58(),
+    instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }), operation] }).compileToV0Message([table]);
+  const shortLength = (value: number) => value < 128 ? 1 : value < 16384 ? 2 : 3;
+  const packetBytes = shortLength(message.header.numRequiredSignatures) + message.header.numRequiredSignatures * 64
+    + 1 + 3 + shortLength(message.staticAccountKeys.length) + message.staticAccountKeys.length * 32 + 32
+    + shortLength(message.compiledInstructions.length)
+    + message.compiledInstructions.reduce((size, entry) => size + 1 + shortLength(entry.accountKeyIndexes.length)
+      + entry.accountKeyIndexes.length + shortLength(entry.data.length) + entry.data.length, 0)
+    + shortLength(message.addressTableLookups.length)
+    + message.addressTableLookups.reduce((size, entry) => size + 32 + shortLength(entry.writableIndexes.length)
+      + entry.writableIndexes.length + shortLength(entry.readonlyIndexes.length) + entry.readonlyIndexes.length, 0);
+  if (packetBytes <= 1232) return { operation, instructions: [] as TransactionInstruction[], packetBytes, stage: undefined };
+  if (!operation.programId.equals(publicKey(ADDRESSES.spoke))
+    || !operation.data.subarray(0, 8).equals(discriminator('global', 'initialize_fund'))
+    || operation.data.readUInt32LE(8) !== operation.data.length - 12) throw new Error('Invalid initialization instruction');
+  const payload = operation.data.subarray(12);
+  let offset = payload[0] === 1 ? 240 : 279;
+  const assets = payload.readUInt32LE(offset); offset += 4 + assets * 53;
+  const venues = payload.readUInt32LE(offset); offset += 4 + venues * 160 + 200;
+  if (offset + 96 > payload.length) throw new Error('Invalid initialization policy hashes');
+  const policyHash = payload.subarray(offset + 32, offset + 64);
+  const hasSwap = !payload.subarray(offset + 64, offset + 96).equals(Buffer.alloc(32));
+  const staged = stageSwapPolicy(operation.keys[0].pubkey, operation.keys[1].pubkey, policyHash, payload);
+  const remaining = operation.keys.slice(18);
+  if (hasSwap && remaining.length === 0) throw new Error('Swap configuration account missing');
+  const stageAccount = { pubkey: staged.stage, isSigner: false, isWritable: true };
+  const keys = [...operation.keys.slice(0, 18), ...(hasSwap ? [remaining[0], stageAccount, ...remaining.slice(1)] : [stageAccount, ...remaining])];
+  return { operation: new TransactionInstruction({ programId: operation.programId, keys,
+    data: Buffer.concat([discriminator('global', 'initialize_fund'), integer(1, 4), Buffer.from([2])]) }),
+    instructions: staged.instructions, stage: staged.stage, packetBytes };
+}
+
 export async function sendSignedLocal(connection: Connection, payer: Keypair, instructions: TransactionInstruction[], additional: Keypair[] = []) {
   requireLoopback(connection.rpcEndpoint);
   let table: AddressLookupTableAccount | undefined;
   if (instructions.some(instruction => instruction.data.subarray(0, 8).equals(discriminator('global', 'initialize_fund')))) {
+    const planned: TransactionInstruction[] = [];
+    for (const operation of instructions) {
+      if (operation.data.subarray(0, 8).equals(discriminator('global', 'initialize_fund'))) {
+        const plan = initializationPlan(operation, payer.publicKey);
+        for (const chunk of plan.instructions) await sendSignedLocal(connection, payer, [chunk], additional);
+        planned.push(plan.operation);
+      } else planned.push(operation);
+    }
+    instructions = planned;
     instructions = [ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }), ...instructions];
     const slot = await connection.getSlot('finalized');
     const [create, address] = AddressLookupTableProgram.createLookupTable({ authority: payer.publicKey, payer: payer.publicKey, recentSlot: slot });

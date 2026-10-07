@@ -55,6 +55,9 @@ pub struct NativeReportPublished {
 pub fn handler(ctx: Context<PublishReport>, payload: Vec<u8>) -> Result<()> {
     require!(payload.is_empty(), ReportError::InvalidAccounts);
     let fund_key = ctx.accounts.fund.key();
+    if ctx.accounts.fund.close_requested && ctx.accounts.fund.active_command == Pubkey::default() {
+        super::snapshot::require_settled_transits(&ctx.accounts.fund, fund_key, ctx.remaining_accounts)?;
+    }
     let encoded = encoded_snapshot(
         &ctx.accounts.fund,
         fund_key,
@@ -127,6 +130,12 @@ pub fn handler(ctx: Context<PublishReport>, payload: Vec<u8>) -> Result<()> {
             .unwrap(),
     );
     require!(new_sequence == sequence + 1, ReportError::InvalidWormhole);
+    if ctx.accounts.fund.close_requested && ctx.accounts.fund.active_command == Pubkey::default() {
+        let report = super::snapshot::snapshot(&ctx.accounts.fund, fund_key, ctx.remaining_accounts, &ctx.accounts.clock)?;
+        require!(report.positions.is_empty() && report.in_flight.is_empty() && report.collected_income.is_empty()
+            && report.unallocated.iter().all(|entry| entry[1] == [0;32]), ReportError::OrderExecutionNotIntegrated);
+        ctx.accounts.fund.closed = true;
+    }
     ctx.accounts.fund.report_sequence = ctx
         .accounts
         .fund

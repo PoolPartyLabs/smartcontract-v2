@@ -20,6 +20,8 @@ import {CctpRoute} from "../../../src/interfaces/ICctpCoreVault.sol";
 import {CodeStore} from "../../../src/factory/CodeStore.sol";
 import {SolanaMandateV6, SolanaSpokeRegistryV6} from "../../../src/mandate/SolanaMandateV6.sol";
 import {SolanaDeploymentV6} from "../../../src/factory/SolanaDeploymentV6.sol";
+import {SolanaPolicyV6} from "../../../src/mandate/SolanaPolicyV6.sol";
+import {SolanaPdaV6} from "../../../src/mandate/SolanaPdaV6.sol";
 import {Mandate, TokenConfig, BridgeAdapterConfig, AdapterConfig, PoolConfig} from "../../../src/mandate/Mandate.sol";
 import {ReportCodecV6} from "../../../src/libraries/ReportCodecV6.sol";
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
@@ -45,8 +47,8 @@ contract ComposedSolanaFundForkTest is Test, FactoryDeployment {
     address private manager;
 
     function setUp() public {
-        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), 512_239_244);
-        vm.warp(1_791_293_400);
+        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envOr("CCTP_ARBITRUM_FORK_BLOCK", uint256(512_239_244)));
+        vm.warp(1_791_379_800);
         manager = vm.addr(MANAGER_KEY);
         Deployment memory deployment;
         _deployLibraries(true, deployment);
@@ -99,7 +101,7 @@ contract ComposedSolanaFundForkTest is Test, FactoryDeployment {
         fixedTokens[1] = ChainlinkPriceSource.FixedConfig(RH_USDG, 6);
         return new SolanaPriceSourceV6(
             SolanaPriceSourceV6.NativeConfig(
-                SolanaFixture.STOCK, SolanaFixture.SOL, SolanaFixture.USDC, 3600, 3600, 1_791_293_400, 1_791_316_800
+                SolanaFixture.STOCK, SolanaFixture.SOL, SolanaFixture.USDC, 3600, 3600, 1_791_379_800, 1_791_403_200
             ),
             new ChainlinkPriceSource.FeedConfig[](0),
             fixedTokens
@@ -154,19 +156,76 @@ contract ComposedSolanaFundForkTest is Test, FactoryDeployment {
         FundFactoryV6.Binding memory binding;
         binding.expiry = block.timestamp + 1 hours;
         address predicted = factory.addressOf(factory.fundIdOf(42_161, 1, manager), "CoreVault", 42_161);
-        (uint8 recovery, bytes32 signatureR, bytes32 signatureS) =
-            vm.sign(MANAGER_KEY, factory.bindingDigest(native, predicted, 0, binding.expiry));
-        binding.signature = abi.encodePacked(signatureR, signatureS, recovery);
         Mandate memory mandate_ = _mandate();
         SolanaMandateV6.Config memory nativeConfig = native;
+        SolanaPolicyV6.Commitment memory commitment = _seal(mandate_, nativeConfig, predicted);
+        binding.signature = _bootstrapSignature(mandate_, nativeConfig, commitment, predicted, binding.expiry);
+        SolanaDeploymentV6.store(native, nativeConfig);
         assertEq(manager.code.length, 0);
         CoreVaultConfig memory sizeConfig;
         sizeConfig.shareName = "Pool Party Fund 1";
         sizeConfig.shareSymbol = "PP-1";
         assertLe(coreCode.length + abi.encode(mandate_, sizeConfig, address(1), address(2), address(3)).length, 49_152);
         vm.prank(manager);
-        IFundFactory.FundAddresses memory result = factory.createFundV6(mandate_, params, nativeConfig, binding);
+        IFundFactory.FundAddresses memory result =
+            factory.createFundV6Committed(mandate_, params, nativeConfig, commitment, binding);
         return CoreVaultV6(result.coreVault);
+    }
+
+    function _seal(Mandate memory mandate_, SolanaMandateV6.Config memory config, address predicted)
+        private
+        view
+        returns (SolanaPolicyV6.Commitment memory commitment)
+    {
+        commitment.spokeIndex = 1;
+        commitment.policyHash =
+            SolanaPolicyV6.hash(SolanaPolicyV6.hubPolicyHash(mandate_, 1), SolanaPolicyV6.nativePolicyHash(config));
+        commitment.fundPda = SolanaPdaV6.fund(42_161, predicted, 1, commitment.policyHash, config.program);
+        bytes32 vault = SolanaPdaV6.derive(abi.encodePacked("vault", commitment.fundPda), config.program);
+        config.spoke = SolanaPdaV6.derive(abi.encodePacked("emitter", commitment.fundPda), config.program);
+        bytes32 token = 0x06ddf6e1d765a193d9cbe146ceeb79ac1cb485ed5f5b37913a8cf5857eff00a9;
+        bytes32 token2022 = 0x06ddf6e1ee758fde18425dbce46ccddab61afc4d83b90d27febdf928d8a18bfc;
+        commitment.usdcAta = SolanaPdaV6.ata(vault, config.usdcMint, token);
+        commitment.stockAta = SolanaPdaV6.ata(vault, SolanaFixture.STOCK, token2022);
+        commitment.nvdaxAta =
+            SolanaPdaV6.ata(vault, 0x07e8a50e140fda5791f4566a957fd3ae3f873e6a3466ffc13d79119dfa9ab50a, token2022);
+        commitment.wsolAta = SolanaPdaV6.ata(vault, SolanaFixture.SOL, token);
+        config.transport.mintRecipient = commitment.usdcAta;
+        config.transport.destinationCaller = vault;
+        config.transport.remoteVaultAuthority = vault;
+        mandate_.spokes[1].spokeVault = config.spoke;
+    }
+
+    function _bootstrapSignature(
+        Mandate memory mandate_,
+        SolanaMandateV6.Config memory config,
+        SolanaPolicyV6.Commitment memory commitment,
+        address predicted,
+        uint256 expiry
+    ) private returns (bytes memory) {
+        bytes32 domain = keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256("PoolParty Solana Fund"),
+                keccak256("6"),
+                block.chainid,
+                address(factory)
+            )
+        );
+        bytes32 structHash = SolanaPolicyV6.bootstrapHash(
+            factory.BOOTSTRAP_TYPEHASH(),
+            block.chainid,
+            predicted,
+            keccak256(abi.encode(mandate_)),
+            config,
+            commitment,
+            factory.fundIdOf(42_161, 1, manager),
+            0,
+            expiry
+        );
+        (uint8 recovery, bytes32 signatureR, bytes32 signatureS) =
+            vm.sign(MANAGER_KEY, keccak256(abi.encodePacked(hex"1901", domain, structHash)));
+        return abi.encodePacked(signatureR, signatureS, recovery);
     }
 
     function _report(uint64 sequence, uint256 unallocated) private view returns (ReportCodecV6.Report memory report) {
@@ -213,7 +272,7 @@ contract ComposedSolanaFundForkTest is Test, FactoryDeployment {
 
     function testOffHoursShareMintAndBurnFailClosed() public {
         uint256 supply = IERC20(core.shareToken()).totalSupply();
-        vm.warp(1_791_316_800);
+        vm.warp(1_791_403_200);
         vm.expectRevert(SolanaPriceSourceV6.StockMarketClosed.selector);
         vm.prank(manager);
         core.deposit(2e6, 0);

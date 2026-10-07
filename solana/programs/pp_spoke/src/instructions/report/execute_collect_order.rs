@@ -1,8 +1,7 @@
-use super::orders::{dispatch_unavailable, verify_order};
 use crate::state::FundState;
 use anchor_lang::prelude::*;
 
-/// DEC-093, DEC-120, DEC-121, DEC-122, DEC-192: provisional accounts; no CPI or state mutation is authorized by this stub.
+/// DEC-122/151: retain an authenticated collection round until execution completes.
 #[derive(Accounts)]
 pub struct ExecuteCollectOrder<'info> {
     #[account(mut)]
@@ -19,13 +18,8 @@ pub struct ExecuteCollectOrder<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn handler(ctx: Context<ExecuteCollectOrder>, _payload: Vec<u8>) -> Result<()> {
-    verify_order(
-        &ctx.accounts.fund,
-        ctx.accounts.fund.key(),
-        &ctx.accounts.posted_vaa.to_account_info(),
-        Some(3),
-        Clock::get()?.unix_timestamp,
-    )?;
-    dispatch_unavailable()
+pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, ExecuteCollectOrder<'info>>, payload: Vec<u8>) -> Result<()> {
+    require!(payload.is_empty(), super::snapshot::ReportError::InvalidOrder);
+    super::commands::accept(&mut ctx.accounts.fund, &ctx.accounts.authority, &ctx.accounts.posted_vaa,
+        &ctx.accounts.system_program.to_account_info(), ctx.remaining_accounts, 3)
 }

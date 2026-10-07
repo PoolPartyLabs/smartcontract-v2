@@ -39,6 +39,12 @@ pub struct FundState {
     pub position_registry: Vec<Pubkey>,
     #[max_len(64)]
     pub transit_registry: Vec<Pubkey>,
+    pub policy_hash: [u8; 32],
+    pub hub_policy_hash: [u8; 32],
+    pub active_command: Pubkey,
+    pub close_requested: bool,
+    #[max_len(8)]
+    pub command_registry: Vec<Pubkey>,
 }
 
 impl FundState {

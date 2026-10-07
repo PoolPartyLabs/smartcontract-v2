@@ -69,7 +69,7 @@ pub fn authority(
     crate::instructions::core::guards::require_fund_address(fund, &fund.key())?;
     require!(!fund.closed, RaydiumError::Unauthorized);
     let expected_fund = Pubkey::find_program_address(
-        &[b"fund", &fund.hub_core, &fund.spoke_index.to_le_bytes(), &fund.mandate_hash],
+        &[b"fund", &fund.hub_chain_id.to_le_bytes(), &fund.hub_core, &fund.spoke_index.to_le_bytes(), &fund.policy_hash],
         &crate::ID,
     );
     require_keys_eq!(expected_fund.0, fund.key(), RaydiumError::InvalidAccount);

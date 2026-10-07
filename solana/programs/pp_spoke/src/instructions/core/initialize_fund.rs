@@ -74,27 +74,30 @@ pub struct CoreFundInitialized {
 
 pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, InitializeFund<'info>>, payload: Vec<u8>) -> Result<()> {
     require!(payload.len() <= 2048, CoreError::InvalidConfiguration);
-    let mut payload_bytes = payload.as_slice();
-    let args = Box::new(InitializePayload::deserialize(&mut payload_bytes)
-        .map_err(|_| error!(CoreError::InvalidConfiguration))?);
-    let mut swap_creation = if payload_bytes.is_empty() { None } else {
-        Some(Box::new(crate::instructions::swap::config::CreationPolicy::try_from_slice(payload_bytes)
-            .map_err(|_| error!(CoreError::InvalidConfiguration))?))
-    };
-    let has_nvda = args.assets.iter().any(|asset| asset.mint == custody::NVDAX);
-    let staged = payload_bytes.is_empty() && ctx.remaining_accounts.len() == 2 + if has_nvda { 3 } else { 0 };
-    if staged {
-        let stage = &ctx.remaining_accounts[1];
+    let staged = payload == [2];
+    let expected_stage = Pubkey::find_program_address(&[b"swap_policy_stage", ctx.accounts.fund.key().as_ref(), ctx.accounts.authority.key().as_ref()], &crate::ID).0;
+    let stage_index = if staged {
+        Some(ctx.remaining_accounts.iter().position(|account| *account.key == expected_stage).ok_or(CoreError::InvalidConfiguration)?)
+    } else { None };
+    let staged_bytes = if staged {
+        let stage = &ctx.remaining_accounts[stage_index.unwrap()];
         require!(stage.is_writable && *stage.owner == crate::ID, CoreError::InvalidConfiguration);
         let state = crate::instructions::swap::config::StagedPolicy::try_deserialize(&mut &stage.try_borrow_data()?[..])?;
-        require!(state.fund == ctx.accounts.fund.key() && state.manager_solana == ctx.accounts.authority.key(), CoreError::InvalidConfiguration);
-        swap_creation = Some(Box::new(state.creation));
+        require!(state.sealed && state.payload.len() == usize::from(state.total_len) && state.fund == ctx.accounts.fund.key() && state.manager_solana == ctx.accounts.authority.key(), CoreError::InvalidConfiguration);
+        Some(state.payload)
+    } else { None };
+    let payload_bytes = staged_bytes.as_deref().unwrap_or(&payload);
+    let (mut args, compact, swap_creation) = decode_creation(payload_bytes)?;
+    let has_nvda = args.assets.iter().any(|asset| asset.mint == custody::NVDAX);
+    if staged {
+        require!(stage_index == Some(usize::from(swap_creation.is_some())), CoreError::InvalidConfiguration);
+        let state = crate::instructions::swap::config::StagedPolicy::try_deserialize(&mut &ctx.remaining_accounts[stage_index.unwrap()].try_borrow_data()?[..])?;
+        require!(state.policy_hash == args.policy_hash, CoreError::InvalidConfiguration);
     }
     require!(ctx.remaining_accounts.len() == usize::from(swap_creation.is_some()) + usize::from(staged) + if has_nvda { 3 } else { 0 }, CoreError::InvalidConfiguration);
     let index = args.spoke_index.to_le_bytes();
-    // TODO(decision): DEC-200 needs a non-circular Hub Mandate commitment when its spoke emitter derives from this PDA.
-    let (fund_key, bump) =
-        Pubkey::find_program_address(&[b"fund", &args.hub_core, &index, &args.mandate_hash], &crate::ID);
+    let chain = args.hub_chain_id.to_le_bytes();
+    let (fund_key, bump) = binding::fund_address(&args);
     require_keys_eq!(
         ctx.accounts.fund.key(),
         fund_key,
@@ -114,13 +117,18 @@ pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, InitializeFund<'info>>, pa
     let (emitter, emitter_bump) =
         Pubkey::find_program_address(&[b"emitter", fund_key.as_ref()], &crate::ID);
     let manager = ctx.accounts.authority.key();
+    if compact {
+        args.native_mandate_hash = binding::native_mandate_hash(&manager, &emitter, args.spoke_chain_id,
+            &args.assets, &args.venues, &args.transport, &args.swap_policy_hash);
+    }
     validate_config(&args, &manager, &emitter)?;
     binding::verify_bootstrap(&args, &manager, &fund_key, Clock::get()?.unix_timestamp)?;
     let digest = binding::bootstrap_digest(&args, &manager, &fund_key)?;
-    if staged {
-        let state = crate::instructions::swap::config::StagedPolicy::try_deserialize(&mut &ctx.remaining_accounts[1].try_borrow_data()?[..])?;
-        require!(state.binding_digest == digest, CoreError::InvalidConfiguration);
-    }
+    let swap_policy_hash = match &swap_creation {
+        Some(creation) => anchor_lang::solana_program::keccak::hash(&creation.policy.try_to_vec()?).to_bytes(),
+        None => [0;32],
+    };
+    require!(args.swap_policy_hash == swap_policy_hash, CoreError::InvalidConfiguration);
     if let Some(creation) = &swap_creation {
         crate::instructions::swap::config::verify(creation, &digest, &fund_key, &args.manager_evm,
             &crate::instructions::swap::quote::QuoteDomain { chain_id: args.hub_chain_id,
@@ -133,7 +141,7 @@ pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, InitializeFund<'info>>, pa
         &ctx.accounts.fund.to_account_info(),
         &system,
         8 + FundState::INIT_SPACE,
-        &[b"fund", &args.hub_core, &index, &args.mandate_hash, &[bump]],
+        &[b"fund", &chain, &args.hub_core, &index, &args.policy_hash, &[bump]],
     )?;
     let route = CctpRoute {
         fund: fund_key,
@@ -175,6 +183,11 @@ pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, InitializeFund<'info>>, pa
         transport: args.transport.clone(),
         position_registry: vec![],
         transit_registry: vec![],
+        policy_hash: args.policy_hash,
+        hub_policy_hash: args.hub_policy_hash,
+        active_command: Pubkey::default(),
+        close_requested: false,
+        command_registry: vec![],
     });
     fund.try_serialize(&mut &mut ctx.accounts.fund.try_borrow_mut_data()?[..])?;
     for (prefix, account, space) in [
@@ -279,7 +292,7 @@ pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, InitializeFund<'info>>, pa
         binding_digest: digest
     });
     if staged {
-        let stage = &ctx.remaining_accounts[1];
+        let stage = &ctx.remaining_accounts[stage_index.unwrap()];
         let refund = stage.lamports();
         **payer.try_borrow_mut_lamports()? = payer.lamports().checked_add(refund).ok_or(CoreError::ArithmeticOverflow)?;
         **stage.try_borrow_mut_lamports()? = 0;
@@ -335,11 +348,8 @@ pub(crate) fn allocate<'info>(
 }
 
 pub fn validate_config(args: &InitializePayload, manager: &Pubkey, emitter: &Pubkey) -> Result<()> {
-    let fund = Pubkey::find_program_address(
-        &[b"fund", &args.hub_core, &args.spoke_index.to_le_bytes(), &args.mandate_hash],
-        &crate::ID,
-    )
-    .0;
+    require!(args.hub_policy_hash != [0; 32] && args.policy_hash == binding::policy_hash(args, manager), CoreError::InvalidConfiguration);
+    let fund = binding::fund_address(args).0;
     let vault = Pubkey::find_program_address(&[b"vault", fund.as_ref()], &crate::ID).0;
     require!(
         args.transport.hub_usdc
@@ -428,7 +438,8 @@ pub fn validate_config(args: &InitializePayload, manager: &Pubkey, emitter: &Pub
                 args.spoke_chain_id,
                 &args.assets,
                 &args.venues,
-                &args.transport
+                &args.transport,
+                &args.swap_policy_hash
             ),
         CoreError::InvalidConfiguration
     );
@@ -445,9 +456,49 @@ fn validate_asset(asset: &crate::state::Asset) -> Result<()> {
     Ok(())
 }
 
+#[inline(never)]
+fn decode_payload(payload: &[u8]) -> Result<(Box<InitializePayload>, bool)> {
+    if let Ok(args) = InitializePayload::try_from_slice(payload) {
+        return Ok((Box::new(args), false));
+    }
+    require!(payload.first() == Some(&1) && payload.len() > 135, CoreError::InvalidConfiguration);
+    let expanded = [payload[1..135].to_vec(), 1u64.to_le_bytes().to_vec(), vec![0; 32], payload[135..].to_vec()].concat();
+    let args = InitializePayload::try_from_slice(&expanded).map_err(|_| error!(CoreError::InvalidConfiguration))?;
+    Ok((Box::new(args), true))
+}
+
+#[inline(never)]
+fn decode_creation(payload: &[u8]) -> Result<(Box<InitializePayload>, bool, Option<Box<crate::instructions::swap::config::CreationPolicy>>)> {
+    if let Ok((args, compact)) = decode_payload(payload) {
+        return Ok((args, compact, None));
+    }
+    let mut bytes = payload;
+    let args = InitializePayload::deserialize(&mut bytes).map_err(|_| error!(CoreError::InvalidConfiguration))?;
+    let creation = crate::instructions::swap::config::CreationPolicy::try_from_slice(bytes)
+        .map_err(|_| error!(CoreError::InvalidConfiguration))?;
+    Ok((Box::new(args), false, Some(Box::new(creation))))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compact_bootstrap_omits_only_recomputed_fields_and_rejects_bad_versions() {
+        let bytes = vec![0; 134 + 40 + 32 + 8 + 65 + 4 + 4 + 200 + 96];
+        let (full, compact) = decode_payload(&bytes).unwrap();
+        assert!(!compact);
+        let encoded = [vec![1], bytes[..134].to_vec(), bytes[174..].to_vec()].concat();
+        let (decoded, compact) = decode_payload(&encoded).unwrap();
+        assert!(compact);
+        assert_eq!(decoded.hub_core, full.hub_core);
+        assert_eq!(decoded.policy_hash, full.policy_hash);
+        assert_eq!(decoded.spoke_chain_id, 1);
+        let mut bad = encoded;
+        bad[0] = 2;
+        assert!(decode_payload(&bad).is_err());
+        assert!(decode_payload(&bad[..134]).is_err());
+    }
 
     #[test]
     fn admit_nvdax_only_as_stock_with_canonical_alias() {

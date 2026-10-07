@@ -5,7 +5,7 @@ import { Keypair, PublicKey, SystemProgram, TransactionInstruction, SYSVAR_CLOCK
 import { ADDRESSES, derive, fundAddresses, publicKey } from '../helpers/addresses.ts';
 import { decodePool, discriminator } from '../helpers/layouts.ts';
 import { localConnection, testAta, testWallet, requireLoopback } from '../helpers/localnet.ts';
-import { bindingPayload, mandateHash, fundId, integer, word, addressWord, factory } from '../core/fixtures.ts';
+import { bindingPayload, initializationPlan, mandateHash, fundId, integer, word, addressWord, factory, policyAddresses } from '../core/fixtures.ts';
 import { attest, evm } from '../cctp/fixtures.ts';
 import { instruction, sendMeasured, u128 } from '../raydium/client.ts';
 
@@ -13,16 +13,17 @@ test('composed authenticated Fund lifecycle on cloned mainnet programs', { timeo
   const connection = localConnection(); requireLoopback(connection.rpcEndpoint);
   assert.equal(new URL(connection.rpcEndpoint).port, process.env.PP_LOCALNET_RPC_PORT ?? '8899');
   const manager = testWallet(); const keeper = testWallet('keeper');
-  const core = Buffer.alloc(20, 0xa8); const target = fundAddresses(core, 8, mandateHash);
+  const core = Buffer.alloc(20, 0xa8);
+  const pool = decodePool((await connection.getAccountInfo(publicKey(ADDRESSES.tslaxPool)))!.data);
+  const target = policyAddresses(manager.publicKey, core, 8, pool);
   const fund = publicKey(target.fund); const vault = publicKey(target.vault);
   const ledger = (mint: string) => derive(ADDRESSES.spoke, Buffer.from('ledger'), fund.toBuffer(), publicKey(mint).toBuffer());
   const pda = (program: string, ...seeds: Buffer[]) => derive(program, ...seeds);
   const key = (address: string | PublicKey, writable = false, signer = false) => ({ pubkey: typeof address === 'string' ? publicKey(address) : address, isWritable: writable, isSigner: signer });
-  const transit = (id: Buffer) => pda(ADDRESSES.spoke, Buffer.from('transit'), fund.toBuffer(), id);
+  const transit = (id: Buffer, outbound = false) => pda(ADDRESSES.spoke, Buffer.from(outbound ? 'transit_out' : 'transit_in'), fund.toBuffer(), id);
   const route = pda(ADDRESSES.spoke, Buffer.from('cctp_route'), fund.toBuffer());
   const transportLedger = pda(ADDRESSES.spoke, Buffer.from('cctp_ledger'), fund.toBuffer());
   const usdc = testAta(ADDRESSES.usdc, vault); const tslax = testAta(ADDRESSES.tslax, vault);
-  const pool = decodePool((await connection.getAccountInfo(publicKey(ADDRESSES.tslaxPool)))!.data);
   const evidence: { step: string; units?: number; bytes: number; signature: string }[] = [];
   async function send(step: string, operation: TransactionInstruction, payer = manager, signers: Keypair[] = []) {
     const result = await sendMeasured(connection, payer, operation, signers);
@@ -35,8 +36,12 @@ test('composed authenticated Fund lifecycle on cloned mainnet programs', { timeo
     usdc_ata: usdc, tslax_ata: tslax, wsol_ata: testAta(ADDRESSES.wsol, vault), usdc_ledger: ledger(ADDRESSES.usdc),
     tslax_ledger: ledger(ADDRESSES.tslax), wsol_ledger: ledger(ADDRESSES.wsol), cctp_route: route, cctp_ledger: transportLedger,
     token_program: ADDRESSES.token, token_2022_program: ADDRESSES.token2022, ata_program: ADDRESSES.ata };
-  const initialize = instruction('initialize_fund', initAccounts, bindingPayload(manager.publicKey, core, 8, 2_000_000_000n, pool));
+  const fullBootstrap = bindingPayload(manager.publicKey, core, 8, 2_000_000_000n, pool);
+  const planned = initializationPlan(instruction('initialize_fund', initAccounts, fullBootstrap), manager.publicKey);
+  for (const [index, chunk] of planned.instructions.entries()) await send(`stage initialization chunk ${index}`, chunk);
+  const initialize = planned.operation;
   await send('initialize dual consent', initialize);
+  if (planned.stage) assert.equal(await connection.getAccountInfo(planned.stage), null);
   assert.equal((await connection.getAccountInfo(fund))!.owner.toBase58(), ADDRESSES.spoke);
   await assert.rejects(sendMeasured(connection, manager, initialize), /InvalidConfiguration/);
   const unbound = instruction('initialize_adapter', { ...common, authority: keeper.publicKey, venue_program: ADDRESSES.kamino,
@@ -131,7 +136,7 @@ test('composed authenticated Fund lifecycle on cloned mainnet programs', { timeo
   await send('Kamino withdraw all',instruction('kamino_redeem',kaminoAccounts,Buffer.concat([integer((1n<<64n)-1n,8),integer(1,8)])));
   const outboundId=word(802); const event=Keypair.generate();
   const principal=(await connection.getAccountInfo(publicKey(ledger(ADDRESSES.usdc))))!.data.readBigUInt64LE(72);
-  const burn=instruction('send_to_hub',{...common,route,ledger:transportLedger,transit:transit(outboundId),usdc_ata:usdc,token_ledger:ledger(ADDRESSES.usdc),event_account:event.publicKey},Buffer.concat([outboundId,integer(principal,8),integer(1000,8)]));
+  const burn=instruction('send_to_hub',{...common,route,ledger:transportLedger,transit:transit(outboundId,true),usdc_ata:usdc,token_ledger:ledger(ADDRESSES.usdc),event_account:event.publicKey},Buffer.concat([outboundId,integer(principal,8),integer(1000,8)]));
   burn.keys.push(...[key(vault),key(manager.publicKey,true,true),key(pda(ADDRESSES.cctpMessenger,Buffer.from('sender_authority'))),key(usdc,true),
     key(pda(ADDRESSES.cctpMessenger,Buffer.from('denylist_account'),vault.toBuffer())),key(transmitter,true),key(messenger),key(pda(ADDRESSES.cctpMessenger,Buffer.from('remote_token_messenger'),Buffer.from('3'))),
     key(pda(ADDRESSES.cctpMessenger,Buffer.from('token_minter'))),key(pda(ADDRESSES.cctpMessenger,Buffer.from('local_token'),publicKey(ADDRESSES.usdc).toBuffer()),true),key(ADDRESSES.usdc,true),key(event.publicKey,true,true),
@@ -140,13 +145,13 @@ test('composed authenticated Fund lifecycle on cloned mainnet programs', { timeo
   const acknowledgements = JSON.parse(readFileSync(new URL('../../.localnet/rehearsal-acks.json', import.meta.url), 'utf8'));
   function acknowledge(posted: string) {
     const operation = instruction('execute_order', { ...common, authority: keeper.publicKey, wormhole_program: ADDRESSES.wormhole, posted_vaa: posted }, Buffer.alloc(0));
-    operation.keys.push(key(transit(outboundId), true), key(transportLedger, true));
+    operation.keys.push(key(transit(outboundId,true), true), key(transportLedger, true));
     return operation;
   }
   await assert.rejects(sendMeasured(connection, keeper, acknowledge(acknowledgements.wrongEmitter)), /InvalidOrder/);
   await send('sealed Hub arrival ACK (local guardian fixture)', acknowledge(acknowledgements.valid), keeper);
   assert.equal((await connection.getAccountInfo(fund))!.data.readUInt16LE(374), 1);
-  assert.equal((await connection.getAccountInfo(publicKey(transit(outboundId))))!.data.at(-1), 1);
+  assert.equal((await connection.getAccountInfo(publicKey(transit(outboundId,true))))!.data.at(-2), 1);
   assert.equal((await connection.getAccountInfo(vault))?.lamports??0,0);
   assert.equal((await connection.getAccountInfo(fund))!.data.readUInt16LE(372),0);
   assert.equal((await connection.getAccountInfo(publicKey(ledger(ADDRESSES.usdc))))!.data.readBigUInt64LE(72),0n);

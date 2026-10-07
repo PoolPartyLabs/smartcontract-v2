@@ -37,14 +37,33 @@ pub struct CreationPolicy {
 pub struct StagedPolicy {
     pub fund: Pubkey,
     pub manager_solana: Pubkey,
-    pub binding_digest: [u8; 32],
-    pub creation: CreationPolicy,
+    pub policy_hash: [u8; 32],
+    pub total_len: u16,
+    pub sealed: bool,
+    #[max_len(4096)]
+    pub payload: Vec<u8>,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize)]
 pub struct StageRequest {
-    pub binding_digest: [u8; 32],
-    pub creation: CreationPolicy,
+    pub policy_hash: [u8; 32],
+    pub total_len: u16,
+    pub offset: u16,
+    pub chunk: Vec<u8>,
+    pub seal: bool,
+}
+
+impl StagedPolicy {
+    pub fn append(&mut self, args: StageRequest) -> Result<()> {
+        require!(!self.sealed && args.policy_hash == self.policy_hash && args.total_len == self.total_len
+            && usize::from(args.offset) == self.payload.len() && !args.chunk.is_empty() && args.chunk.len() <= 600,
+            SwapError::Route);
+        let end = self.payload.len().checked_add(args.chunk.len()).ok_or(SwapError::Route)?;
+        require!(end <= usize::from(self.total_len) && (!args.seal || end == usize::from(self.total_len)), SwapError::Route);
+        self.payload.extend_from_slice(&args.chunk);
+        self.sealed = args.seal;
+        Ok(())
+    }
 }
 
 impl SwapPolicy {
@@ -102,6 +121,24 @@ pub fn route_policy<'policy>(policy: &SwapPolicy, mints: &'policy [Pubkey]) -> S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn staged_chunks_are_contiguous_identity_bound_and_write_once() {
+        let mut state = StagedPolicy { fund: Pubkey::new_unique(), manager_solana: Pubkey::new_unique(),
+            policy_hash: [1;32], total_len: 4, sealed: false, payload: vec![] };
+        let request = |offset, chunk, seal| StageRequest { policy_hash: [1;32], total_len: 4, offset, chunk, seal };
+        assert!(state.append(request(1, vec![1], false)).is_err());
+        assert!(state.append(request(0, vec![1], true)).is_err());
+        let mut changed = request(0, vec![1,2], false);
+        changed.policy_hash = [2;32];
+        assert!(state.append(changed).is_err());
+        state.append(request(0, vec![1,2], false)).unwrap();
+        assert!(state.append(request(0, vec![3,4], true)).is_err());
+        state.append(request(2, vec![3,4], true)).unwrap();
+        assert!(state.sealed);
+        assert_eq!(state.payload, vec![1,2,3,4]);
+        assert!(state.append(request(4, vec![5], false)).is_err());
+    }
 
     #[test]
     fn reject_unapproved_modes_and_unpinned_feeds() {

@@ -12,7 +12,7 @@ pub struct ReceiveAndCredit<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
     // TODO(decision): coordinate closed-Fund excess arrival handling with T1 (DEC-167).
-    #[account(mut, seeds = [b"fund", fund.hub_core.as_ref(), &fund.spoke_index.to_le_bytes(), fund.mandate_hash.as_ref()], bump = fund.bump, constraint = !fund.closed @ CctpError::Unauthorized)]
+    #[account(mut, seeds = [b"fund", &fund.hub_chain_id.to_le_bytes(), fund.hub_core.as_ref(), &fund.spoke_index.to_le_bytes(), fund.policy_hash.as_ref()], bump = fund.bump, constraint = !fund.closed @ CctpError::Unauthorized)]
     pub fund: Box<Account<'info, FundState>>,
     /// CHECK: canonical vault signs as destinationCaller, never the relayer.
     #[account(seeds = [b"vault", fund.key().as_ref()], bump = fund.vault_bump)]
@@ -21,7 +21,7 @@ pub struct ReceiveAndCredit<'info> {
     pub route: Account<'info, CctpRoute>,
     #[account(mut, seeds = [b"cctp_ledger", fund.key().as_ref()], bump, has_one = fund)]
     pub ledger: Account<'info, CctpLedger>,
-    #[account(init, payer = authority, space = 8 + Transit::INIT_SPACE, seeds = [b"transit", fund.key().as_ref(), transit_seed(&payload)?], bump)]
+    #[account(init, payer = authority, space = 8 + Transit::INIT_SPACE, seeds = [b"transit_in", fund.key().as_ref(), transit_seed(&payload)?], bump)]
     pub transit: Account<'info, Transit>,
     /// CHECK: native USDC custody and exact delta verified around Circle receive.
     #[account(mut, address = cpi::ata(&vault.key()))]
@@ -134,6 +134,7 @@ pub fn handler(ctx: Context<ReceiveAndCredit>, payload: Vec<u8>) -> Result<()> {
         event_account: Pubkey::default(),
         rent_payer: ctx.accounts.authority.key(),
         received: true,
+        transfer_kind: 0,
     });
     emit!(CctpTransitRecorded {
         fund: fund_key,

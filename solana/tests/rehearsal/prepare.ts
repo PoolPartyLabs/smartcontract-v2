@@ -43,7 +43,8 @@ try {
   const acknowledgements: Record<string, string> = {};
   for (const variant of ['valid', 'wrongEmitter']) {
     const emitter = variant === 'valid' ? addressWord(core) : Buffer.alloc(32, 0xff);
-    const payload = Buffer.concat([word(1), word(4), fundId, word(802), word(0), word(2_000_000_000), word(1), word(2), word(0), word(0), word(0)]);
+    const transitId = hash(Buffer.concat([Buffer.from('PoolParty/CCTPTransit/v2'), fundId, word(5), word(3), word(802)]));
+    const payload = Buffer.concat([word(1), word(4), fundId, transitId, word(0), word(2_000_000_000), word(1), word(2), word(0), word(0), word(0)]);
     const timestamp = 1_791_286_864;
     const encodedTimestamp = Buffer.alloc(4); encodedTimestamp.writeUInt32BE(timestamp);
     const encodedSequence = Buffer.alloc(8); encodedSequence.writeBigUInt64BE(2n);

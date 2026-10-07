@@ -1,11 +1,10 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { PublicKey } from '@solana/web3.js';
-import { ADDRESSES, fundAddresses } from '../helpers/addresses.ts';
-import { mandateHash } from '../core/fixtures.ts';
+import { ADDRESSES } from '../helpers/addresses.ts';
 import { testAta, testWallet } from '../helpers/localnet.ts';
 import { decodePool } from '../helpers/layouts.ts';
-import { NVDA, NVDA_POOL, SOL_PRICE, USDC_PRICE, CROSS_CHECK } from './production-client.ts';
+import { creation, productionApiKey, NVDA, NVDA_POOL, SOL_PRICE, USDC_PRICE, CROSS_CHECK } from './production-client.ts';
 import { prepareCctpFixtures } from '../cctp/fixtures.ts';
 
 const root = new URL('../../.localnet/', import.meta.url);
@@ -56,7 +55,7 @@ const manager = testWallet();
 const manifest = JSON.parse(readFileSync(new URL('manifest.json', root), 'utf8'));
 const solPool = manifest.pools.find((entry: any) => entry.address === ADDRESSES.solPool);
 const solPoolData = Buffer.from(JSON.parse(readFileSync(new URL(`accounts/${ADDRESSES.solPool}.json`, root), 'utf8')).account.data[0], 'base64');
-const fund = fundAddresses(Buffer.alloc(20, 0xc8), 18, mandateHash);
+const { target: fund } = creation(manager.publicKey, Buffer.alloc(20, 0xc8), 18, decodePool(solPoolData), productionApiKey(true), true);
 const rewards: { mint: string; vault: string; quarantine: string }[] = [];
 for (let index = 0; index < 3; index++) {
   const offset = 397 + index * 169;
@@ -84,5 +83,5 @@ writeFileSync(new URL(`overrides/${testAta(ADDRESSES.wsol, manager.publicKey)}.j
 manifest.warpSlot = Math.max(manifest.warpSlot, ...evidence.map(item => item.slot));
 writeFileSync(new URL('manifest.json', root), JSON.stringify(manifest, null, 2));
 writeFileSync(new URL('swap-production-clones.json', root), JSON.stringify(evidence, null, 2));
-console.log(`Production extension: ${evidence.length} finalized read-only clones; local Manager WSOL ATA only.`);
+console.log(`Production extension: ${evidence.length} finalized read-only clones; local Manager WSOL and reward quarantine fixtures.`);
 prepareCctpFixtures();

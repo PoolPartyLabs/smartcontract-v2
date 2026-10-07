@@ -12,9 +12,10 @@ The EVM Manager stays the Fund's identity. Initialization must verify EOA EIP-71
 authorization plus Solana acceptance, bound to Fund, Hub Core, spoke index,
 Mandate hash, Manager key, domain and replay protection. The commitment is fixed
 at creation, reusable only through separate per-Fund authorizations (DEC-190).
-No rotate-manager instruction or live-Mandate setter exists. DEC-200 bootstrap
-verifies the native EIP-712 tuple and the bound Solana transaction signer, with
-the Mandate hash in Fund PDA seeds. No extra Hub message is required. Capital
+No rotate-manager instruction or live-Mandate setter exists. DEC-200 coordinator
+refinement verifies the shared bootstrap tuple and bound Solana signer, with
+identity-free policyHash and Hub chain in Fund PDA seeds. See `LIFECYCLE.md`.
+No extra Hub message is required. Capital
 and commands remain independently gated by the sealed transport/emitter.
 Payloads use bounded instruction-specific encodings. Non-ACK Hub commands,
 income-result dispatch and production swap execution still fail closed.
@@ -25,7 +26,7 @@ Engineering seed convention (not a new economic DEC), all under `pp_spoke`:
 
 | Account | Seeds / purpose | Owner track |
 | --- | --- | --- |
-| `FundState` | `[b"fund", hub_core_20_bytes, spoke_index_u16_le, mandate_hash_32_bytes]` | T1 |
+| `FundState` | `[b"fund", hub_chain_u64_le, hub_core_20_bytes, spoke_index_u16_le, policy_hash_32_bytes]` | T1 |
 | Fund vault authority | `[b"vault", fund_state_pubkey]` | T1 |
 | Wormhole emitter authority | `[b"emitter", fund_state_pubkey]` | T1 |
 | Immutable Mandate/config | Embedded and sealed in `FundState`; no separate Mandate PDA | T1/T8a |

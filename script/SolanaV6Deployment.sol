@@ -20,6 +20,8 @@ abstract contract SolanaV6Deployment is FactoryDeployment {
         FundFactoryV6 factory;
         address cctpLogic;
         address nativeDeploymentLogic;
+        address nativePdaLogic;
+        address nativePolicyLogic;
         bytes coreCode;
     }
 
@@ -83,10 +85,20 @@ abstract contract SolanaV6Deployment is FactoryDeployment {
         _checkRuntime("FundFactoryV6", "out/FundFactoryV6.sol/FundFactoryV6.json");
         result.nativeDeploymentLogic =
             _deterministic(LIBRARY_SALT, vm.getCode("SolanaDeploymentV6.sol:SolanaDeploymentV6"));
-        string[] memory factoryIds = new string[](1);
-        address[] memory factoryLibraries = new address[](1);
+        result.nativePdaLogic = _deterministic(LIBRARY_SALT, vm.getCode("SolanaPdaV6.sol:SolanaPdaV6"));
+        string[] memory policyIds = new string[](1);
+        address[] memory policyLibraries = new address[](1);
+        policyIds[0] = "src/mandate/SolanaPdaV6.sol:SolanaPdaV6";
+        policyLibraries[0] = result.nativePdaLogic;
+        result.nativePolicyLogic = _deterministic(
+            LIBRARY_SALT, _linked("out/SolanaPolicyV6.sol/SolanaPolicyV6.json", policyIds, policyLibraries)
+        );
+        string[] memory factoryIds = new string[](2);
+        address[] memory factoryLibraries = new address[](2);
         factoryIds[0] = "src/factory/SolanaDeploymentV6.sol:SolanaDeploymentV6";
         factoryLibraries[0] = result.nativeDeploymentLogic;
+        factoryIds[1] = "src/mandate/SolanaPolicyV6.sol:SolanaPolicyV6";
+        factoryLibraries[1] = result.nativePolicyLogic;
         result.factory = FundFactoryV6(
             Create3Deployer(result.common.create3Deployer)
                 .deploy(

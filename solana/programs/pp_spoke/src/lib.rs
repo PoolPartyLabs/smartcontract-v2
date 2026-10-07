@@ -30,6 +30,11 @@ pub mod pp_spoke {
         instructions::core::initialize_adapter::handler(ctx, payload)
     }
 
+    /// DEC-151/191: remove only proved empty position inventory, never pending claims.
+    pub fn prune_registry(ctx: Context<PruneRegistry>, payload: Vec<u8>) -> Result<()> {
+        instructions::core::prune_registry::handler(ctx, payload)
+    }
+
     /// DEC-188, DEC-190, DEC-195: fail-closed track-owned scaffold; payload is not a stable wire API.
     pub fn sweep_excess(ctx: Context<SweepExcess>, payload: Vec<u8>) -> Result<()> {
         instructions::core::sweep_excess::handler(ctx, payload)
@@ -59,8 +64,8 @@ pub mod pp_spoke {
     }
 
     /// DEC-191: fail-closed track-owned scaffold; payload is not a stable wire API.
-    pub fn retry_receive(ctx: Context<RetryReceive>, payload: Vec<u8>) -> Result<()> {
-        instructions::cctp::retry_receive::handler(ctx, payload)
+    pub fn retry_receive(ctx: Context<ReceiveAndCredit>, payload: Vec<u8>) -> Result<()> {
+        instructions::cctp::receive_and_credit::handler(ctx, payload)
     }
 
     /// DEC-191: fail-closed track-owned scaffold; payload is not a stable wire API.
@@ -83,19 +88,24 @@ pub mod pp_spoke {
         instructions::report::execute_order::handler(ctx, payload)
     }
 
+    /// DEC-120/122/151: resume one authenticated command step without dropping pending custody.
+    pub fn resume_command<'info>(ctx: Context<'_, '_, '_, 'info, ResumeCommand<'info>>, payload: Vec<u8>) -> Result<()> {
+        instructions::report::resume_command::handler(ctx, payload)
+    }
+
     /// DEC-093, DEC-120, DEC-121, DEC-122, DEC-192: fail-closed track-owned scaffold; payload is not a stable wire API.
-    pub fn execute_unwind_order(ctx: Context<ExecuteUnwindOrder>, payload: Vec<u8>) -> Result<()> {
+    pub fn execute_unwind_order<'info>(ctx: Context<'_, '_, '_, 'info, ExecuteUnwindOrder<'info>>, payload: Vec<u8>) -> Result<()> {
         instructions::report::execute_unwind_order::handler(ctx, payload)
     }
 
     /// DEC-093, DEC-120, DEC-121, DEC-122, DEC-192: fail-closed track-owned scaffold; payload is not a stable wire API.
-    pub fn execute_close_order(ctx: Context<ExecuteCloseOrder>, payload: Vec<u8>) -> Result<()> {
+    pub fn execute_close_order<'info>(ctx: Context<'_, '_, '_, 'info, ExecuteCloseOrder<'info>>, payload: Vec<u8>) -> Result<()> {
         instructions::report::execute_close_order::handler(ctx, payload)
     }
 
     /// DEC-093, DEC-120, DEC-121, DEC-122, DEC-192: fail-closed track-owned scaffold; payload is not a stable wire API.
-    pub fn execute_collect_order(
-        ctx: Context<ExecuteCollectOrder>,
+    pub fn execute_collect_order<'info>(
+        ctx: Context<'_, '_, '_, 'info, ExecuteCollectOrder<'info>>,
         payload: Vec<u8>,
     ) -> Result<()> {
         instructions::report::execute_collect_order::handler(ctx, payload)
@@ -159,6 +169,10 @@ pub mod pp_spoke {
     /// DEC-193, DEC-194: fail-closed track-owned scaffold; payload is not a stable wire API.
     pub fn raydium_collect_fees(ctx: Context<RaydiumCollectFees>, payload: Vec<u8>) -> Result<()> {
         instructions::raydium::raydium_collect_fees::handler(ctx, payload)
+    }
+
+    pub fn stage_swap_policy(ctx: Context<StageSwapPolicy>, payload: Vec<u8>) -> Result<()> {
+        instructions::swap::stage_swap_policy::handler(ctx, payload)
     }
 
     /// DEC-136, DEC-193: fail-closed track-owned scaffold; payload is not a stable wire API.

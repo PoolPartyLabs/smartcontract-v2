@@ -40,6 +40,15 @@ pub fn transit_seed(payload: &[u8]) -> Result<&[u8]> {
         .ok_or_else(|| error!(CctpError::InvalidPayload))
 }
 
+/// DEC-191: bind outbound business nonce to Fund and direction before the burn hook is built.
+pub fn outbound_id(fund_id: &[u8;32], nonce: &[u8]) -> Result<[u8;32]> {
+    require!(nonce.len() == 32 && nonce != [0;32], CctpError::InvalidPayload);
+    Ok(anchor_lang::solana_program::keccak::hashv(&[
+        b"PoolParty/CCTPTransit/v2", fund_id, &uint_word(u64::from(SOLANA_DOMAIN)),
+        &uint_word(u64::from(HUB_DOMAIN)), nonce
+    ]).to_bytes())
+}
+
 pub fn evm(address: &[u8; 20]) -> [u8; 32] {
     let mut word = [0; 32];
     word[12..].copy_from_slice(address);
@@ -65,12 +74,16 @@ pub fn word_u64(word: &[u8]) -> Result<u64> {
 }
 
 pub fn hook(fund_id: &[u8; 32], chain: u64, id: &[u8; 32]) -> Vec<u8> {
+    hook_kind(fund_id, chain, id, 0)
+}
+
+pub fn hook_kind(fund_id: &[u8;32], chain: u64, id: &[u8;32], kind: u8) -> Vec<u8> {
     [
         uint_word(1).as_slice(),
         fund_id,
         &uint_word(chain),
         id,
-        &uint_word(0),
+        &uint_word(u64::from(kind)),
     ]
     .concat()
 }
@@ -177,7 +190,11 @@ pub fn burn_data(
     fund_id: &[u8; 32],
     chain: u64,
 ) -> Vec<u8> {
-    let hook = hook(fund_id, chain, &params.transit_id);
+    burn_data_kind(params, hub, connector, fund_id, chain, 0)
+}
+
+pub fn burn_data_kind(params: &SendParams, hub: &[u8;20], connector: &[u8;20], fund_id: &[u8;32], chain: u64, kind: u8) -> Vec<u8> {
+    let hook = hook_kind(fund_id, chain, &params.transit_id, kind);
     [
         discriminator("deposit_for_burn_with_hook").as_slice(),
         &params.amount.to_le_bytes(),
@@ -290,6 +307,16 @@ mod tests {
         assert!(fee_bound(u64::MAX, 1, 20_000).is_ok());
         assert!(word_u64(&[255; 32]).is_err());
         assert!(transit_seed(&[0; 31]).is_err());
+    }
+
+    #[test]
+    fn outbound_business_id_seals_direction_fund_and_nonce() {
+        let id = outbound_id(&[1;32], &[2;32]).unwrap();
+        assert_ne!(id, [2;32]);
+        assert_ne!(id, outbound_id(&[3;32], &[2;32]).unwrap());
+        assert_ne!(id, outbound_id(&[1;32], &[3;32]).unwrap());
+        assert!(outbound_id(&[1;32], &[0;32]).is_err());
+        assert_eq!(hook_kind(&[1;32], 1, &id, 1)[128..], uint_word(1));
     }
 
     #[test]
