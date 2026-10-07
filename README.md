@@ -6,7 +6,7 @@
 
 ## Pool Party V2: live on mainnet
 
-**An open-source On-Chain Asset Management System (OAMS), built during the Arbitrum Open House Singapore Buildathon and deployed on Arbitrum One and Robinhood Chain mainnet.** Managers create funds, commit to an immutable Mandate and operate DeFi positions. Investors access the fund through USDC-denominated shares on Arbitrum.
+**A source-available On-Chain Asset Management System (OAMS), built during the Arbitrum Open House Singapore Buildathon and deployed on Arbitrum One and Robinhood Chain mainnet.** Managers create funds, commit to an immutable Mandate and operate DeFi positions. Investors access the fund through USDC-denominated shares on Arbitrum.
 
 **This is a live mainnet internal alpha with real capital and confirmed transactions.** The evidence includes manager-funded creation, investor deposits, Aave supply, Uniswap swaps and liquidity positions, Across transfers and Wormhole value reports. The external security audit is planned next, followed by the public V2 launch. V2 has not yet been audited by an independent third party.
 
@@ -17,6 +17,23 @@ Pool Party already serves **more than 4,000 users** across its existing product,
 [Live application](https://v2.dev.pool-party.xyz/en/manager/new) · [Public frontend](https://github.com/PoolPartyLabs/pool-party-v2-frontend) · [Latest strategy: transaction walkthrough](docs/evidence/2026-10-04-mainnet-fund-7.md) · [Machine-readable evidence](docs/evidence/fund-7-mainnet-2026-10-04.json)
 
 The application uses the **V2** contract-family selector. Its mainnet alpha availability and the upcoming public launch are separate milestones. The banner is event artwork; the transaction links below are the execution evidence.
+
+## Source availability and licensing
+
+**All Pool Party-authored V2 contracts, factories, core/spoke libraries, adapters,
+own interfaces, tests, scripts, harness, documentation and original assets,
+including current work and future changes, follow
+[Pool Party Source-Available License 1.0](LICENSE).** Study, local testing, paid
+or unpaid audits, contribution forks and documented use of official deployments
+are permitted. Independent adapters can interoperate with the official platform.
+Separate production forks and commercial products/redistribution using restricted
+material require prior express written authorization.
+
+**All valid earlier MIT grants and third-party rights survive.** A changed SPDX
+notice cannot revoke them. The current restricted license is not OSI-approved
+open source. The [scope/history map](LICENSING.md),
+[third-party notices](THIRD_PARTY_NOTICES.md) and [contribution policy](CONTRIBUTING.md)
+identify the precise boundaries, including upstream code that retains its license.
 
 ## Which parts of your code have been produced during the Buildathon?
 
@@ -63,9 +80,14 @@ These are recorded observations at **Arbitrum block 511654340 / Robinhood block 
 
 **Read the [full 13-step transaction walkthrough](docs/evidence/2026-10-04-mainnet-fund-7.md)** for hashes, timestamps, contracts, snapshot bounds and the historical fund #1 evidence. The [JSON manifest](docs/evidence/fund-7-mainnet-2026-10-04.json) exposes the same facts for automated review.
 
-## Open source: anyone can build an adapter
+## Independent adapters for the official Pool Party platform
 
-**Any developer can implement, test and contribute a Pool Party adapter.** The integration contracts are public:
+**Any developer can independently implement, test and contribute an adapter for
+the official Pool Party platform.** Required interface/example use is permitted
+by the license; the developer's independent code remains theirs. Previously
+MIT-published interface portions retain their MIT grants. The current first-party
+policy also covers our own interface changes and does not grant unrestricted
+reuse of future restricted implementations. The integration contracts are public:
 
 - [`IAdapter`](src/interfaces/IAdapter.sol): position operations, valuation, income collection and unwind parameters.
 - [`ISwapAdapter`](src/interfaces/ISwapAdapter.sol): token swaps and execution bounds.
@@ -161,4 +183,14 @@ Pool Party's existing product and community predate this V2 architecture. Earlie
 
 ## Licensing
 
-Solidity source files declare their license through SPDX headers, predominantly MIT. Third-party dependencies retain their own licenses. Contributions should preserve the applicable source and dependency notices.
+The current first-party distribution uses
+[Pool Party Source-Available License 1.0](LICENSE), with custom SPDX notices and
+explicit legacy-grant preservation. External interface subsets and unresolved
+adaptation boundaries retain their original notices; dependencies keep their
+upstream licenses. See [LICENSING.md](LICENSING.md),
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and
+[CONTRIBUTING.md](CONTRIBUTING.md) for scope, permissions and contribution rights.
+
+This notice change does not replace the deployed release sources or claim a new
+mainnet deployment. SPDX/comment edits can alter compiler metadata hashes; the
+existing verification evidence stays tied to its original commits.
