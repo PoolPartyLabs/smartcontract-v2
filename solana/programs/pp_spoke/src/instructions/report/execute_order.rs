@@ -2,17 +2,17 @@ use super::orders::verify_order;
 use crate::state::FundState;
 use anchor_lang::prelude::*;
 
-/// DEC-093, DEC-120, DEC-121, DEC-122, DEC-192: provisional accounts; no CPI or state mutation is authorized by this stub.
+/// DEC-191, DEC-192: authenticated arrival ACKs reconcile transit state; other commands fail closed.
 #[derive(Accounts)]
 pub struct ExecuteOrder<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
     #[account(mut)]
     pub fund: Box<Account<'info, FundState>>,
-    /// CHECK: owning track must enforce the per-Fund vault PDA; handler always fails meanwhile.
+    /// CHECK: compatibility account only; ACK reconciliation does not use this account.
     #[account(mut)]
     pub vault: UncheckedAccount<'info>,
-    /// CHECK: T1 must constrain the canonical bridge and authenticated posted VAA accounts.
+    /// CHECK: compatibility account only; verify_order pins the PostedVAA owner and PDA directly.
     pub wormhole_program: UncheckedAccount<'info>,
     /// CHECK: exact canonical, guardian-verified PostedVAA validated by verify_order.
     pub posted_vaa: UncheckedAccount<'info>,

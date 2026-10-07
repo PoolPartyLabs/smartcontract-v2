@@ -325,12 +325,7 @@ pub fn validate_config(args: &InitializePayload, manager: &Pubkey, emitter: &Pub
         CoreError::InvalidConfiguration
     );
     for (index, asset) in args.assets.iter().enumerate() {
-        custody::token_program(&asset.mint)?;
-        require!(
-            asset.stock == (asset.mint == custody::TSLAX)
-                && asset.accounting_id == binding::accounting_alias(&asset.mint),
-            CoreError::InvalidConfiguration
-        );
+        validate_asset(asset)?;
         require!(!args.assets[..index].iter().any(|prior| prior.mint == asset.mint
             || prior.accounting_id == asset.accounting_id), CoreError::InvalidConfiguration);
     }
@@ -379,4 +374,40 @@ pub fn validate_config(args: &InitializePayload, manager: &Pubkey, emitter: &Pub
         CoreError::InvalidConfiguration
     );
     Ok(())
+}
+
+fn validate_asset(asset: &crate::state::Asset) -> Result<()> {
+    require!(asset.mint != custody::NVDAX, CoreError::InvalidConfiguration);
+    custody::token_program(&asset.mint)?;
+    require!(
+        asset.stock == (asset.mint == custody::TSLAX)
+            && asset.accounting_id == binding::accounting_alias(&asset.mint),
+        CoreError::InvalidConfiguration
+    );
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deferred_nvdax_admission_rejects_both_stock_classifications() {
+        for stock in [false, true] {
+            let asset = crate::state::Asset {
+                mint: custody::NVDAX,
+                accounting_id: binding::accounting_alias(&custody::NVDAX),
+                stock,
+            };
+            assert!(validate_asset(&asset).is_err());
+        }
+        for mint in [custody::USDC, custody::TSLAX, custody::WSOL] {
+            let asset = crate::state::Asset {
+                mint,
+                accounting_id: binding::accounting_alias(&mint),
+                stock: mint == custody::TSLAX,
+            };
+            assert!(validate_asset(&asset).is_ok());
+        }
+    }
 }
