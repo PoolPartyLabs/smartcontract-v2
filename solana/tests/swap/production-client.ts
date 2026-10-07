@@ -41,10 +41,10 @@ export function productionApiKey(create = false): Uint8Array {
   }
 }
 
-export function policyBytes(apiKey: Uint8Array) {
+export function policyBytes(apiKey: Uint8Array, scopeEnabled = false) {
   const signer = hash(secp256k1.getPublicKey(apiKey, false).subarray(1)).subarray(12);
   return Buffer.concat([signer, publicKey(SOL_PRICE).toBuffer(), publicKey(USDC_PRICE).toBuffer(), SOL_FEED,
-    USDC_FEED, integer(300, 8), integer(100, 2), integer(50, 2), integer(200, 2), Buffer.from([0, 0])]);
+    USDC_FEED, integer(300, 8), integer(100, 2), integer(50, 2), integer(200, 2), Buffer.from([Number(scopeEnabled), Number(scopeEnabled)])]);
 }
 
 export function policyDigest(policy: Buffer, bindingDigest: Buffer, fund: PublicKey, core: Buffer) {
@@ -55,8 +55,8 @@ export function policyDigest(policy: Buffer, bindingDigest: Buffer, fund: Public
   return hash(Buffer.concat([Buffer.from([25, 1]), domain, message]));
 }
 
-export function creation(manager: PublicKey, core: Buffer, index: number, pool: { mint0: string; mint1: string }, apiKey: Uint8Array, includeNvda = true) {
-  const policy = policyBytes(apiKey);
+export function creation(manager: PublicKey, core: Buffer, index: number, pool: { mint0: string; mint1: string }, apiKey: Uint8Array, includeNvda = true, scopeEnabled = false) {
+  const policy = policyBytes(apiKey, scopeEnabled);
   const swapPolicyHash = hash(policy);
   const mints = [ADDRESSES.usdc, ADDRESSES.wsol, ...(includeNvda ? [NVDA] : [])];
   const assetWords = mints.map(mint => {
@@ -124,8 +124,12 @@ export function signedSwap(recorded: any, common: Record<string, any>, core: Buf
   quote.signature = Buffer.concat([Buffer.from(signature.toCompactRawBytes()), Buffer.from([signature.recovery + 27])]);
   const operation = instruction('swap_to_ratio', { ...common, swap_program: route.programId },
     Buffer.concat([encodeQuote(quote), integer(options.impact ?? 500, 2), integer(data.length, 4), data, Buffer.from([0])]));
+  const stocks = [recorded.build.inputMint, recorded.build.outputMint].some(mint => [ADDRESSES.tslax, NVDA].includes(mint));
+  const extras = [config, SOL_PRICE, USDC_PRICE, CROSS_CHECK,
+    ...(stocks ? ['3t4JZcueEzTbVP6kLxXrL3VpWx45jDer4eqysweBchNH', '4zh6bmb77qX2CL7t5AJYCqa6YqFafbz3QJNeFvZjLowg'] : []),
+    ledger(recorded.build.inputMint), ledger(recorded.build.outputMint)];
   operation.keys.push(...route.accounts.map((account: any) => ({ pubkey: publicKey(account.pubkey), isSigner: false, isWritable: account.isWritable })),
-    ...[config, SOL_PRICE, USDC_PRICE, CROSS_CHECK, ledger(recorded.build.inputMint), ledger(recorded.build.outputMint)]
-      .map((address, index) => ({ pubkey: publicKey(address), isSigner: false, isWritable: [0, 4, 5].includes(index) })));
+    ...extras.map((address, index) => ({ pubkey: publicKey(address), isSigner: false,
+      isWritable: index === 0 || index >= extras.length - 2 })));
   return operation;
 }

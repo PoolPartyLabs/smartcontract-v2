@@ -65,10 +65,13 @@ Policy pins SOL/USDC accounts and feeds, API signer, <=300s age, confidence,
 advisory Chainlink threshold and route slippage. Nonce and observed canonical
 principal conversion persist only after every CPI/postcondition succeeds;
 failure of a later LP instruction rolls back the entire transaction.
-`TODO(decision)`: stock subscriptions are unresolved (`sol-oracle-Q2`); config
-retains `stock_enabled` but rejects true until an approved fresh source lands.
-`reference_mode=0` is DEC-203 option A; other values fail closed, not alternate
-code paths. Primary Pyth failure never falls back to the signed quote.
+`TODO(decision)`: approval of public Scope option A remains pending. Default
+`reference_mode=0, stock_enabled=false` keeps stocks unavailable. Explicit
+creation consent can seal `reference_mode=1, stock_enabled=true` for the pinned
+Scope Open equity reader; all other combinations fail closed. No serialization
+or policy-hash schema changes are required. See `SCOPE.md` for account ordering,
+freshness/calendar gates, tests and the pre-activation evidence still required.
+Primary Pyth or Scope failure never falls back to the signed quote.
 
 ## NVDAx and valuation
 

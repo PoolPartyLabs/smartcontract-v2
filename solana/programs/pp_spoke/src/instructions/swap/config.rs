@@ -67,13 +67,15 @@ impl StagedPolicy {
 }
 
 impl SwapPolicy {
-    /// DEC-202, DEC-203: oracle mode is sealed; TODO(decision) sol-oracle-Q2 stocks remain disabled.
+    /// DEC-202, DEC-203: reuse the signed mode byte; default 0 keeps stocks OFF.
+    /// TODO(decision): mode 1 opts into Scope only after founder approval at creation.
     pub fn validate(&self) -> Result<()> {
         require!(self.api_signer != [0; 20] && self.max_age_seconds > 0
             && self.max_age_seconds <= 300 && self.max_confidence_bps > 0
             && self.max_confidence_bps < 10_000 && self.cross_check_deviation_bps < 10_000
             && self.max_slippage_bps < 10_000, SwapError::Route);
-        require!(self.reference_mode == 0 && !self.stock_enabled, SwapError::IntegrationPending);
+        require!(matches!((self.reference_mode, self.stock_enabled), (0, false) | (1, true)),
+            SwapError::IntegrationPending);
         require!(self.sol_account == oracle::PYTH_SOL && self.usdc_account == oracle::PYTH_USDC
             && self.sol_feed == oracle::SOL_FEED && self.usdc_feed == oracle::USDC_FEED, SwapError::Route);
         Ok(())
@@ -147,8 +149,11 @@ mod tests {
             max_age_seconds: 120, max_confidence_bps: 100, cross_check_deviation_bps: 50,
             max_slippage_bps: 100, reference_mode: 0, stock_enabled: false };
         assert!(policy.validate().is_ok());
-        policy.stock_enabled = true; assert!(policy.validate().is_err()); policy.stock_enabled = false;
-        policy.reference_mode = 1; assert!(policy.validate().is_err()); policy.reference_mode = 0;
+        policy.stock_enabled = true; assert!(policy.validate().is_err());
+        policy.reference_mode = 1; assert!(policy.validate().is_ok());
+        policy.reference_mode = 2; assert!(policy.validate().is_err());
+        policy.stock_enabled = false; policy.reference_mode = 1; assert!(policy.validate().is_err());
+        policy.reference_mode = 0;
         policy.sol_feed[0] ^= 1; assert!(policy.validate().is_err());
     }
 
