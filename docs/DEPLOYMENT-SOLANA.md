@@ -1,5 +1,306 @@
 # Solana v6 deployment rehearsal — founder approval packet
 
+## T9 release package — October 7, 2026 (POO-2263)
+
+**NO-GO until every gate below passes. No mainnet transactions are authorized by
+this preparation task.** The commands marked BROADCAST are for a subsequent,
+separately approved founder session only. Historical evidence later in this file
+is not evidence for integration #48. DEC-188 through DEC-206 and R8 apply.
+
+### Build and identities
+
+Run from a clean checkout of the approved integration merge, not another track's
+worktree. Keep the pinned Anchor 0.31.1, Agave 2.3.0 and locked dependencies.
+
+```sh
+git submodule update --init --recursive
+cargo test --manifest-path solana/Cargo.toml --locked
+cargo test --manifest-path solana/Cargo.toml --locked --features rehearsal-v1-swap
+npm ci --prefix solana
+npm test --prefix solana
+bash solana/scripts/deploy-build.sh
+node --test script/solana-deployment-safety.test.mjs script/solana-release-safety.test.mjs
+forge build
+```
+
+The release profile uses `opt-level="z"`, checked overflow, fat LTO, one codegen
+unit, no debug info and stripped symbols. The builder has no feature argument:
+only `no-idl,no-log-ix-name` enters the production ELF. `default=[]` is unchanged.
+Do not deploy `rehearsal-v1-swap`, `idl-build`, `anchor-debug`, `cpi` or
+`no-entrypoint`. `anchor build` still generates `solana/target/idl/pp_spoke.json`
+and `solana/target/types/pp_spoke.ts`; the builder validates IDL instructions and
+events and writes `solana/target/deploy/pp_spoke.release.json` with source commit,
+ELF/IDL hashes, bytes and features. No command initializes an on-chain IDL account;
+`no-idl` makes Anchor's IDL management dispatch fail closed. Distribute the JSON
+and TypeScript to API/frontend without calling `anchor idl init/upgrade`.
+
+Indexer inputs are Anchor business-event `Program data:` payloads decoded with
+this exact IDL, transaction success and finalized reports, not removed
+`Instruction: <name>` strings. External CPI programs may still log instruction
+names; those strings are not Pool Party event evidence. Wormhole Solana reports
+require consistency **32** (DEC-192); read the same committed max-age rule for
+each chain, never introduce a Solana-specific tolerance.
+
+Measured #48 production ELF: **984,208 bytes**, SHA-256
+`071686e3ef1483f0ee707b6589f2e4cdc657f91f2793af902c79dfbdbf0c1649`.
+The earlier size study's 788,688-byte ELF predates #48's signed swap/oracle work;
+it is not the artifact to deploy. Rebuild and replace measurements after any
+identity/source change. The current program id is still the scaffold placeholder.
+**Coordinator must bind a persistent founder-owned program signer, update
+`declare_id!`/Anchor configuration and fixtures, then rerun all gates.** T9 does
+not rewrite track-owned program identities or generate a mainnet identity.
+
+One key `6VTveiPVZVM7H9BWEsUsu4ivsrPjKw9ePrLQqHaFgJaA` is deployer, upgrade
+authority, keeper and test Manager for the closed hackathon (R8). This is NOT the
+program-id signer. Keep the program and buffer signer files separately, outside
+the repository, owner-only mode 0600. DEC-189 still requires upgrade-authority
+revocation before client capital; never use `--final` for this upgradeable demo.
+
+### Read-only costs and rehearsals
+
+Load approved environment files as shell parameters; never use `cat`, `env`,
+`set -x`, `echo "$RPC"`, `printenv`, or secret-bearing command transcripts. Start
+a fresh non-traced shell. Environment-file paths may point outside this worktree.
+
+```sh
+set +x
+set -a; . "$SOLANA_ENV_FILE"; set +a
+node solana/scripts/deploy-mainnet-budget.mjs > cache/sol-t9/solana-budget.json
+set -a; . "$EVM_ENV_FILE"; set +a
+source /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
+# Set explicit ARBITRUM_FORK_BLOCK and ROBINHOOD_FORK_BLOCK; record them.
+# EVM_DEPLOYER_ADDRESS is the .env.alpha deployer's PUBLIC address.
+# Supply reviewed recipients, guardian, API signer, registry owner, stock session
+# boundaries and SOLANA_PRICE_MAX_AGE. Test placeholders are never launch config.
+bash script/solana-evm-rehearsal-all.sh
+node script/solana-evm-budget.mjs
+bash script/solana-release-rehearsal.sh core
+bash script/solana-release-rehearsal.sh production
+bash script/solana-release-rehearsal.sh legacy
+bash solana/scripts/deploy-build.sh
+```
+
+The three native runs have independent genesis and own ports
+8983/9983/18300/18301–18360 by default. Builders explicitly cap requested compute
+at **900,000 CU**, preserving existing lower limits. This leaves 500,000 CU below
+the runtime maximum of 1,400,000; it does not waive a requirement to measure the
+heaviest operation. `cache/sol-t9/compute-metrics.jsonl` records simulation CU and
+event-data counts. Operation-budget JSON enumerates local payer debit, fees,
+failure/ALT overhead and modeled priority fees. Legacy mode includes the V1
+fixture-only swap; it never substitutes for signed V2 production acceptance.
+Rebuild the production ELF immediately after legacy mode.
+
+Solana read-only mainnet sample, October 7, 2026 15:08:04 UTC, finalized slot
+454258587, exactly 1× capacity:
+
+| Item | Lamports | SOL |
+| --- | ---: | ---: |
+| Program account, 36 bytes | 833,120 | 0.000833120 |
+| ProgramData, 984,253 bytes | 5,000,655,480 | 5.000655480 |
+| Modeled successful upload/deploy fees, 1,028 transactions | 5,177,761 | 0.005177761 |
+| Modeled initial deploy funding | 5,006,666,361 | **5.006666361** |
+
+Priority price is an operational sample, not a protocol rule: 10,000
+micro-lamports/CU, exceeding the sampled unlocked-account 75th percentile (zero,
+150 recent samples). Resample account contention before go. `getFeeForMessage`
+quotes representative unsigned loader messages with measured Agave CU limits;
+960-byte chunks and shared payer/authority match the earlier loader study. The
+funded Buffer rent is **reused** as ProgramData funding, not added twice. This
+is a reproducible fee model, not a guarantee of exact future expenditure; failed
+uploads, resigns, congestion and CLI changes add fees. CLI deployment requests
+explicit `--max-len`, `--with-compute-unit-price`, `--use-rpc` and no auto-extend.
+
+**Combined key funding is not complete:** add measured peak Manager/keeper
+operational rents and priority fees, then a founder-approved retry reserve.
+Fixture airdrops/USDC seed capital are not fee budgets. At this priority price,
+one single-signature 900k-CU action costs 14,000 lamports before rent or protocol
+message fees. The Fund holds no SOL, rent refunds go to payer, never NAV
+(DEC-195). `TODO(decision)`: approve demo action counts, retry reserve and total
+funding; do not silently invent a 0.3-SOL or other allowance.
+
+Fresh EVM fork pins used for factory evidence: Arbitrum **512600742**, Robinhood
+**82566955**. Each deploy script is invoked without Foundry `--broadcast`:
+`DeploySolanaV6`, `DeploySolanaFundV6`, `DeployFactory`, `CreateFund` and
+`CheckAlphaDeployment`, on both chains. Unsupported Fund/verification invocations
+fail closed when approved factory/calldata/Manager inputs are absent. Legacy
+factory rehearsal is comparison evidence, NOT an additional required deployment.
+
+| Required factory | Estimated script gas | Current L1-inclusive funding model |
+| --- | ---: | ---: |
+| Arbitrum v6, 27 transactions | 100,400,891 | 0.002063923586226 ETH |
+| Robinhood v6, 15 transactions | 58,949,436 | 0.001203711353302 ETH |
+
+Both chains use Nitro NodeInterface `gasEstimateL1Component` at `0x...00c8`.
+Use each transaction's calldata/create flag and sampled base price; add the
+L1-only quote to the dry-run gas-limit cost. Gas limits may already include an
+L1 buffer, so this is conservative funding, **not exact L1-inclusive receipt
+cost**. Legacy comparison models: Arbitrum 0.001610932325048 ETH; Robinhood
+0.000910664223844 ETH. Do not sum legacy and v6. Per-Fund v6 creation/seed and
+Robinhood new-Fund creation remain unverified pending signed commitments and
+approved factories. No complete exact EVM launch total can be claimed yet.
+
+### Ordered founder runbook — only after separate authorization
+
+1. **Freeze source and approve configuration.** Merge the reviewed integration
+   and record its full commit; pin both fork blocks, CLI/compiler versions,
+   EVM public signer, API signer/registry owner, protocol recipient/guardian,
+   finalized report max age, stock session/pricing rules and Solana identity.
+   API-only keys remain server-side (DEC-201/202). Review TSLA/NVDA/SOL feeds and
+   effective multipliers (DEC-198); stock swaps remain unavailable without an
+   admitted fresh Solana oracle (DEC-203/204). Preserve 500-bps management cap
+   for this MVP; production correction is separate (DEC-196).
+2. **Build and run every gate above.** Archive hashes, release manifest,
+   complete successful/failed logs, clone slots and budgets. No broadcast. A
+   failed production/composed gate is NO-GO, not a warning to ignore.
+3. **EVM factory dry run with the REAL public deployer address.** Use the same
+   signer on Arbitrum and Robinhood; deterministic linked libraries/code stores
+   and factory addresses depend on signer/nonce. The T9 `0x...14` simulation
+   identities are test-only. Set `PRIVATE_KEY` from `.env.alpha` only for the
+   separately authorized send. Use both new-version factories, not legacy.
+4. **BROADCAST EVM factories**, signed by the `.env.alpha` deployer:
+
+   ```sh
+   export PP_EVM_FOUNDER_APPROVED=YES
+   bash script/solana-evm-deploy.sh arbitrum factory-v6 --broadcast
+   bash script/solana-evm-deploy.sh robinhood factory-v6 --broadcast
+   ```
+
+   The wrapper refuses sends without both the flag and approval parameter.
+   After each receipt: verify chain id, deployed runtime hashes, EIP-170 sizes,
+   factory owner/wiring, linked libraries, creation-code stores/hashes,
+   `CoreVaultCctpLogic`, `ManagerRegistry` and `SolanaPriceSourceV6` feeds. Compare
+   read-only RPC code to the exact linked dry-run artifact; record all addresses
+   in a reviewed public runtime manifest. No module may point at old factory
+   code by accident. Output to API: factory, registry owner/address, price source,
+   Core logic/code hash, chain/RPC configuration; frontend: chain ids and factory
+   addresses, not signing keys or authenticated RPC credentials.
+5. **Approve Solana release**, after identity correction and production rebuild.
+   Copy `script/solana-mainnet-approval.json` to a founder-controlled file outside
+   the repo. Populate `FOUNDER_APPROVED`, approver/timestamp, source commit,
+   program id, ELF/IDL hashes, exact bytes as `maxLen`, authority, sampled priority
+   price and combined wallet funding minimum. A clean source checkout and matching
+   build provenance are mandatory. Do not commit approval into a source commit
+   that then invalidates the approved source hash.
+6. **BROADCAST initial Solana program**, signed by `.env.solana` key; program-id
+   signer supplies the persistent deployment identity, Buffer signer permits
+   recovery. No random/mainnet signer is generated by this package:
+
+   ```sh
+   set -a; . "$SOLANA_ENV_FILE"; set +a
+   export PP_DEPLOY_APPROVAL_FILE="$FOUNDER_APPROVAL_FILE"
+   export PP_DEPLOY_PROGRAM_KEYPAIR="$PROGRAM_SIGNER_FILE"
+   export PP_DEPLOY_BUFFER_KEYPAIR="$BUFFER_SIGNER_FILE"
+   node solana/scripts/deploy-mainnet.mjs --broadcast
+   node solana/scripts/deploy-mainnet.mjs --verify
+   ```
+
+   `SOLANA_MAINNET_RPC` must be explicit HTTPS and have mainnet genesis hash.
+   `SOLANA_DEPLOYER_PRIVATE_KEY` accepts 64-byte JSON/base58 keypair parameters,
+   is never printed, and is removed from CLI child environment. Temporary payer
+   file is 0600 and deleted; program/buffer files are retained externally. The
+   script refuses existing programs/buffers, scaffold id, mismatched bytes/hash,
+   source, IDL, authority, funding or capacity. Verification reads the loader-v3
+   Program and ProgramData owners/layouts, executable bit, exact ELF/capacity and
+   upgrade authority. No on-chain IDL account is created. Output to API/keeper:
+   program id, ProgramData address, deployment hash/authority, IDL JSON/types;
+   frontend: program id, IDL, network and public Manager key only.
+7. **Create the new three-chain Fund**, after approved factory addresses are
+   pinned. Obtain genuine EOA EIP-712 consent plus fixed per-Fund Solana acceptance
+   over the creation-committed mandate/policy, derived PDA/ATAs, nonce and expiry
+   (DEC-190/200). The API must produce reviewed committed creation calldata,
+   never substitute fixture signatures. Dry-run `arbitrum fund-v6` first; then
+   send with the Manager signer required by the reviewed calldata. A deployer
+   signature alone is not a Manager authorization. The current `CreateFund`
+   script is legacy and is **not** a three-chain v6 Robinhood creation builder;
+   coordinator must provide/verify the committed Robinhood path before this step.
+   The factory atomically creates Core v6, native registry, receiver and per-Fund
+   CCTP adapter/receive connector; never deploy those as unattached shared contracts.
+8. **Initialize/seal/register all spokes.** Verify Hub Core/fund id, full Mandate
+   and policy hashes, fixed Manager key, spoke indices, all derived vault/ATAs,
+   adapter admissions, canonical ledgers, CCTP domain/sender/caller and Hub emitter.
+   Verify Hub native emitter registration and Solana consistency 32; verify the
+   5-bps immutable Fast ceiling (scaled Hub `maxFeeBps=50000`), no silent fallback
+   and receive-and-credit wrapper caller both ways (DEC-191/199). Do not expose
+   capital/orders/reports until the sealed-route/emitter checks pass. API/keeper
+   config: all per-Fund Core/spoke/receiver/connector/registry addresses, CCTP
+   domains, Wormhole chain/emitter, policy/mandate, signer public keys, ledgers,
+   ATAs, report max age, per-action CU/priority budget. Frontend: public Fund
+   discovery, Manager wallet binding, available admissions and manual receive
+   trigger. No API secret, private key or provider URL enters the frontend.
+9. **Configure relays and demo capital only after go.** Keeper pays CCTP receives
+   and Wormhole relays; Manager pays actions/rent (R8 one key, DEC-195). Persist
+   transit ids/nonce/message/attestation/status before retries; manual API/UI
+   fallback calls the same atomic wrapper. In-flight remains amount minus maxFee,
+   credits unspent fee on arrival, is never written off and blocks closure while
+   pending (DEC-191/205). Indexer must consume successful business events and
+   finalized v6 reports. Observe nonzero fees separately from principal; quarantine
+   farm rewards (DEC-193/206). Zero Fund SOL remains mandatory.
+
+### Recovery and rollback
+
+- Before any send, rollback is simply NO-GO; keep immutable manifests/evidence.
+- Partial initial upload: preserve Buffer signer/address; inspect loader owner,
+  authority, funded bytes and ELF before explicitly resuming the same buffer or
+  closing it. The initial-send wrapper intentionally refuses implicit resume.
+  `solana program close "$BUFFER_PUBLIC_ADDRESS" --authority "$PAYER_SIGNER_FILE"`
+  can recover funded Buffer rent to the authorized recipient; fees are spent.
+- Program rollback: prefer reviewed upgrade of the same persistent id. At 1×,
+  a larger ELF requires explicit finalized `solana program extend`, rent delta,
+  then upgrade in a later slot. Buffer funding is temporarily needed while old
+  ProgramData rent stays locked; successful upgrade spills/refunds Buffer rent.
+  Do not assume extension delta alone is enough liquid SOL. Reverify bytes,
+  authority, code hash, IDL/config and indexer after any change. A prior ELF may
+  not be ABI/state-compatible with accounts already initialized; review first.
+- Destructive `solana program close "$PROGRAM_ID" --authority "$PAYER_SIGNER_FILE"`
+  recovers ProgramData rent, **not** transaction fees or the 36-byte Program
+  account's rent. Closed loader-v3 identity cannot simply be redeployed; this
+  strands operational callers. Never close a program with capital or pending
+  CCTP. Closing does not recover vault tokens; route their principal through
+  authenticated exits and complete every transit first (DEC-205).
+- EVM deployments are immutable: do not relabel or mutate existing Funds.
+  Stop API/keepers from admitting new capital; preserve pending claims and
+  receipts; use a reviewed new-version deployment and new-Fund creation. Never
+  infer a migration rule for existing capital (DEC-188).
+- Recoveries/authority changes are transactions and require separate founder
+  approval. Revocation before clients is irreversible; do it only after that
+  explicit gate and verification (DEC-189).
+
+### Go/no-go checklist
+
+- [ ] Approved persistent Solana identity; exact clean source, ELF/IDL hashes,
+      toolchain, 1× capacity and public authority verified.
+- [ ] Rust, SBF, npm, TypeScript, default clone, signed V2 production and full
+      composed gates pass on final source; heaviest CU comfortably below 1.4M
+      with explicit budget; transaction packets fit including budget instructions.
+- [ ] Genuine same-Fund three-chain consent/creation correlation; EVM composed
+      pricing test passes; v6 Robinhood creation path exists and is rehearsed.
+- [ ] Both factory and actual per-Fund scripts succeed on explicit fresh forks
+      with real public signers; complete L1-inclusive and SOL role funding approved.
+- [ ] CCTP Fast 5 bps, receive caller, sealed routes/emitter registration,
+      consistency 32, common max age and fixed Manager key verified.
+- [ ] Feed/multiplier/oracle admissions reviewed; unavailable stock swaps have no
+      placeholder price/impact, no disabled security check (DEC-203/204).
+- [ ] API/keeper/frontend manifests complete; event-data indexer works with
+      no instruction-name logging and no on-chain IDL account.
+- [ ] Retry/manual arrival recovery and nonzero-fee/principal segregation tested;
+      no pending claim is discarded and Fund cannot close while in flight.
+- [ ] Founder separately authorizes mainnet commands/funding; closed-team demo
+      only, no client capital; upgrade revocation recorded as pre-client gate.
+
+`TODO(decision)`: demo retry/reserve budget and unresolved stock oracle source.
+Coordinator requests: persistent program identity; signed creation and approved
+factory manifests; production ALT harness readiness; composed Hub pricing fix;
+v6 Robinhood builder; jointly correlated three-chain acceptance. Do not interpret
+this runbook or a passing factory simulation as closing these gates.
+
+Primary-source reference locators (no authenticated endpoints):
+
+```text
+https://docs.arbitrum.io/arbitrum-essentials/nodeinterface/reference
+https://docs.robinhood.com/chain/gas-and-fees/
+https://solana.com/docs/programs/deploying
+```
+
 ## Finish-work safety and default suite
 
 Local deployment is opt-in: `node solana/scripts/deploy-local.mjs --broadcast`.
