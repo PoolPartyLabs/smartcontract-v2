@@ -52,7 +52,7 @@ pub fn handler(ctx: Context<RaydiumClosePosition>, payload: Vec<u8>) -> Result<(
     let operation = &mut accounts.operation;
     let empty = check::position(&operation.personal_position)?;
     require!(
-        empty.liquidity == 0 && empty.fees == [0; 2] && empty.rewards_owed == [0; 3],
+        empty.liquidity == 0 && empty.fees == [0; 2],
         RaydiumError::PositionNotEmpty
     );
     require_keys_eq!(
