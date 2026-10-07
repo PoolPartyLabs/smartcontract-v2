@@ -8,7 +8,7 @@ import {ValueReportReceiverV6} from "../../../src/report/ValueReportReceiverV6.s
 /// @notice DEC-188/196/198: fork-test the exact deploy path, with no contract size-limit override.
 contract SolanaV6DeploymentForkTest is Test, SolanaV6Deployment {
     function testVersionedFactoryIdentityMatchesBothPublicForks() public {
-        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), 512_239_244);
+        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envOr("ARBITRUM_FORK_BLOCK", uint256(512_239_244)));
         V6Deployment memory hub = _deploy();
         assertGt(address(hub.factory).code.length, 0);
         assertLe(address(hub.factory).code.length, 24_576);
