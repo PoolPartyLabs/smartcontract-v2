@@ -11,7 +11,7 @@ use anchor_lang::prelude::*;
 pub struct SendToHub<'info> {
     #[account(mut, address = fund.manager_solana @ CctpError::Unauthorized)]
     pub authority: Signer<'info>,
-    #[account(mut, seeds = [b"fund", fund.hub_core.as_ref(), &fund.spoke_index.to_le_bytes(), fund.mandate_hash.as_ref()], bump = fund.bump, constraint = !fund.closed @ CctpError::Unauthorized)]
+    #[account(mut, seeds = [b"fund", &fund.hub_chain_id.to_le_bytes(), fund.hub_core.as_ref(), &fund.spoke_index.to_le_bytes(), fund.policy_hash.as_ref()], bump = fund.bump, constraint = !fund.closed @ CctpError::Unauthorized)]
     pub fund: Box<Account<'info, FundState>>,
     /// CHECK: canonical per-Fund vault, signs only the pinned Circle burn CPI.
     #[account(seeds = [b"vault", fund.key().as_ref()], bump = fund.vault_bump)]
@@ -20,7 +20,7 @@ pub struct SendToHub<'info> {
     pub route: Account<'info, CctpRoute>,
     #[account(mut, seeds = [b"cctp_ledger", fund.key().as_ref()], bump, has_one = fund)]
     pub ledger: Account<'info, CctpLedger>,
-    #[account(init, payer = authority, space = 8 + Transit::INIT_SPACE, seeds = [b"transit", fund.key().as_ref(), transit_seed(&payload)?], bump)]
+    #[account(init, payer = authority, space = 8 + Transit::INIT_SPACE, seeds = [b"transit_out", fund.key().as_ref(), transit_seed(&payload)?], bump)]
     pub transit: Account<'info, Transit>,
     /// CHECK: legacy native USDC ATA layout and custody checked before and after CPI.
     #[account(mut, address = cpi::ata(&vault.key()))]
@@ -34,9 +34,24 @@ pub struct SendToHub<'info> {
 }
 
 pub fn handler(ctx: Context<SendToHub>, payload: Vec<u8>) -> Result<()> {
-    crate::instructions::core::admission::manager(&ctx.accounts.fund, &ctx.accounts.authority.to_account_info())?;
-    // TODO(decision): canonical direction-qualified transit-id namespace (DEC-191).
-    let params = SendParams::try_from_slice(&payload).map_err(|_| CctpError::InvalidPayload)?;
+    crate::instructions::core::guards::require_fund_address(&ctx.accounts.fund, &ctx.accounts.fund.key())?;
+    let mut params = SendParams::try_from_slice(&payload).map_err(|_| CctpError::InvalidPayload)?;
+    let business_nonce = params.transit_id;
+    params.transit_id = outbound_id(&ctx.accounts.fund.fund_id, &params.transit_id)?;
+    let active = ctx.accounts.fund.active_command;
+    let mut command = if active != Pubkey::default() {
+        let account = ctx.remaining_accounts.last().ok_or(CctpError::InvalidAccount)?;
+        require!(*account.key == active && *account.owner == crate::ID && account.is_writable,
+            CctpError::InvalidAccount);
+        let command = crate::state::command::HubCommand::try_deserialize(&mut &account.try_borrow_data()?[..])?;
+        require!(command.fund == ctx.accounts.fund.key() && !command.completed && command.reserved == params.amount
+            && command.transit_id == [0;32], CctpError::InvalidAmount);
+        Some(command)
+    } else {
+        require!(!ctx.accounts.fund.close_requested, CctpError::Unauthorized);
+        None
+    };
+    let income = command.as_ref().is_some_and(|command| command.kind == 3);
     require!(
         params.transit_id != [0; 32]
             && ctx.accounts.route.hub_connector != [0; 20]
@@ -51,7 +66,7 @@ pub fn handler(ctx: Context<SendToHub>, payload: Vec<u8>) -> Result<()> {
     )?;
     let ledger = &mut ctx.accounts.ledger;
     require!(
-        ctx.accounts.token_ledger.principal >= params.amount,
+        (if income { ctx.accounts.token_ledger.collected_income } else { ctx.accounts.token_ledger.principal }) >= params.amount,
         CctpError::InsufficientPrincipal
     );
     let before = cpi::balance(
@@ -63,14 +78,15 @@ pub fn handler(ctx: Context<SendToHub>, payload: Vec<u8>) -> Result<()> {
     let seeds = [b"vault".as_slice(), fund_key.as_ref(), bump.as_slice()];
     cpi::execute(
         MESSENGER,
-        burn_data(
+        burn_data_kind(
             &params,
             &ctx.accounts.fund.hub_core,
             &ctx.accounts.route.hub_connector,
             &ctx.accounts.fund.fund_id,
             ctx.accounts.route.solana_chain_id,
+            u8::from(income),
         ),
-        ctx.remaining_accounts,
+        if command.is_some() { &ctx.remaining_accounts[..ctx.remaining_accounts.len() - 1] } else { ctx.remaining_accounts },
         &cpi::burn_accounts(
             ctx.accounts.vault.key(),
             ctx.accounts.authority.key(),
@@ -86,7 +102,8 @@ pub fn handler(ctx: Context<SendToHub>, payload: Vec<u8>) -> Result<()> {
         before.checked_sub(after) == Some(params.amount),
         CctpError::WrongDelta
     );
-    ctx.accounts.token_ledger.debit_principal(params.amount)?;
+    if income { ctx.accounts.token_ledger.debit_income(params.amount)?; }
+    else { ctx.accounts.token_ledger.debit_principal(params.amount)?; }
     ledger.principal = ctx.accounts.token_ledger.principal;
     ledger.outbound_gross = ledger
         .outbound_gross
@@ -98,6 +115,13 @@ pub fn handler(ctx: Context<SendToHub>, payload: Vec<u8>) -> Result<()> {
         .ok_or(CctpError::InvalidAmount)?;
     ctx.accounts.fund.register_transit(ctx.accounts.transit.key())?;
     ctx.accounts.fund.cumulative_sent_home = ctx.accounts.fund.cumulative_sent_home.checked_add(u128::from(params.amount)).ok_or(CctpError::InvalidAmount)?;
+    if let Some(command) = command.as_mut() {
+        command.reserved = 0;
+        command.transit_id = params.transit_id;
+        command.amount_sent = params.amount;
+        command.amount_to_arrive = net;
+        command.try_serialize(&mut &mut ctx.remaining_accounts.last().unwrap().try_borrow_mut_data()?[..])?;
+    }
     ctx.accounts.transit.set_inner(Transit {
         fund: fund_key,
         transit_id: params.transit_id,
@@ -108,11 +132,12 @@ pub fn handler(ctx: Context<SendToHub>, payload: Vec<u8>) -> Result<()> {
         credited: 0,
         fee_executed: 0,
         fee_surplus_principal: 0,
-        nonce: [0; 32],
+        nonce: business_nonce,
         message_hash: [0; 32],
         event_account: ctx.accounts.event_account.key(),
         rent_payer: ctx.accounts.authority.key(),
         received: false,
+        transfer_kind: u8::from(income),
     });
     emit!(CctpTransitRecorded {
         fund: fund_key,

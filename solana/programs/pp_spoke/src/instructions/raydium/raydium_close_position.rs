@@ -52,9 +52,20 @@ pub fn handler(ctx: Context<RaydiumClosePosition>, payload: Vec<u8>) -> Result<(
     let operation = &mut accounts.operation;
     let empty = check::position(&operation.personal_position)?;
     require!(
-        empty.liquidity == 0 && empty.fees == [0; 2] && empty.rewards_owed == [0; 3],
+        principal_and_fees_empty(&empty),
         RaydiumError::PositionNotEmpty
     );
+    if empty.rewards_owed != [0; 3] {
+        operation.position_record.closed = true;
+        operation.fund.active_positions = operation.fund.active_positions.checked_sub(1).ok_or(RaydiumError::Arithmetic)?;
+        emit!(RaydiumPositionClosed {
+            fund: operation.fund.key(),
+            position: operation.personal_position.key(),
+            rent_payer: accounts.rent_payer.key(),
+            rent: 0
+        });
+        return Ok(());
+    }
     require_keys_eq!(
         *operation.vault.owner,
         anchor_lang::system_program::ID,
@@ -113,6 +124,29 @@ pub fn handler(ctx: Context<RaydiumClosePosition>, payload: Vec<u8>) -> Result<(
         rent
     });
     Ok(())
+}
+
+fn principal_and_fees_empty(position: &check::Position) -> bool {
+    position.liquidity == 0 && position.fees == [0; 2]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn principal_exit_is_independent_of_quarantined_rewards() {
+        let mut position = check::Position {
+            mint: Pubkey::default(), pool: Pubkey::default(), lower: 0, upper: 0,
+            liquidity: 0, checkpoints: [0; 2], fees: [0; 2], rewards_owed: [1, u64::MAX, 3],
+        };
+        assert!(principal_and_fees_empty(&position));
+        position.liquidity = 1;
+        assert!(!principal_and_fees_empty(&position));
+        position.liquidity = 0;
+        position.fees = [1, 0];
+        assert!(!principal_and_fees_empty(&position));
+    }
 }
 
 #[event]

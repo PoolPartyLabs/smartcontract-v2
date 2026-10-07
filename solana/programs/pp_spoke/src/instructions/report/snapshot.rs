@@ -130,17 +130,50 @@ pub fn snapshot(
         require_keys_eq!(*account.owner, crate::ID, ReportError::InvalidAccounts);
         let transit = Transit::try_deserialize(&mut &account.try_borrow_data()?[..])?;
         require_keys_eq!(transit.fund, key, ReportError::InvalidAccounts);
-        require_keys_eq!(*transit_key, Pubkey::find_program_address(&[b"transit", key.as_ref(), &transit.transit_id], &crate::ID).0, ReportError::InvalidAccounts);
+        let prefix: &[u8] = if transit.outbound { b"transit_out" } else { b"transit_in" };
+        let seed = if transit.outbound { transit.nonce } else { transit.transit_id };
+        require_keys_eq!(*transit_key, Pubkey::find_program_address(&[prefix, key.as_ref(), &seed], &crate::ID).0, ReportError::InvalidAccounts);
+        if transit.outbound { require!(transit.transit_id == crate::instructions::cctp::wire::outbound_id(&fund.fund_id, &transit.nonce)?, ReportError::InvalidAccounts); }
         require!(transit.in_flight == transit.amount.checked_sub(transit.max_fee).ok_or(ReportError::InvalidAccounts)?, ReportError::InvalidAccounts);
         if transit.outbound {
-            report.in_flight.push([transit.transit_id, word(u128::from(transit.in_flight)), word(0)]);
+            require!(transit.transfer_kind <= 1, ReportError::InvalidAccounts);
+            report.in_flight.push([transit.transit_id, word(u128::from(transit.in_flight)), word(u128::from(transit.transfer_kind))]);
         } else {
             require!(transit.received && transit.credited == transit.amount.checked_sub(transit.fee_executed).ok_or(ReportError::InvalidAccounts)?, ReportError::InvalidAccounts);
             report.arrived.push([transit.transit_id, word(u128::from(transit.credited))]);
         }
     }
+    for command_key in &fund.command_registry {
+        let account = accounts.get(cursor).ok_or(ReportError::ResultsNotIntegrated)?;
+        cursor += 1;
+        require_keys_eq!(*account.key, *command_key, ReportError::InvalidAccounts);
+        require_keys_eq!(*account.owner, crate::ID, ReportError::InvalidAccounts);
+        append_command_result(account, key, &mut report)?;
+    }
     require!(cursor == accounts.len(), ReportError::InvalidAccounts);
     Ok(report)
+}
+
+#[inline(never)]
+fn append_command_result(account: &AccountInfo, fund: Pubkey, report: &mut NativeReport) -> Result<()> {
+    let command = crate::state::command::HubCommand::try_deserialize(&mut &account.try_borrow_data()?[..])?;
+    require!(command.fund == fund && Pubkey::find_program_address(&[b"command", fund.as_ref(), &command.order_id], &crate::ID).0 == *account.key,
+        ReportError::InvalidAccounts);
+    // TODO(decision): multi-result retention/ACK protocol; never discard an unacknowledged result.
+    if command.completed {
+        if command.kind == 3 {
+            report.collection_results = super::commands::append_collection(&report.collection_results, &command)?;
+        } else {
+            let next = super::commands::unwind_result(&command);
+            if report.unwind_results.is_empty() { report.unwind_results = next; }
+            else {
+                let count = super::commands::read_u64(&report.unwind_results[32..64])? + 1;
+                report.unwind_results[32..64].copy_from_slice(&word(u128::from(count)));
+                report.unwind_results.extend_from_slice(&next[64..]);
+            }
+        }
+    }
+    Ok(())
 }
 
 #[inline(never)]
@@ -175,9 +208,54 @@ pub fn encoded_snapshot(
     codec::encode(&snapshot(fund, key, accounts, clock)?)
 }
 
+pub fn require_settled_transits(fund: &FundState, key: Pubkey, accounts: &[AccountInfo]) -> Result<()> {
+    require!(fund.pending_transits as usize == fund.transit_registry.len(), ReportError::TransitNotIntegrated);
+    for transit_key in &fund.transit_registry {
+        let account = accounts.iter().find(|account| account.key == transit_key).ok_or(ReportError::TransitNotIntegrated)?;
+        require_keys_eq!(*account.owner, crate::ID, ReportError::InvalidAccounts);
+        let transit = Transit::try_deserialize(&mut &account.try_borrow_data()?[..])?;
+        require_keys_eq!(transit.fund, key, ReportError::InvalidAccounts);
+        let prefix: &[u8] = if transit.outbound { b"transit_out" } else { b"transit_in" };
+        let seed = if transit.outbound { transit.nonce } else { transit.transit_id };
+        require_keys_eq!(*transit_key, Pubkey::find_program_address(&[prefix, key.as_ref(), &seed], &crate::ID).0, ReportError::InvalidAccounts);
+        require!(transit.received, ReportError::OrderExecutionNotIntegrated);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn close_rejects_pending_inbound_and_outbound_even_without_report_exposure() {
+        let (mut fund, key) = crate::instructions::core::guards::fixture();
+        require_settled_transits(&fund, key, &[]).unwrap();
+        for outbound in [false, true] {
+            let nonce = [9; 32];
+            let id = [10; 32];
+            let prefix: &[u8] = if outbound { b"transit_out" } else { b"transit_in" };
+            let seed = if outbound { nonce } else { id };
+            let transit_key = Pubkey::find_program_address(&[prefix, key.as_ref(), &seed], &crate::ID).0;
+            let bytes = vec![0; Transit::INIT_SPACE];
+            let mut transit = Transit::deserialize(&mut bytes.as_slice()).unwrap();
+            transit.fund = key;
+            transit.outbound = outbound;
+            transit.nonce = nonce;
+            transit.transit_id = id;
+            fund.transit_registry = vec![transit_key];
+            fund.pending_transits = 1;
+            for received in [false, true] {
+                transit.received = received;
+                let mut data = vec![];
+                transit.try_serialize(&mut data).unwrap();
+                let mut lamports = 1;
+                let account = AccountInfo::new(&transit_key, false, false, &mut lamports, &mut data, &crate::ID, false, 0);
+                assert_eq!(require_settled_transits(&fund, key, &[account]).is_ok(), received);
+            }
+            assert!(require_settled_transits(&fund, key, &[]).is_err());
+        }
+    }
 
     #[test]
     fn never_silently_omit_unintegrated_exposure_or_stock_witness() {

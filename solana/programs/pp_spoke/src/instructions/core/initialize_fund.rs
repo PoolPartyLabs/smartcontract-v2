@@ -74,12 +74,10 @@ pub struct CoreFundInitialized {
 
 pub fn handler(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
     require!(payload.len() <= 2048, CoreError::InvalidConfiguration);
-    let args = InitializePayload::try_from_slice(&payload)
-        .map_err(|_| error!(CoreError::InvalidConfiguration))?;
+    let (mut args, compact) = decode_payload(&payload)?;
     let index = args.spoke_index.to_le_bytes();
-    // TODO(decision): DEC-200 needs a non-circular Hub Mandate commitment when its spoke emitter derives from this PDA.
-    let (fund_key, bump) =
-        Pubkey::find_program_address(&[b"fund", &args.hub_core, &index, &args.mandate_hash], &crate::ID);
+    let chain = args.hub_chain_id.to_le_bytes();
+    let (fund_key, bump) = binding::fund_address(&args);
     require_keys_eq!(
         ctx.accounts.fund.key(),
         fund_key,
@@ -99,6 +97,10 @@ pub fn handler(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
     let (emitter, emitter_bump) =
         Pubkey::find_program_address(&[b"emitter", fund_key.as_ref()], &crate::ID);
     let manager = ctx.accounts.authority.key();
+    if compact {
+        args.native_mandate_hash = binding::native_mandate_hash(&manager, &emitter, args.spoke_chain_id,
+            &args.assets, &args.venues, &args.transport);
+    }
     validate_config(&args, &manager, &emitter)?;
     binding::verify_bootstrap(&args, &manager, &fund_key, Clock::get()?.unix_timestamp)?;
     let digest = binding::bootstrap_digest(&args, &manager, &fund_key)?;
@@ -109,7 +111,7 @@ pub fn handler(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
         &ctx.accounts.fund.to_account_info(),
         &system,
         8 + FundState::INIT_SPACE,
-        &[b"fund", &args.hub_core, &index, &args.mandate_hash, &[bump]],
+        &[b"fund", &chain, &args.hub_core, &index, &args.policy_hash, &[bump]],
     )?;
     let route = CctpRoute {
         fund: fund_key,
@@ -151,6 +153,11 @@ pub fn handler(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
         transport: args.transport,
         position_registry: vec![],
         transit_registry: vec![],
+        policy_hash: args.policy_hash,
+        hub_policy_hash: args.hub_policy_hash,
+        active_command: Pubkey::default(),
+        close_requested: false,
+        command_registry: vec![],
     };
     fund.try_serialize(&mut &mut ctx.accounts.fund.try_borrow_mut_data()?[..])?;
     for (prefix, account, space) in [
@@ -277,11 +284,8 @@ pub(crate) fn allocate<'info>(
 }
 
 pub fn validate_config(args: &InitializePayload, manager: &Pubkey, emitter: &Pubkey) -> Result<()> {
-    let fund = Pubkey::find_program_address(
-        &[b"fund", &args.hub_core, &args.spoke_index.to_le_bytes(), &args.mandate_hash],
-        &crate::ID,
-    )
-    .0;
+    require!(args.hub_policy_hash != [0; 32] && args.policy_hash == binding::policy_hash(args, manager), CoreError::InvalidConfiguration);
+    let fund = binding::fund_address(args).0;
     let vault = Pubkey::find_program_address(&[b"vault", fund.as_ref()], &crate::ID).0;
     require!(
         args.transport.hub_usdc
@@ -387,9 +391,36 @@ fn validate_asset(asset: &crate::state::Asset) -> Result<()> {
     Ok(())
 }
 
+fn decode_payload(payload: &[u8]) -> Result<(InitializePayload, bool)> {
+    if let Ok(args) = InitializePayload::try_from_slice(payload) {
+        return Ok((args, false));
+    }
+    require!(payload.first() == Some(&1) && payload.len() > 135, CoreError::InvalidConfiguration);
+    let expanded = [payload[1..135].to_vec(), 1u64.to_le_bytes().to_vec(), vec![0; 32], payload[135..].to_vec()].concat();
+    let args = InitializePayload::try_from_slice(&expanded).map_err(|_| error!(CoreError::InvalidConfiguration))?;
+    Ok((args, true))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compact_bootstrap_omits_only_recomputed_fields_and_rejects_bad_versions() {
+        let bytes = vec![0; 134 + 40 + 32 + 8 + 65 + 4 + 4 + 200 + 64];
+        let (full, compact) = decode_payload(&bytes).unwrap();
+        assert!(!compact);
+        let encoded = [vec![1], bytes[..134].to_vec(), bytes[174..].to_vec()].concat();
+        let (decoded, compact) = decode_payload(&encoded).unwrap();
+        assert!(compact);
+        assert_eq!(decoded.hub_core, full.hub_core);
+        assert_eq!(decoded.policy_hash, full.policy_hash);
+        assert_eq!(decoded.spoke_chain_id, 1);
+        let mut bad = encoded;
+        bad[0] = 2;
+        assert!(decode_payload(&bad).is_err());
+        assert!(decode_payload(&bad[..134]).is_err());
+    }
 
     #[test]
     fn deferred_nvdax_admission_rejects_both_stock_classifications() {

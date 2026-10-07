@@ -26,6 +26,8 @@ import {MockManagerRegistry} from "../../mocks/core/MockManagerRegistry.sol";
 import {AnyPriceSource} from "../../mocks/core/AnyPriceSource.sol";
 import {V3Stub} from "../../utils/V3Stub.sol";
 import {SolanaFixture} from "./SolanaFixture.sol";
+import {SolanaPolicyV6} from "../../../src/mandate/SolanaPolicyV6.sol";
+import {SolanaPdaV6} from "../../../src/mandate/SolanaPdaV6.sol";
 
 /// @notice Local creation evidence, not a CCTP transport test (DEC-188, DEC-190, DEC-196).
 contract FundFactoryV6Test is Test, FactoryDeployment {
@@ -34,6 +36,7 @@ contract FundFactoryV6Test is Test, FactoryDeployment {
     bytes private coreCode;
     uint256 private constant MANAGER_PRIVATE_KEY = 0x12345;
     address private manager;
+    mapping(uint256 => SolanaPolicyV6.Commitment) private commitments;
 
     function setUp() public {
         vm.chainId(42_161);
@@ -136,25 +139,72 @@ contract FundFactoryV6Test is Test, FactoryDeployment {
 
     function _binding(uint256 number, SolanaMandateV6.Config memory native)
         private
-        view
         returns (FundFactoryV6.Binding memory binding)
     {
         binding.nonce = factory.bindingNonce(manager);
         binding.expiry = block.timestamp + 1 hours;
-        address fund = factory.addressOf(factory.fundIdOf(42_161, number, manager), "CoreVault", 42_161);
-        bytes32 digest = factory.bindingDigest(native, fund, binding.nonce, binding.expiry);
+        Mandate memory mandate_ = _mandate(number);
+        SolanaPolicyV6.Commitment memory commitment = _seal(number, mandate_, native);
+        commitments[number] = commitment;
+        bytes32 digest = _bootstrapDigest(number, mandate_, native, commitment, binding);
         (uint8 recovery, bytes32 signatureR, bytes32 signatureS) = vm.sign(MANAGER_PRIVATE_KEY, digest);
         binding.signature = abi.encodePacked(signatureR, signatureS, recovery);
     }
 
+    function _bootstrapDigest(uint256 number, Mandate memory mandate_, SolanaMandateV6.Config memory native,
+        SolanaPolicyV6.Commitment memory commitment, FundFactoryV6.Binding memory binding)
+        private view returns (bytes32)
+    {
+        bytes32 domain = keccak256(abi.encode(
+            keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+            keccak256("PoolParty Solana Fund"), keccak256("6"), block.chainid, address(factory)
+        ));
+        bytes32 id = factory.fundIdOf(42_161, number, manager);
+        return keccak256(abi.encodePacked(hex"1901", domain, SolanaPolicyV6.bootstrapHash(
+            factory.BOOTSTRAP_TYPEHASH(), block.chainid, factory.addressOf(id, "CoreVault", 42_161),
+            keccak256(abi.encode(mandate_)), native, commitment, id, binding.nonce, binding.expiry
+        )));
+    }
+
+    function _seal(uint256 number, Mandate memory mandate_, SolanaMandateV6.Config memory native)
+        private view returns (SolanaPolicyV6.Commitment memory commitment)
+    {
+        commitment.spokeIndex = 1;
+        commitment.policyHash = SolanaPolicyV6.hash(
+            SolanaPolicyV6.hubPolicyHash(mandate_, 1), SolanaPolicyV6.nativePolicyHash(native)
+        );
+        address core = factory.addressOf(factory.fundIdOf(42_161, number, manager), "CoreVault", 42_161);
+        commitment.fundPda = SolanaPdaV6.fund(42_161, core, 1, commitment.policyHash, native.program);
+        bytes32 vault = SolanaPdaV6.derive(abi.encodePacked("vault", commitment.fundPda), native.program);
+        native.spoke = SolanaPdaV6.derive(abi.encodePacked("emitter", commitment.fundPda), native.program);
+        bytes32 token = 0x06ddf6e1d765a193d9cbe146ceeb79ac1cb485ed5f5b37913a8cf5857eff00a9;
+        bytes32 token2022 = 0x06ddf6e1ee758fde18425dbce46ccddab61afc4d83b90d27febdf928d8a18bfc;
+        commitment.usdcAta = SolanaPdaV6.ata(vault, native.usdcMint, token);
+        commitment.stockAta = SolanaPdaV6.ata(vault, SolanaFixture.STOCK, token2022);
+        commitment.nvdaxAta = SolanaPdaV6.ata(vault, 0x07e8a50e140fda5791f4566a957fd3ae3f873e6a3466ffc13d79119dfa9ab50a, token2022);
+        commitment.wsolAta = SolanaPdaV6.ata(vault, SolanaFixture.SOL, token);
+        native.transport.mintRecipient = commitment.usdcAta;
+        native.transport.destinationCaller = vault;
+        native.transport.remoteVaultAuthority = vault;
+        mandate_.spokes[1].spokeVault = native.spoke;
+    }
+
+    function _create(Mandate memory mandate_, IFundFactory.HubParams memory params,
+        SolanaMandateV6.Config memory native, FundFactoryV6.Binding memory binding)
+        private returns (IFundFactory.FundAddresses memory)
+    {
+        mandate_.spokes[1].spokeVault = native.spoke;
+        return factory.createFundV6Committed(mandate_, params, native, commitments[params.creationNumber], binding);
+    }
+
     function testCreateThreeChainFundAndReuseManagerKey() public {
-        SolanaMandateV6.Config memory native = _nativeConfig();
         for (uint256 number = 1; number <= 2; ++number) {
+            SolanaMandateV6.Config memory native = _nativeConfig();
             FundFactoryV6.Binding memory binding = _binding(number, native);
             Mandate memory mandate_ = _mandate(number);
             IFundFactory.HubParams memory params = _params(number);
             vm.prank(manager);
-            IFundFactory.FundAddresses memory result = factory.createFundV6(mandate_, params, native, binding);
+            IFundFactory.FundAddresses memory result = _create(mandate_, params, native, binding);
             CoreVaultV6 core = CoreVaultV6(result.coreVault);
             assertEq(core.managerSolanaKey(), native.managerKey);
             assertEq(core.nativeMandateHash(), SolanaMandateV6.hash(native));
@@ -179,23 +229,24 @@ contract FundFactoryV6Test is Test, FactoryDeployment {
         Mandate memory mandate_ = _mandate(1);
         IFundFactory.HubParams memory params = _params(1);
         native.managerKey = bytes32(uint256(999));
-        vm.expectRevert(FundFactoryV6.InvalidSolanaBinding.selector);
+        vm.expectRevert(SolanaPolicyV6.InvalidPolicyCommitment.selector);
         vm.prank(manager);
-        factory.createFundV6(mandate_, params, native, binding);
+        _create(mandate_, params, native, binding);
         native = _nativeConfig();
+        binding = _binding(1, native);
         binding.expiry = block.timestamp - 1;
         vm.expectRevert(FundFactoryV6.InvalidSolanaBinding.selector);
         vm.prank(manager);
-        factory.createFundV6(mandate_, params, native, binding);
+        _create(mandate_, params, native, binding);
         binding = _binding(1, native);
         binding.nonce = 1;
         vm.expectRevert(FundFactoryV6.InvalidSolanaBinding.selector);
         vm.prank(manager);
-        factory.createFundV6(mandate_, params, native, binding);
+        _create(mandate_, params, native, binding);
         vm.etch(manager, hex"00");
         vm.expectRevert(FundFactoryV6.InvalidSolanaBinding.selector);
         vm.prank(manager);
-        factory.createFundV6(mandate_, params, native, binding);
+        _create(mandate_, params, native, binding);
         assertEq(factory.bindingNonce(manager), 0);
     }
 
@@ -207,20 +258,50 @@ contract FundFactoryV6Test is Test, FactoryDeployment {
         IFundFactory.HubParams memory params = _params(1);
         vm.expectRevert();
         vm.prank(manager);
-        factory.createFundV6(mandate_, params, native, binding);
+        _create(mandate_, params, native, binding);
         assertEq(factory.bindingNonce(manager), 0);
         assertEq(factory.nextCreationNumber(), 1);
     }
 
     function testSignatureDomainBindsFactoryChainFundAndMandate() public {
         SolanaMandateV6.Config memory native = _nativeConfig();
-        bytes32 digest = factory.bindingDigest(native, address(123), 0, 999);
-        assertTrue(digest != factory.bindingDigest(native, address(124), 0, 999));
+        FundFactoryV6.Binding memory binding = _binding(1, native);
+        Mandate memory mandate_ = _mandate(1);
+        mandate_.spokes[1].spokeVault = native.spoke;
+        bytes32 digest = _bootstrapDigest(1, mandate_, native, commitments[1], binding);
+        assertTrue(digest != _bootstrapDigest(2, mandate_, native, commitments[1], binding));
         native.venues[0].pool = bytes32(uint256(99));
-        assertTrue(digest != factory.bindingDigest(native, address(123), 0, 999));
-        native = _nativeConfig();
+        assertTrue(digest != _bootstrapDigest(1, mandate_, native, commitments[1], binding));
         vm.chainId(4663);
-        assertTrue(digest != factory.bindingDigest(native, address(123), 0, 999));
+        assertTrue(digest != _bootstrapDigest(1, mandate_, native, commitments[1], binding));
+    }
+
+    function testRejectSquattedFundAndChangedDerivedAta() public {
+        SolanaMandateV6.Config memory native = _nativeConfig();
+        FundFactoryV6.Binding memory binding = _binding(1, native);
+        Mandate memory mandate_ = _mandate(1);
+        mandate_.spokes[1].spokeVault = native.spoke;
+        SolanaPolicyV6.Commitment memory commitment = commitments[1];
+        commitment.fundPda = bytes32(uint256(99));
+        IFundFactory.HubParams memory params = _params(1);
+        vm.expectRevert(SolanaPolicyV6.InvalidPolicyCommitment.selector);
+        vm.prank(manager);
+        factory.createFundV6Committed(mandate_, params, native, commitment, binding);
+        commitment = commitments[1];
+        commitment.stockAta = bytes32(uint256(98));
+        vm.expectRevert(SolanaPolicyV6.InvalidPolicyCommitment.selector);
+        vm.prank(manager);
+        factory.createFundV6Committed(mandate_, params, native, commitment, binding);
+        assertEq(factory.bindingNonce(manager), 0);
+    }
+
+    function testRejectLegacyCircularCreation() public {
+        Mandate memory mandate_ = _mandate(1);
+        IFundFactory.HubParams memory params = _params(1);
+        SolanaMandateV6.Config memory native = _nativeConfig();
+        FundFactoryV6.Binding memory binding;
+        vm.expectRevert(FundFactoryV6.NativeCreationRequired.selector);
+        factory.createFundV6(mandate_, params, native, binding);
     }
 
     function testRejectAcrossNativeTransportAtCoreCreation() public {
@@ -229,13 +310,9 @@ contract FundFactoryV6Test is Test, FactoryDeployment {
         mandate_.bridgeAdapters[2].adapter = mandate_.bridgeAdapters[0].adapter;
         IFundFactory.HubParams memory params = _params(1);
         FundFactoryV6.Binding memory binding = _binding(1, native);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IFundFactory.UnexpectedBridgeAdapter.selector, uint256(42_161), mandate_.bridgeAdapters[0].adapter
-            )
-        );
+        vm.expectRevert(SolanaPolicyV6.InvalidPolicyCommitment.selector);
         vm.prank(manager);
-        factory.createFundV6(mandate_, params, native, binding);
+        _create(mandate_, params, native, binding);
         assertEq(factory.bindingNonce(manager), 0);
     }
 
@@ -245,15 +322,15 @@ contract FundFactoryV6Test is Test, FactoryDeployment {
         Mandate memory mandate_ = _mandate(1);
         IFundFactory.HubParams memory params = _params(1);
         native.transport.destinationCaller = bytes32(uint256(9876));
-        vm.expectRevert(FundFactoryV6.InvalidSolanaBinding.selector);
+        vm.expectRevert(SolanaPolicyV6.InvalidPolicyCommitment.selector);
         vm.prank(manager);
-        factory.createFundV6(mandate_, params, native, binding);
+        _create(mandate_, params, native, binding);
         native = _nativeConfig();
         native.transport.fastFeeCeiling = 50_001;
         binding = _binding(1, native);
         vm.expectRevert(SolanaDeploymentV6.InvalidSolanaBinding.selector);
         vm.prank(manager);
-        factory.createFundV6(mandate_, params, native, binding);
+        _create(mandate_, params, native, binding);
         assertEq(factory.bindingNonce(manager), 0);
     }
 }

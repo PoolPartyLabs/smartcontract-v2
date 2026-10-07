@@ -84,10 +84,10 @@ test('Kamino decoder validates source-pinned reserve offsets', () => {
 
 test('every declared instruction keeps an Accounts struct in its track module', () => {
   // Tracks replace the scaffold's fail-closed handlers with real ones and add helper files,
-  // so this checks structure only: the 26 entry points stay declared and each module defines Accounts.
+  // so this checks structure only: the 28 entry points stay declared and each module defines Accounts.
   const root = new URL('../../programs/pp_spoke/src/', import.meta.url);
   const lib = readFileSync(new URL('lib.rs', root), 'utf8');
-  assert.equal((lib.match(/^\s*pub fn \w+\s*(<[^>]*>)?\s*\(/gm) ?? []).length, 26);
+  assert.equal((lib.match(/^\s*pub fn \w+\s*(<[^>]*>)?\s*\(/gm) ?? []).length, 28);
   for (const module of ['core', 'cctp', 'report', 'kamino', 'raydium', 'swap']) {
     const dir = new URL(`instructions/${module}/`, root);
     const sources = readdirSync(dir).filter(name => name.endsWith('.rs')).map(name => readFileSync(new URL(name, dir), 'utf8'));

@@ -20,3 +20,7 @@ pub mod codec;
 pub mod orders;
 pub mod snapshot;
 pub mod wormhole;
+pub mod commands;
+pub mod resume_command;
+pub use resume_command::ResumeCommand;
+pub(crate) use resume_command::__client_accounts_resume_command;
