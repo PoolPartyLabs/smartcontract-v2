@@ -65,12 +65,16 @@ pub fn word_u64(word: &[u8]) -> Result<u64> {
 }
 
 pub fn hook(fund_id: &[u8; 32], chain: u64, id: &[u8; 32]) -> Vec<u8> {
+    hook_kind(fund_id, chain, id, 0)
+}
+
+pub fn hook_kind(fund_id: &[u8;32], chain: u64, id: &[u8;32], kind: u8) -> Vec<u8> {
     [
         uint_word(1).as_slice(),
         fund_id,
         &uint_word(chain),
         id,
-        &uint_word(0),
+        &uint_word(u64::from(kind)),
     ]
     .concat()
 }
@@ -177,7 +181,11 @@ pub fn burn_data(
     fund_id: &[u8; 32],
     chain: u64,
 ) -> Vec<u8> {
-    let hook = hook(fund_id, chain, &params.transit_id);
+    burn_data_kind(params, hub, connector, fund_id, chain, 0)
+}
+
+pub fn burn_data_kind(params: &SendParams, hub: &[u8;20], connector: &[u8;20], fund_id: &[u8;32], chain: u64, kind: u8) -> Vec<u8> {
+    let hook = hook_kind(fund_id, chain, &params.transit_id, kind);
     [
         discriminator("deposit_for_burn_with_hook").as_slice(),
         &params.amount.to_le_bytes(),

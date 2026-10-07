@@ -139,6 +139,25 @@ pub fn snapshot(
             report.arrived.push([transit.transit_id, word(u128::from(transit.credited))]);
         }
     }
+    for command_key in &fund.command_registry {
+        let account = accounts.get(cursor).ok_or(ReportError::ResultsNotIntegrated)?;
+        cursor += 1;
+        require_keys_eq!(*account.key, *command_key, ReportError::InvalidAccounts);
+        require_keys_eq!(*account.owner, crate::ID, ReportError::InvalidAccounts);
+        let command = crate::state::command::HubCommand::try_deserialize(&mut &account.try_borrow_data()?[..])?;
+        require!(command.fund == key && Pubkey::find_program_address(&[b"command", key.as_ref(), &command.order_id], &crate::ID).0 == *command_key,
+            ReportError::InvalidAccounts);
+        // TODO(decision): multi-result retention/ACK protocol; never discard an unacknowledged result.
+        if command.completed {
+            if command.kind == 3 {
+                require!(report.collection_results.is_empty(), ReportError::ResultsNotIntegrated);
+                report.collection_results = super::commands::collection_result(&command);
+            } else {
+                require!(report.unwind_results.is_empty(), ReportError::ResultsNotIntegrated);
+                report.unwind_results = super::commands::unwind_result(&command);
+            }
+        }
+    }
     require!(cursor == accounts.len(), ReportError::InvalidAccounts);
     Ok(report)
 }
