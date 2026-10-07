@@ -44,9 +44,6 @@ const buffer = resolve(directory, 'buffer.json');
 const program = resolve(directory, 'program.json');
 const programKey = Keypair.generate();
 const bufferKey = Keypair.generate();
-for (const [path, key] of [[payer, deployer], [buffer, bufferKey], [program, programKey]]) {
-  writeFileSync(path, JSON.stringify(Array.from(key.secretKey)), { mode: 0o600 });
-}
 const childEnv = { ...process.env };
 delete childEnv.SOLANA_DEPLOYER_PRIVATE_KEY;
 function command(args) {
@@ -55,6 +52,9 @@ function command(args) {
   if (result.status !== 0) throw new Error('Local Solana CLI step failed; output suppressed for key safety');
 }
 try {
+  for (const [path, key] of [[payer, deployer], [buffer, bufferKey], [program, programKey]]) {
+    writeFileSync(path, JSON.stringify(Array.from(key.secretKey)), { mode: 0o600 });
+  }
   if (process.env.PP_DEPLOY_LOCAL_AIRDROP === '1') {
     const signature = await connection.requestAirdrop(deployer.publicKey, 100_000_000_000);
     await connection.confirmTransaction(signature, 'confirmed');

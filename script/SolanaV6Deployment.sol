@@ -112,8 +112,20 @@ abstract contract SolanaV6Deployment is FactoryDeployment {
             wiring.baseToken != vm.parseJsonAddress(manifest, string.concat(side, hub ? ".usdc" : ".baseToken"))
                 || wiring.wormholeCore != vm.parseJsonAddress(manifest, string.concat(side, ".wormhole"))
                 || wiring.acrossSpokePool != vm.parseJsonAddress(manifest, string.concat(side, ".across"))
+                || wiring.uniswapV4PoolManager != vm.parseJsonAddress(manifest, string.concat(side, ".v4PoolManager"))
+                || wiring.uniswapV4PositionManager
+                    != vm.parseJsonAddress(manifest, string.concat(side, ".v4PositionManager"))
+                || wiring.uniswapV4StateView != vm.parseJsonAddress(manifest, string.concat(side, ".v4StateView"))
+                || wiring.uniswapV3Factory != vm.parseJsonAddress(manifest, string.concat(side, ".v3Factory"))
+                || wiring.uniswapV3SwapRouter02 != vm.parseJsonAddress(manifest, string.concat(side, ".v3Router"))
+                || wiring.uniswapV3QuoterV2 != vm.parseJsonAddress(manifest, string.concat(side, ".v3Quoter"))
+                || wiring.permit2 != vm.parseJsonAddress(manifest, ".permit2")
         ) revert InvalidDeploymentConfiguration();
-        if (hub && ARB_ETH_USD_FEED != vm.parseJsonAddress(manifest, ".arbitrum.ethUsd")) {
+        if (
+            hub
+                && (ARB_ETH_USD_FEED != vm.parseJsonAddress(manifest, ".arbitrum.ethUsd")
+                    || wiring.aaveV3Pool != vm.parseJsonAddress(manifest, ".arbitrum.aaveV3Pool"))
+        ) {
             revert InvalidDeploymentConfiguration();
         }
     }
@@ -128,7 +140,7 @@ abstract contract SolanaV6Deployment is FactoryDeployment {
         ChainlinkPriceSource.FixedConfig[] memory fixedTokens = new ChainlinkPriceSource.FixedConfig[](2);
         fixedTokens[0] = ChainlinkPriceSource.FixedConfig(ARB_USDC, 6);
         fixedTokens[1] = ChainlinkPriceSource.FixedConfig(RH_USDG, 6);
-        return new SolanaPriceSourceV6(
+        SolanaPriceSourceV6 source = new SolanaPriceSourceV6(
             SolanaPriceSourceV6.NativeConfig(
                 0x07e83582411fea1482f0994b80aa512a97c94f25df283bec5a67a381fc862b4a,
                 0x069b8857feab8184fb687f634618c035dac439dc1aeb3b5598a0f00000000001,
@@ -141,5 +153,12 @@ abstract contract SolanaV6Deployment is FactoryDeployment {
             feeds,
             fixedTokens
         );
+        string memory manifest = vm.readFile("script/solana-v6-addresses.json");
+        if (
+            source.TSLA_USD() != vm.parseJsonAddress(manifest, ".arbitrum.tslaUsd")
+                || source.NVDA_USD() != vm.parseJsonAddress(manifest, ".arbitrum.nvdaUsd")
+                || source.SOL_USD() != vm.parseJsonAddress(manifest, ".arbitrum.solUsd")
+        ) revert InvalidDeploymentConfiguration();
+        return source;
     }
 }

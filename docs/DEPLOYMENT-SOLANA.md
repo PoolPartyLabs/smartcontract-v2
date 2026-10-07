@@ -29,6 +29,11 @@ placeholder impact; only stock oracle source admission remains open. DEC-205
 requires all CCTP transits credited before closure; DEC-206 quarantines farm
 rewards on exit. T8b/T8c still own implementation and acceptance; none of these
 decisions is invented or implemented by deployment tooling.
+The full EVM gate uses `forge test --threads 1`: legacy deployment tests call
+`vm.setEnv` on process-global operator settings and can race at default suite
+concurrency. All suites still execute; none is excluded. Supply an explicit
+`CCTP_ARBITRUM_FORK_BLOCK` as well as both chain fork pins. Public providers can
+expire historical state; refresh pins explicitly and record them, never use latest.
 
 Measured October 7, 2026, 11:40–11:48 UTC; integration baseline `c8be6be`.
 **NOT APPROVED FOR MAINNET. No mainnet transactions were submitted.**
