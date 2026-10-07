@@ -289,6 +289,23 @@ approved factories. No complete exact EVM launch total can be claimed yet.
 - [ ] Founder separately authorizes mainnet commands/funding; closed-team demo
       only, no client capital; upgrade revocation recorded as pre-client gate.
 
+### T9 verified gate results
+
+The optimized legacy composed clone completed **15 measured operations**, a
+2,176-byte report and zero assertion failures. Heaviest: Raydium close
+**497,949 CU**, 35.57% of 1.4M, with **902,051 CU** runtime headroom and
+402,051 CU below the explicit 900k builder limit. Largest measured packet:
+952 bytes. This uses a fixture-only V1 ratio leg; it is not production V2 proof.
+Production SBF rebuilt afterward to the same 984,208-byte ELF. Default clone
+first run: 42/42. The release IDL smoke verifies an absent on-chain IDL account
+and `IdlInstructionStub` rejection while JSON/types remain generated.
+
+Signed V2 first run failed unsigned simulation with an invalid ALT index.
+Bounded warm-up retry only retries that exact unsigned failure; final retry
+status belongs in the accompanying T9 report. Hub composed fork failed setup
+with `TokenNotPriced`; factory and TSLA/NVDA/SOL feed forks passed. These are
+NO-GO gates, not authorization to skip a test.
+
 `TODO(decision)`: demo retry/reserve budget and unresolved stock oracle source.
 Coordinator requests: persistent program identity; signed creation and approved
 factory manifests; production ALT harness readiness; composed Hub pricing fix;
