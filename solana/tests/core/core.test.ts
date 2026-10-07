@@ -17,6 +17,7 @@ export function init(signer = testWallet('manager').publicKey, core = Buffer.all
     ...[ADDRESSES.usdc, ADDRESSES.tslax, ADDRESSES.wsol].map(mint => ({ pubkey: publicKey(mint), isSigner: false, isWritable: false })),
     ...[ADDRESSES.usdc, ADDRESSES.tslax, ADDRESSES.wsol].map(mint => ({ pubkey: testAta(mint, vault), isSigner: false, isWritable: true })),
     ...[ADDRESSES.usdc, ADDRESSES.tslax, ADDRESSES.wsol].map(mint => ({ pubkey: publicKey(derive(ADDRESSES.spoke, Buffer.from('ledger'), fund.toBuffer(), publicKey(mint).toBuffer())), isSigner: false, isWritable: true })),
+    ...['cctp_route', 'cctp_ledger'].map(seed => ({ pubkey: publicKey(derive(ADDRESSES.spoke, Buffer.from(seed), fund.toBuffer())), isSigner: false, isWritable: true })),
     ...[ADDRESSES.token, ADDRESSES.token2022, ADDRESSES.ata].map(program => ({ pubkey: publicKey(program), isSigner: false, isWritable: false })),
     { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
   ];

@@ -14,3 +14,7 @@ pub mod binding;
 pub mod custody;
 pub mod guards;
 pub mod ledger;
+pub mod admission;
+pub mod initialize_adapter;
+pub use initialize_adapter::InitializeAdapter;
+pub(crate) use initialize_adapter::__client_accounts_initialize_adapter;

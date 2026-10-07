@@ -75,14 +75,14 @@ export function fixtureFund(manager: PublicKey) {
   const fund = publicKey(addresses.fund);
   const program = publicKey(ADDRESSES.spoke);
   const index = integer(1, 2);
-  const bump = PublicKey.findProgramAddressSync([Buffer.from('fund'), hubCore, index], program)[1];
+  const bump = PublicKey.findProgramAddressSync([Buffer.from('fund'), hubCore, index, mandateHash], program)[1];
   const vaultBump = PublicKey.findProgramAddressSync([Buffer.from('vault'), fund.toBuffer()], program)[1];
   const emitterBump = PublicKey.findProgramAddressSync([Buffer.from('emitter'), fund.toBuffer()], program)[1];
   const config = nativeConfig(manager, publicKey(addresses.emitter));
   return Buffer.concat([discriminator('account', 'FundState'), hubCore, index, fundId, mandateHash, Buffer.alloc(20, 1), manager.toBuffer(),
     integer(0, 8), integer(0, 8), integer(0, 1), integer(bump, 1), integer(vaultBump, 1), integer(emitterBump, 1),
     integer(42161, 8), factory, integer(1, 8), config.nativeHash, word(9), Buffer.alloc(32, 1), integer(2_000_000_000, 8),
-    addressWord(hubCore), integer(23, 2), integer(0, 16), integer(0, 16), integer(0, 2), integer(0, 2), integer(0, 2), config.assets, config.venues, config.transport]);
+    addressWord(hubCore), integer(23, 2), integer(0, 16), integer(0, 16), integer(0, 2), integer(0, 2), integer(0, 2), config.assets, config.venues, config.transport, Buffer.alloc(8)]);
 }
 
 export function fixtureLedger() {

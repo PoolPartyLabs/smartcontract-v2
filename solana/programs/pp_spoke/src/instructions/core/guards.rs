@@ -80,6 +80,8 @@ pub(crate) fn fixture() -> (FundState, Pubkey) {
             assets: vec![],
             venues: vec![],
             transport: crate::state::Transport::default(),
+            position_registry: vec![],
+            transit_registry: vec![],
         },
         key,
     )

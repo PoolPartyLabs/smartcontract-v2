@@ -87,7 +87,7 @@ test('every declared instruction keeps an Accounts struct in its track module', 
   // so this checks structure only: the 25 entry points stay declared and each module defines Accounts.
   const root = new URL('../../programs/pp_spoke/src/', import.meta.url);
   const lib = readFileSync(new URL('lib.rs', root), 'utf8');
-  assert.equal((lib.match(/^\s*pub fn \w+\s*(<[^>]*>)?\s*\(/gm) ?? []).length, 25);
+  assert.equal((lib.match(/^\s*pub fn \w+\s*(<[^>]*>)?\s*\(/gm) ?? []).length, 26);
   for (const module of ['core', 'cctp', 'report', 'kamino', 'raydium', 'swap']) {
     const dir = new URL(`instructions/${module}/`, root);
     const sources = readdirSync(dir).filter(name => name.endsWith('.rs')).map(name => readFileSync(new URL(name, dir), 'utf8'));
