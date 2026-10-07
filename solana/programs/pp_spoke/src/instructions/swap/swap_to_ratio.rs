@@ -7,7 +7,7 @@ use anchor_lang::prelude::*;
 pub struct SwapToRatio<'info> {
     #[account(address = fund.manager_solana @ SwapError::Unauthorized)]
     pub authority: Signer<'info>,
-    #[account(mut, seeds = [b"fund", fund.hub_core.as_ref(), &fund.spoke_index.to_le_bytes()], bump = fund.bump,
+    #[account(mut, seeds = [b"fund", fund.hub_core.as_ref(), &fund.spoke_index.to_le_bytes(), fund.mandate_hash.as_ref()], bump = fund.bump,
         constraint = !fund.closed @ SwapError::Closed)]
     pub fund: Account<'info, FundState>,
     /// CHECK: DEC-190, DEC-195: PDA signs token transfers, never holds Fund SOL.

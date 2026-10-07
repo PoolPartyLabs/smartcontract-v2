@@ -6,7 +6,7 @@ use anchor_lang::prelude::*;
 #[derive(Accounts)]
 pub struct KaminoRedeem<'info> {
     pub authority: Signer<'info>,
-    #[account(seeds = [b"fund", fund.hub_core.as_ref(), &fund.spoke_index.to_le_bytes()], bump = fund.bump,
+    #[account(seeds = [b"fund", fund.hub_core.as_ref(), &fund.spoke_index.to_le_bytes(), fund.mandate_hash.as_ref()], bump = fund.bump,
         constraint = fund.manager_solana == authority.key() @ KaminoError::Unauthorized,
         constraint = !fund.closed @ KaminoError::EntryDisabled)]
     pub fund: Account<'info, FundState>,

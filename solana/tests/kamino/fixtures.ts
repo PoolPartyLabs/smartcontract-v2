@@ -13,7 +13,7 @@ export const COLLATERAL_DONATION = 17n;
 
 export function fixture(identity: number) {
   const hub = Buffer.alloc(20, identity);
-  const addresses = fundAddresses(hub, 2);
+  const addresses = fundAddresses(hub, 2, Buffer.alloc(32, 99));
   return { ...addresses, hub,
     position: derive(ADDRESSES.spoke, Buffer.from('position'), publicKey(addresses.fund).toBuffer(), publicKey(ADDRESSES.reserve).toBuffer()),
     usdc: testAta(ADDRESSES.usdc, publicKey(addresses.vault)).toBase58(),
@@ -54,7 +54,7 @@ export function prepareKaminoFixtures() {
     manager.toBuffer().copy(fund, offset); offset += 32;
     offset += 16;
     fund[offset++] = 0;
-    fund[offset++] = PublicKey.findProgramAddressSync([Buffer.from('fund'), addresses.hub, Buffer.from([2, 0])], publicKey(ADDRESSES.spoke))[1];
+    fund[offset++] = PublicKey.findProgramAddressSync([Buffer.from('fund'), addresses.hub, Buffer.from([2, 0]), Buffer.alloc(32, 99)], publicKey(ADDRESSES.spoke))[1];
     fund[offset++] = PublicKey.findProgramAddressSync([Buffer.from('vault'), publicKey(addresses.fund).toBuffer()], publicKey(ADDRESSES.spoke))[1];
     snapshot(addresses.fund, ADDRESSES.spoke, completeFundState(fund.subarray(0, offset)));
     const position = Buffer.alloc(8 + 64 + 1 + 11 * 8);

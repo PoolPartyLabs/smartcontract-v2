@@ -47,12 +47,12 @@ export async function extendFixtures() {
   const fixtures = [];
   for (const [index, pool] of manifest.pools.entries()) {
     const hub = Buffer.alloc(20, index + 1);
-    const addresses = fundAddresses(hub, 1);
+    const mandateHash = createHash('sha256').update(`local-raydium-mandate-${index}`).digest();
+    const addresses = fundAddresses(hub, 1, mandateHash);
     const fund = publicKey(addresses.fund);
     const vault = publicKey(addresses.vault);
-    const fundBump = PublicKey.findProgramAddressSync([Buffer.from('fund'), hub, Buffer.from([1, 0])], publicKey(ADDRESSES.spoke))[1];
+    const fundBump = PublicKey.findProgramAddressSync([Buffer.from('fund'), hub, Buffer.from([1, 0]), mandateHash], publicKey(ADDRESSES.spoke))[1];
     const vaultBump = PublicKey.findProgramAddressSync([Buffer.from('vault'), fund.toBuffer()], publicKey(ADDRESSES.spoke))[1];
-    const mandateHash = createHash('sha256').update(`local-raydium-mandate-${index}`).digest();
     const fundData = Buffer.concat([discriminator('account', 'FundState'), hub, Buffer.from([1, 0]),
       Buffer.alloc(32, index + 1), mandateHash, Buffer.alloc(20, 3), manager.publicKey.toBuffer(),
       Buffer.alloc(16), Buffer.from([0, fundBump, vaultBump])]);

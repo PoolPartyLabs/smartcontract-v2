@@ -25,6 +25,7 @@ pub struct InitializePayload {
     pub nonce: [u8; 32],
     pub expiry: u64,
     pub signature: [u8; 65],
+    pub bootstrap_signature: [u8; 65],
     pub assets: Vec<Asset>,
     pub venues: Vec<Venue>,
     pub transport: Transport,
@@ -78,8 +79,13 @@ pub fn verify_binding(
         now >= 0 && now as u64 <= payload.expiry,
         CoreError::BindingExpired
     );
-    require!(payload.manager_evm != [0; 20], CoreError::InvalidBinding);
-    let signature = &payload.signature;
+    let digest = binding_digest(payload, manager, emitter);
+    verify_signature(&payload.manager_evm, &payload.signature, digest)?;
+    Ok(digest)
+}
+
+fn verify_signature(manager: &[u8; 20], signature: &[u8; 65], digest: [u8; 32]) -> Result<()> {
+    require!(*manager != [0; 20], CoreError::InvalidBinding);
     let scalar: [u8; 32] = signature[32..64].try_into().unwrap();
     require!(
         scalar != [0; 32] && scalar <= HALF_ORDER,
@@ -89,15 +95,42 @@ pub fn verify_binding(
         signature[64] == 27 || signature[64] == 28,
         CoreError::InvalidBinding
     );
-    let digest = binding_digest(payload, manager, emitter);
     let recovered = secp256k1_recover(&digest, signature[64] - 27, &signature[..64])
         .map_err(|_| error!(CoreError::InvalidBinding))?;
     let public_hash = keccak::hash(&recovered.to_bytes()).to_bytes();
     require!(
-        public_hash[12..] == payload.manager_evm,
+        public_hash[12..] == *manager,
         CoreError::InvalidBinding
     );
-    Ok(digest)
+    Ok(())
+}
+
+/// DEC-190, R6.1: supplemental consent binds the exact native bootstrap tuple.
+pub fn bootstrap_digest(payload: &InitializePayload, manager: &Pubkey, fund: &Pubkey) -> Result<[u8; 32]> {
+    let vault = Pubkey::find_program_address(&[b"vault", fund.as_ref()], &crate::ID).0;
+    let domain = hash_words(&[
+        keccak::hash(DOMAIN.as_bytes()).to_bytes(),
+        keccak::hash(b"PoolParty Solana Fund").to_bytes(),
+        keccak::hash(b"6").to_bytes(),
+        word(u128::from(payload.hub_chain_id)),
+        address_word(&payload.factory),
+    ]);
+    let message = hash_words(&[
+        keccak::hash(b"SolanaBootstrap(uint256 hubChain,address core,bytes32 mandateHash,uint16 spokeIndex,bytes32 program,bytes32 fundPda,bytes32 solanaKey,bytes32 usdcAta,bytes32 tslaxAta,bytes32 nvdaxAta,bytes32 wsolAta,uint256 nonce,uint256 expiry)").to_bytes(),
+        word(u128::from(payload.hub_chain_id)), address_word(&payload.hub_core), payload.mandate_hash,
+        word(u128::from(payload.spoke_index)), crate::ID.to_bytes(), fund.to_bytes(), manager.to_bytes(),
+        super::custody::associated_address(&vault, &super::custody::USDC)?.to_bytes(),
+        super::custody::associated_address(&vault, &super::custody::TSLAX)?.to_bytes(),
+        super::custody::associated_address(&vault, &super::custody::NVDAX)?.to_bytes(),
+        super::custody::associated_address(&vault, &super::custody::WSOL)?.to_bytes(),
+        payload.nonce, word(u128::from(payload.expiry)),
+    ]);
+    Ok(keccak::hashv(&[b"\x19\x01", &domain, &message]).to_bytes())
+}
+
+pub fn verify_bootstrap(payload: &InitializePayload, manager: &Pubkey, fund: &Pubkey, now: i64) -> Result<()> {
+    require!(now >= 0 && now as u64 <= payload.expiry, CoreError::BindingExpired);
+    verify_signature(&payload.manager_evm, &payload.bootstrap_signature, bootstrap_digest(payload, manager, fund)?)
 }
 
 /// DEC-053, DEC-190: canonical abi.encode(uint256(6), Config), not Borsh.
@@ -175,7 +208,7 @@ mod tests {
             hub_chain_id: 42161, spoke_chain_id: 1, native_mandate_hash: word(7), nonce: word(9),
             expiry: 2_000_000_000,
             signature: fixed_hex("67f384b05c9b8f7b208e872b0ebb9f7c2a83f2b1a4820e9d3e8246abb15bf3994fa5587a8e452afa7010de273152237875c920a270f1c9fccbe4602722d2e3bd1c"),
-            assets: vec![], venues: vec![], transport: Transport::default(),
+            bootstrap_signature: [0; 65], assets: vec![], venues: vec![], transport: Transport::default(),
         };
         (
             payload,

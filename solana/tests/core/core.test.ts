@@ -4,10 +4,10 @@ import { TransactionInstruction, SystemProgram, Keypair } from '@solana/web3.js'
 import { ADDRESSES, fundAddresses, publicKey, derive } from '../helpers/addresses.ts';
 import { discriminator } from '../helpers/layouts.ts';
 import { localConnection, testWallet, testAta } from '../helpers/localnet.ts';
-import { addresses, bindingPayload, integer, sendSignedLocal } from './fixtures.ts';
+import { addresses, bindingPayload, integer, sendSignedLocal, mandateHash } from './fixtures.ts';
 
-function init(signer = testWallet('manager').publicKey, core = Buffer.alloc(20, 0x81), index = 2, payload = bindingPayload(signer, core, index)) {
-  const target = fundAddresses(core, index);
+export function init(signer = testWallet('manager').publicKey, core = Buffer.alloc(20, 0x81), index = 2, payload = bindingPayload(signer, core, index)) {
+  const target = fundAddresses(core, index, mandateHash);
   const vault = publicKey(target.vault);
   const fund = publicKey(target.fund);
   const keys = [
@@ -24,12 +24,13 @@ function init(signer = testWallet('manager').publicKey, core = Buffer.alloc(20, 
     data: Buffer.concat([discriminator('global', 'initialize_fund'), integer(payload.length, 4), payload]) });
 }
 
-test('valid dual-binding reaches unresolved Hub bootstrap gate without creating a Fund', async () => {
+test('valid dual-binding initializes mandate-qualified Fund without a Hub message', async () => {
   const connection = localConnection();
   const manager = testWallet('manager');
   const instruction = init();
-  await assert.rejects(sendSignedLocal(connection, manager, [instruction]), /BootstrapNotAuthenticated/);
-  assert.equal(await connection.getAccountInfo(instruction.keys[1].pubkey), null);
+  await sendSignedLocal(connection, manager, [instruction]);
+  assert.equal((await connection.getAccountInfo(instruction.keys[1].pubkey))?.owner.toBase58(), ADDRESSES.spoke);
+  await assert.rejects(sendSignedLocal(connection, manager, [instruction]), /InvalidConfiguration/);
 });
 
 test('wrong Solana signer, expired binding and claimed contract Manager fail', async () => {
@@ -64,7 +65,7 @@ test('sealed transport rejects substituted Circle targets, caller, custody and f
     changed[changed.length - 200 + offset] ^= 1;
     await assert.rejects(sendSignedLocal(connection, manager, [init(manager.publicKey, core, 2, changed)]), /InvalidConfiguration/);
   }
-  assert.equal(await connection.getAccountInfo(publicKey(fundAddresses(core, 2).fund)), null);
+  assert.equal(await connection.getAccountInfo(publicKey(fundAddresses(core, 2, mandateHash).fund)), null);
 });
 
 test('keeper cannot execute Manager instructions; Manager cannot choose excess recipient', async () => {

@@ -72,7 +72,7 @@ pub fn handler(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
         .map_err(|_| error!(CoreError::InvalidConfiguration))?;
     let index = args.spoke_index.to_le_bytes();
     let (fund_key, bump) =
-        Pubkey::find_program_address(&[b"fund", &args.hub_core, &index], &crate::ID);
+        Pubkey::find_program_address(&[b"fund", &args.hub_core, &index, &args.mandate_hash], &crate::ID);
     require_keys_eq!(
         ctx.accounts.fund.key(),
         fund_key,
@@ -94,7 +94,7 @@ pub fn handler(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
     let manager = ctx.accounts.authority.key();
     validate_config(&args, &manager, &emitter)?;
     let digest = binding::verify_binding(&args, &manager, &emitter, Clock::get()?.unix_timestamp)?;
-    authenticate_hub_creation()?;
+    binding::verify_bootstrap(&args, &manager, &fund_key, Clock::get()?.unix_timestamp)?;
     let payer = ctx.accounts.authority.to_account_info();
     let system = ctx.accounts.system_program.to_account_info();
     allocate(
@@ -102,7 +102,7 @@ pub fn handler(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
         &ctx.accounts.fund.to_account_info(),
         &system,
         8 + FundState::INIT_SPACE,
-        &[b"fund", &args.hub_core, &index, &[bump]],
+        &[b"fund", &args.hub_core, &index, &args.mandate_hash, &[bump]],
     )?;
     let fund = FundState {
         hub_core: args.hub_core,
@@ -202,12 +202,6 @@ pub fn handler(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
     Ok(())
 }
 
-fn authenticate_hub_creation() -> Result<()> {
-    // TODO(decision): DEC-190 requires authenticated factory creation/EOA/config evidence.
-    // T2a's binding signature proves consent, not deployment, EOA status or the EVM Mandate hash.
-    err!(CoreError::BootstrapNotAuthenticated)
-}
-
 fn allocate<'info>(
     payer: &AccountInfo<'info>,
     account: &AccountInfo<'info>,
@@ -256,7 +250,7 @@ fn allocate<'info>(
 
 pub fn validate_config(args: &InitializePayload, manager: &Pubkey, emitter: &Pubkey) -> Result<()> {
     let fund = Pubkey::find_program_address(
-        &[b"fund", &args.hub_core, &args.spoke_index.to_le_bytes()],
+        &[b"fund", &args.hub_core, &args.spoke_index.to_le_bytes(), &args.mandate_hash],
         &crate::ID,
     )
     .0;

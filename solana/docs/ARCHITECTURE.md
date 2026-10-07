@@ -22,7 +22,7 @@ Engineering seed convention (not a new economic DEC), all under `pp_spoke`:
 
 | Account | Seeds / purpose | Owner track |
 | --- | --- | --- |
-| `FundState` | `[b"fund", hub_core_20_bytes, spoke_index_u16_le]` | T1 |
+| `FundState` | `[b"fund", hub_core_20_bytes, spoke_index_u16_le, mandate_hash_32_bytes]` | T1 |
 | Fund vault authority | `[b"vault", fund_state_pubkey]` | T1 |
 | Wormhole emitter authority | `[b"emitter", fund_state_pubkey]` | T1 |
 | Immutable Mandate/config | `[b"mandate", fund_state_pubkey]`; policy/pool/program allowlists | T1 |

@@ -10,7 +10,7 @@ use anchor_lang::prelude::*;
 #[derive(Accounts)]
 pub struct KaminoRefresh<'info> {
     pub authority: Signer<'info>,
-    #[account(seeds = [b"fund", fund.hub_core.as_ref(), &fund.spoke_index.to_le_bytes()], bump = fund.bump)]
+    #[account(seeds = [b"fund", fund.hub_core.as_ref(), &fund.spoke_index.to_le_bytes(), fund.mandate_hash.as_ref()], bump = fund.bump)]
     pub fund: Account<'info, FundState>,
     /// CHECK: canonical per-Fund vault authority.
     #[account(seeds = [b"vault", fund.key().as_ref()], bump = fund.vault_bump)]

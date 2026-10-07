@@ -11,7 +11,7 @@ export const hubCore = Buffer.alloc(20, 0x71);
 export const factory = Buffer.alloc(20, 0x72);
 export const fundId = Buffer.alloc(32, 0x73);
 export const mandateHash = Buffer.alloc(32, 0x74);
-export const addresses = fundAddresses(hubCore, 1);
+export const addresses = fundAddresses(hubCore, 1, mandateHash);
 export const word = (value: bigint | number) => Buffer.from(BigInt(value).toString(16).padStart(64, '0'), 'hex');
 export const hash = (data: Uint8Array) => Buffer.from(keccak_256(data));
 export const addressWord = (value: Buffer) => Buffer.concat([Buffer.alloc(12), value]);
@@ -47,7 +47,7 @@ export function nativeConfig(manager: PublicKey, emitter: PublicKey, fund = publ
 }
 
 export function bindingPayload(manager: PublicKey, core = hubCore, index = 1, expiry = 2_000_000_000n) {
-  const target = fundAddresses(core, index);
+  const target = fundAddresses(core, index, mandateHash);
   const emitter = publicKey(target.emitter);
   const config = nativeConfig(manager, emitter, publicKey(target.fund));
   const nonce = word(9);
@@ -59,8 +59,16 @@ export function bindingPayload(manager: PublicKey, core = hubCore, index = 1, ex
   const ephemeralKey = secp256k1.utils.randomPrivateKey();
   const signature = secp256k1.sign(digest, ephemeralKey);
   const managerEvm = hash(Buffer.from(secp256k1.getPublicKey(ephemeralKey, false)).subarray(1)).subarray(12);
+  const vault = publicKey(target.vault);
+  const nvdax = 'Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh';
+  const bootstrapType = 'SolanaBootstrap(uint256 hubChain,address core,bytes32 mandateHash,uint16 spokeIndex,bytes32 program,bytes32 fundPda,bytes32 solanaKey,bytes32 usdcAta,bytes32 tslaxAta,bytes32 nvdaxAta,bytes32 wsolAta,uint256 nonce,uint256 expiry)';
+  const bootstrapStruct = hash(Buffer.concat([hash(Buffer.from(bootstrapType)), word(42161), addressWord(core), mandateHash,
+    word(index), publicKey(ADDRESSES.spoke).toBuffer(), publicKey(target.fund).toBuffer(), manager.toBuffer(),
+    ...[ADDRESSES.usdc, ADDRESSES.tslax, nvdax, ADDRESSES.wsol].map(mint => testAta(mint, vault).toBuffer()), nonce, word(expiry)]));
+  const bootstrap = secp256k1.sign(hash(Buffer.concat([Buffer.from([25, 1]), domain, bootstrapStruct])), ephemeralKey);
   return Buffer.concat([core, integer(index, 2), fundId, mandateHash, managerEvm, factory, integer(42161, 8), integer(1, 8),
-    config.nativeHash, nonce, integer(expiry, 8), Buffer.from(signature.toCompactRawBytes()), integer(signature.recovery + 27, 1), config.assets, config.venues, config.transport]);
+    config.nativeHash, nonce, integer(expiry, 8), Buffer.from(signature.toCompactRawBytes()), integer(signature.recovery + 27, 1),
+    Buffer.from(bootstrap.toCompactRawBytes()), integer(bootstrap.recovery + 27, 1), config.assets, config.venues, config.transport]);
 }
 
 export function fixtureFund(manager: PublicKey) {

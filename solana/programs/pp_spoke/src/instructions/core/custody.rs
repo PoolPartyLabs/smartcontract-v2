@@ -7,6 +7,7 @@ use anchor_lang::solana_program::{
 
 pub const USDC: Pubkey = pubkey!("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
 pub const TSLAX: Pubkey = pubkey!("XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB");
+pub const NVDAX: Pubkey = pubkey!("Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh");
 pub const WSOL: Pubkey = pubkey!("So11111111111111111111111111111111111111112");
 pub const TOKEN: Pubkey = pubkey!("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 pub const TOKEN_2022: Pubkey = pubkey!("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
@@ -18,7 +19,7 @@ pub const CCTP_MESSENGER: Pubkey = pubkey!("CCTPV2vPZJS2u2BBsUoscuikbYjnpFmbFsvV
 pub fn token_program(mint: &Pubkey) -> Result<Pubkey> {
     match *mint {
         USDC | WSOL => Ok(TOKEN),
-        TSLAX => Ok(TOKEN_2022),
+        TSLAX | NVDAX => Ok(TOKEN_2022),
         _ => err!(CoreError::InvalidConfiguration),
     }
 }

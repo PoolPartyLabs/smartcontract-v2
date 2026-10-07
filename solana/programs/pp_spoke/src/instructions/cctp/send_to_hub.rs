@@ -11,7 +11,7 @@ use anchor_lang::prelude::*;
 pub struct SendToHub<'info> {
     #[account(mut, address = fund.manager_solana @ CctpError::Unauthorized)]
     pub authority: Signer<'info>,
-    #[account(mut, seeds = [b"fund", fund.hub_core.as_ref(), &fund.spoke_index.to_le_bytes()], bump = fund.bump, constraint = !fund.closed @ CctpError::Unauthorized)]
+    #[account(mut, seeds = [b"fund", fund.hub_core.as_ref(), &fund.spoke_index.to_le_bytes(), fund.mandate_hash.as_ref()], bump = fund.bump, constraint = !fund.closed @ CctpError::Unauthorized)]
     pub fund: Account<'info, FundState>,
     /// CHECK: canonical per-Fund vault, signs only the pinned Circle burn CPI.
     #[account(seeds = [b"vault", fund.key().as_ref()], bump = fund.vault_bump)]
