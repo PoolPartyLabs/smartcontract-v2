@@ -21,7 +21,7 @@ pub mod pp_spoke {
     use super::*;
 
     /// DEC-188, DEC-190, DEC-195: fail-closed track-owned scaffold; payload is not a stable wire API.
-    pub fn initialize_fund(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
+    pub fn initialize_fund<'info>(ctx: Context<'_, '_, '_, 'info, InitializeFund<'info>>, payload: Vec<u8>) -> Result<()> {
         instructions::core::initialize_fund::handler(ctx, payload)
     }
 

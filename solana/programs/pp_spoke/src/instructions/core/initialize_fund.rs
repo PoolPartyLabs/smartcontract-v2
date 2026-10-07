@@ -72,10 +72,17 @@ pub struct CoreFundInitialized {
     pub binding_digest: [u8; 32],
 }
 
-pub fn handler(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
+pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, InitializeFund<'info>>, payload: Vec<u8>) -> Result<()> {
     require!(payload.len() <= 2048, CoreError::InvalidConfiguration);
-    let args = InitializePayload::try_from_slice(&payload)
+    let mut payload_bytes = payload.as_slice();
+    let args = InitializePayload::deserialize(&mut payload_bytes)
         .map_err(|_| error!(CoreError::InvalidConfiguration))?;
+    let swap_creation = if payload_bytes.is_empty() { None } else {
+        Some(crate::instructions::swap::config::CreationPolicy::try_from_slice(payload_bytes)
+            .map_err(|_| error!(CoreError::InvalidConfiguration))?)
+    };
+    let has_nvda = args.assets.iter().any(|asset| asset.mint == custody::NVDAX);
+    require!(ctx.remaining_accounts.len() == usize::from(swap_creation.is_some()) + if has_nvda { 3 } else { 0 }, CoreError::InvalidConfiguration);
     let index = args.spoke_index.to_le_bytes();
     // TODO(decision): DEC-200 needs a non-circular Hub Mandate commitment when its spoke emitter derives from this PDA.
     let (fund_key, bump) =
@@ -102,6 +109,11 @@ pub fn handler(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
     validate_config(&args, &manager, &emitter)?;
     binding::verify_bootstrap(&args, &manager, &fund_key, Clock::get()?.unix_timestamp)?;
     let digest = binding::bootstrap_digest(&args, &manager, &fund_key)?;
+    if let Some(creation) = &swap_creation {
+        crate::instructions::swap::config::verify(creation, &digest, &fund_key, &args.manager_evm,
+            &crate::instructions::swap::quote::QuoteDomain { chain_id: args.hub_chain_id,
+                verifying_contract: args.hub_core, program: crate::ID })?;
+    }
     let payer = ctx.accounts.authority.to_account_info();
     let system = ctx.accounts.system_program.to_account_info();
     allocate(
@@ -164,6 +176,33 @@ pub fn handler(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
     route.try_serialize(&mut &mut ctx.accounts.cctp_route.try_borrow_mut_data()?[..])?;
     CctpLedger { fund: fund_key, principal: 0, outbound_gross: 0, outbound_in_flight: 0, received_principal: 0, fee_surplus_principal: 0 }
         .try_serialize(&mut &mut ctx.accounts.cctp_ledger.try_borrow_mut_data()?[..])?;
+    if let Some(creation) = swap_creation {
+        let config_account = &ctx.remaining_accounts[0];
+        require!(config_account.is_writable, CoreError::InvalidConfiguration);
+        let (expected, config_bump) = Pubkey::find_program_address(&[b"swap_config", fund_key.as_ref()], &crate::ID);
+        require_keys_eq!(*config_account.key, expected, CoreError::InvalidConfiguration);
+        allocate(&payer, config_account, &system, 8 + crate::instructions::swap::config::SwapConfig::INIT_SPACE,
+            &[b"swap_config", fund_key.as_ref(), &[config_bump]])?;
+        crate::instructions::swap::config::SwapConfig { fund: fund_key, binding_digest: digest,
+            policy: creation.policy, next_nonce: 0 }.try_serialize(&mut &mut config_account.try_borrow_mut_data()?[..])?;
+    }
+    if has_nvda {
+        let offset = ctx.remaining_accounts.len() - 3;
+        let mint = &ctx.remaining_accounts[offset];
+        let ata = &ctx.remaining_accounts[offset + 1];
+        let ledger = &ctx.remaining_accounts[offset + 2];
+        require_keys_eq!(*mint.key, custody::NVDAX, CoreError::InvalidCustody);
+        require!(ata.is_writable && ledger.is_writable, CoreError::InvalidCustody);
+        custody::create_ata(payer.clone(), ata.clone(), ctx.accounts.vault.to_account_info(), mint.clone(),
+            system.clone(), ctx.accounts.token_2022_program.to_account_info(), ctx.accounts.ata_program.to_account_info())?;
+        super::stock::witness(mint, ata)?;
+        let (expected, ledger_bump) = Pubkey::find_program_address(&[b"ledger", fund_key.as_ref(), mint.key.as_ref()], &crate::ID);
+        require_keys_eq!(*ledger.key, expected, CoreError::InvalidCustody);
+        allocate(&payer, ledger, &system, 8 + TokenLedger::INIT_SPACE,
+            &[b"ledger", fund_key.as_ref(), mint.key.as_ref(), &[ledger_bump]])?;
+        TokenLedger { fund: fund_key, mint: *mint.key, bump: ledger_bump, ..TokenLedger::default() }
+            .try_serialize(&mut &mut ledger.try_borrow_mut_data()?[..])?;
+    }
     for (mint, ata, ledger, token) in [
         (
             &ctx.accounts.usdc_mint,
@@ -354,7 +393,8 @@ pub fn validate_config(args: &InitializePayload, manager: &Pubkey, emitter: &Pub
         } else {
             require!(
                 venue.program == pubkey!("CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK")
-                    && [crate::instructions::raydium::wire::TSLA_POOL, crate::instructions::raydium::wire::SOL_POOL].contains(&venue.pool)
+                    && [crate::instructions::raydium::wire::TSLA_POOL, crate::instructions::raydium::wire::SOL_POOL,
+                        crate::instructions::raydium::wire::NVDA_POOL].contains(&venue.pool)
                     && venue.token0 != venue.token1
                     && args.assets.iter().any(|asset| asset.mint == venue.token1),
                 CoreError::InvalidConfiguration
@@ -377,10 +417,9 @@ pub fn validate_config(args: &InitializePayload, manager: &Pubkey, emitter: &Pub
 }
 
 fn validate_asset(asset: &crate::state::Asset) -> Result<()> {
-    require!(asset.mint != custody::NVDAX, CoreError::InvalidConfiguration);
     custody::token_program(&asset.mint)?;
     require!(
-        asset.stock == (asset.mint == custody::TSLAX)
+        asset.stock == ([custody::TSLAX, custody::NVDAX].contains(&asset.mint))
             && asset.accounting_id == binding::accounting_alias(&asset.mint),
         CoreError::InvalidConfiguration
     );
@@ -392,14 +431,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn deferred_nvdax_admission_rejects_both_stock_classifications() {
+    fn admit_nvdax_only_as_stock_with_canonical_alias() {
         for stock in [false, true] {
             let asset = crate::state::Asset {
                 mint: custody::NVDAX,
                 accounting_id: binding::accounting_alias(&custody::NVDAX),
                 stock,
             };
-            assert!(validate_asset(&asset).is_err());
+            assert_eq!(validate_asset(&asset).is_ok(), stock);
         }
         for mint in [custody::USDC, custody::TSLAX, custody::WSOL] {
             let asset = crate::state::Asset {
