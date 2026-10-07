@@ -279,6 +279,33 @@ mod tests {
     }
 
     #[test]
+    fn connector_matches_hub_create3_namespace() {
+        assert_eq!(hub_connector(&[3;20], &word(1), 42161), fixed_hex("8c5438e4a5361b9b8d5a0e91a04c80083967ef9d"));
+    }
+
+    #[test]
+    fn exact_bootstrap_tuple_and_mandate_namespace_cannot_be_substituted() {
+        let (payload, manager, _) = fixture();
+        let (fund, _) = Pubkey::find_program_address(&[b"fund", &payload.hub_core, &payload.spoke_index.to_le_bytes(), &payload.mandate_hash], &crate::ID);
+        let expected = bootstrap_digest(&payload, &manager, &fund).unwrap();
+        assert_ne!(expected, bootstrap_digest(&payload, &Pubkey::new_unique(), &fund).unwrap());
+        assert_ne!(expected, bootstrap_digest(&payload, &manager, &Pubkey::new_unique()).unwrap());
+        for variant in 0..8 {
+            let mut changed = payload.clone();
+            match variant {
+                0 => changed.mandate_hash[0] ^= 1, 1 => changed.spoke_index += 1,
+                2 => changed.hub_core[0] ^= 1, 3 => changed.hub_chain_id += 1,
+                4 => changed.nonce[31] += 1, 5 => changed.expiry += 1,
+                6 => changed.native_mandate_hash[0] ^= 1, _ => changed.fund_id[0] ^= 1,
+            }
+            assert_ne!(expected, bootstrap_digest(&changed, &manager, &fund).unwrap());
+        }
+        let mut squatter = payload.clone(); squatter.mandate_hash[0] ^= 1;
+        let (squatter_fund, _) = Pubkey::find_program_address(&[b"fund", &squatter.hub_core, &squatter.spoke_index.to_le_bytes(), &squatter.mandate_hash], &crate::ID);
+        assert_ne!(fund, squatter_fund);
+    }
+
+    #[test]
     fn independent_eip712_signature_recovers_expected_manager() {
         let (payload, manager, emitter) = fixture();
         let expected =
