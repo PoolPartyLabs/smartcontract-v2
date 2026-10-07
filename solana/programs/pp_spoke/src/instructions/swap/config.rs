@@ -48,7 +48,7 @@ pub struct StageRequest {
 }
 
 impl SwapPolicy {
-    /// DEC-202: TODO(decision) sol-oracle-Q1/Q2 switches remain sealed and fail closed.
+    /// DEC-202, DEC-203: oracle mode is sealed; TODO(decision) sol-oracle-Q2 stocks remain disabled.
     pub fn validate(&self) -> Result<()> {
         require!(self.api_signer != [0; 20] && self.max_age_seconds > 0
             && self.max_age_seconds <= 300 && self.max_confidence_bps > 0

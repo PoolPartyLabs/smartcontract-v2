@@ -8,10 +8,10 @@ pub struct SwapExactIn<'info> {
     pub authority: Signer<'info>,
     /// CHECK: planned Fund PDA; authenticated initialization consumes the staged consent.
     pub fund: UncheckedAccount<'info>,
-    /// CHECK: owning track must enforce the per-Fund vault PDA; handler always fails meanwhile.
+    /// CHECK: DEC-202 staging cannot spend this compatibility account.
     #[account(mut)]
     pub vault: UncheckedAccount<'info>,
-    /// CHECK: DEC-197 selects Jupiter for swap-to-ratio; this exact-in handler remains fail-closed.
+    /// CHECK: DEC-197 staging performs no venue CPI or token conversion.
     pub swap_program: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
