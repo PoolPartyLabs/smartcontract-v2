@@ -26,10 +26,25 @@ pub struct SwapConfig {
     pub next_nonce: u64,
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, InitSpace)]
 pub struct CreationPolicy {
     pub policy: SwapPolicy,
     pub signature: [u8; 65],
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct StagedPolicy {
+    pub fund: Pubkey,
+    pub manager_solana: Pubkey,
+    pub binding_digest: [u8; 32],
+    pub creation: CreationPolicy,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize)]
+pub struct StageRequest {
+    pub binding_digest: [u8; 32],
+    pub creation: CreationPolicy,
 }
 
 impl SwapPolicy {
@@ -48,7 +63,7 @@ impl SwapPolicy {
     pub fn oracle(&self) -> OraclePolicy {
         OraclePolicy { max_age_seconds: self.max_age_seconds, max_confidence_bps: self.max_confidence_bps,
             cross_check_deviation_bps: self.cross_check_deviation_bps, block_cross_check: false,
-            require_manager_bound: true, stock_enabled: self.stock_enabled }
+            require_manager_bound: false, stock_enabled: self.stock_enabled }
     }
 }
 

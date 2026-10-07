@@ -75,14 +75,22 @@ pub struct CoreFundInitialized {
 pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, InitializeFund<'info>>, payload: Vec<u8>) -> Result<()> {
     require!(payload.len() <= 2048, CoreError::InvalidConfiguration);
     let mut payload_bytes = payload.as_slice();
-    let args = InitializePayload::deserialize(&mut payload_bytes)
-        .map_err(|_| error!(CoreError::InvalidConfiguration))?;
-    let swap_creation = if payload_bytes.is_empty() { None } else {
-        Some(crate::instructions::swap::config::CreationPolicy::try_from_slice(payload_bytes)
-            .map_err(|_| error!(CoreError::InvalidConfiguration))?)
+    let args = Box::new(InitializePayload::deserialize(&mut payload_bytes)
+        .map_err(|_| error!(CoreError::InvalidConfiguration))?);
+    let mut swap_creation = if payload_bytes.is_empty() { None } else {
+        Some(Box::new(crate::instructions::swap::config::CreationPolicy::try_from_slice(payload_bytes)
+            .map_err(|_| error!(CoreError::InvalidConfiguration))?))
     };
     let has_nvda = args.assets.iter().any(|asset| asset.mint == custody::NVDAX);
-    require!(ctx.remaining_accounts.len() == usize::from(swap_creation.is_some()) + if has_nvda { 3 } else { 0 }, CoreError::InvalidConfiguration);
+    let staged = payload_bytes.is_empty() && ctx.remaining_accounts.len() == 2 + if has_nvda { 3 } else { 0 };
+    if staged {
+        let stage = &ctx.remaining_accounts[1];
+        require!(stage.is_writable && *stage.owner == crate::ID, CoreError::InvalidConfiguration);
+        let state = crate::instructions::swap::config::StagedPolicy::try_deserialize(&mut &stage.try_borrow_data()?[..])?;
+        require!(state.fund == ctx.accounts.fund.key() && state.manager_solana == ctx.accounts.authority.key(), CoreError::InvalidConfiguration);
+        swap_creation = Some(Box::new(state.creation));
+    }
+    require!(ctx.remaining_accounts.len() == usize::from(swap_creation.is_some()) + usize::from(staged) + if has_nvda { 3 } else { 0 }, CoreError::InvalidConfiguration);
     let index = args.spoke_index.to_le_bytes();
     // TODO(decision): DEC-200 needs a non-circular Hub Mandate commitment when its spoke emitter derives from this PDA.
     let (fund_key, bump) =
@@ -109,6 +117,10 @@ pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, InitializeFund<'info>>, pa
     validate_config(&args, &manager, &emitter)?;
     binding::verify_bootstrap(&args, &manager, &fund_key, Clock::get()?.unix_timestamp)?;
     let digest = binding::bootstrap_digest(&args, &manager, &fund_key)?;
+    if staged {
+        let state = crate::instructions::swap::config::StagedPolicy::try_deserialize(&mut &ctx.remaining_accounts[1].try_borrow_data()?[..])?;
+        require!(state.binding_digest == digest, CoreError::InvalidConfiguration);
+    }
     if let Some(creation) = &swap_creation {
         crate::instructions::swap::config::verify(creation, &digest, &fund_key, &args.manager_evm,
             &crate::instructions::swap::quote::QuoteDomain { chain_id: args.hub_chain_id,
@@ -131,7 +143,7 @@ pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, InitializeFund<'info>>, pa
         max_fee_bps_scaled: args.transport.fast_fee_ceiling,
         sealed: true,
     };
-    let fund = FundState {
+    let fund = Box::new(FundState {
         hub_core: args.hub_core,
         spoke_index: args.spoke_index,
         fund_id: args.fund_id,
@@ -158,12 +170,12 @@ pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, InitializeFund<'info>>, pa
         active_positions: 0,
         pending_transits: 0,
         pending_results: 0,
-        assets: args.assets,
-        venues: args.venues,
-        transport: args.transport,
+        assets: args.assets.clone(),
+        venues: args.venues.clone(),
+        transport: args.transport.clone(),
         position_registry: vec![],
         transit_registry: vec![],
-    };
+    });
     fund.try_serialize(&mut &mut ctx.accounts.fund.try_borrow_mut_data()?[..])?;
     for (prefix, account, space) in [
         (b"cctp_route".as_slice(), &ctx.accounts.cctp_route, 8 + CctpRoute::INIT_SPACE),
@@ -266,6 +278,13 @@ pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, InitializeFund<'info>>, pa
         native_mandate_hash: fund.native_mandate_hash,
         binding_digest: digest
     });
+    if staged {
+        let stage = &ctx.remaining_accounts[1];
+        let refund = stage.lamports();
+        **payer.try_borrow_mut_lamports()? = payer.lamports().checked_add(refund).ok_or(CoreError::ArithmeticOverflow)?;
+        **stage.try_borrow_mut_lamports()? = 0;
+        stage.try_borrow_mut_data()?.fill(0);
+    }
     Ok(())
 }
 

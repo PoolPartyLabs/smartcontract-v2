@@ -162,7 +162,7 @@ pub mod pp_spoke {
     }
 
     /// DEC-136, DEC-193: fail-closed track-owned scaffold; payload is not a stable wire API.
-    pub fn swap_exact_in(ctx: Context<SwapExactIn>, payload: Vec<u8>) -> Result<()> {
+    pub fn swap_exact_in<'info>(ctx: Context<'_, '_, '_, 'info, SwapExactIn<'info>>, payload: Vec<u8>) -> Result<()> {
         instructions::swap::swap_exact_in::handler(ctx, payload)
     }
 
