@@ -242,7 +242,6 @@ pub fn decrease<'info>(
         pool.status & 4 == 0 && (!all || pool.status & 2 == 0),
         RaydiumError::InvalidAccount
     );
-    require!(position.rewards_owed == [0; 3], RaydiumError::RewardClaim);
     let initialized: Vec<_> = pool
         .rewards
         .iter()
@@ -342,7 +341,7 @@ pub fn decrease<'info>(
     );
     for (index, before) in reward_balances.iter().enumerate() {
         require!(
-            check::u64_at(&reward_accounts[index * 3 + 1].try_borrow_data()?, 64)? == *before,
+            check::u64_at(&reward_accounts[index * 3 + 1].try_borrow_data()?, 64)? >= *before,
             RaydiumError::RewardClaim
         );
     }
