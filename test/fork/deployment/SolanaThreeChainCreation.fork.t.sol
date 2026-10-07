@@ -27,6 +27,17 @@ contract SolanaThreeChainCreationForkTest is Test, SolanaV6Deployment {
     SolanaPolicyV6.Commitment private commitment;
 
     function testActualManagerCreatesAllThreeChains() public {
+        _prepareHub();
+        _createHub();
+        _createRobinhood();
+    }
+
+    function testActualManagerCreatesHubAndExportsNativeAcceptance() public {
+        _prepareHub();
+        _createHub();
+    }
+
+    function _prepareHub() private {
         managerKey = vm.envUint("PRIVATE_KEY");
         manager = vm.addr(managerKey);
         vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envUint("ARBITRUM_FORK_BLOCK"));
@@ -42,8 +53,6 @@ contract SolanaThreeChainCreationForkTest is Test, SolanaV6Deployment {
         commitment = _seal(mandateConfig, nativeConfig, core);
         nativeBytes = abi.encode(nativeConfig);
         mandateBytes = abi.encode(mandateConfig);
-        _createHub();
-        _createRobinhood();
     }
 
     function _createHub() private {

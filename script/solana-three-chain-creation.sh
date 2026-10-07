@@ -19,7 +19,7 @@ mkdir -p cache/sol-t11
 rm -f cache/sol-t11/creation.json cache/sol-t11/hub-created cache/sol-t11/robinhood-created cache/sol-t11/native-acceptance.json cache/sol-t11/signer-prompts.json
 node solana/scripts/three-chain-creation.ts prepare
 result=0
-forge test --match-contract SolanaThreeChainCreationForkTest -vv > cache/sol-t11/three-chain-fork.log 2>&1 || result=$?
+forge test --match-contract SolanaThreeChainCreationForkTest --match-test testActualManagerCreatesAllThreeChains -vv > cache/sol-t11/three-chain-fork.log 2>&1 || result=$?
 node --input-type=module <<'NODE'
 import { readFileSync, writeFileSync } from 'node:fs';
 const path = 'cache/sol-t11/three-chain-fork.log';
