@@ -31,8 +31,15 @@ Legacy `createFundV6` and `bindingDigest` now explicitly revert. Existing
 deployed Funds and the legacy Mandate struct are unchanged. The full envelope
 is factory storage, not a changed Core `mandateHash`: reports still commit the
 Hub and native hashes separately. This distinction needs coordinator review.
-Deployment must link `SolanaPolicyV6` and `SolanaPdaV6`; deployment-script edits
-belong to T8d, not this track.
+Deployment links `SolanaPdaV6`, then `SolanaPolicyV6`, then `FundFactoryV6`.
+The factory's authorization runs in the linked policy library to preserve the
+mandatory 1,000-byte runtime reserve without weakening signature checks.
+
+For packet fit, init also accepts compact version 1: a one-byte version followed
+by the full payload with `spoke_chain_id` and `native_mandate_hash` omitted.
+The native chain is fixed to 1 and the native hash is recomputed from the signer,
+derived emitter and sealed configuration before checking the identical signed
+bootstrap tuple. No consent field is removed from the signature.
 
 Shared Hub/native PDA golden vector: Hub 42161, Core `0x02` repeated 20 bytes,
 index 1, policy `0x03` repeated 32 bytes, scaffold program:
@@ -89,9 +96,20 @@ complete. That missing interface is an explicit release blocker.
 
 The final `publish_report` posts consistency 32 and sets `Fund.closed` only
 after the completed close command has no remaining recognized exposure or
-unacknowledged outbound claims. Donations remain excess, not NAV. Closed-Fund
+unacknowledged outbound claims. Both close-command completion and the final
+closed flag independently validate every registered CCTP receipt as received;
+missing, substituted or pending inbound/outbound receipts reject (DEC-205).
+The registry count includes retained arrived receipts, so a nonzero count alone
+is not proof of pending capital. Donations remain excess, not NAV. Closed-Fund
 arrival allocation still needs a sealed garbage collector; receives stay
 fail-closed when closed. No arrival is intentionally written off.
+
+DEC-206: principal and trading-fee exits permit incidental reward credits only
+into canonical segregated reward quarantine accounts. Rewards never enter the
+principal/income ledgers or NAV. If the external position still records rewards
+after exiting all principal/fees, retain its NFT/account/rent evidence rather
+than reverting the exit or attempting a reward claim. Reward-account GC remains
+unimplemented; no arbitrary quarantine transfer or rent refund is added.
 
 ## Transit and retention
 
@@ -114,13 +132,13 @@ their bounded registries can still exhaust. **Item 4 is not fully delivered.**
 
 ## Coordinator requests / release blockers
 
-1. Migrate Kamino `supply/refresh/redeem` and swap-to-ratio Fund seed constraints
-   to Hub-chain/Core/index/policyHash. T8b did not edit their owned paths.
-2. Update shared fixture helpers, scaffold entry count (28), CCTP fixtures,
-   Raydium/rehearsal clients and T8d composed forks to the new ABI. The old
-   composed rehearsal currently fails at native init, before lifecycle legs.
-3. Link the two new Solidity libraries in T8d deployment code; use committed
-   creation and the common typed tuple, not legacy bindingDigest.
+1. Kamino, Raydium and swap-to-ratio use Hub-chain/Core/index/policyHash seeds.
+   Shared core/rehearsal bootstrap and direction-qualified transit fixtures are
+   migrated; isolated legacy CCTP/Raydium/Kamino genesis suites remain pending.
+2. The scaffold structural invariant expects 28 entrypoints. Composed rehearsal
+   uses the compact policy bootstrap, not a legacy init payload.
+3. Deployment and composed Hub-fork creation use committed creation and linked
+   policy/PDA libraries. Approved production factory identity remains unpinned.
 4. Provide signed public exact-in liquidation, multi-bucket/multi-send close
    progress, Kamino collect and proportional Raydium/Market Cost interfaces.
 5. Approve/authenticate result ACK and inbound-receipt retirement, sealed
@@ -138,5 +156,9 @@ Actual logs are under `/tmp/sol-t8b-*.log`; the handoff result report records
 final counts. Cloned policy test passed with a 1057-byte versioned init on ports
 8980/9980/18000/18001-18060. Mainnet preparation performed finalized read-only
 clones (62 base accounts plus 21 rehearsal reads); sends were loopback only.
-The composed legacy rehearsal was attempted and failed at `InvalidConfiguration`
-7002. Do not label that failure a passing rehearsal.
+The original legacy rehearsal failed at `InvalidConfiguration` 7002. The
+policy-bootstrap final-source repeat passed 13 measured operations, 2,176 report
+bytes, maximum 341,961 CU and 1,231 signed bytes on ports 8970/9970/17000.
+Default native localnet passed 41/41; Rust passed 53/53 default and 55/55 feature.
+The finish-work report `results/sol-finish-47-report.md` records the combined
+EVM gate; historical failures are not counted as passing acceptance.
