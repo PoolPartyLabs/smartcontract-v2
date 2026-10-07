@@ -56,3 +56,18 @@ test('budget only permits read-only mainnet methods and models buffer rent reuse
   assert.match(script, /bufferFundingReusedAtDeploy: true/);
   assert.match(script, /TODO\(decision\)/);
 });
+
+test('all release shell commands parse without executing a transaction', () => {
+  for (const path of ['script/solana-release-rehearsal.sh', 'script/solana-evm-deploy.sh',
+    'script/solana-evm-rehearsal-all.sh', 'solana/scripts/deploy-build.sh']) {
+    const result = spawnSync('bash', ['-n', path], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+  }
+});
+
+test('EVM fee collector locates Foundry dry-run directory artifacts', () => {
+  const source = readFileSync('script/solana-evm-budget.mjs', 'utf8');
+  assert.match(source, /path\.includes\('\/dry-run\/'\)/);
+  assert.match(source, /gasEstimateL1Component/);
+  assert.doesNotMatch(source, /getL1Fee/);
+});

@@ -39,4 +39,5 @@ case "$1" in
     node --test tests/rehearsal/lifecycle.test.ts
     ;;
 esac
+node scripts/deploy-operation-budget.mjs >"$STATE/$1-operation-budget.json"
 printf 'Local cloned leg only; no correlated three-chain or mainnet acceptance claimed.\n'
