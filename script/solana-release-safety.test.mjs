@@ -25,7 +25,8 @@ test('DEC-189: even explicit mainnet broadcast refuses the unapproved manifest',
 test('DEC-188/189: committed approval keeps identity, hash and budget unresolved', () => {
   const approval = JSON.parse(readFileSync('script/solana-mainnet-approval.json'));
   assert.equal(approval.status, 'NOT_APPROVED');
-  for (const field of ['programId', 'binarySha256', 'idlSha256', 'maxLen', 'walletMinimumLamports']) assert.equal(approval[field], null);
+  assert.equal(approval.programId, '7PptZ653uyn5eoAFKqs4DXR1ijxH6sf49f2YAGMLTfCx');
+  for (const field of ['binarySha256', 'idlSha256', 'maxLen', 'walletMinimumLamports']) assert.equal(approval[field], null);
 });
 
 test('DEC-189: EVM wrapper refuses broadcast without approval before RPC/key use', () => {
