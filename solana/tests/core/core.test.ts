@@ -56,6 +56,21 @@ test('existing per-Fund PDA prevents initialization replay', async () => {
   assert.deepEqual((await connection.getAccountInfo(publicKey(addresses.fund)))?.data, before?.data);
 });
 
+test('a squatter cannot substitute consent or block a rent-prefunded Fund PDA', async () => {
+  const connection = localConnection();
+  const manager = testWallet('manager');
+  const core = Buffer.alloc(20, 0x85);
+  const legitimate = init(manager.publicKey, core, 2);
+  const substituted = init(manager.publicKey, core, 2, bindingPayload(manager.publicKey, Buffer.alloc(20, 0x86), 2));
+  await assert.rejects(sendSignedLocal(connection, manager, [substituted]), /InvalidConfiguration/);
+  assert.equal(await connection.getAccountInfo(legitimate.keys[1].pubkey), null);
+  await sendSignedLocal(connection, manager, [SystemProgram.transfer({
+    fromPubkey: manager.publicKey, toPubkey: legitimate.keys[1].pubkey, lamports: 1_000_000,
+  })]);
+  await sendSignedLocal(connection, manager, [legitimate]);
+  assert.equal((await connection.getAccountInfo(legitimate.keys[1].pubkey))!.owner.toBase58(), ADDRESSES.spoke);
+});
+
 test('sealed transport rejects substituted Circle targets, caller, custody and fee ceiling', async () => {
   const connection = localConnection();
   const manager = testWallet('manager');

@@ -77,6 +77,7 @@ pub fn handler(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
     let args = InitializePayload::try_from_slice(&payload)
         .map_err(|_| error!(CoreError::InvalidConfiguration))?;
     let index = args.spoke_index.to_le_bytes();
+    // TODO(decision): DEC-200 needs a non-circular Hub Mandate commitment when its spoke emitter derives from this PDA.
     let (fund_key, bump) =
         Pubkey::find_program_address(&[b"fund", &args.hub_core, &index, &args.mandate_hash], &crate::ID);
     require_keys_eq!(
