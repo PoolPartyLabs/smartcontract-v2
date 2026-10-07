@@ -46,5 +46,10 @@ for (const pair of ['tslax', 'nvdax', 'wsol']) {
     await assert.rejects(buildSwapToRatio({ ...args, slippageBps: 201 }), /sealed/);
     await assert.rejects(buildSwapToRatio({ ...args, vault: args.manager }), /vault/);
     await assert.rejects(buildSwapToRatio({ ...args, authorizeQuote: undefined as any }), /API authorization/);
+    const stricterMinimum = (built.minOut + 1n);
+    const stricter = await buildSwapToRatio({ ...args, authorizeQuote: async () => ({
+      ...await args.authorizeQuote(), minAmountOut: stricterMinimum,
+    }) });
+    assert.equal(stricter?.minOut, stricterMinimum);
   });
 }

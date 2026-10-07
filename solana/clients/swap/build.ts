@@ -93,6 +93,6 @@ export async function buildSwapToRatio(args: BuildSwapArgs) {
   let transactionBytes: number;
   try { transactionBytes = transaction.serialize().length; } catch { throw new Error('Swap exceeds v0 packet size; reduce route accounts and rebuild manually'); }
   if (transactionBytes > 1232) throw new Error('Swap exceeds 1232-byte packet; rebuild with fewer accounts');
-  return { transaction, transactionBytes, computeUnitLimit: units, quote, minOut,
+  return { transaction, transactionBytes, computeUnitLimit: units, quote, minOut: apiQuote.minAmountOut,
     inputAmount: result.amount, inputMint, outputMint, blockhash };
 }

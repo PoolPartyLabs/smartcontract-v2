@@ -92,9 +92,8 @@ Production-shaped unsigned builder tests are 771–777 bytes with mocked ALTs.
    Pyth USDC, Chainlink SOL, then exact V2 route accounts. Stock verification
    accounts require their own sealed call-site extension. Add the optional
    report Vec field to coordinated client/schema integration.
-4. Directly declare `@noble/hashes` (quote hashing) and `@noble/curves` (test-only
-   signing) in the shared npm manifest if these clients are retained; currently
-   supplied transitively by the existing locked web3 dependency, no lock changes.
+4. `@noble/hashes` (quote hashing) and `@noble/curves` (test-only signing) are
+   directly declared at the versions already present in the shared npm lock.
 5. Resolve existing Raydium SBF stack-frame diagnostics (4104 > 4096) in its
    owning track. The SBF command exits zero but this is a deployment blocker.
 

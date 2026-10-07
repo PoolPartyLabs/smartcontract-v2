@@ -5,6 +5,7 @@ import { AddressLookupTableAccount, PublicKey, TransactionInstruction, Transacti
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { localConnection, testWallet, requireLoopback } from '../helpers/localnet.ts';
 import { encodeQuote, quoteDigest, routeHash } from '../../clients/swap/quote.ts';
+import type { ApiInstruction } from '../../clients/swap/jupiter.ts';
 
 const connection = localConnection();
 const manager = testWallet();
@@ -15,7 +16,7 @@ const now = sol.readBigInt64LE(93);
 
 async function build(negative?: string) {
   const fixture = JSON.parse(readFileSync(new URL('./fixtures/v2/wsol.json', import.meta.url), 'utf8'));
-  const swap = fixture.build.swapInstruction;
+  const swap: ApiInstruction = fixture.build.swapInstruction;
   const program = new PublicKey(fixture.probe);
   const fund = new PublicKey(fixture.fund);
   const route = Buffer.from(swap.data, 'base64');
@@ -43,7 +44,7 @@ async function build(negative?: string) {
     ...oracleKeys.map(pubkey => ({ pubkey, isSigner: false, isWritable: false })),
     ...swap.accounts.map(account => ({ pubkey: new PublicKey(account.pubkey), isSigner: false, isWritable: account.isWritable })),
   ] });
-  const lookups = await Promise.all(fixture.build.addressLookupTableAddresses.map(async address => (await connection.getAddressLookupTable(new PublicKey(address))).value));
+  const lookups = await Promise.all((fixture.build.addressLookupTableAddresses as string[]).map(async address => (await connection.getAddressLookupTable(new PublicKey(address))).value));
   const blockhash = await connection.getLatestBlockhash();
   const transaction = new VersionedTransaction(new TransactionMessage({ payerKey: manager.publicKey, recentBlockhash: blockhash.blockhash,
     instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }), instruction] }).compileToV0Message(lookups.filter(Boolean) as AddressLookupTableAccount[]));
