@@ -19,3 +19,6 @@ pub mod stock;
 pub mod initialize_adapter;
 pub use initialize_adapter::InitializeAdapter;
 pub(crate) use initialize_adapter::__client_accounts_initialize_adapter;
+pub mod prune_registry;
+pub use prune_registry::PruneRegistry;
+pub(crate) use prune_registry::__client_accounts_prune_registry;
