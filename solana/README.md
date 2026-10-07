@@ -2,8 +2,10 @@
 
 This workspace is isolated from Foundry. **No mainnet transactions are authorized
 by these scripts.** Implemented track primitives coexist with fail-closed
-entrypoints until authenticated bootstrap, shared accounting and complete
-reporting are integrated; this workspace is not launch-ready.
+entrypoints. Authenticated bootstrap, canonical adapter accounting and exhaustive
+reports are integrated, with a measured cloned lifecycle in `docs/REHEARSAL.md`.
+Production signed V2 swap policy and non-ACK Hub commands remain blocked; this
+workspace is not launch-ready.
 New Funds only (DEC-188); closed-team upgradeable demo only (DEC-189).
 
 ## Pinned toolchain
