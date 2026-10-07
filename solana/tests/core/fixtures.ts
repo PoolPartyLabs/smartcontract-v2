@@ -1,5 +1,5 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
-import { PublicKey, Transaction, SendTransactionError, AddressLookupTableProgram, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
+import { PublicKey, Transaction, SendTransactionError, AddressLookupTableProgram, TransactionMessage, VersionedTransaction, ComputeBudgetProgram } from '@solana/web3.js';
 import type { Connection, Keypair, TransactionInstruction, AddressLookupTableAccount } from '@solana/web3.js';
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { keccak_256 } from '@noble/hashes/sha3';
@@ -57,17 +57,16 @@ export function bindingPayload(manager: PublicKey, core = hubCore, index = 1, ex
   const struct = hash(Buffer.concat([hash(Buffer.from(type)), manager.toBuffer(), addressWord(core), emitter.toBuffer(), word(1), config.nativeHash, nonce, word(expiry)]));
   const digest = hash(Buffer.concat([Buffer.from([25, 1]), domain, struct]));
   const ephemeralKey = secp256k1.utils.randomPrivateKey();
-  const signature = secp256k1.sign(digest, ephemeralKey);
   const managerEvm = hash(Buffer.from(secp256k1.getPublicKey(ephemeralKey, false)).subarray(1)).subarray(12);
   const vault = publicKey(target.vault);
   const nvdax = 'Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh';
-  const bootstrapType = 'SolanaBootstrap(uint256 hubChain,address core,bytes32 mandateHash,uint16 spokeIndex,bytes32 program,bytes32 fundPda,bytes32 solanaKey,bytes32 usdcAta,bytes32 tslaxAta,bytes32 nvdaxAta,bytes32 wsolAta,uint256 nonce,uint256 expiry)';
+  const bootstrapType = 'SolanaBootstrap(uint256 hubChain,address core,bytes32 mandateHash,uint16 spokeIndex,bytes32 program,bytes32 fundPda,bytes32 solanaKey,bytes32 usdcAta,bytes32 tslaxAta,bytes32 nvdaxAta,bytes32 wsolAta,bytes32 nativeMandateHash,bytes32 fundId,uint256 nonce,uint256 expiry)';
   const bootstrapStruct = hash(Buffer.concat([hash(Buffer.from(bootstrapType)), word(42161), addressWord(core), mandateHash,
     word(index), publicKey(ADDRESSES.spoke).toBuffer(), publicKey(target.fund).toBuffer(), manager.toBuffer(),
-    ...[ADDRESSES.usdc, ADDRESSES.tslax, nvdax, ADDRESSES.wsol].map(mint => testAta(mint, vault).toBuffer()), nonce, word(expiry)]));
+    ...[ADDRESSES.usdc, ADDRESSES.tslax, nvdax, ADDRESSES.wsol].map(mint => testAta(mint, vault).toBuffer()), config.nativeHash, fundId, nonce, word(expiry)]));
   const bootstrap = secp256k1.sign(hash(Buffer.concat([Buffer.from([25, 1]), domain, bootstrapStruct])), ephemeralKey);
   return Buffer.concat([core, integer(index, 2), fundId, mandateHash, managerEvm, factory, integer(42161, 8), integer(1, 8),
-    config.nativeHash, nonce, integer(expiry, 8), Buffer.from(signature.toCompactRawBytes()), integer(signature.recovery + 27, 1),
+    config.nativeHash, nonce, integer(expiry, 8),
     Buffer.from(bootstrap.toCompactRawBytes()), integer(bootstrap.recovery + 27, 1), config.assets, config.venues, config.transport]);
 }
 
@@ -114,6 +113,7 @@ export async function sendSignedLocal(connection: Connection, payer: Keypair, in
   requireLoopback(connection.rpcEndpoint);
   let table: AddressLookupTableAccount | undefined;
   if (instructions.some(instruction => instruction.data.subarray(0, 8).equals(discriminator('global', 'initialize_fund')))) {
+    instructions = [ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }), ...instructions];
     const slot = await connection.getSlot('finalized');
     const [create, address] = AddressLookupTableProgram.createLookupTable({ authority: payer.publicKey, payer: payer.publicKey, recentSlot: slot });
     await sendSignedLocal(connection, payer, [create]);

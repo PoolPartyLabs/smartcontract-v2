@@ -99,8 +99,8 @@ pub fn handler(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
         Pubkey::find_program_address(&[b"emitter", fund_key.as_ref()], &crate::ID);
     let manager = ctx.accounts.authority.key();
     validate_config(&args, &manager, &emitter)?;
-    let digest = binding::verify_binding(&args, &manager, &emitter, Clock::get()?.unix_timestamp)?;
     binding::verify_bootstrap(&args, &manager, &fund_key, Clock::get()?.unix_timestamp)?;
+    let digest = binding::bootstrap_digest(&args, &manager, &fund_key)?;
     let payer = ctx.accounts.authority.to_account_info();
     let system = ctx.accounts.system_program.to_account_info();
     allocate(
@@ -113,7 +113,7 @@ pub fn handler(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
     let route = CctpRoute {
         fund: fund_key,
         mandate_hash: args.mandate_hash,
-        hub_connector: args.hub_core,
+        hub_connector: binding::hub_connector(&args.factory, &args.fund_id, args.hub_chain_id),
         solana_chain_id: args.spoke_chain_id,
         max_fee_bps_scaled: args.transport.fast_fee_ceiling,
         sealed: true,
