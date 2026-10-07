@@ -26,6 +26,9 @@ pub struct ReceiveAndCredit<'info> {
     /// CHECK: native USDC custody and exact delta verified around Circle receive.
     #[account(mut, address = cpi::ata(&vault.key()))]
     pub usdc_ata: UncheckedAccount<'info>,
+    #[account(mut, seeds = [b"ledger", fund.key().as_ref(), USDC.as_ref()], bump = token_ledger.bump, has_one = fund,
+        constraint = token_ledger.mint == USDC @ CctpError::InvalidAccount)]
+    pub token_ledger: Account<'info, crate::state::TokenLedger>,
     pub system_program: Program<'info, System>,
 }
 
@@ -104,16 +107,10 @@ pub fn handler(ctx: Context<ReceiveAndCredit>, payload: Vec<u8>) -> Result<()> {
     );
     let surplus = arrival.max_fee - arrival.fee_executed;
     let ledger = &mut ctx.accounts.ledger;
-    ctx.accounts.fund.pending_transits = ctx
-        .accounts
-        .fund
-        .pending_transits
-        .checked_add(1)
-        .ok_or(CctpError::InvalidAmount)?;
-    ledger.principal = ledger
-        .principal
-        .checked_add(credited)
-        .ok_or(CctpError::InvalidAmount)?;
+    ctx.accounts.fund.register_transit(ctx.accounts.transit.key())?;
+    ctx.accounts.token_ledger.credit_principal(credited)?;
+    ledger.principal = ctx.accounts.token_ledger.principal;
+    ctx.accounts.fund.cumulative_received = ctx.accounts.fund.cumulative_received.checked_add(u128::from(credited)).ok_or(CctpError::InvalidAmount)?;
     ledger.received_principal = ledger
         .received_principal
         .checked_add(credited)

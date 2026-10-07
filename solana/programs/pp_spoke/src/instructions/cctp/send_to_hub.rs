@@ -25,12 +25,16 @@ pub struct SendToHub<'info> {
     /// CHECK: legacy native USDC ATA layout and custody checked before and after CPI.
     #[account(mut, address = cpi::ata(&vault.key()))]
     pub usdc_ata: UncheckedAccount<'info>,
+    #[account(mut, seeds = [b"ledger", fund.key().as_ref(), USDC.as_ref()], bump = token_ledger.bump, has_one = fund,
+        constraint = token_ledger.mint == USDC @ CctpError::InvalidAccount)]
+    pub token_ledger: Account<'info, crate::state::TokenLedger>,
     #[account(mut)]
     pub event_account: Signer<'info>,
     pub system_program: Program<'info, System>,
 }
 
 pub fn handler(ctx: Context<SendToHub>, payload: Vec<u8>) -> Result<()> {
+    crate::instructions::core::admission::manager(&ctx.accounts.fund, &ctx.accounts.authority.to_account_info())?;
     // TODO(decision): canonical direction-qualified transit-id namespace (DEC-191).
     let params = SendParams::try_from_slice(&payload).map_err(|_| CctpError::InvalidPayload)?;
     require!(
@@ -47,7 +51,7 @@ pub fn handler(ctx: Context<SendToHub>, payload: Vec<u8>) -> Result<()> {
     )?;
     let ledger = &mut ctx.accounts.ledger;
     require!(
-        ledger.principal >= params.amount,
+        ctx.accounts.token_ledger.principal >= params.amount,
         CctpError::InsufficientPrincipal
     );
     let before = cpi::balance(
@@ -82,7 +86,8 @@ pub fn handler(ctx: Context<SendToHub>, payload: Vec<u8>) -> Result<()> {
         before.checked_sub(after) == Some(params.amount),
         CctpError::WrongDelta
     );
-    ledger.principal -= params.amount;
+    ctx.accounts.token_ledger.debit_principal(params.amount)?;
+    ledger.principal = ctx.accounts.token_ledger.principal;
     ledger.outbound_gross = ledger
         .outbound_gross
         .checked_add(params.amount)
@@ -91,12 +96,8 @@ pub fn handler(ctx: Context<SendToHub>, payload: Vec<u8>) -> Result<()> {
         .outbound_in_flight
         .checked_add(net)
         .ok_or(CctpError::InvalidAmount)?;
-    ctx.accounts.fund.pending_transits = ctx
-        .accounts
-        .fund
-        .pending_transits
-        .checked_add(1)
-        .ok_or(CctpError::InvalidAmount)?;
+    ctx.accounts.fund.register_transit(ctx.accounts.transit.key())?;
+    ctx.accounts.fund.cumulative_sent_home = ctx.accounts.fund.cumulative_sent_home.checked_add(u128::from(params.amount)).ok_or(CctpError::InvalidAmount)?;
     ctx.accounts.transit.set_inner(Transit {
         fund: fund_key,
         transit_id: params.transit_id,

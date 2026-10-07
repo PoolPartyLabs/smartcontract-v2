@@ -21,6 +21,10 @@ pub struct RaydiumOpenPosition<'info> {
     #[account(mut, seeds = [b"raydium_ledger", fund.key().as_ref(), pool.key().as_ref()], bump,
         has_one = fund, has_one = pool)]
     pub ledger: Account<'info, RaydiumLedger>,
+    #[account(mut)]
+    pub token_ledger_0: Account<'info, crate::state::TokenLedger>,
+    #[account(mut)]
+    pub token_ledger_1: Account<'info, crate::state::TokenLedger>,
     #[account(init, payer = authority, space = 8 + RaydiumPosition::INIT_SPACE,
         seeds = [b"position", fund.key().as_ref(), personal_position.key().as_ref()], bump)]
     pub position_record: Account<'info, RaydiumPosition>,
@@ -188,25 +192,14 @@ pub fn handler(ctx: Context<RaydiumOpenPosition>, payload: Vec<u8>) -> Result<()
         )?,
     ];
     require!(
-        args.amount_0_max <= accounts.ledger.idle_principal_0
-            && args.amount_1_max <= accounts.ledger.idle_principal_1,
+        args.amount_0_max <= accounts.token_ledger_0.principal
+            && args.amount_1_max <= accounts.token_ledger_1.principal,
         RaydiumError::Slippage
     );
-    require!(
-        before[0]
-            >= accounts
-                .ledger
-                .idle_principal_0
-                .checked_add(accounts.ledger.idle_income_0)
-                .ok_or(RaydiumError::Arithmetic)?
-            && before[1]
-                >= accounts
-                    .ledger
-                    .idle_principal_1
-                    .checked_add(accounts.ledger.idle_income_1)
-                    .ok_or(RaydiumError::Arithmetic)?,
-        RaydiumError::Slippage
-    );
+    crate::instructions::core::admission::read_ledger(&accounts.token_ledger_0.to_account_info(), accounts.fund.key(), pool.mints[0])?;
+    crate::instructions::core::admission::read_ledger(&accounts.token_ledger_1.to_account_info(), accounts.fund.key(), pool.mints[1])?;
+    accounts.token_ledger_0.excess(before[0])?;
+    accounts.token_ledger_1.excess(before[1])?;
     let data = open_data(&args, starts[0], starts[1])?;
     let fund_key = accounts.fund.key();
     let bump = [accounts.fund.vault_bump];
@@ -327,16 +320,8 @@ pub fn handler(ctx: Context<RaydiumOpenPosition>, payload: Vec<u8>) -> Result<()
                 <= args.amount_1_max,
         RaydiumError::Slippage
     );
-    accounts.ledger.idle_principal_0 = accounts
-        .ledger
-        .idle_principal_0
-        .checked_sub(before[0] - after[0])
-        .ok_or(RaydiumError::Slippage)?;
-    accounts.ledger.idle_principal_1 = accounts
-        .ledger
-        .idle_principal_1
-        .checked_sub(before[1] - after[1])
-        .ok_or(RaydiumError::Slippage)?;
+    accounts.token_ledger_0.debit_principal(before[0] - after[0])?;
+    accounts.token_ledger_1.debit_principal(before[1] - after[1])?;
     let record = &mut accounts.position_record;
     record.fund = fund_key;
     record.pool = position.pool;
@@ -351,6 +336,7 @@ pub fn handler(ctx: Context<RaydiumOpenPosition>, payload: Vec<u8>) -> Result<()
     record.closed = false;
     record.bump = ctx.bumps.position_record;
     latch_open_position(&mut accounts.fund.active_positions)?;
+    accounts.fund.register_position(accounts.position_record.key())?;
     Ok(())
 }
 

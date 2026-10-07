@@ -1,12 +1,13 @@
 use super::{accounts::*, protocol::*, valuation::checkpoint, KaminoError};
 use crate::state::{fund::FundState, kamino::KaminoPosition};
 use anchor_lang::prelude::*;
+use crate::instructions::core::admission;
 
 /// DEC-068, DEC-190: exits remain available when entry is disabled; only the Manager may request them.
 #[derive(Accounts)]
 pub struct KaminoRedeem<'info> {
     pub authority: Signer<'info>,
-    #[account(seeds = [b"fund", fund.hub_core.as_ref(), &fund.spoke_index.to_le_bytes(), fund.mandate_hash.as_ref()], bump = fund.bump,
+    #[account(mut, seeds = [b"fund", fund.hub_core.as_ref(), &fund.spoke_index.to_le_bytes(), fund.mandate_hash.as_ref()], bump = fund.bump,
         constraint = fund.manager_solana == authority.key() @ KaminoError::Unauthorized,
         constraint = !fund.closed @ KaminoError::EntryDisabled)]
     pub fund: Account<'info, FundState>,
@@ -17,11 +18,16 @@ pub struct KaminoRedeem<'info> {
         has_one = fund, constraint = position.reserve == RESERVE @ KaminoError::WrongReserve)]
     pub position: Account<'info, KaminoPosition>,
     pub venue: KaminoVenue<'info>,
+    #[account(mut, seeds = [b"ledger", fund.key().as_ref(), USDC.as_ref()], bump = token_ledger.bump, has_one = fund,
+        constraint = token_ledger.mint == USDC @ KaminoError::InvalidTokenAccount)]
+    pub token_ledger: Account<'info, crate::state::TokenLedger>,
 }
 
 /// Payload: u64 cToken units, u64 minimum USDC; u64::MAX means all recorded units.
 /// DEC-068: never silently redeem a partial request; illiquid requests remain pending in cToken units.
 pub fn handler(ctx: Context<KaminoRedeem>, payload: Vec<u8>) -> Result<()> {
+    admission::manager(&ctx.accounts.fund, &ctx.accounts.authority.to_account_info())?;
+    admission::venue(&ctx.accounts.fund, PROGRAM, Pubkey::default(), RESERVE)?;
     require!(payload.len() == 16, KaminoError::InvalidAmount);
     let requested = read_u64(&payload, 0)?;
     let minimum = read_u64(&payload, 8)?;
@@ -94,8 +100,11 @@ pub fn handler(ctx: Context<KaminoRedeem>, payload: Vec<u8>) -> Result<()> {
             .checked_sub(principal_paid)
             .ok_or(KaminoError::MathOverflow)?
     };
-    position.idle_principal = checked_add(position.idle_principal, principal_paid)?;
-    position.idle_income = checked_add(position.idle_income, income_paid)?;
+    ctx.accounts.token_ledger.credit_principal(principal_paid)?;
+    ctx.accounts.token_ledger.credit_income(income_paid)?;
+    if position.units == 0 {
+        ctx.accounts.fund.active_positions = ctx.accounts.fund.active_positions.checked_sub(1).ok_or(KaminoError::UnexpectedDelta)?;
+    }
     position.cumulative_realized_income =
         checked_add(position.cumulative_realized_income, income_paid)?;
     position.pending_units = 0;

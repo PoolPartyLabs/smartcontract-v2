@@ -21,6 +21,10 @@ pub struct RaydiumCollectFees<'info> {
     #[account(mut, seeds = [b"raydium_ledger", fund.key().as_ref(), pool.key().as_ref()], bump,
         has_one = fund, has_one = pool)]
     pub ledger: Account<'info, RaydiumLedger>,
+    #[account(mut)]
+    pub token_ledger_0: Account<'info, crate::state::TokenLedger>,
+    #[account(mut)]
+    pub token_ledger_1: Account<'info, crate::state::TokenLedger>,
     /// CHECK: canonical vault-owned Token-2022 position NFT.
     #[account(mut)]
     pub nft_account: UncheckedAccount<'info>,
@@ -140,6 +144,9 @@ pub fn decrease<'info>(
         &accounts.raydium_program,
     )?;
     let pool = check::pool(&accounts.pool)?;
+    crate::instructions::core::admission::venue(&accounts.fund, CLMM, accounts.pool.key(), Pubkey::default())?;
+    crate::instructions::core::admission::read_ledger(&accounts.token_ledger_0.to_account_info(), accounts.fund.key(), pool.mints[0])?;
+    crate::instructions::core::admission::read_ledger(&accounts.token_ledger_1.to_account_info(), accounts.fund.key(), pool.mints[1])?;
     let position = check::position(&accounts.personal_position)?;
     check::record(
         &accounts.position_record,
@@ -391,26 +398,10 @@ pub fn decrease<'info>(
         .collected_fees_1
         .checked_add(realized[1])
         .ok_or(RaydiumError::Arithmetic)?;
-    accounts.ledger.idle_income_0 = accounts
-        .ledger
-        .idle_income_0
-        .checked_add(realized[0])
-        .ok_or(RaydiumError::Arithmetic)?;
-    accounts.ledger.idle_income_1 = accounts
-        .ledger
-        .idle_income_1
-        .checked_add(realized[1])
-        .ok_or(RaydiumError::Arithmetic)?;
-    accounts.ledger.idle_principal_0 = accounts
-        .ledger
-        .idle_principal_0
-        .checked_add(delta[0] - realized[0])
-        .ok_or(RaydiumError::Arithmetic)?;
-    accounts.ledger.idle_principal_1 = accounts
-        .ledger
-        .idle_principal_1
-        .checked_add(delta[1] - realized[1])
-        .ok_or(RaydiumError::Arithmetic)?;
+    accounts.token_ledger_0.credit_income(realized[0])?;
+    accounts.token_ledger_1.credit_income(realized[1])?;
+    accounts.token_ledger_0.credit_principal(delta[0] - realized[0])?;
+    accounts.token_ledger_1.credit_principal(delta[1] - realized[1])?;
     emit!(RaydiumFeesCollected {
         fund: fund_key,
         position: accounts.personal_position.key(),

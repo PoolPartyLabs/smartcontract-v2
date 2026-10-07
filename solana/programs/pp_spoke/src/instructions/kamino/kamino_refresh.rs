@@ -30,6 +30,7 @@ pub struct KaminoRefresh<'info> {
 }
 
 pub fn handler(ctx: Context<KaminoRefresh>, payload: Vec<u8>) -> Result<()> {
+    crate::instructions::core::admission::venue(&ctx.accounts.fund, PROGRAM, Pubkey::default(), RESERVE)?;
     require!(payload.is_empty(), KaminoError::InvalidAmount);
     let value = refresh_and_value(
         &mut ctx.accounts.position,
