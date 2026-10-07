@@ -1,5 +1,88 @@
 # Solana v6 deployment rehearsal — founder approval packet
 
+## T11 blocker update — October 7, 2026
+
+This section supersedes T9 identity/creation blocker statements, not founder
+approval. **Still NO-GO:** the supplied Alchemy Robinhood provider returns HTTP
+429 / monthly capacity exhausted. No mainnet transaction was submitted.
+
+- Persistent program: `7PptZ653uyn5eoAFKqs4DXR1ijxH6sf49f2YAGMLTfCx`.
+  Its founder-machine key is outside worktrees at root `.keys/pp_spoke-program-keypair.json`
+  (directory 0700, file 0600, Git-local exclusion; never distribute/commit).
+- `script/solana-three-chain-creation.sh` builds real Manager EIP-712 consent,
+  sealed swap config, policyHash-qualified identities, Hub creation (50 USDC),
+  Robinhood `createSpoke` and native staged acceptance. It has no broadcast mode;
+  native sends require loopback port 8998 (other ports 9998/19900/19901-19960).
+- `cache/sol-t11/creation.json` contains exact EVM calldata;
+  `signer-prompts.json` contains ordered signers and native account/data lists.
+  These are expiring local fork artifacts, **not approved deployment requests**.
+- Genuine actual-wallet Arbitrum creation and native acceptance pass. Native
+  acceptance takes seven transactions: three staged chunks, one ALT creation,
+  two ALT extensions, one initializer. Initializer is 303 bytes; last measured
+  simulation 363,113 CU; local payer debit 65,646,920 lamports before priority.
+- Composed same-Fund tests: four PASS at Arbitrum block 512609390. Removed a
+  backwards timestamp warp that made real feeds future-dated (`TokenNotPriced`);
+  pricing validation is unchanged. Factory staging now retains `swapPolicyHash`.
+- Supplied Alchemy Arbitrum and Robinhood both report monthly quota exhaustion;
+  Arbitrum evidence uses a fresh public fork, not an unreported provider substitute.
+  Genuine Robinhood completion remains blocked; wrapper exits nonzero even when
+  Hub/native checkpoints pass. Do not retry the exhausted provider repeatedly.
+
+Load `.env.alpha` / `.env.solana` in a shell with tracing disabled and export
+parameters without printing. Source the handoff `tools/rpc-env.sh` for approved
+providers. Explicit `ARBITRUM_FORK_BLOCK`, `ROBINHOOD_FORK_BLOCK`,
+`SOLANA_STOCK_SESSION_OPEN/CLOSE`, and `PP_SWAP_MAX_AGE`,
+`PP_SWAP_CONFIDENCE_BPS`, `PP_SWAP_CROSS_CHECK_BPS`, `PP_SWAP_SLIPPAGE_BPS`
+are required. Tested **proposal** limits were 300 seconds / 100 / 50 / 200 bps;
+they are not a founder ruling. Scope OFF and stock swaps unavailable are sealed
+as the two final zero bytes of the swap policy; Manager impact has no default.
+Prepare mainnet clones using the existing README harness before the wrapper.
+DEC-188/189/190/195/196/200/202/203 and R4.2/R8 apply.
+
+### Funding proposal — founder approval required
+
+Propose **5.75 SOL**, **0.015 ETH Arbitrum**, **0.010 ETH Robinhood**,
+and **50 USDC seed** (49 USDC initial Fund principal after existing 2% flow fee).
+These are wallet funding envelopes, not exact transaction invoices or rulings.
+
+| Wallet role/action | Proposed count and reserve |
+| --- | --- |
+| Solana deployer | One 1x program deployment, 1,026 buffer writes + create/deploy = 1,028 transactions; read-only mainnet model 5.006666361 SOL at finalized slot 454269380 |
+| Manager Solana Key | Exact creation seven transactions above; then Kamino supply/refresh/redeem, one SOL ratio swap, one SOL/USDC open/collect/close = seven more, total 14; reserve 0.20 SOL including native initialization, LP/cToken rents and ALT setup |
+| Keeper | N=2 CCTP receives (allocation + one retry); M=4 finalized report posts, each refresh/build/publish = 12 transactions; total 14; reserve 0.10 SOL including nonce/message rent |
+| Solana contingency | 0.443333639 SOL above deploy + Manager + keeper allocations, including failed-buffer/retry headroom; R8 combines roles in the one founder wallet but budgets remain logically separate |
+| Arbitrum operator/Manager | One v6 stack: 27 prior measured deployment transactions; approval + creation: 2; Across out + CCTP out + receive return + two report deliveries + closure: 6; total 35, reserve 0.015 ETH including Nitro L1 data and retries |
+| Robinhood operator/Manager | One v6 stack: 15 prior dry-run transactions; createSpoke + Across claim + open/collect/close + report + return = 7; total 22, reserve 0.010 ETH including Nitro L1 data and retries |
+
+Prior Arbitrum factory-only L1-inclusive model was 0.002141790546254 ETH;
+do not treat either EVM envelope as a final fee quote. Robinhood provider blocks
+fresh gas/L1 estimates and the genuine creation repeat. Before approval, reprice
+the exact exported transactions on both chains, correlate native lifecycle
+steps with this same Fund, and measure keeper rents for this action plan.
+The production T9 independent session's 0.166578 SOL Manager peak and
+0.040934420 SOL keeper peak inform reserves but are not this exact demo.
+Do not add legacy and production independent rehearsals together.
+
+### Remaining review and downstream propagation
+
+- **TODO(decision):** canonical EVM role aliases for a single native program
+  are not specified. Builder uses domain-separated swap/CCTP accounting aliases
+  solely to satisfy existing disjoint adapter namespaces; no new callable EVM
+  contracts are implied. Coordinator review required before production calldata.
+- Current max-three-assets permits USDC/WSOL/NVDAx in this tested creation;
+  TSLAx ATA is initialized but not admitted. All three stock/SOL LP choices
+  cannot be represented simultaneously with four assets. Coordinator must
+  settle the release asset bound/admission, not silently advertise all choices.
+- Rebuild after PR #49 lands; Scope OFF policy wire is unchanged on its branch,
+  but the ELF/hash and compute evidence must be refreshed after integration.
+- API/indexer and frontend manifests must update program id, off-chain IDL,
+  all Fund/vault/emitter/ledger/config/ATA derivations, CCTP destinationCaller
+  and mintRecipient, Hub native config/signature domains and report emitter
+  registration. No API/frontend repositories were modified by this track.
+- Approval file remains `NOT_APPROVED`; program identity is not upgrade authority.
+  R8 wallet holds upgrade authority for MVP; revoke before client capital (DEC-189).
+
+
 ## T9 release package — October 7, 2026 (POO-2263)
 
 **NO-GO until every gate below passes. No mainnet transactions are authorized by
