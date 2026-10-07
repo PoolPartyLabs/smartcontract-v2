@@ -6,9 +6,12 @@ resolver = "2"
 anchor-lang = "=0.31.1"
 
 [profile.release]
+opt-level = "z"
 overflow-checks = true
 lto = "fat"
 codegen-units = 1
+strip = "symbols"
+debug = false
 
 [profile.release.build-override]
 opt-level = 3
