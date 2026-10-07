@@ -10,7 +10,9 @@ import { prepareCctpFixtures } from '../cctp/fixtures.ts';
 const root = new URL('../../.localnet/', import.meta.url);
 const endpoint = process.env.SOLANA_MAINNET_RPC ?? 'https://api.mainnet-beta.solana.com';
 const evidence: { address: string; slot: number; sha256: string }[] = [];
+const snapshots = new Map<string, any>();
 async function clone(address: string) {
+  if (snapshots.has(address)) return snapshots.get(address);
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
       const response = await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json' },
@@ -22,6 +24,11 @@ async function clone(address: string) {
       const data = Buffer.from(snapshot.account.data[0], 'base64');
       evidence.push({ address, slot: body.result.context.slot, sha256: createHash('sha256').update(data).digest('hex') });
       writeFileSync(new URL(`accounts/${address}.json`, root), JSON.stringify(snapshot));
+      snapshots.set(address, snapshot);
+      if (snapshot.account.executable && snapshot.account.owner === ADDRESSES.loader) {
+        if (data.length !== 36 || data.readUInt32LE(0) !== 2) throw new Error('Unsupported loader state');
+        await clone(new PublicKey(data.subarray(4)).toBase58());
+      }
       return snapshot;
     } catch {
       if (attempt === 4) throw new Error('Read-only production fixture clone failed; endpoint suppressed');
@@ -40,6 +47,12 @@ const arraySeed = Buffer.alloc(4); arraySeed.writeInt32BE(start);
 const currentArray = PublicKey.findProgramAddressSync([Buffer.from('tick_array'), new PublicKey(NVDA_POOL).toBuffer(), arraySeed], new PublicKey(ADDRESSES.raydium))[0].toBase58();
 await clone(currentArray);
 const recorded = JSON.parse(readFileSync(new URL('./fixtures/v2/wsol.json', import.meta.url), 'utf8'));
+await clone(recorded.build.swapInstruction.programId);
+for (const [index, account] of recorded.build.swapInstruction.accounts.entries()) {
+  if (index < 3 || account.pubkey === '11111111111111111111111111111111' || account.pubkey.startsWith('Sysvar')) continue;
+  await clone(account.pubkey);
+}
+for (const address of recorded.build.addressLookupTableAddresses) await clone(address);
 const routePoolAddress = recorded.build.swapInstruction.accounts[13].pubkey;
 const routePool = decodePool(Buffer.from((await clone(routePoolAddress)).account.data[0], 'base64'));
 const routeSpan = routePool.tickSpacing * 60;

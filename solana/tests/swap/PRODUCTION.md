@@ -115,6 +115,9 @@ file without regeneration; preparation derives reward quarantine addresses and
 owners from the resulting canonical Fund and vault. Do not print key contents.
 Changing/removing this file requires preparing quarantine fixtures again.
 
+Preparation includes the exact signed V2 route accounts, Jupiter executable,
+its upgradeable program data and lookup tables; it does not assume another
+track's validator genesis has already cloned them.
 Track extension changes only local snapshots, synthetic Manager WSOL/reward
 quarantine accounts, and Circle's explicitly local attester fixture. Protocol
 mint/pool/oracle bytes stay cloned. The launcher uses 32-slot epochs so a huge
