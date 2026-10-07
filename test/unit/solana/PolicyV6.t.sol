@@ -72,7 +72,7 @@ contract PolicyV6Test is Test {
         SolanaMandateV6.Config memory native = _nativeGoldenConfig();
         assertEq(SolanaMandateV6.hash(native), 0xa0255fb81787deef599f926eecb2d557d76600b1b5f141647f9084f5a2d4299b);
         assertEq(
-            SolanaPolicyV6.nativePolicyHash(native), 0x13e19d911a00b433419f6eb322eb86d8497b0e0266ab586cba7ceeb116d7f912
+            SolanaPolicyV6.nativePolicyHash(native), 0xd9c2f6e32075eefa252c1db41f794c4a7f482b1f60f840aa90818efb41b9b408
         );
         assertEq(
             SolanaPolicyV6.hash(bytes32(uint256(10)), SolanaPolicyV6.nativePolicyHash(native)),
@@ -81,7 +81,7 @@ contract PolicyV6Test is Test {
         native.swapPolicyHash = keccak256(_swapPolicyBorsh());
         assertEq(SolanaMandateV6.hash(native), 0x5299f559747fb2fd875ef0ee88cfdab7a30cad907347b841b4776cb27eec51c9);
         assertEq(
-            SolanaPolicyV6.nativePolicyHash(native), 0x6fd2b84a212e37c12f12daebe2d4b3f802b14a4ef1ffe5feb4aed5dfae943a88
+            SolanaPolicyV6.nativePolicyHash(native), 0x9ca6e5c9a6790ed637e046376b9c2e5a701fffe6ea911bf77fa48f547ce751e7
         );
         assertEq(
             SolanaPolicyV6.hash(bytes32(uint256(10)), SolanaPolicyV6.nativePolicyHash(native)),
