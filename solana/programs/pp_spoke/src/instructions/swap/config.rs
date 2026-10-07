@@ -114,4 +114,23 @@ mod tests {
         policy.reference_mode = 1; assert!(policy.validate().is_err()); policy.reference_mode = 0;
         policy.sol_feed[0] ^= 1; assert!(policy.validate().is_err());
     }
+
+    #[test]
+    fn consent_commits_every_policy_byte_and_creation_identity() {
+        let mut policy = SwapPolicy { api_signer: [1; 20], sol_account: oracle::PYTH_SOL,
+            usdc_account: oracle::PYTH_USDC, sol_feed: oracle::SOL_FEED, usdc_feed: oracle::USDC_FEED,
+            max_age_seconds: 120, max_confidence_bps: 100, cross_check_deviation_bps: 50,
+            max_slippage_bps: 100, reference_mode: 0, stock_enabled: false };
+        let binding = [2; 32]; let fund = Pubkey::new_unique();
+        let domain = QuoteDomain { chain_id: 42161, verifying_contract: [3; 20], program: crate::ID };
+        let expected = digest(&policy, &binding, &fund, &domain).unwrap();
+        assert_ne!(expected, digest(&policy, &[4; 32], &fund, &domain).unwrap());
+        assert_ne!(expected, digest(&policy, &binding, &Pubkey::new_unique(), &domain).unwrap());
+        policy.max_age_seconds += 1;
+        assert_ne!(expected, digest(&policy, &binding, &fund, &domain).unwrap());
+        policy.max_age_seconds -= 1; policy.api_signer[0] ^= 1;
+        assert_ne!(expected, digest(&policy, &binding, &fund, &domain).unwrap());
+        policy.api_signer[0] ^= 1; policy.stock_enabled = true;
+        assert_ne!(expected, digest(&policy, &binding, &fund, &domain).unwrap());
+    }
 }

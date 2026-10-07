@@ -22,6 +22,20 @@ pub fn stock_multiplier(mint: Pubkey, current: u64, next: u64, effective_at: i64
     require!(accepted, RaydiumError::InvalidAccount);
     Ok(())
 }
+
+#[cfg(test)]
+mod admission_tests {
+    use super::*;
+
+    #[test]
+    fn reject_changed_nvda_corporate_action_tuple() {
+        assert!(stock_multiplier(NVDA, 0x3ff003c2ac1bf43f, 0x3ff006f7d589fea9, 1_789_000_200).is_ok());
+        assert!(stock_multiplier(NVDA, 0x3ff003c2ac1bf43f, 0x3ff006f7d589feaa, 1_789_000_200).is_err());
+        assert!(stock_multiplier(NVDA, 0x3ff003c2ac1bf43f, 0x3ff006f7d589fea9, 1_789_000_201).is_err());
+        assert!(stock_multiplier(NVDA, 0x3ff0000000000000, 0x3ff0000000000000, 0).is_err());
+        assert!(stock_multiplier(TSLA, 0x3ff0000000000000, 0x3ff0000000000000, 0).is_ok());
+    }
+}
 pub fn key(data: &[u8], offset: usize) -> Result<Pubkey> {
     Ok(Pubkey::new_from_array(bytes(data, offset)?))
 }
