@@ -301,8 +301,11 @@ first run: 42/42. The release IDL smoke verifies an absent on-chain IDL account
 and `IdlInstructionStub` rejection while JSON/types remain generated.
 
 Signed V2 first run failed unsigned simulation with an invalid ALT index.
-Bounded warm-up retry only retries that exact unsigned failure; final retry
-status belongs in the accompanying T9 report. Hub composed fork failed setup
+The fresh final retry **PASS** includes signed swap + open at **448,247 CU /
+799 bytes**, collection of **10 raw USDC fees with principal unchanged**,
+a **1,952-byte report with NVDAx multiplier witness**, and position close.
+Maximum production CU is **497,519**, below the explicit 900k limit. Bounded
+warm-up retry only retries the exact unsigned ALT failure. Hub composed fork failed setup
 with `TokenNotPriced`; factory and TSLA/NVDA/SOL feed forks passed. These are
 NO-GO gates, not authorization to skip a test.
 
