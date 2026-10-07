@@ -32,6 +32,7 @@ for (const chain of ['arbitrum', 'robinhood']) {
       const artifact = candidates.find(path => path.endsWith('dry-run/run-latest.json'));
       if (!artifact) throw new Error('Missing transaction artifact');
       const simulation = JSON.parse(readFileSync(artifact));
+      if (!simulation.transactions?.length) throw new Error('Empty transaction artifact');
       const gasPrice = BigInt(cast(['gas-price', '--rpc-url', rpc]));
       const transactions = [];
       for (const record of simulation.transactions) {
@@ -56,6 +57,10 @@ for (const chain of ['arbitrum', 'robinhood']) {
       entry.currentGasPriceWei = gasPrice.toString();
       entry.transactions = transactions;
       entry.totalWei = transactions.reduce((sum, transaction) => sum + BigInt(transaction.totalWei), 0n).toString();
+      entry.executionWei = transactions.reduce((sum, transaction) => sum + BigInt(transaction.executionWei), 0n).toString();
+      entry.l1Wei = transactions.reduce((sum, transaction) => sum + BigInt(transaction.l1Wei), 0n).toString();
+      entry.dryRunCommit = simulation.commit;
+      entry.forkPins = JSON.parse(readFileSync(resolve(root, 'evm-pins.json')));
     } catch { entry.reason = 'Missing/failed fork, signed calldata, transaction artifacts or L1 oracle quote; never assume zero L1 fee'; }
     results.push(entry);
   }

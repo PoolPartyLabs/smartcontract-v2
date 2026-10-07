@@ -15,6 +15,7 @@ if [[ "$#" != 1 || ! "$1" =~ ^(core|production|legacy)$ ]]; then
   printf 'Usage: solana-release-rehearsal.sh core|production|legacy\n' >&2; exit 2
 fi
 MODE="$1"
+export PP_REHEARSAL_METRICS="$STATE/$MODE-compute-metrics.jsonl"
 started=0
 cleanup() {
   if [[ "$started" == 1 ]]; then
