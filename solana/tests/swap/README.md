@@ -1,5 +1,105 @@
 # T5 Jupiter swap-to-ratio
 
+## T5b V2 replacement — October 7, 2026
+
+This section supersedes the historical T5 V1 notes below. DEC-201 requires
+V2, and DEC-202 requires Pool Party API signatures independently of Manager
+authorization. No production swap is enabled by this PR: T8a owns authenticated
+bootstrap, sealed configuration, nonce state and atomic ledger wiring.
+
+### Implemented boundary
+
+- `clients/swap/jupiter.ts` uses GET `/swap/v2/build`, server-side key injection,
+  and serialized 1100 ms pacing. Independent services still need a shared quota.
+- `fixtures/v2/idl-excerpt.json` pins finalized on-chain Jupiter IDL account
+  `C88XWfp26heEmDkmfSzeXP7Fd7GQJ2j9dDTUsyiZbUTa`, slot 454064138.
+  Only 39-byte `route_v2`, zero platform/positive-slippage fees, one 10000-bps
+  Raydium CLMM/CLMMv2 step is accepted. Unknown, shared, split and exact-out
+  routes are rejected. `onlyDirectRoutes` is not relied upon: returned plans
+  and wire data are checked, and V2 has returned split plans in real recordings.
+- `authorized::execute` verifies API signature and sequential nonce, reads
+  upgraded fully verified Pyth SOL/USDC, computes the stricter minimum, checks
+  quoted output against impact and verifies actual CPI balance deltas.
+  It returns `AuthorizedConversion`; T8a must persist ledger and nonce atomically.
+- Typed quote: `SolanaSwapRoute(bytes32 fund,bytes32 tokenIn,bytes32 tokenOut,
+  bytes32 legsHash,uint256 quotedAmountIn,uint256 minAmountOut,uint256 deadline,
+  uint256 nonce)`. Domain retains EVM name, uses version 2, Hub chain/Core plus
+  program salt. The route hash commits ordered keys and effective CPI privileges.
+  API EOA address is sealed separately from Manager; low-s and v=27/28 recovery
+  are required. The wire format has no unsigned fallback.
+- `OraclePolicy` supplies sealed age/confidence/deviation limits, optional-bound,
+  cross-check blocking and stock-enable switches. Q1 option A and Q2 option C
+  are **TODO(decision)**, not new DECs. With 0 or >=10000 Manager impact, only
+  API minimum applies, but primary oracle validity is still mandatory.
+- Chainlink SOL is advisory: deviation emits `OracleDeviation`; unavailable or
+  stale cross-check emits `OracleCrossCheckUnavailable`. Blocking is a sealed
+  switch, false pending a ruling; Pyth stale/confidence failures always reject.
+- Stock path invokes pinned Streams verifier, checks return-data owner and v10
+  feed, nanosecond source age, expiry and open-market status; it multiplies
+  underlying price by the mint's currently effective ScaledUiAmount factor using
+  integer IEEE-754 decomposition. It is disabled by default. Stock builder/report
+  transport and combined stock transaction packet fit remain integration gates.
+
+### Reproduce local evidence
+
+From `solana/`, with the pinned tools and `npm ci`:
+
+```sh
+./scripts/localnet.sh prepare
+bash tests/swap/record-v2.sh
+node tests/swap/prepare-v2.ts
+node tests/swap/prepare-verifier.ts
+cargo build-sbf --manifest-path programs/pp_spoke/Cargo.toml
+cargo build-sbf --manifest-path tests/swap/probe/Cargo.toml
+bash tests/swap/start-probe.sh
+PP_LOCALNET_RPC_PORT=8950 node --test --test-concurrency=1 \
+  tests/swap/cpi.localnet.test.ts tests/swap/authorized.localnet.test.ts \
+  tests/swap/streams.localnet.test.ts
+./scripts/localnet.sh stop
+cargo test --locked
+node --test tests/swap/client.test.ts tests/swap/builder.test.ts tests/swap/decoder.test.ts
+```
+
+Recording is read-only and sources `.env.alpha` without printing values; the
+key is not a quote-signing key. `--wsol` records only the two SOL directions.
+Clone immediately after recording; stale tick arrays fail at Raydium, not by
+silently relaxing the decoder. The explicit extension clones Pyth, Chainlink,
+Streams and all actual route/ALT accounts. No mainnet send helper is used.
+
+**Test-only exceptions:** the probe has a constant test signer and uses a supplied
+observation clock for signed SOL tests because sponsored clones stop updating.
+Production callers must pass `Clock::get()?.unix_timestamp`, never payload time.
+The local verifier account has two locally generated test DON signers replacing
+the cloned production DON; its executable is unchanged. This verifies CPI and
+signature behavior, not paid-stock entitlement or production DON authorization.
+Stock tests simulate fresh locally signed reports against local validator time.
+The unsigned CPI probe exists only to execute venue fixtures, never as a Fund
+entrypoint. Run test files sequentially since they share vault balances/nonce.
+
+Measured: 21 localnet tests pass; signed SOL 134725 CU / 952 bytes; raw V2
+routes 83622–107946 CU / 698–704 bytes; standalone Streams 68581 CU / 1215 bytes.
+These are separate transactions, not a combined stock-swap budget.
+Production-shaped unsigned builder tests are 771–777 bytes with mocked ALTs.
+
+### Coordinator requests
+
+1. Seal signer, domain, `OraclePolicy`, stock mint/feed/config/controller/decimals
+   in authenticated creation config/Mandate; do not accept these from Manager.
+2. Add persistent per-Fund swap nonce and atomically book principal conversion
+   with increment only after successful CPI. Authenticate Manager/bootstrap and
+   ledger balances before calling `authorized::execute`.
+3. Wire account order: existing Manager/Fund/vault/Jupiter/System, then Pyth SOL,
+   Pyth USDC, Chainlink SOL, then exact V2 route accounts. Stock verification
+   accounts require their own sealed call-site extension. Add the optional
+   report Vec field to coordinated client/schema integration.
+4. Directly declare `@noble/hashes` (quote hashing) and `@noble/curves` (test-only
+   signing) in the shared npm manifest if these clients are retained; currently
+   supplied transitively by the existing locked web3 dependency, no lock changes.
+5. Resolve existing Raydium SBF stack-frame diagnostics (4104 > 4096) in its
+   owning track. The SBF command exits zero but this is a deployment blocker.
+
+## Historical T5 V1 slice (superseded)
+
 **Integration slice, not a deployable Fund swap.** `swap_to_ratio` authenticates
 the fixed Manager and Fund/vault PDAs, then returns `IntegrationPending`.
 T1's sealed-Mandate decoder/config and atomic ledger conversion are absent in
