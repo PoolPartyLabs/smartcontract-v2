@@ -17,6 +17,7 @@ pub struct SealedSwapConfig<'policy> {
     pub route: SealedPolicy<'policy>,
     pub oracle: OraclePolicy,
     pub stocks: &'policy [(Pubkey, StockPolicy)],
+    pub scope_enabled: bool,
 }
 
 pub struct OracleAccounts<'info> {
@@ -55,15 +56,21 @@ pub fn execute<'info>(program: &AccountInfo<'info>, vault: &AccountInfo<'info>, 
         oracle::monitor_cross_check(*fund, sol, &prices.chainlink_sol, now, &sealed.oracle)?;
         sol
     } else {
-        // TODO(decision): Q2 option C defaults stock_enabled=false until subscription and packet-fit evidence.
         require!(sealed.oracle.stock_enabled, OracleError::StockDisabled);
-        let stock = sealed.stocks.iter().find(|(mint, _)| *mint == paired_mint).ok_or(OracleError::StockDisabled)?;
-        require!(prices.stock_accounts.len() == 4 && prices.stock_accounts[2].is_signer, OracleError::InvalidAccount);
-        let underlying = streams::verify_stock(prices.stock_program.as_ref().ok_or(OracleError::InvalidAccount)?,
-            &prices.stock_accounts, request.stock_report.as_ref().ok_or(OracleError::InvalidPrice)?,
-            &stock.1, &sealed.oracle, now)?;
         let mint = if input == paired_mint { &accounts[3] } else { &accounts[4] };
-        oracle::stock_price(underlying, mint, now)?
+        if sealed.scope_enabled {
+            require!(request.stock_report.is_none() && prices.stock_program.is_none()
+                && prices.stock_accounts.len() == 2, OracleError::InvalidAccount);
+            super::scope::reference(&prices.stock_accounts[0], &prices.stock_accounts[1], mint,
+                sealed.scope_enabled, &sealed.oracle, &Clock::get()?)?
+        } else {
+            let stock = sealed.stocks.iter().find(|(mint, _)| *mint == paired_mint).ok_or(OracleError::StockDisabled)?;
+            require!(prices.stock_accounts.len() == 4 && prices.stock_accounts[2].is_signer, OracleError::InvalidAccount);
+            let underlying = streams::verify_stock(prices.stock_program.as_ref().ok_or(OracleError::InvalidAccount)?,
+                &prices.stock_accounts, request.stock_report.as_ref().ok_or(OracleError::InvalidPrice)?,
+                &stock.1, &sealed.oracle, now)?;
+            oracle::stock_price(underlying, mint, now)?
+        }
     };
     let input_decimals = oracle::mint_decimals(&accounts[3], &input)?;
     let output_decimals = oracle::mint_decimals(&accounts[4], &output)?;

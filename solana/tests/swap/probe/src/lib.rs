@@ -7,6 +7,8 @@ mod guard;
 mod quote;
 #[path = "../../../../programs/pp_spoke/src/instructions/swap/oracle.rs"]
 mod oracle;
+#[path = "../../../../programs/pp_spoke/src/instructions/swap/scope.rs"]
+mod scope;
 #[path = "../../../../programs/pp_spoke/src/instructions/swap/streams.rs"]
 mod streams;
 #[path = "../../../../programs/pp_spoke/src/instructions/swap/authorized.rs"]
@@ -55,7 +57,7 @@ fn signed_swap(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> Re
     let sealed = authorized::SealedSwapConfig {
         api_signer: [0xb0, 0xe5, 0x86, 0x3d, 0x0d, 0xdf, 0x7e, 0x10, 0x5e, 0x40, 0x9f, 0xee, 0x0e, 0xcc, 0x01, 0x23, 0xa3, 0x62, 0xe1, 0x4b],
         domain: quote::QuoteDomain { chain_id: 42161, verifying_contract: [5; 20], program: *program_id },
-        next_nonce: nonce, route: SealedPolicy { mints: &mints, max_slippage_bps: 200 }, stocks: &[],
+        next_nonce: nonce, route: SealedPolicy { mints: &mints, max_slippage_bps: 200 }, stocks: &[], scope_enabled: false,
         oracle: oracle::OraclePolicy { max_age_seconds: 120, max_confidence_bps: 100,
             cross_check_deviation_bps: 50, block_cross_check: false, require_manager_bound: false, stock_enabled: false },
     };
