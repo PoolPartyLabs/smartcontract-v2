@@ -19,7 +19,7 @@ const eventAuthority = pda(ADDRESSES.cctpMessenger, Buffer.from('__event_authori
 const transit = (id: Buffer) => pda(ADDRESSES.spoke, Buffer.from('transit'), publicKey(fund).toBuffer(), id);
 
 function base(payer: Keypair, id: Buffer): AccountMeta[] {
-  return [key(payer.publicKey.toBase58(), true, true), key(fund, true), key(vault), key(route), key(ledger, true), key(transit(id), true), key(recipient.toBase58(), true)];
+  return [key(payer.publicKey.toBase58(), true, true), key(fund, true), key(vault), key(route), key(ledger, true), key(transit(id), true), key(recipient.toBase58(), true), key(derive(ADDRESSES.spoke, Buffer.from('ledger'), publicKey(fund).toBuffer(), publicKey(ADDRESSES.usdc).toBuffer()), true)];
 }
 
 function receive(payer: Keypair, id: Buffer, nonce: Buffer, message: Buffer, feeAta: string): TransactionInstruction {
@@ -100,7 +100,7 @@ test('real cloned Circle V2 burn and signed receive are atomic and replay-safe',
   };
   const before = BigInt((await connection.getTokenAccountBalance(recipient)).value.amount);
   const wrongAccounts = receive(keeper, id, nonce, message, feeAta);
-  wrongAccounts.keys[18] = key(minter);
+  wrongAccounts.keys[19] = key(minter);
   await execute(keeper, wrongAccounts, [], 'InvalidAccount');
   const expired = Buffer.from(message);
   const expiry = Buffer.alloc(32); expiry.writeBigUInt64BE(1n, 24); expiry.copy(expired, 344);

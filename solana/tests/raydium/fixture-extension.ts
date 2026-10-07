@@ -56,7 +56,8 @@ export async function extendFixtures() {
     const fundData = Buffer.concat([discriminator('account', 'FundState'), hub, Buffer.from([1, 0]),
       Buffer.alloc(32, index + 1), mandateHash, Buffer.alloc(20, 3), manager.publicKey.toBuffer(),
       Buffer.alloc(16), Buffer.from([0, fundBump, vaultBump])]);
-    override(addresses.fund, ADDRESSES.spoke, completeFundState(fundData));
+    const venue = Buffer.concat([publicKey(ADDRESSES.raydium).toBuffer(), publicKey(pool.address).toBuffer(), Buffer.alloc(32), publicKey(pool.mint0).toBuffer(), publicKey(pool.mint1).toBuffer()]);
+    override(addresses.fund, ADDRESSES.spoke, completeFundState(fundData, [venue]));
     override(addresses.vault, '11111111111111111111111111111111', Buffer.alloc(0), 0);
     const policy = derive(ADDRESSES.spoke, Buffer.from('raydium_policy'), fund.toBuffer(), publicKey(pool.address).toBuffer());
     const tickBounds = Buffer.alloc(8);
@@ -78,6 +79,9 @@ export async function extendFixtures() {
       data[108] = 1;
       data.fill(0, 129, 165);
       override(testAta(mint, vault).toBase58(), template.account.owner, data);
+      const [canonicalLedger, ledgerBump] = PublicKey.findProgramAddressSync([Buffer.from('ledger'), fund.toBuffer(), publicKey(mint).toBuffer()], publicKey(ADDRESSES.spoke));
+      const canonicalBuckets = Buffer.alloc(32); canonicalBuckets.writeBigUInt64LE(100_000_000_000n);
+      override(canonicalLedger.toBase58(), ADDRESSES.spoke, Buffer.concat([discriminator('account', 'TokenLedger'), fund.toBuffer(), publicKey(mint).toBuffer(), canonicalBuckets, Buffer.from([ledgerBump])]));
       if (mint === ADDRESSES.wsol) {
         const managerData = Buffer.from(data);
         manager.publicKey.toBuffer().copy(managerData, 32);

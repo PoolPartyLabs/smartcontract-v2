@@ -26,13 +26,17 @@ export function integer(value: number | bigint, size: number): Buffer {
   return bytes;
 }
 
-export function nativeConfig(manager: PublicKey, emitter: PublicKey, fund = publicKey(addresses.fund)) {
+export function nativeConfig(manager: PublicKey, emitter: PublicKey, fund = publicKey(addresses.fund), lp?: { mint0: string; mint1: string }) {
   const mint = publicKey(ADDRESSES.usdc).toBuffer();
   const namespace = Buffer.from('PoolParty/SolanaAsset/v6');
   const paddedNamespace = Buffer.concat([namespace, Buffer.alloc(32 - namespace.length)]);
   const alias = hash(Buffer.concat([word(96), word(1), mint, word(namespace.length), paddedNamespace])).subarray(12);
   const asset = Buffer.concat([mint, alias, integer(0, 1)]);
   const venue = Buffer.concat([publicKey(ADDRESSES.kamino).toBuffer(), Buffer.alloc(32), publicKey(ADDRESSES.reserve).toBuffer(), mint, Buffer.alloc(32)]);
+  const stockMint = publicKey(ADDRESSES.tslax).toBuffer();
+  const stockAlias = hash(Buffer.concat([word(96), word(1), stockMint, word(namespace.length), paddedNamespace])).subarray(12);
+  const stockAsset = Buffer.concat([stockMint, stockAlias, integer(1, 1)]);
+  const lpVenue = lp ? Buffer.concat([publicKey(ADDRESSES.raydium).toBuffer(), publicKey(ADDRESSES.tslaxPool).toBuffer(), Buffer.alloc(32), publicKey(lp.mint0).toBuffer(), publicKey(lp.mint1).toBuffer()]) : Buffer.alloc(0);
   const hubUsdc = Buffer.from('af88d065e77c8cc2239327c5edb3a432268e5831', 'hex');
   const messenger = Buffer.from('28b5a0e9c621a5badaa536219b3a228c8168cf5d', 'hex');
   const transmitter = Buffer.from('81d40f21f12a8f0e3252bccb954d722d4c464b64', 'hex');
@@ -41,15 +45,16 @@ export function nativeConfig(manager: PublicKey, emitter: PublicKey, fund = publ
   const remoteMessenger = publicKey(ADDRESSES.cctpMessenger).toBuffer();
   const transport = Buffer.concat([hubUsdc, messenger, transmitter, integer(5, 4), recipient, vault.toBuffer(), remoteMessenger, vault.toBuffer(), integer(50_000, 8)]);
   const abi = Buffer.concat([word(6), word(64), publicKey(ADDRESSES.spoke).toBuffer(), emitter.toBuffer(), mint, manager.toBuffer(),
-    word(1), word(512), word(640), addressWord(hubUsdc), addressWord(messenger), addressWord(transmitter), word(5), recipient,
-    vault.toBuffer(), remoteMessenger, vault.toBuffer(), word(50_000), word(1), mint, addressWord(alias), word(0), word(1), venue]);
-  return { nativeHash: hash(abi), assets: Buffer.concat([integer(1, 4), asset]), venues: Buffer.concat([integer(1, 4), venue]), transport };
+    word(1), word(512), word(lp ? 736 : 640), addressWord(hubUsdc), addressWord(messenger), addressWord(transmitter), word(5), recipient,
+    vault.toBuffer(), remoteMessenger, vault.toBuffer(), word(50_000), word(lp ? 2 : 1), mint, addressWord(alias), word(0),
+    ...(lp ? [stockMint, addressWord(stockAlias), word(1)] : []), word(lp ? 2 : 1), venue, lpVenue]);
+  return { nativeHash: hash(abi), assets: Buffer.concat([integer(lp ? 2 : 1, 4), asset, ...(lp ? [stockAsset] : [])]), venues: Buffer.concat([integer(lp ? 2 : 1, 4), venue, lpVenue]), transport };
 }
 
-export function bindingPayload(manager: PublicKey, core = hubCore, index = 1, expiry = 2_000_000_000n) {
+export function bindingPayload(manager: PublicKey, core = hubCore, index = 1, expiry = 2_000_000_000n, lp?: { mint0: string; mint1: string }) {
   const target = fundAddresses(core, index, mandateHash);
   const emitter = publicKey(target.emitter);
-  const config = nativeConfig(manager, emitter, publicKey(target.fund));
+  const config = nativeConfig(manager, emitter, publicKey(target.fund), lp);
   const nonce = word(9);
   const type = 'ManagerSolanaBinding(bytes32 solanaKey,address fund,bytes32 spoke,uint256 spokeChainId,bytes32 nativeMandateHash,uint256 nonce,uint256 expiry)';
   const domain = hash(Buffer.concat([hash(Buffer.from('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)')),

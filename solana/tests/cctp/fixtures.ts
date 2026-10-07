@@ -108,6 +108,8 @@ export function prepareCctpFixtures(): void {
     manager.publicKey.toBuffer(), uint64(0n), uint64(0n), Buffer.from([0, find([Buffer.from('fund'), HUB, Buffer.alloc(2), MANDATE]), find([Buffer.from('vault'), publicKey(fund).toBuffer()])])])));
   write(route, Buffer.concat([discriminator('account', 'CctpRoute'), publicKey(fund).toBuffer(), MANDATE, CONNECTOR, uint64(CHAIN), uint64(50_000n), Buffer.from([1])]));
   write(ledger, Buffer.concat([discriminator('account', 'CctpLedger'), publicKey(fund).toBuffer(), uint64(10_000_000n), Buffer.alloc(40)]));
+  const [tokenLedger, tokenBump] = PublicKey.findProgramAddressSync([Buffer.from('ledger'), publicKey(fund).toBuffer(), publicKey(ADDRESSES.usdc).toBuffer()], publicKey(ADDRESSES.spoke));
+  write(tokenLedger.toBase58(), Buffer.concat([discriminator('account', 'TokenLedger'), publicKey(fund).toBuffer(), publicKey(ADDRESSES.usdc).toBuffer(), uint64(10_000_000n), Buffer.alloc(24), Buffer.from([tokenBump])]));
   const token = snapshot(testAta(ADDRESSES.usdc, manager.publicKey).toBase58(), true);
   const tokenData = Buffer.from(token.account.data[0], 'base64');
   publicKey(vault).toBuffer().copy(tokenData, 32);

@@ -30,7 +30,7 @@ test('Fund PDA isolation and token-program-qualified ATA derivation', () => {
 test('legacy local fixtures serialize the complete sealed Fund state layout', () => {
   const prefix = Buffer.alloc(165);
   const encoded = completeFundState(prefix);
-  assert.equal(encoded.length, 586);
+  assert.equal(encoded.length, 4690);
   assert.equal(encoded.readBigUInt64LE(166), 42161n);
   assert.equal(encoded.readBigUInt64LE(194), 1n);
   assert.equal(encoded.readUInt16LE(338), 23);
