@@ -85,6 +85,9 @@ pub(crate) fn fixture() -> (FundState, Pubkey) {
             transit_registry: vec![],
             policy_hash: [3; 32],
             hub_policy_hash: [10; 32],
+            active_command: Pubkey::default(),
+            close_requested: false,
+            command_registry: vec![],
         },
         key,
     )

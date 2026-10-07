@@ -83,19 +83,24 @@ pub mod pp_spoke {
         instructions::report::execute_order::handler(ctx, payload)
     }
 
+    /// DEC-120/122/151: resume one authenticated command step without dropping pending custody.
+    pub fn resume_command<'info>(ctx: Context<'_, '_, '_, 'info, ResumeCommand<'info>>, payload: Vec<u8>) -> Result<()> {
+        instructions::report::resume_command::handler(ctx, payload)
+    }
+
     /// DEC-093, DEC-120, DEC-121, DEC-122, DEC-192: fail-closed track-owned scaffold; payload is not a stable wire API.
-    pub fn execute_unwind_order(ctx: Context<ExecuteUnwindOrder>, payload: Vec<u8>) -> Result<()> {
+    pub fn execute_unwind_order<'info>(ctx: Context<'_, '_, '_, 'info, ExecuteUnwindOrder<'info>>, payload: Vec<u8>) -> Result<()> {
         instructions::report::execute_unwind_order::handler(ctx, payload)
     }
 
     /// DEC-093, DEC-120, DEC-121, DEC-122, DEC-192: fail-closed track-owned scaffold; payload is not a stable wire API.
-    pub fn execute_close_order(ctx: Context<ExecuteCloseOrder>, payload: Vec<u8>) -> Result<()> {
+    pub fn execute_close_order<'info>(ctx: Context<'_, '_, '_, 'info, ExecuteCloseOrder<'info>>, payload: Vec<u8>) -> Result<()> {
         instructions::report::execute_close_order::handler(ctx, payload)
     }
 
     /// DEC-093, DEC-120, DEC-121, DEC-122, DEC-192: fail-closed track-owned scaffold; payload is not a stable wire API.
-    pub fn execute_collect_order(
-        ctx: Context<ExecuteCollectOrder>,
+    pub fn execute_collect_order<'info>(
+        ctx: Context<'_, '_, '_, 'info, ExecuteCollectOrder<'info>>,
         payload: Vec<u8>,
     ) -> Result<()> {
         instructions::report::execute_collect_order::handler(ctx, payload)

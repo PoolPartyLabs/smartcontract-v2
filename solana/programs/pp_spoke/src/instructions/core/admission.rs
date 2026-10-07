@@ -5,6 +5,8 @@ use anchor_lang::prelude::*;
 /// DEC-053, DEC-190, DEC-193: every adapter consumes the same sealed admission.
 pub fn manager(fund: &Account<FundState>, signer: &AccountInfo) -> Result<()> {
     require_fund_address(fund, &fund.key())?;
+    require!(fund.active_command == Pubkey::default() && !fund.close_requested,
+        CoreError::InvalidConfiguration);
     require_manager(fund, signer)
 }
 

@@ -152,6 +152,9 @@ pub fn handler(ctx: Context<InitializeFund>, payload: Vec<u8>) -> Result<()> {
         transit_registry: vec![],
         policy_hash: args.policy_hash,
         hub_policy_hash: args.hub_policy_hash,
+        active_command: Pubkey::default(),
+        close_requested: false,
+        command_registry: vec![],
     };
     fund.try_serialize(&mut &mut ctx.accounts.fund.try_borrow_mut_data()?[..])?;
     for (prefix, account, space) in [
