@@ -12,8 +12,10 @@ pub const ATA: Pubkey = pubkey!("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 pub const MEMO: Pubkey = pubkey!("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
 pub const TSLA_POOL: Pubkey = pubkey!("8aDaBQkTrS6HVMjyc6EZebgdiaXhLYGriDWKWWp1NpFF");
 pub const SOL_POOL: Pubkey = pubkey!("3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv");
+pub const NVDA_POOL: Pubkey = pubkey!("49iMatQtoyabsYAQc8GafVq6aeBFVDxSRH44oiatyyw6");
 pub const USDC: Pubkey = pubkey!("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
 pub const TSLA: Pubkey = pubkey!("XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB");
+pub const NVDA: Pubkey = pubkey!("Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh");
 pub const WSOL: Pubkey = pubkey!("So11111111111111111111111111111111111111112");
 
 pub fn discriminator(namespace: &str, name: &str) -> [u8; 8] {

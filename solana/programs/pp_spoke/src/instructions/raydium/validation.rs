@@ -11,6 +11,17 @@ pub fn bytes<const SIZE: usize>(data: &[u8], offset: usize) -> Result<[u8; SIZE]
         .try_into()
         .map_err(|_| error!(RaydiumError::InvalidData))
 }
+
+/// DEC-198: raw quantities stay unscaled; the authenticated Hub price applies the effective factor once.
+pub fn stock_multiplier(mint: Pubkey, current: u64, next: u64, effective_at: i64) -> Result<()> {
+    let accepted = if mint == NVDA {
+        current == 0x3ff003c2ac1bf43f && next == 0x3ff006f7d589fea9 && effective_at == 1_789_000_200
+    } else {
+        mint == TSLA && current == 0x3ff0000000000000 && next == 0x3ff0000000000000
+    };
+    require!(accepted, RaydiumError::InvalidAccount);
+    Ok(())
+}
 pub fn key(data: &[u8], offset: usize) -> Result<Pubkey> {
     Ok(Pubkey::new_from_array(bytes(data, offset)?))
 }
@@ -99,7 +110,7 @@ pub struct Pool {
 
 pub fn pool(account: &AccountInfo) -> Result<Pool> {
     require!(
-        *account.key == TSLA_POOL || *account.key == SOL_POOL,
+        [TSLA_POOL, SOL_POOL, NVDA_POOL].contains(account.key),
         RaydiumError::InvalidAccount
     );
     layout(account, "PoolState", 1544)?;
@@ -107,6 +118,8 @@ pub fn pool(account: &AccountInfo) -> Result<Pool> {
     let mints = [key(&data, 73)?, key(&data, 105)?];
     let asset = if *account.key == TSLA_POOL {
         TSLA
+    } else if *account.key == NVDA_POOL {
+        NVDA
     } else {
         WSOL
     };
@@ -208,7 +221,7 @@ pub fn bitmap(account: &AccountInfo, pool: Pubkey, starts: [i32; 2], spacing: u1
 }
 
 pub fn token_program(mint: Pubkey) -> Pubkey {
-    if mint == TSLA {
+    if [TSLA, NVDA].contains(&mint) {
         TOKEN_2022
     } else {
         TOKEN
@@ -268,6 +281,7 @@ pub fn token(
 }
 
 pub fn mint(account: &AccountInfo, expected: Pubkey) -> Result<()> {
+    require!(!account.is_writable, RaydiumError::InvalidAccount);
     require_keys_eq!(*account.key, expected, RaydiumError::InvalidAccount);
     require_keys_eq!(
         *account.owner,
@@ -276,7 +290,7 @@ pub fn mint(account: &AccountInfo, expected: Pubkey) -> Result<()> {
     );
     let data = account.try_borrow_data()?;
     require!(data.len() >= 82 && data[45] == 1, RaydiumError::InvalidData);
-    let decimals = if expected == TSLA {
+    let decimals = if [TSLA, NVDA].contains(&expected) {
         8
     } else if expected == WSOL {
         9
@@ -284,7 +298,7 @@ pub fn mint(account: &AccountInfo, expected: Pubkey) -> Result<()> {
         6
     };
     require!(data[44] == decimals, RaydiumError::InvalidData);
-    if expected != TSLA {
+    if ![TSLA, NVDA].contains(&expected) {
         require!(data.len() == 82, RaydiumError::UnsupportedExtension);
         return Ok(());
     }
@@ -320,12 +334,11 @@ pub fn mint(account: &AccountInfo, expected: Pubkey) -> Result<()> {
                 value.len() == 64 && value[32..64].iter().all(|value| *value == 0),
                 RaydiumError::UnsupportedExtension
             ),
-            25 => require!(
-                value.len() == 56
-                    && bytes::<8>(value, 32)? == 1f64.to_le_bytes()
-                    && bytes::<8>(value, 48)? == 1f64.to_le_bytes(),
-                RaydiumError::UnsupportedExtension
-            ),
+            25 => {
+                require!(value.len() == 56, RaydiumError::UnsupportedExtension);
+                stock_multiplier(expected, u64_at(value, 32)?, u64_at(value, 48)?,
+                    i64::from_le_bytes(bytes(value, 40)?))?;
+            }
             26 => require!(
                 value.len() == 33 && value[32] == 0,
                 RaydiumError::UnsupportedExtension
