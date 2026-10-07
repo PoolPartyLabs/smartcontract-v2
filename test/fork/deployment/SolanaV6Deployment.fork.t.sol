@@ -3,8 +3,6 @@ pragma solidity 0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {SolanaV6Deployment} from "../../../script/SolanaV6Deployment.sol";
 import {SolanaPriceSourceV6} from "../../../src/report/SolanaPriceSourceV6.sol";
-import {FundFactoryV6} from "../../../src/factory/FundFactoryV6.sol";
-import {CodeStore} from "../../../src/factory/CodeStore.sol";
 import {ValueReportReceiverV6} from "../../../src/report/ValueReportReceiverV6.sol";
 
 /// @notice DEC-188/196/198: fork-test the exact deploy path, with no contract size-limit override.

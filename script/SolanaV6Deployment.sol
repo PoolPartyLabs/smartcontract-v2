@@ -75,10 +75,9 @@ abstract contract SolanaV6Deployment is FactoryDeployment {
         }
         _checkWiring(wiring);
         IFundFactory.CreationCodeStores memory stores = _writeCodeStores(hub, result.common);
-        address[] memory registryCode = new address[](0);
+        address[] memory registryCode = CodeStore.write(type(SolanaSpokeRegistryV6).creationCode);
         if (hub) {
             stores.valueReportReceiver = CodeStore.write(type(ValueReportReceiverV6).creationCode);
-            registryCode = CodeStore.write(type(SolanaSpokeRegistryV6).creationCode);
         }
         _checkRuntime("FundFactoryV6", "out/FundFactoryV6.sol/FundFactoryV6.json");
         result.nativeDeploymentLogic =
