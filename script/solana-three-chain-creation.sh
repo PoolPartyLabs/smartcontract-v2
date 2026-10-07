@@ -28,7 +28,7 @@ for (const [name, value] of Object.entries(process.env)) if (/RPC|KEY|SECRET/.te
 text = text.replace(/https?:\/\/[^\s"')]+/g, '<endpoint>');
 writeFileSync(path, text);
 NODE
-if [[ -f cache/sol-t11/creation.json ]]; then
+if [[ -f cache/sol-t11/creation.json && -f cache/sol-t11/hub-created ]]; then
   node solana/scripts/three-chain-creation.ts export
   bash solana/tests/swap/production.start.sh
   trap 'bash solana/scripts/localnet.sh stop' EXIT

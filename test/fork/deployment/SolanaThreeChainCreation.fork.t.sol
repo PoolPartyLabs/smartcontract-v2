@@ -100,9 +100,10 @@ contract SolanaThreeChainCreationForkTest is Test, SolanaV6Deployment {
         V6Deployment memory spoke = _deployV6(vm.envAddress("PROTOCOL_RECIPIENT"), vm.envAddress("ADAPTER_GUARDIAN"), vm.envAddress("API_SIGNER"), vm.envAddress("API_SIGNER"), 1791379800, 1791403200, 3600);
         vm.stopPrank();
         assertEq(address(spoke.factory), address(hub.factory));
-        vm.prank(manager);
         Mandate memory mandateConfig = abi.decode(mandateBytes, (Mandate));
-        IFundFactory.ChainAddresses memory deployed = spoke.factory.createSpoke(creationNumber, mandateConfig, _spokeParams());
+        IFundFactory.SpokeParams memory spokeParams = _spokeParams();
+        vm.prank(manager);
+        IFundFactory.ChainAddresses memory deployed = spoke.factory.createSpoke(creationNumber, mandateConfig, spokeParams);
         assertEq(deployed.spokeVault, address(uint160(uint256(mandateConfig.spokes[0].spokeVault))));
         vm.writeFile("cache/sol-t11/robinhood-created", "PASS");
     }

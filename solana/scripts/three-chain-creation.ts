@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { AbiCoder, Interface, SigningKey, computeAddress, keccak256, getBytes } from "ethers";
+import { AbiCoder, Interface, SigningKey, computeAddress, keccak256, getBytes, TypedDataEncoder } from "ethers";
 import { Keypair, PublicKey, SystemProgram, TransactionInstruction, AddressLookupTableProgram, TransactionMessage, VersionedTransaction, ComputeBudgetProgram } from "@solana/web3.js";
 import { createHash } from "node:crypto";
 import { ADDRESSES, publicKey, fundAddresses, derive } from "../tests/helpers/addresses.ts";
@@ -102,6 +102,12 @@ async function accept() {
   const sealed = policy();
   assert.equal(hex(hash(sealed)), native.swapPolicyHash);
   const digest = buffer(plan.bindingDigest);
+  const bootstrapTypes = { SolanaBootstrap: [
+    ["hubChain", "uint256"], ["core", "address"], ["mandateHash", "bytes32"], ["policyHash", "bytes32"], ["spokeIndex", "uint16"], ["program", "bytes32"], ["fundPda", "bytes32"], ["solanaKey", "bytes32"], ["usdcAta", "bytes32"], ["tslaxAta", "bytes32"], ["nvdaxAta", "bytes32"], ["wsolAta", "bytes32"], ["nativeMandateHash", "bytes32"], ["fundId", "bytes32"], ["nonce", "uint256"], ["expiry", "uint256"],
+  ].map(([name, type]) => ({ name, type })) };
+  const expectedDigest = TypedDataEncoder.hash({ name: "PoolParty Solana Fund", version: "6", chainId: 42161, verifyingContract: plan.factory }, bootstrapTypes,
+    { hubChain: 42161, core: plan.core, mandateHash: hex(mandateHash), policyHash: commitment.policyHash, spokeIndex: commitment.spokeIndex, program: native.program, fundPda: commitment.fundPda, solanaKey: native.managerKey, usdcAta: commitment.usdcAta, tslaxAta: commitment.stockAta, nvdaxAta: commitment.nvdaxAta, wsolAta: commitment.wsolAta, nativeMandateHash: hex(nativeHash), fundId: plan.fundId, nonce: binding.nonce, expiry: binding.expiry });
+  assert.equal(expectedDigest, plan.bindingDigest);
   assert.equal(manager.sign(digest).serialized, binding.signature);
   const consent = buffer(manager.sign(policyDigest(sealed, digest, publicKey(target.fund), buffer(plan.core))).serialized);
   const transport = native.transport;
@@ -127,8 +133,11 @@ async function accept() {
     evmTransactions: [{ chainId: 42161, to: mandate.usdc, data: plan.approveCalldata }, { chainId: 42161, to: plan.factory, data: plan.calldata }, { chainId: 4663, to: plan.factory, data: plan.robinhoodCalldata }], solanaInstructions: instructions.map(exportInstruction), payloadSha256: createHash("sha256").update(payload).digest("hex"), fund: target.fund }, null, 2));
   if (process.argv[2] === "export") { console.log("Exact EVM calldata and native instruction list exported; NOT_APPROVED."); return; }
   if (process.argv[2] !== "accept-local") throw new Error("Only export or accept-local supported");
+  assert.equal(readFileSync(resolve(output, "hub-created"), "utf8"), "PASS");
   const connection = localConnection(); requireLoopback(connection.rpcEndpoint);
   assert.equal(process.env.PP_LOCALNET_RPC_PORT, "8998");
+  const idl = JSON.parse(readFileSync(resolve(root, "solana/target/idl/pp_spoke.json"), "utf8"));
+  assert.equal(idl.address, ADDRESSES.spoke);
   await fundSol(connection, solana.publicKey, 10);
   const before = await connection.getBalance(solana.publicKey);
   const signatures = [];
