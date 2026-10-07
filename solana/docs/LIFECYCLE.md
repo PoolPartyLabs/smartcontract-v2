@@ -52,10 +52,10 @@ registered positions; unsupported shapes reject before locking custody.
 
 | Reference | Native behavior / remaining gap |
 | --- | --- |
-| `src/libraries/OrderCodec.sol:65` | Same ABI order id over kind/Fund/request/attempt; full-width words that cannot be sized safely are rejected, not truncated. |
+| `src/libraries/OrderCodec.sol:106` | Same ABI order id over kind/Fund/request/attempt; full-width words that cannot be sized safely are rejected, not truncated. |
 | `src/spoke/SpokeUnwindLib.sol:46` | One active command retains custody reservations; no concurrent Manager adapter operations while active. Multiple concurrent EVM payout requests are not implemented. |
 | `src/spoke/SpokeUnwindLib.sol:316` | Per-position delivery records survive retries. Kamino illiquidity retains pending units; failed CPI rolls back the step. EVM catch-and-exclude semantics are not implemented. |
-| `src/spoke/SpokeCloseLib.sol:71` | Close requires nonzero nonfuture closing timestamp and all exposure returned; no early `closed=true`. Signed exact-in residual sale remains disabled. |
+| `src/spoke/SpokeCloseLib.sol:68` | Close requires nonzero nonfuture closing timestamp and all exposure returned; no early `closed=true`. Signed exact-in residual sale remains disabled. |
 | `src/spoke/SpokeCrossChainLib.sol:34` | Result bytes carry actual reserved send/net CCTP claim. Native result fixtures decode through authenticated Hub receiver. No invented swap costs are accepted. |
 | `src/spoke/SpokeIncomeTypes.sol:29` | Native collection results retain full-width mints and project to Hub aliases. USDC-only results are supported; multi-asset income finalization is blocked. |
 
