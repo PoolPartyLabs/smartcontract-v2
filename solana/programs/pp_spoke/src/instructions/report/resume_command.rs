@@ -102,10 +102,7 @@ fn finalize(ctx: Context<ResumeCommand>) -> Result<()> {
         require!(ctx.accounts.fund.assets.len() == 1, ReportError::OrderExecutionNotIntegrated);
         require!(ctx.accounts.command.delivered_steps.len() == ctx.accounts.fund.position_registry.len(),
             ReportError::OrderExecutionNotIntegrated);
-        if ctx.accounts.command.kind == 1 {
-            // TODO(decision): proportional non-USDC sales and authenticated Market Cost parity.
-            require!(ctx.accounts.fund.assets.len() == 1, ReportError::OrderExecutionNotIntegrated);
-        }
+        // TODO(decision): proportional non-USDC sales and authenticated Market Cost parity.
     }
     ctx.accounts.command.completed = true;
     ctx.accounts.fund.active_command = Pubkey::default();

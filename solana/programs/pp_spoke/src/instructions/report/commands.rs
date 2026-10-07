@@ -81,6 +81,22 @@ pub fn collection_result(command: &HubCommand) -> Vec<u8> {
     encoded
 }
 
+pub fn append_collection(previous: &[u8], command: &HubCommand) -> Result<Vec<u8>> {
+    let next = collection_result(command);
+    if previous.is_empty() { return Ok(next); }
+    let count = read_u64(&previous[32..64])? as usize;
+    require!(count < 8, ReportError::ResultsNotIntegrated);
+    let mut head = [word(32), word((count + 1) as u128)].concat();
+    for index in 0..count {
+        let offset = read_u64(&previous[64 + index * 32..96 + index * 32])?;
+        head.extend(word(u128::from(offset) + 32));
+    }
+    head.extend(word((previous.len() - 64 + 32) as u128));
+    head.extend_from_slice(&previous[64 + count * 32..]);
+    head.extend_from_slice(&next[96..]);
+    Ok(head)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
