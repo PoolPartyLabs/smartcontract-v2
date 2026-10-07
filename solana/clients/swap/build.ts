@@ -4,6 +4,7 @@ import type { Connection } from '@solana/web3.js';
 import { JupiterClient } from './jupiter.ts';
 import { solveRatio } from './ratio.ts';
 import type { RangeInventory } from './ratio.ts';
+import { decodeRouteV2 } from './decoder.ts';
 
 export const JUPITER = new PublicKey('JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4');
 const TOKEN = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
@@ -42,17 +43,15 @@ export async function buildSwapToRatio(args: BuildSwapArgs) {
   const response = await client.instructions(quote, vault.toBase58(), outputAta.toBase58());
   const swap = response.swapInstruction;
   if (!swap || swap.programId !== JUPITER.toBase58() || swap.accounts.length > 48
-      || swap.accounts[1]?.pubkey !== vault.toBase58() || swap.accounts[2]?.pubkey !== inputAta.toBase58()
-      || swap.accounts[3]?.pubkey !== outputAta.toBase58()
+      || swap.accounts[0]?.pubkey !== vault.toBase58() || swap.accounts[1]?.pubkey !== inputAta.toBase58()
+      || swap.accounts[2]?.pubkey !== outputAta.toBase58()
       || swap.accounts.some(account => account.isSigner && account.pubkey !== vault.toBase58())) throw new Error('Jupiter custody mismatch');
   const endpoints = await connection.getMultipleAccountsInfo([inputAta, outputAta]);
   if (endpoints.some(account => !account)) throw new Error('Manager must create vault ATAs before swap; no setup/unwrap instructions are forwarded');
   const route = Buffer.from(swap.data, 'base64');
-  if (route.length !== 35 || route.subarray(0, 8).toString('hex') !== 'e517cb977ae3ad2a'
-      || route.readUInt32LE(8) !== 1 || ![26, 40].includes(route[12])
-      || route.subarray(13, 16).toString('hex') !== '640001' || route[34] !== 0
-      || route.readBigUInt64LE(16) !== result.amount || route.readBigUInt64LE(24) !== BigInt(quote.outAmount)
-      || route.readUInt16LE(32) !== args.slippageBps) throw new Error('Unsupported Jupiter V1 wire; V2 requires a separately verified decoder');
+  const decoded = decodeRouteV2(route);
+  if (decoded.amountIn !== result.amount || decoded.quotedOut !== BigInt(quote.outAmount)
+      || decoded.slippageBps !== args.slippageBps) throw new Error('Jupiter V2 quote mismatch');
   const minOut = (BigInt(quote.outAmount) * BigInt(10_000 - args.slippageBps) + 9999n) / 10_000n;
   const payload = Buffer.alloc(32 + 32 + 8 + 8 + 2 + 4 + route.length);
   inputMint.toBuffer().copy(payload, 0);
