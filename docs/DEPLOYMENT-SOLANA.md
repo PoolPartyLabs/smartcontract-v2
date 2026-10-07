@@ -1,5 +1,34 @@
 # Solana v6 deployment rehearsal — founder approval packet
 
+## Post-Scope integration review — October 7, 2026
+
+PR #49 is integrated. The production ELF is now **995,384 bytes**, SHA-256
+`6b1d78f7add9f932d065f06b15fb41de94b1b4fe1d931412d849f5c5a4be3ed2`,
+with persistent program `7PptZ653uyn5eoAFKqs4DXR1ijxH6sf49f2YAGMLTfCx` and
+features `no-idl,no-log-ix-name`. The source-qualified release manifest and exact
+IDL hash are rebuilt under `solana/target/deploy/pp_spoke.release.json`; raw IDL
+JSON order can vary, so approve the actual final bytes, never a historical hash.
+Earlier 984,208-byte deployment/action/rent budgets are historical, not a budget
+for this release. Reprice them before founder approval. Approval remains
+`NOT_APPROVED`; Scope and stock swaps remain OFF in the creation builder.
+
+Local acceptance after integration: core/default 43 tests, signed production
+one lifecycle, Scope nine tests, and separate legacy-feature composed native
+one lifecycle (15 transactions, 2,176-byte report), all pass. The latter is not
+a correlated production three-chain Fund. Production was rebuilt afterward.
+An initial signed-production attempt reached stale cloned oracle rejection;
+fresh read-only clones passed without relaxing any guard or assertion.
+
+Security review pins mainnet upgrade authority to the R8 public key, disables
+inherited shell tracing before wallet/RPC parameter access, and excludes root
+`.keys/` in every clone. Scope's dedicated launcher uses the persistent identity;
+its fixture/probe-dependent suite is separated from default core acceptance.
+The full EVM suite still has public-provider archive/connection failures. The
+four touched composed Hub tests pass at block 512609390 using Foundry cache.
+Genuine wallet-backed creation cannot be repeated without separately supplied
+wallet parameters; synthetic-key fork attempts are not genuine-wallet evidence.
+These are preparation limits, never mainnet authorization or a claim of GO.
+
 ## T11 blocker update — October 7, 2026
 
 This section supersedes T9 identity/creation blocker statements, not founder
@@ -8,7 +37,7 @@ approval. **Still NO-GO:** the supplied Alchemy Robinhood provider returns HTTP
 
 - Persistent program: `7PptZ653uyn5eoAFKqs4DXR1ijxH6sf49f2YAGMLTfCx`.
   Its founder-machine key is outside worktrees at root `.keys/pp_spoke-program-keypair.json`
-  (directory 0700, file 0600, Git-local exclusion; never distribute/commit).
+  (directory 0700, file 0600, tracked Git exclusion; never distribute/commit).
 - `script/solana-three-chain-creation.sh` builds real Manager EIP-712 consent,
   sealed swap config, policyHash-qualified identities, Hub creation (50 USDC),
   Robinhood `createSpoke` and native staged acceptance. It has no broadcast mode;
@@ -73,8 +102,8 @@ Do not add legacy and production independent rehearsals together.
   TSLAx ATA is initialized but not admitted. All three stock/SOL LP choices
   cannot be represented simultaneously with four assets. Coordinator must
   settle the release asset bound/admission, not silently advertise all choices.
-- Rebuild after PR #49 lands; Scope OFF policy wire is unchanged on its branch,
-  but the ELF/hash and compute evidence must be refreshed after integration.
+- PR #49 rebuild and local acceptance are complete; see the post-Scope update.
+  Scope OFF policy is unchanged. Final deployment budgets still need repricing.
 - API/indexer and frontend manifests must update program id, off-chain IDL,
   all Fund/vault/emitter/ledger/config/ATA derivations, CCTP destinationCaller
   and mintRecipient, Hub native config/signature domains and report emitter
