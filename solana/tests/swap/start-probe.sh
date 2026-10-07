@@ -10,13 +10,16 @@ if lsof -iTCP:"$PP_LOCALNET_RPC_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
   printf '%s\n' "Track port $PP_LOCALNET_RPC_PORT occupied; stop its owner, never kill another worktree." >&2
   exit 1
 fi
-node "$ROOT/tests/swap/prepare-probe.ts"
-SLOT="$(node -e 'const fs=require("fs"); process.stdout.write(String(Math.max(JSON.parse(fs.readFileSync(process.argv[1])).warpSlot,JSON.parse(fs.readFileSync(process.argv[2])).latestSlot)))' "$STATE/manifest.json" "$ROOT/tests/swap/fixtures/clone-extension.json")"
+SLOT="$(node -e 'const fs=require("fs"); process.stdout.write(String(Math.max(JSON.parse(fs.readFileSync(process.argv[1])).warpSlot,JSON.parse(fs.readFileSync(process.argv[2])).latestSlot)))' "$STATE/manifest.json" "$ROOT/tests/swap/fixtures/v2/clone-extension.json")"
 PROBE="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1])).probe)' "$ROOT/tests/swap/fixtures/wsol.json")"
+mkdir -p "$STATE/swap-genesis"
+find "$STATE/swap-genesis" -type f -name '*.json' -delete
+cp "$STATE/accounts/"*.json "$STATE/swap-genesis/"
+cp "$STATE/overrides/"*.json "$STATE/swap-genesis/"
 solana-test-validator --reset --quiet --bind-address 127.0.0.1 \
   --rpc-port "$PP_LOCALNET_RPC_PORT" --faucet-port "$PP_LOCALNET_FAUCET_PORT" \
   --gossip-port "$PP_LOCALNET_GOSSIP_PORT" --dynamic-port-range "$PP_LOCALNET_DYNAMIC_PORTS" \
-  --ledger "$STATE/ledger" --warp-slot "$SLOT" --account-dir "$STATE/accounts" --account-dir "$STATE/overrides" \
+  --ledger "$STATE/ledger" --warp-slot "$SLOT" --account-dir "$STATE/swap-genesis" \
   --bpf-program "$PROBE" "$ROOT/tests/swap/probe/target/deploy/swap_guard_probe.so" \
   --bpf-program Fg6PaFpoGXkYsidMpWxTWqkZ7FEfcYkgMQHGfVNLusVw "$ROOT/target/deploy/pp_spoke.so" \
   >"$STATE/validator.log" 2>&1 &

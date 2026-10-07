@@ -1,18 +1,18 @@
 {
-  "recordedAt": "2026-10-07T01:56:15.101Z",
+  "recordedAt": "2026-10-07T01:56:16.160Z",
   "apiVersion": 2,
   "probe": "6Ckm2BrnXxsSjyG5b17kQQRjoECVrts92RKXVGT8XeqS",
   "fund": "6Gg4AVKo8GAft4Wb2JSfhHCW3PQhXxYxapzBYeVjGzA9",
   "vault": "8a8buzeQrdLNMJNSkhaZ7ZmVoigW6UmDJv7TeMM5aNfz",
   "build": {
-    "inputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-    "outputMint": "So11111111111111111111111111111111111111112",
-    "inAmount": "1000000",
-    "outAmount": "8356514",
-    "otherAmountThreshold": "8189384",
+    "inputMint": "So11111111111111111111111111111111111111112",
+    "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "inAmount": "10000000",
+    "outAmount": "1196578",
+    "otherAmountThreshold": "1172647",
     "swapMode": "ExactIn",
     "slippageBps": 200,
-    "priceImpactPct": "0",
+    "priceImpactPct": "0.0000207169507729732151912952",
     "routePlan": [
       {
         "percent": 100,
@@ -20,10 +20,10 @@
         "swapInfo": {
           "ammKey": "8sLbNZoA1cfnvMJLPfp98ZLAnFSYCFApfJKMbiXNLwxj",
           "label": "Raydium CLMM",
-          "inputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-          "outputMint": "So11111111111111111111111111111111111111112",
-          "inAmount": "1000000",
-          "outAmount": "8356514"
+          "inputMint": "So11111111111111111111111111111111111111112",
+          "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "inAmount": "10000000",
+          "outAmount": "1196578"
         }
       }
     ],
@@ -70,6 +70,42 @@
           }
         ],
         "data": "AQ=="
+      },
+      {
+        "programId": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+        "accounts": [
+          {
+            "pubkey": "8a8buzeQrdLNMJNSkhaZ7ZmVoigW6UmDJv7TeMM5aNfz",
+            "isSigner": true,
+            "isWritable": true
+          },
+          {
+            "pubkey": "8EezGc5cfvQqRKYp13kuzYjYoCEVXCZ1A5x3H8qyZcJV",
+            "isSigner": false,
+            "isWritable": true
+          },
+          {
+            "pubkey": "8a8buzeQrdLNMJNSkhaZ7ZmVoigW6UmDJv7TeMM5aNfz",
+            "isSigner": false,
+            "isWritable": false
+          },
+          {
+            "pubkey": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "isSigner": false,
+            "isWritable": false
+          },
+          {
+            "pubkey": "11111111111111111111111111111111",
+            "isSigner": false,
+            "isWritable": false
+          },
+          {
+            "pubkey": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+            "isSigner": false,
+            "isWritable": false
+          }
+        ],
+        "data": "AQ=="
       }
     ],
     "swapInstruction": {
@@ -81,19 +117,14 @@
           "isWritable": false
         },
         {
-          "pubkey": "8EezGc5cfvQqRKYp13kuzYjYoCEVXCZ1A5x3H8qyZcJV",
-          "isSigner": false,
-          "isWritable": true
-        },
-        {
           "pubkey": "A6KtF8LTCPFCGVmL8MuEfmxy7FttykQjTyrDY9ik1AsF",
           "isSigner": false,
           "isWritable": true
         },
         {
-          "pubkey": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "pubkey": "8EezGc5cfvQqRKYp13kuzYjYoCEVXCZ1A5x3H8qyZcJV",
           "isSigner": false,
-          "isWritable": false
+          "isWritable": true
         },
         {
           "pubkey": "So11111111111111111111111111111111111111112",
@@ -101,7 +132,7 @@
           "isWritable": false
         },
         {
-          "pubkey": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "pubkey": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
           "isSigner": false,
           "isWritable": false
         },
@@ -111,7 +142,12 @@
           "isWritable": false
         },
         {
-          "pubkey": "A6KtF8LTCPFCGVmL8MuEfmxy7FttykQjTyrDY9ik1AsF",
+          "pubkey": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "pubkey": "8EezGc5cfvQqRKYp13kuzYjYoCEVXCZ1A5x3H8qyZcJV",
           "isSigner": false,
           "isWritable": true
         },
@@ -146,22 +182,22 @@
           "isWritable": true
         },
         {
-          "pubkey": "8EezGc5cfvQqRKYp13kuzYjYoCEVXCZ1A5x3H8qyZcJV",
-          "isSigner": false,
-          "isWritable": true
-        },
-        {
           "pubkey": "A6KtF8LTCPFCGVmL8MuEfmxy7FttykQjTyrDY9ik1AsF",
           "isSigner": false,
           "isWritable": true
         },
         {
-          "pubkey": "6mK4Pxs6GhwnessH7CvPivqDYauiHZmAdbEFDpXFk9zt",
+          "pubkey": "8EezGc5cfvQqRKYp13kuzYjYoCEVXCZ1A5x3H8qyZcJV",
           "isSigner": false,
           "isWritable": true
         },
         {
           "pubkey": "6P4tvbzRY6Bh3MiWDHuLqyHywovsRwRpfskPvyeSoHsz",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "6mK4Pxs6GhwnessH7CvPivqDYauiHZmAdbEFDpXFk9zt",
           "isSigner": false,
           "isWritable": true
         },
@@ -186,12 +222,12 @@
           "isWritable": true
         },
         {
-          "pubkey": "E8TpeC1Gx8gAfhHxrdS7uoSTcTgS7w1C6J5gPfYYYf9X",
+          "pubkey": "CCWaYZ2UyMTYJCDkXGMkGZRE9M6rmBUfg7yHnrV6Nib1",
           "isSigner": false,
           "isWritable": true
         },
         {
-          "pubkey": "Ahbb5vFM4e8DNqSrhMnYDUo9kbHvL5bVsM6RYX4LXtrJ",
+          "pubkey": "HsKFtu7HRqdLpCdRVCSYVQS7MTwM4HE7UvwJ96jWVVY",
           "isSigner": false,
           "isWritable": true
         },
@@ -201,7 +237,7 @@
           "isWritable": false
         }
       ],
-      "data": "u2T6zDHErxRAQg8AAAAAAKKCfwAAAAAAyAAAAAAAAQAAABoQJwAB"
+      "data": "u2T6zDHErxSAlpgAAAAAACJCEgAAAAAAyAAAAAAAAQAAABoQJwAB"
     },
     "cleanupInstruction": null,
     "otherInstructions": [],
@@ -464,43 +500,43 @@
     },
     "blockhashWithMetadata": {
       "blockhash": [
-        151,
-        85,
-        90,
-        64,
-        148,
-        108,
+        231,
+        207,
+        91,
+        58,
         18,
-        244,
-        45,
-        1,
-        97,
-        159,
-        139,
-        191,
-        80,
-        20,
-        106,
-        136,
-        140,
-        64,
-        72,
-        145,
-        2,
-        56,
-        153,
+        47,
+        241,
+        225,
+        198,
+        52,
+        75,
+        223,
+        132,
+        121,
+        171,
+        3,
+        103,
+        59,
+        105,
+        218,
+        36,
         82,
-        131,
-        67,
-        71,
-        212,
-        175,
-        254
+        120,
+        102,
+        35,
+        49,
+        96,
+        143,
+        70,
+        229,
+        27,
+        184
       ],
-      "lastValidBlockHeight": 432119257,
+      "lastValidBlockHeight": 432119261,
       "fetchedAt": {
-        "secs_since_epoch": 1791338175,
-        "nanos_since_epoch": 10274223
+        "secs_since_epoch": 1791338176,
+        "nanos_since_epoch": 66409865
       }
     },
     "transactionVersion": 0,
