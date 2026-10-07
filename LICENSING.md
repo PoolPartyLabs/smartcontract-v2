@@ -131,5 +131,5 @@ assigned; earlier contributors are not silently bound by new terms.
    signed terms before describing the release as exclusively restricted.
 
 Tracked in [POO-2269](https://linear.app/yeildbay/issue/POO-2269), rules v2.
-The complete proposal is in the draft PR for this review; it changes no
+The complete proposal is ready for review in PR #44; it changes no
 operational permissions of the existing official platform.
