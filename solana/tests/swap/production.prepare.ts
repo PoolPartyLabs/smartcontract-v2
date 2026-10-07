@@ -49,7 +49,7 @@ await clone(currentArray);
 const recorded = JSON.parse(readFileSync(new URL('./fixtures/v2/wsol.json', import.meta.url), 'utf8'));
 await clone(recorded.build.swapInstruction.programId);
 for (const [index, account] of recorded.build.swapInstruction.accounts.entries()) {
-  if (index < 3 || account.pubkey === '11111111111111111111111111111111' || account.pubkey.startsWith('Sysvar')) continue;
+  if ([0,1,2,7,11,14,15,20,21,22].includes(index) || account.pubkey === '11111111111111111111111111111111' || account.pubkey.startsWith('Sysvar')) continue;
   await clone(account.pubkey);
 }
 for (const address of recorded.build.addressLookupTableAddresses) await clone(address);
