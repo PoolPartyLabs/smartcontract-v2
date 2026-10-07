@@ -65,3 +65,20 @@ test('policy bootstrap rejects mismatches and accepts only the signed derived PD
   assert.equal(account?.owner.toBase58(), ADDRESSES.spoke);
   await assert.rejects(sendSignedLocal(connection, manager, [valid.instruction]));
 });
+
+test('compact policy bootstrap recomputes omitted hash without weakening consent', async () => {
+  const connection = localConnection();
+  const manager = testWallet('manager');
+  const valid = policyInit(manager.publicKey, Buffer.alloc(20, 0x93));
+  const full = valid.instruction.data.subarray(12);
+  const compact = Buffer.concat([Buffer.from([1]), full.subarray(0, 134), full.subarray(174)]);
+  const operation = new TransactionInstruction({ programId: valid.instruction.programId, keys: valid.instruction.keys,
+    data: Buffer.concat([discriminator('global', 'initialize_fund'), integer(compact.length, 4), compact]) });
+  const changed = new TransactionInstruction({ programId: operation.programId, keys: operation.keys, data: Buffer.from(operation.data) });
+  changed.data[12 + 174] ^= 1;
+  await assert.rejects(sendSignedLocal(connection, manager, [changed]));
+  assert.equal(await connection.getAccountInfo(valid.fund), null);
+  await sendSignedLocal(connection, manager, [operation]);
+  assert.equal((await connection.getAccountInfo(valid.fund))?.owner.toBase58(), ADDRESSES.spoke);
+  await assert.rejects(sendSignedLocal(connection, manager, [operation]));
+});

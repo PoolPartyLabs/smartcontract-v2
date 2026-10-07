@@ -36,7 +36,9 @@ export function fundAddresses(hubCore: Buffer, spokeIndex: number, mandateHash =
   if (mandateHash.length !== 32) throw new Error('Expected 32-byte Mandate hash');
   const index = Buffer.alloc(2);
   index.writeUInt16LE(spokeIndex);
-  const fund = derive(ADDRESSES.spoke, Buffer.from('fund'), hubCore, index, mandateHash);
+  const chain = Buffer.alloc(8);
+  chain.writeBigUInt64LE(42161n);
+  const fund = derive(ADDRESSES.spoke, Buffer.from('fund'), chain, hubCore, index, mandateHash);
   return {
     fund,
     vault: derive(ADDRESSES.spoke, Buffer.from('vault'), publicKey(fund).toBuffer()),

@@ -48,11 +48,22 @@ export function nativeConfig(manager: PublicKey, emitter: PublicKey, fund = publ
     word(1), word(512), word(lp ? 736 : 640), addressWord(hubUsdc), addressWord(messenger), addressWord(transmitter), word(5), recipient,
     vault.toBuffer(), remoteMessenger, vault.toBuffer(), word(50_000), word(lp ? 2 : 1), mint, addressWord(alias), word(0),
     ...(lp ? [stockMint, addressWord(stockAlias), word(1)] : []), word(lp ? 2 : 1), venue, lpVenue]);
-  return { nativeHash: hash(abi), assets: Buffer.concat([integer(lp ? 2 : 1, 4), asset, ...(lp ? [stockAsset] : [])]), venues: Buffer.concat([integer(lp ? 2 : 1, 4), venue, lpVenue]), transport };
+  const policy = Buffer.from(abi);
+  policy.fill(0, 96, 128);
+  policy.fill(0, 416, 480);
+  policy.fill(0, 512, 544);
+  return { nativeHash: hash(abi), nativePolicyHash: hash(policy), assets: Buffer.concat([integer(lp ? 2 : 1, 4), asset, ...(lp ? [stockAsset] : [])]), venues: Buffer.concat([integer(lp ? 2 : 1, 4), venue, lpVenue]), transport };
+}
+
+export const hubPolicyHash = Buffer.alloc(32, 0x11);
+export function policyAddresses(manager: PublicKey, core = hubCore, index = 1, lp?: { mint0: string; mint1: string }) {
+  const config = nativeConfig(manager, PublicKey.default, PublicKey.default, lp);
+  const policyHash = hash(Buffer.concat([hash(Buffer.from('PoolParty/SolanaPolicy/v6')), hubPolicyHash, config.nativePolicyHash]));
+  return { ...fundAddresses(core, index, policyHash), policyHash };
 }
 
 export function bindingPayload(manager: PublicKey, core = hubCore, index = 1, expiry = 2_000_000_000n, lp?: { mint0: string; mint1: string }) {
-  const target = fundAddresses(core, index, mandateHash);
+  const target = policyAddresses(manager, core, index, lp);
   const emitter = publicKey(target.emitter);
   const config = nativeConfig(manager, emitter, publicKey(target.fund), lp);
   const nonce = word(9);
@@ -65,28 +76,28 @@ export function bindingPayload(manager: PublicKey, core = hubCore, index = 1, ex
   const managerEvm = hash(Buffer.from(secp256k1.getPublicKey(ephemeralKey, false)).subarray(1)).subarray(12);
   const vault = publicKey(target.vault);
   const nvdax = 'Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh';
-  const bootstrapType = 'SolanaBootstrap(uint256 hubChain,address core,bytes32 mandateHash,uint16 spokeIndex,bytes32 program,bytes32 fundPda,bytes32 solanaKey,bytes32 usdcAta,bytes32 tslaxAta,bytes32 nvdaxAta,bytes32 wsolAta,bytes32 nativeMandateHash,bytes32 fundId,uint256 nonce,uint256 expiry)';
+  const bootstrapType = 'SolanaBootstrap(uint256 hubChain,address core,bytes32 mandateHash,bytes32 policyHash,uint16 spokeIndex,bytes32 program,bytes32 fundPda,bytes32 solanaKey,bytes32 usdcAta,bytes32 tslaxAta,bytes32 nvdaxAta,bytes32 wsolAta,bytes32 nativeMandateHash,bytes32 fundId,uint256 nonce,uint256 expiry)';
   const bootstrapStruct = hash(Buffer.concat([hash(Buffer.from(bootstrapType)), word(42161), addressWord(core), mandateHash,
-    word(index), publicKey(ADDRESSES.spoke).toBuffer(), publicKey(target.fund).toBuffer(), manager.toBuffer(),
+    target.policyHash, word(index), publicKey(ADDRESSES.spoke).toBuffer(), publicKey(target.fund).toBuffer(), manager.toBuffer(),
     ...[ADDRESSES.usdc, ADDRESSES.tslax, nvdax, ADDRESSES.wsol].map(mint => testAta(mint, vault).toBuffer()), config.nativeHash, fundId, nonce, word(expiry)]));
   const bootstrap = secp256k1.sign(hash(Buffer.concat([Buffer.from([25, 1]), domain, bootstrapStruct])), ephemeralKey);
   return Buffer.concat([core, integer(index, 2), fundId, mandateHash, managerEvm, factory, integer(42161, 8), integer(1, 8),
     config.nativeHash, nonce, integer(expiry, 8),
-    Buffer.from(bootstrap.toCompactRawBytes()), integer(bootstrap.recovery + 27, 1), config.assets, config.venues, config.transport]);
+    Buffer.from(bootstrap.toCompactRawBytes()), integer(bootstrap.recovery + 27, 1), config.assets, config.venues, config.transport, hubPolicyHash, target.policyHash]);
 }
 
 export function fixtureFund(manager: PublicKey) {
   const fund = publicKey(addresses.fund);
   const program = publicKey(ADDRESSES.spoke);
   const index = integer(1, 2);
-  const bump = PublicKey.findProgramAddressSync([Buffer.from('fund'), hubCore, index, mandateHash], program)[1];
+  const bump = PublicKey.findProgramAddressSync([Buffer.from('fund'), integer(42161, 8), hubCore, index, mandateHash], program)[1];
   const vaultBump = PublicKey.findProgramAddressSync([Buffer.from('vault'), fund.toBuffer()], program)[1];
   const emitterBump = PublicKey.findProgramAddressSync([Buffer.from('emitter'), fund.toBuffer()], program)[1];
   const config = nativeConfig(manager, publicKey(addresses.emitter));
   return Buffer.concat([discriminator('account', 'FundState'), hubCore, index, fundId, mandateHash, Buffer.alloc(20, 1), manager.toBuffer(),
     integer(0, 8), integer(0, 8), integer(0, 1), integer(bump, 1), integer(vaultBump, 1), integer(emitterBump, 1),
     integer(42161, 8), factory, integer(1, 8), config.nativeHash, word(9), Buffer.alloc(32, 1), integer(2_000_000_000, 8),
-    addressWord(hubCore), integer(23, 2), integer(0, 16), integer(0, 16), integer(0, 2), integer(0, 2), integer(0, 2), config.assets, config.venues, config.transport, Buffer.alloc(8)]);
+    addressWord(hubCore), integer(23, 2), integer(0, 16), integer(0, 16), integer(0, 2), integer(0, 2), integer(0, 2), config.assets, config.venues, config.transport, Buffer.alloc(8), mandateHash, hubPolicyHash, Buffer.alloc(37)]);
 }
 
 export function fixtureLedger() {

@@ -4,10 +4,10 @@ import { TransactionInstruction, SystemProgram, Keypair } from '@solana/web3.js'
 import { ADDRESSES, fundAddresses, publicKey, derive } from '../helpers/addresses.ts';
 import { discriminator } from '../helpers/layouts.ts';
 import { localConnection, testWallet, testAta } from '../helpers/localnet.ts';
-import { addresses, bindingPayload, integer, sendSignedLocal, mandateHash } from './fixtures.ts';
+import { addresses, bindingPayload, integer, sendSignedLocal, mandateHash, policyAddresses } from './fixtures.ts';
 
 export function init(signer = testWallet('manager').publicKey, core = Buffer.alloc(20, 0x81), index = 2, payload = bindingPayload(signer, core, index)) {
-  const target = fundAddresses(core, index, mandateHash);
+  const target = policyAddresses(signer, core, index);
   const vault = publicKey(target.vault);
   const fund = publicKey(target.fund);
   const keys = [
@@ -51,9 +51,11 @@ test('existing per-Fund PDA prevents initialization replay', async () => {
   const connection = localConnection();
   const manager = testWallet('manager');
   const core = Buffer.alloc(20, 0x71);
-  const before = await connection.getAccountInfo(publicKey(addresses.fund));
-  await assert.rejects(sendSignedLocal(connection, manager, [init(manager.publicKey, core, 1)]), /InvalidConfiguration/);
-  assert.deepEqual((await connection.getAccountInfo(publicKey(addresses.fund)))?.data, before?.data);
+  const operation = init(manager.publicKey, core, 1);
+  await sendSignedLocal(connection, manager, [operation]);
+  const before = await connection.getAccountInfo(operation.keys[1].pubkey);
+  await assert.rejects(sendSignedLocal(connection, manager, [operation]), /InvalidConfiguration/);
+  assert.deepEqual((await connection.getAccountInfo(operation.keys[1].pubkey))?.data, before?.data);
 });
 
 test('a squatter cannot substitute consent or block a rent-prefunded Fund PDA', async () => {
@@ -78,10 +80,10 @@ test('sealed transport rejects substituted Circle targets, caller, custody and f
   const valid = bindingPayload(manager.publicKey, core, 2);
   for (const offset of [0, 20, 40, 60, 64, 96, 128, 160, 192]) {
     const changed = Buffer.from(valid);
-    changed[changed.length - 200 + offset] ^= 1;
+    changed[changed.length - 264 + offset] ^= 1;
     await assert.rejects(sendSignedLocal(connection, manager, [init(manager.publicKey, core, 2, changed)]), /InvalidConfiguration/);
   }
-  assert.equal(await connection.getAccountInfo(publicKey(fundAddresses(core, 2, mandateHash).fund)), null);
+  assert.equal(await connection.getAccountInfo(publicKey(policyAddresses(manager.publicKey, core, 2).fund)), null);
 });
 
 test('keeper cannot execute Manager instructions; Manager cannot choose excess recipient', async () => {
