@@ -118,6 +118,7 @@ test('quote cache is short lived, defensive, and venue constrained', async () =>
     assert.equal(params.get('maxAccounts'), '32');
     assert.equal(params.get('onlyDirectRoutes'), 'true');
     return new Response(JSON.stringify({ inputMint: mint0, outputMint: mint1, inAmount: '100', outAmount: '200',
+      swapInstruction: { programId: 'jupiter', accounts: [], data: '' },
       otherAmountThreshold: '198', slippageBps: 100, swapMode: 'ExactIn', routePlan: [{ swapInfo: { label: 'Raydium CLMM', ammKey: 'pool' } }] }));
   };
   const client = new JupiterClient(undefined, transport as typeof fetch, time);

@@ -11,7 +11,8 @@ const connection = localConnection();
 const manager = testWallet();
 
 function fixture(pair: string): SwapFixture {
-  return JSON.parse(readFileSync(new URL(`./fixtures/${pair}.json`, import.meta.url), 'utf8'));
+  const value = JSON.parse(readFileSync(new URL(`./fixtures/v2/${pair}.json`, import.meta.url), 'utf8'));
+  return { ...value, quote: value.build, instructions: value.build };
 }
 
 async function build(pair: string, negative?: string) {
@@ -28,9 +29,9 @@ async function build(pair: string, negative?: string) {
   payload.writeUInt16LE(200, 80);
   payload.writeUInt32LE(data.length, 82);
   data.copy(payload, 86);
-  if (negative === 'output') swap.accounts[3].pubkey = swap.accounts[2].pubkey;
-  if (negative === 'extra_vault') swap.accounts[15].pubkey = fixture('tslax').instructions.swapInstruction.accounts[3].pubkey;
-  const instruction = new TransactionInstruction({ programId: new PublicKey(route.probe), data: payload, keys: [
+  if (negative === 'output') swap.accounts[2].pubkey = swap.accounts[1].pubkey;
+  if (negative === 'extra_vault') swap.accounts[16].pubkey = fixture('tslax').instructions.swapInstruction.accounts[2].pubkey;
+  const instruction = new TransactionInstruction({ programId: new PublicKey(route.probe), data: Buffer.concat([Buffer.from([0]), payload]), keys: [
     { pubkey: manager.publicKey, isSigner: negative !== 'unauthorized', isWritable: false },
     { pubkey: new PublicKey(route.fund), isSigner: false, isWritable: false },
     { pubkey: new PublicKey(route.vault), isSigner: false, isWritable: false },
@@ -52,11 +53,11 @@ async function build(pair: string, negative?: string) {
 }
 
 async function balances(route: SwapFixture) {
-  const accounts = await connection.getMultipleAccountsInfo(route.instructions.swapInstruction.accounts.slice(2, 4).map(account => new PublicKey(account.pubkey)));
+  const accounts = await connection.getMultipleAccountsInfo(route.instructions.swapInstruction.accounts.slice(1, 3).map(account => new PublicKey(account.pubkey)));
   return accounts.map(account => account!.data.readBigUInt64LE(64));
 }
 
-for (const pair of ['tslax', 'nvdax', 'wsol']) {
+for (const pair of ['tslax', 'tslax-reverse', 'nvdax', 'nvdax-reverse', 'wsol', 'wsol-reverse']) {
   test(`real Jupiter ${pair} CPI executes against cloned mainnet state`, async () => {
     requireLoopback(connection.rpcEndpoint);
     const { transaction, route, blockhash, bytes } = await build(pair);

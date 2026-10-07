@@ -75,7 +75,7 @@ export class JupiterClient {
       await this.bucket.take();
       let response: Response;
       try {
-        response = await this.transport(`https://api.jup.ag/swap/v1/${path}`, {
+        response = await this.transport(`https://api.jup.ag/swap/v2/${path}`, {
           ...init, signal: AbortSignal.timeout(15_000),
           headers: { 'content-type': 'application/json', ...(this.apiKey ? { 'x-api-key': this.apiKey } : {}) },
         });
@@ -101,29 +101,39 @@ export class JupiterClient {
   }
 
   async quote(inputMint: string, outputMint: string, amount: bigint, slippageBps: number, maxAccounts = 32): Promise<Quote> {
+    return this.build(inputMint, outputMint, amount, slippageBps, '11111111111111111111111111111111', undefined, maxAccounts);
+  }
+
+  async build(inputMint: string, outputMint: string, amount: bigint, slippageBps: number,
+    vault: string, outputAta?: string, maxAccounts = 32): Promise<Quote & SwapInstructions> {
     if (amount <= 0n || amount >= 1n << 64n || !Number.isInteger(slippageBps) || slippageBps < 0 || slippageBps >= 10_000
         || !Number.isInteger(maxAccounts) || maxAccounts < 8 || maxAccounts > 48) throw new Error('Invalid bounded quote request');
     const params = new URLSearchParams({ inputMint, outputMint, amount: amount.toString(), slippageBps: String(slippageBps),
-      maxAccounts: String(maxAccounts), dexes: 'Raydium CLMM', onlyDirectRoutes: 'true', instructionVersion: 'V1' });
+      maxAccounts: String(maxAccounts), dexes: 'Raydium CLMM', onlyDirectRoutes: 'true',
+      taker: vault, wrapAndUnwrapSol: 'false', useSharedAccounts: 'false', transactionVersion: '0' });
+    if (outputAta) params.set('destinationTokenAccount', outputAta);
     const key = params.toString();
     const cached = this.cache.get(key);
-    if (cached && cached.expires > this.clock.now()) return structuredClone(cached.quote);
-    const result = await this.request(`quote?${key}`) as Quote;
+    if (cached && cached.expires > this.clock.now()) return structuredClone(cached.quote) as Quote & SwapInstructions;
+    const result = await this.request(`build?${key}`) as Quote & SwapInstructions & { addressesByLookupTableAddress?: Record<string, string[]>; tipInstruction?: ApiInstruction | null };
     if (result.inputMint !== inputMint || result.outputMint !== outputMint || result.inAmount !== amount.toString()
         || result.slippageBps !== slippageBps || result.swapMode !== 'ExactIn'
         || result.routePlan?.length !== 1 || result.routePlan[0].swapInfo.label !== 'Raydium CLMM'
         || !/^\d+$/.test(result.outAmount) || !/^\d+$/.test(result.otherAmountThreshold)
-        || BigInt(result.outAmount) <= 0n || BigInt(result.otherAmountThreshold) <= 0n) throw new Error('Unsupported Jupiter quote');
+        || BigInt(result.outAmount) <= 0n || BigInt(result.otherAmountThreshold) <= 0n) {
+      throw new Error(`Unsupported Jupiter quote: mode ${result.swapMode}, route count ${result.routePlan?.length}, labels ${result.routePlan?.map(step => step.swapInfo.label).join(',')}`);
+    }
+    if (!result.swapInstruction || result.tipInstruction || result.cleanupInstruction || result.otherInstructions?.length)
+      throw new Error('Unsupported Jupiter V2 build instructions');
+    result.addressLookupTableAddresses = Object.keys(result.addressesByLookupTableAddress ?? {});
     if (this.cache.size >= 128) this.cache.delete(this.cache.keys().next().value!);
     this.cache.set(key, { expires: this.clock.now() + 2500, quote: structuredClone(result) });
     return result;
   }
 
   async instructions(quote: Quote, vault: string, outputAta: string): Promise<SwapInstructions> {
-    return this.request('swap-instructions', { method: 'POST', body: JSON.stringify({
-      quoteResponse: quote, userPublicKey: vault, destinationTokenAccount: outputAta,
-      wrapAndUnwrapSol: false, useSharedAccounts: false, skipUserAccountsRpcCalls: true,
-      instructionVersion: 'V1',
-    }) });
+    const result = await this.build(quote.inputMint, quote.outputMint, BigInt(quote.inAmount), quote.slippageBps, vault, outputAta);
+    if (result.outAmount !== quote.outAmount) throw new Error('Quote changed; rebuild and obtain a fresh API signature');
+    return result;
   }
 }

@@ -5,3 +5,7 @@ pub(crate) use swap_exact_in::__client_accounts_swap_exact_in;
 pub mod swap_to_ratio;
 pub use swap_to_ratio::SwapToRatio;
 pub(crate) use swap_to_ratio::__client_accounts_swap_to_ratio;
+pub mod quote;
+pub mod oracle;
+pub mod streams;
+pub mod authorized;
