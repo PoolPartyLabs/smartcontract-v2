@@ -68,7 +68,7 @@ pub fn verify_stock<'info>(program: &AccountInfo<'info>, accounts: &[AccountInfo
     for (expected, actual) in instruction.accounts.iter().zip(accounts) {
         require!(expected.pubkey == *actual.key && !actual.is_writable, OracleError::InvalidAccount);
     }
-    require!(*accounts[0].owner == VERIFIER && *accounts[3].owner == VERIFIER, OracleError::InvalidAccount);
+    require!(*accounts[0].owner == VERIFIER, OracleError::InvalidAccount);
     let mut infos = accounts.to_vec(); infos.push(program.clone());
     invoke(&instruction, &infos)?;
     let (owner, verified) = get_return_data().ok_or(OracleError::InvalidPrice)?;

@@ -8,3 +8,4 @@ pub(crate) use swap_to_ratio::__client_accounts_swap_to_ratio;
 pub mod quote;
 pub mod oracle;
 pub mod streams;
+pub mod authorized;

@@ -5,6 +5,8 @@ import { JupiterClient } from './jupiter.ts';
 import { solveRatio } from './ratio.ts';
 import type { RangeInventory } from './ratio.ts';
 import { decodeRouteV2 } from './decoder.ts';
+import { encodeQuote, routeHash } from './quote.ts';
+import type { ApiQuote } from './quote.ts';
 
 export const JUPITER = new PublicKey('JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4');
 const TOKEN = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
@@ -21,10 +23,16 @@ export type BuildSwapArgs = {
   vault: PublicKey; mint0: PublicKey; mint1: PublicKey; tokenProgram0: PublicKey; tokenProgram1: PublicKey;
   inventory: RangeInventory; slippageBps: number; sealedMaxSlippageBps: number; sealedMints: PublicKey[];
   iterations?: number; computeUnits?: number;
+  maxPriceImpactBps: number;
+  oracleAccounts: PublicKey[];
+  authorizeQuote: (route: { fund: PublicKey; inputMint: PublicKey; outputMint: PublicKey;
+    amountIn: bigint; suggestedMinOut: bigint; routeHash: Buffer }) => Promise<ApiQuote>;
 };
 
 export async function buildSwapToRatio(args: BuildSwapArgs) {
   const { connection, client, program, manager, fund, vault, mint0, mint1 } = args;
+  if (!Number.isInteger(args.maxPriceImpactBps) || args.maxPriceImpactBps < 0 || args.maxPriceImpactBps > 65535
+      || args.oracleAccounts.length !== 3 || typeof args.authorizeQuote !== 'function') throw new Error('API authorization and pinned oracle accounts required');
   if (!PublicKey.findProgramAddressSync([Buffer.from('vault'), fund.toBuffer()], program)[0].equals(vault)
       || !args.sealedMints.some(mint => mint.equals(mint0)) || !args.sealedMints.some(mint => mint.equals(mint1))
       || mint0.equals(mint1) || args.slippageBps > args.sealedMaxSlippageBps) throw new Error('Invalid sealed swap policy or vault');
@@ -53,14 +61,13 @@ export async function buildSwapToRatio(args: BuildSwapArgs) {
   if (decoded.amountIn !== result.amount || decoded.quotedOut !== BigInt(quote.outAmount)
       || decoded.slippageBps !== args.slippageBps) throw new Error('Jupiter V2 quote mismatch');
   const minOut = (BigInt(quote.outAmount) * BigInt(10_000 - args.slippageBps) + 9999n) / 10_000n;
-  const payload = Buffer.alloc(32 + 32 + 8 + 8 + 2 + 4 + route.length);
-  inputMint.toBuffer().copy(payload, 0);
-  outputMint.toBuffer().copy(payload, 32);
-  payload.writeBigUInt64LE(result.amount, 64);
-  payload.writeBigUInt64LE(minOut, 72);
-  payload.writeUInt16LE(args.slippageBps, 80);
-  payload.writeUInt32LE(route.length, 82);
-  route.copy(payload, 86);
+  const hash = routeHash(swap, vault);
+  const apiQuote = await args.authorizeQuote({ fund, inputMint, outputMint, amountIn: result.amount, suggestedMinOut: minOut, routeHash: hash });
+  if (!apiQuote.fund.equals(fund) || !apiQuote.tokenIn.equals(inputMint) || !apiQuote.tokenOut.equals(outputMint)
+      || apiQuote.quotedAmountIn !== result.amount || apiQuote.minAmountOut < minOut || !apiQuote.legsHash.equals(hash))
+    throw new Error('API-signed quote does not bind the selected route');
+  const trailer = Buffer.alloc(6); trailer.writeUInt16LE(args.maxPriceImpactBps); trailer.writeUInt32LE(route.length, 2);
+  const payload = Buffer.concat([encodeQuote(apiQuote), trailer, route]);
   const length = Buffer.alloc(4);
   length.writeUInt32LE(payload.length);
   const instruction = new TransactionInstruction({ programId: program, keys: [
@@ -69,6 +76,7 @@ export async function buildSwapToRatio(args: BuildSwapArgs) {
     { pubkey: vault, isSigner: false, isWritable: false },
     { pubkey: JUPITER, isSigner: false, isWritable: false },
     { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ...args.oracleAccounts.map(pubkey => ({ pubkey, isSigner: false, isWritable: false })),
     ...swap.accounts.map(account => ({ pubkey: new PublicKey(account.pubkey), isSigner: false, isWritable: account.isWritable })),
   ], data: Buffer.concat([createHash('sha256').update('global:swap_to_ratio').digest().subarray(0, 8), length, payload]) });
   const lookups = await Promise.all(response.addressLookupTableAddresses.map(async address => {
