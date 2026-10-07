@@ -11,9 +11,15 @@ contract DeploySolanaV6 is Script, SolanaV6Deployment {
         address guardian = vm.envAddress("ADAPTER_GUARDIAN");
         address signer = vm.envAddress("API_SIGNER");
         address owner = vm.envAddress("REGISTRY_OWNER");
-        uint64 open = uint64(vm.envUint("SOLANA_STOCK_SESSION_OPEN"));
-        uint64 close = uint64(vm.envUint("SOLANA_STOCK_SESSION_CLOSE"));
-        uint32 maxAge = uint32(vm.envUint("SOLANA_PRICE_MAX_AGE"));
+        uint256 rawOpen = vm.envUint("SOLANA_STOCK_SESSION_OPEN");
+        uint256 rawClose = vm.envUint("SOLANA_STOCK_SESSION_CLOSE");
+        uint256 rawMaxAge = vm.envUint("SOLANA_PRICE_MAX_AGE");
+        if (rawOpen > type(uint64).max || rawClose > type(uint64).max || rawMaxAge > type(uint32).max) {
+            revert InvalidDeploymentConfiguration();
+        }
+        uint64 open = uint64(rawOpen);
+        uint64 close = uint64(rawClose);
+        uint32 maxAge = uint32(rawMaxAge);
         vm.startBroadcast();
         result = _deployV6(recipient, guardian, owner, signer, open, close, maxAge);
         vm.stopBroadcast();
