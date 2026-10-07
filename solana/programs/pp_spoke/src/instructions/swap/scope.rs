@@ -82,14 +82,16 @@ mod tests {
 
     #[test]
     fn calendar_handles_dst_holidays_early_closes_and_unknown_years() {
-        for open in [1_791_379_800, 1_791_466_200, 1_791_552_600] {
+        for open in [1_772_807_400, 1_773_063_000, 1_793_367_000, 1_793_629_800,
+            1_791_379_800, 1_791_466_200, 1_791_552_600] {
             assert!(regular_session(open - 1).is_err());
             assert!(regular_session(open).is_ok());
             assert!(regular_session(open + 23_399).is_ok());
             assert!(regular_session(open + 23_400).is_err());
         }
-        for closed in [1_767_277_800, 1_768_834_800, 1_791_640_800,
-            1_795_705_200, 1_798_210_800, 1_799_074_800] {
+        for closed in [1_767_277_800, 1_768_833_000, 1_771_252_200, 1_775_223_000,
+            1_779_715_800, 1_781_875_800, 1_783_085_400, 1_788_787_800,
+            1_795_703_400, 1_798_209_000, 1_791_640_800, 1_799_074_800] {
             assert!(regular_session(closed).is_err(), "{closed}");
         }
         for day in [1_795_737_600, 1_798_070_400] {
@@ -99,6 +101,9 @@ mod tests {
         }
         assert!(regular_session(1_767_312_000 + 14 * 3600 + 30 * 60).is_ok());
         assert!(regular_session(1_767_312_000 + 14 * 3600 + 30 * 60 - 1).is_err());
+        for outside in [i64::MIN, 1_767_225_599, 1_798_761_600, i64::MAX] {
+            assert!(regular_session(outside).is_err());
+        }
     }
 
     #[test]
@@ -129,11 +134,15 @@ mod tests {
             original_mint[168..170].copy_from_slice(&56u16.to_le_bytes());
             original_mint[202..210].copy_from_slice(&1f64.to_le_bytes());
             original_mint[218..226].copy_from_slice(&1.001701196801074f64.to_le_bytes());
-            for variant in 0..19 {
+            for variant in 0..30 {
                 let mut prices_data = original_prices.clone();
                 let mut mapping_data = original_mapping.clone();
                 let mut mint_data = original_mint.clone();
                 let mut price_key = PRICES; let mut owner = PROGRAM;
+                let mut mapping_key = MAPPINGS; let mut mapping_owner = PROGRAM;
+                let mut mint_owner = TOKEN_2022;
+                let mut prices_writable = false; let mut mapping_writable = false;
+                let mut prices_executable = false; let mut mapping_executable = false;
                 let mut altered_clock = clock.clone(); let mut altered_policy = policy.clone();
                 match variant {
                     1 => price_key = Pubkey::new_unique(),
@@ -154,15 +163,26 @@ mod tests {
                     16 => mint_data[218..226].copy_from_slice(&f64::NAN.to_le_bytes()),
                     17 => { prices_data.pop(); },
                     18 => altered_clock.unix_timestamp = 1_791_403_200,
+                    19 => mapping_key = Pubkey::new_unique(),
+                    20 => mapping_owner = Pubkey::new_unique(),
+                    21 => mint_owner = Pubkey::new_unique(),
+                    22 => prices_writable = true,
+                    23 => mapping_writable = true,
+                    24 => prices_executable = true,
+                    25 => mapping_executable = true,
+                    26 => { mapping_data.pop(); },
+                    27 => mapping_data[19_464 + 20 * index + 1] = 1,
+                    28 => prices_data[start + 40] = 1,
+                    29 => prices_data[start + 16..start + 24].fill(0),
                     _ => {},
                 }
                 let mut prices_lamports = 1; let mut mapping_lamports = 1; let mut mint_lamports = 1;
-                let prices = AccountInfo::new(&price_key, false, false, &mut prices_lamports,
-                    &mut prices_data, &owner, false, 0);
-                let mapping = AccountInfo::new(&MAPPINGS, false, false, &mut mapping_lamports,
-                    &mut mapping_data, &PROGRAM, false, 0);
+                let prices = AccountInfo::new(&price_key, false, prices_writable, &mut prices_lamports,
+                    &mut prices_data, &owner, prices_executable, 0);
+                let mapping = AccountInfo::new(&mapping_key, false, mapping_writable, &mut mapping_lamports,
+                    &mut mapping_data, &mapping_owner, mapping_executable, 0);
                 let mint = AccountInfo::new(&stock, false, false, &mut mint_lamports,
-                    &mut mint_data, &TOKEN_2022, false, 0);
+                    &mut mint_data, &mint_owner, false, 0);
                 let result = reference(&prices, &mapping, &mint, true, &altered_policy, &altered_clock);
                 assert_eq!(result.is_ok(), variant == 0, "variant {variant}");
                 if let Ok(price) = result {
