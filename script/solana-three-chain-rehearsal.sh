@@ -6,7 +6,8 @@ STATE="$ROOT/cache/solana-deploy"
 mkdir -p "$STATE"
 export ARBITRUM_RPC_URL='https://arb1.arbitrum.io/rpc'
 export ROBINHOOD_RPC_URL='https://rpc.mainnet.chain.robinhood.com'
-export ARBITRUM_FORK_BLOCK=512239244 ROBINHOOD_FORK_BLOCK=82439071
+export ARBITRUM_FORK_BLOCK="${ARBITRUM_FORK_BLOCK:-512239244}"
+export ROBINHOOD_FORK_BLOCK="${ROBINHOOD_FORK_BLOCK:-82439071}"
 export PP_LOCALNET_RPC_PORT=8995 PP_LOCALNET_FAUCET_PORT=9995
 export PP_LOCALNET_GOSSIP_PORT=19500 PP_LOCALNET_DYNAMIC_PORTS=19501-19560
 export PP_LOCALNET_RPC='http://127.0.0.1:8995'
@@ -24,12 +25,13 @@ if [[ ! -f "$ROOT/solana/.localnet/manifest.json" ]]; then
   run clone env SOLANA_CLONE_DELAY_MS=1000 bash solana/scripts/localnet.sh prepare
 fi
 if [[ -f "$ROOT/solana/.localnet/manifest.json" ]]; then
+  run core-fixtures node solana/tests/core/prepare-fixtures.ts
   started=0
   cleanup() { if [[ "$started" == 1 ]]; then bash solana/scripts/localnet.sh stop; fi; }
   trap cleanup EXIT
   if bash solana/scripts/localnet.sh start >"$STATE/validator.log" 2>&1; then
     started=1
-    run native-localnet npm --prefix solana run test:localnet
+    run native-core-report bash -c 'cd solana && node --test --test-concurrency=1 tests/core/core.test.ts tests/report/report.test.ts'
   else failed=1; printf 'validator FAIL\n'; fi
 fi
 printf 'Separate chain legs only: this runner does NOT prove one shared three-chain Fund or transport correlation.\n'
