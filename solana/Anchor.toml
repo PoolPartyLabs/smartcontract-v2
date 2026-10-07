@@ -7,7 +7,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-pp_spoke = "Fg6PaFpoGXkYsidMpWxTWqkZ7FEfcYkgMQHGfVNLusVw"
+pp_spoke = "7PptZ653uyn5eoAFKqs4DXR1ijxH6sf49f2YAGMLTfCx"
 
 [provider]
 cluster = "Localnet"

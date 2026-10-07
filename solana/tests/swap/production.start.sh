@@ -15,7 +15,7 @@ solana-test-validator --reset --quiet --bind-address 127.0.0.1 \
   --rpc-port "$RPC_PORT" --faucet-port "$FAUCET_PORT" --gossip-port "$GOSSIP_PORT" --dynamic-port-range "$DYNAMIC_PORTS" \
   --slots-per-epoch 32 --ledger "$STATE/ledger" --warp-slot "$SLOT" \
   --account-dir "$STATE/accounts" --account-dir "$STATE/overrides" \
-  --bpf-program Fg6PaFpoGXkYsidMpWxTWqkZ7FEfcYkgMQHGfVNLusVw "$ROOT/target/deploy/pp_spoke.so" \
+  --bpf-program 7PptZ653uyn5eoAFKqs4DXR1ijxH6sf49f2YAGMLTfCx "$ROOT/target/deploy/pp_spoke.so" \
   >"$STATE/validator.log" 2>&1 &
 printf '%s\n' "$!" > "$STATE/validator.pid"
 for attempt in $(seq 1 120); do

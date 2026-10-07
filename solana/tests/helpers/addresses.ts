@@ -1,7 +1,7 @@
 import { PublicKey } from '@solana/web3.js';
 
 export const ADDRESSES = {
-  spoke: 'Fg6PaFpoGXkYsidMpWxTWqkZ7FEfcYkgMQHGfVNLusVw',
+  spoke: '7PptZ653uyn5eoAFKqs4DXR1ijxH6sf49f2YAGMLTfCx',
   usdc: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
   tslax: 'XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB',
   wsol: 'So11111111111111111111111111111111111111112',
