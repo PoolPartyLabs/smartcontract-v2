@@ -20,6 +20,9 @@ async function main() {
       || !Number.isFinite(Date.parse(manifest.approvedAt)) || !manifest.sourceCommit?.match(/^[a-f0-9]{40}$/)) {
     fail('Founder approval and exact source commit are required; no transaction submitted');
   }
+  if (manifest.authority !== '6VTveiPVZVM7H9BWEsUsu4ivsrPjKw9ePrLQqHaFgJaA') {
+    fail('Upgrade authority must equal the R8 founder key; no transaction submitted');
+  }
   const git = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' });
   const clean = spawnSync('git', ['status', '--porcelain', '--untracked-files=no'], { cwd: root, encoding: 'utf8' });
   if (git.status !== 0 || git.stdout.trim() !== manifest.sourceCommit || clean.status !== 0 || clean.stdout.trim()) {

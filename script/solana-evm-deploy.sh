@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set +x
 set -euo pipefail
 ROOT="$(dirname "$(dirname "$(realpath "$0")")")"
 cd "$ROOT"

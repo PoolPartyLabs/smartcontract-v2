@@ -8,6 +8,9 @@ import { Keypair, Connection, PublicKey } from '@solana/web3.js';
 
 const require = createRequire(import.meta.url);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+if (process.argv.length !== 3 || process.argv[2] !== '--broadcast') {
+  throw new Error('Local deployment requires the explicit --broadcast flag; no transaction submitted');
+}
 const endpoint = process.env.PP_DEPLOY_LOCAL_RPC ?? 'http://127.0.0.1:8970';
 let url;
 try { url = new URL(endpoint); } catch { throw new Error('Invalid local validator endpoint; value suppressed'); }
@@ -28,9 +31,6 @@ try {
   deployer = Keypair.fromSecretKey(secret);
 } catch {
   throw new Error('Invalid deployer parameter; expected a 64-byte JSON array or base58 keypair');
-}
-if (process.argv.length !== 3 || process.argv[2] !== '--broadcast') {
-  throw new Error('Local deployment requires the explicit --broadcast flag; no transaction submitted');
 }
 async function main() {
 const binary = resolve(root, 'target/deploy/pp_spoke.so');

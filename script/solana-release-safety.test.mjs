@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(new URL('../solana/package.json', import.meta.url));
@@ -42,6 +44,42 @@ test('DEC-195: rehearsal builder emits explicit 900k limit, preserving lower lim
   await import('../solana/scripts/deploy-compute-budget.mjs');
   assert.equal(ComputeBudgetProgram.setComputeUnitLimit({ units: 1400000 }).data.readUInt32LE(1), 900000);
   assert.equal(ComputeBudgetProgram.setComputeUnitLimit({ units: 600000 }).data.readUInt32LE(1), 600000);
+});
+
+test('R8: an approved manifest cannot substitute the upgrade authority', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'pp-authority-test-'));
+  try {
+    const approval = JSON.parse(readFileSync('script/solana-mainnet-approval.json'));
+    const filename = join(directory, 'approval.json');
+    writeFileSync(filename, JSON.stringify({ ...approval, status: 'FOUNDER_APPROVED',
+      approvedBy: 'test', approvedAt: new Date().toISOString(), sourceCommit: 'a'.repeat(40),
+      authority: '11111111111111111111111111111111' }));
+    const result = spawnSync(process.execPath, ['solana/scripts/deploy-mainnet.mjs', '--broadcast'], {
+      encoding: 'utf8', env: { ...process.env, PP_DEPLOY_APPROVAL_FILE: filename,
+        SOLANA_MAINNET_RPC: 'SECRET_ENDPOINT', SOLANA_DEPLOYER_PRIVATE_KEY: 'SECRET_KEY' },
+    });
+    assert.notEqual(result.status, 0);
+    assert.doesNotMatch(result.stdout + result.stderr, /SECRET_ENDPOINT|SECRET_KEY/);
+    assert.match(readFileSync('solana/scripts/deploy-mainnet.mjs', 'utf8'), /manifest\.authority !== '6VTveiPVZVM7H9BWEsUsu4ivsrPjKw9ePrLQqHaFgJaA'/);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('deployment shell wrappers disable inherited tracing before parameter access', () => {
+  for (const filename of ['script/solana-evm-deploy.sh', 'script/solana-three-chain-creation.sh']) {
+    const args = filename.includes('evm-deploy') ? ['arbitrum', 'factory-v6', '--broadcast'] : ['--broadcast'];
+    const result = spawnSync('bash', ['-x', filename, ...args], { encoding: 'utf8',
+      env: { ...process.env, PP_EVM_FOUNDER_APPROVED: '', PRIVATE_KEY: 'SECRET_KEY',
+        DEPLOYER_PRIVATE_KEY: 'SECRET_KEY', ARBITRUM_RPC_URL: 'SECRET_ENDPOINT' } });
+    assert.notEqual(result.status, 0);
+    assert.doesNotMatch(result.stdout + result.stderr, /SECRET_KEY|SECRET_ENDPOINT/);
+    assert.match(readFileSync(filename, 'utf8'), /^#![^\n]+\nset \+x\n/);
+  }
+});
+
+test('persistent program keys remain excluded in every clone', () => {
+  assert.match(readFileSync('.gitignore', 'utf8'), /^\/\.keys\/$/m);
+  const result = spawnSync('git', ['check-ignore', '--no-index', '.keys/pp_spoke-program-keypair.json'], { encoding: 'utf8' });
+  assert.equal(result.status, 0);
 });
 
 test('release build generates off-chain IDL and excludes all rehearsal/debug features', () => {

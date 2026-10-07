@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-set -euo pipefail
 set +x
+set -euo pipefail
 ROOT="$(dirname "$(dirname "$(realpath "$0")")")"
 cd "$ROOT"
 if [[ "$#" != 0 ]]; then printf 'No flags supported; fork/localnet only\n' >&2; exit 2; fi
