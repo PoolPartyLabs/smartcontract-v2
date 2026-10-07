@@ -19,6 +19,7 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {SolanaMandateV6, SolanaSpokeRegistryV6} from "../mandate/SolanaMandateV6.sol";
 import {SolanaDeploymentV6} from "./SolanaDeploymentV6.sol";
+import {SolanaPolicyV6} from "../mandate/SolanaPolicyV6.sol";
 
 /// @title FundFactoryV6
 /// @dev DEC-188, DEC-190: isolated new-Fund version; existing factories and deployed Funds remain unchanged.
@@ -51,6 +52,7 @@ contract FundFactoryV6 is IFundFactory, ReentrancyGuardTransient, EIP712 {
     bytes32 internal constant ROLE_NATIVE_REGISTRY = "SolanaRegistryV6";
     mapping(address manager => uint256) public bindingNonce;
     mapping(address fund => bytes32) public bindingCommitment;
+    mapping(address fund => bytes32) public fullSolanaCommitment;
     SolanaMandateV6.Config private _pendingNative;
 
     struct Binding {
@@ -61,6 +63,46 @@ contract FundFactoryV6 is IFundFactory, ReentrancyGuardTransient, EIP712 {
 
     error InvalidSolanaBinding();
     error NativeCreationRequired();
+
+    bytes32 public constant BOOTSTRAP_TYPEHASH = keccak256(
+        "SolanaBootstrap(uint256 hubChain,address core,bytes32 mandateHash,bytes32 policyHash,uint16 spokeIndex,bytes32 program,bytes32 fundPda,bytes32 solanaKey,bytes32 usdcAta,bytes32 tslaxAta,bytes32 nvdaxAta,bytes32 wsolAta,bytes32 nativeMandateHash,bytes32 fundId,uint256 nonce,uint256 expiry)"
+    );
+
+    /// @notice DEC-190/200: the same EOA signature authorizes Hub creation and native bootstrap.
+    function createFundV6Committed(
+        Mandate memory mandate_, HubParams memory params, SolanaMandateV6.Config memory native,
+        SolanaPolicyV6.Commitment memory commitment, Binding memory binding
+    ) external nonReentrant returns (FundAddresses memory addresses) {
+        if (msg.sender != mandate_.manager || mandate_.manager.code.length != 0 || native.managerKey == 0) {
+            revert InvalidSolanaBinding();
+        }
+        SolanaPolicyV6.validate(mandate_, native, commitment);
+        bytes32 id = _fundIdOf(mandate_.hubChainId, params.creationNumber, mandate_.manager);
+        address core = _addressOf(id, ROLE_CORE_VAULT, mandate_.hubChainId);
+        SolanaPolicyV6.validateIdentities(mandate_.hubChainId, core, native, commitment);
+        bytes32 digest = bootstrapDigest(mandate_.hash(), native, commitment, core, id, binding.nonce, binding.expiry);
+        if (
+            msg.sender != mandate_.manager || mandate_.manager.code.length != 0
+                || binding.nonce != bindingNonce[mandate_.manager] || block.timestamp > binding.expiry
+                || ECDSA.recover(digest, binding.signature) != mandate_.manager
+        ) revert InvalidSolanaBinding();
+        SolanaDeploymentV6.validate(mandate_, native);
+        ++bindingNonce[mandate_.manager];
+        bindingCommitment[core] = digest;
+        fullSolanaCommitment[core] = SolanaPolicyV6.fullHash(mandate_.hash(), SolanaMandateV6.hash(native), commitment);
+        SolanaDeploymentV6.store(_pendingNative, native);
+        addresses = _createFund(mandate_, params);
+        SolanaDeploymentV6.clear(_pendingNative);
+    }
+
+    function bootstrapDigest(
+        bytes32 mandateHash, SolanaMandateV6.Config memory native, SolanaPolicyV6.Commitment memory commitment,
+        address core, bytes32 fundId, uint256 nonce, uint256 expiry
+    ) internal view returns (bytes32) {
+        return _hashTypedDataV4(SolanaPolicyV6.bootstrapHash(
+            BOOTSTRAP_TYPEHASH, block.chainid, core, mandateHash, native, commitment, fundId, nonce, expiry
+        ));
+    }
 
     /// @notice Salt roles (the fund contract each salt deploys).
     bytes32 public constant ROLE_CORE_VAULT = "CoreVault";
@@ -188,37 +230,16 @@ contract FundFactoryV6 is IFundFactory, ReentrancyGuardTransient, EIP712 {
 
     /// @notice Creates only new Funds with an EOA Manager's signed native commitment (DEC-188, DEC-190).
     /// @dev Solana acceptance is enforced by the Solana init instruction, not inferred from an EVM signature.
-    function createFundV6(
-        Mandate memory m,
-        HubParams memory p,
-        SolanaMandateV6.Config memory native,
-        Binding memory binding
-    ) external nonReentrant returns (FundAddresses memory addresses) {
-        if (msg.sender != m.manager || m.manager.code.length != 0 || native.managerKey == 0) {
-            revert InvalidSolanaBinding();
-        }
-        address predictedCore =
-            _addressOf(_fundIdOf(m.hubChainId, p.creationNumber, m.manager), ROLE_CORE_VAULT, m.hubChainId);
-        bytes32 digest = bindingDigest(native, predictedCore, binding.nonce, binding.expiry);
-        uint256 nowTimestamp = block.timestamp;
-        if (
-            binding.nonce != bindingNonce[m.manager] || nowTimestamp > binding.expiry
-                || ECDSA.recover(digest, binding.signature) != m.manager
-        ) revert InvalidSolanaBinding();
-        SolanaDeploymentV6.validate(m, native);
-        ++bindingNonce[m.manager];
-        bindingCommitment[predictedCore] = digest;
-        SolanaDeploymentV6.store(_pendingNative, native);
-        addresses = _createFund(m, p);
-        SolanaDeploymentV6.clear(_pendingNative);
+    function createFundV6(Mandate memory, HubParams memory, SolanaMandateV6.Config memory, Binding memory)
+        external pure returns (FundAddresses memory)
+    {
+        revert NativeCreationRequired();
     }
 
-    function bindingDigest(SolanaMandateV6.Config memory native, address fund, uint256 nonce, uint256 expiry)
-        public
-        view
-        returns (bytes32)
+    function bindingDigest(SolanaMandateV6.Config memory, address, uint256, uint256)
+        external pure returns (bytes32)
     {
-        return _hashTypedDataV4(SolanaDeploymentV6.bindingHash(native, fund, nonce, expiry, BINDING_TYPEHASH));
+        revert NativeCreationRequired();
     }
 
     function _createFund(Mandate memory m, HubParams memory p) private returns (FundAddresses memory addresses) {
