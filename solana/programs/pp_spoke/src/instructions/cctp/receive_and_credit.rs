@@ -21,7 +21,7 @@ pub struct ReceiveAndCredit<'info> {
     pub route: Account<'info, CctpRoute>,
     #[account(mut, seeds = [b"cctp_ledger", fund.key().as_ref()], bump, has_one = fund)]
     pub ledger: Account<'info, CctpLedger>,
-    #[account(init, payer = authority, space = 8 + Transit::INIT_SPACE, seeds = [b"transit", b"in", fund.key().as_ref(), transit_seed(&payload)?], bump)]
+    #[account(init, payer = authority, space = 8 + Transit::INIT_SPACE, seeds = [b"transit".as_ref(), b"in".as_ref(), fund.key().as_ref(), transit_seed(&payload)?], bump)]
     pub transit: Account<'info, Transit>,
     /// CHECK: native USDC custody and exact delta verified around Circle receive.
     #[account(mut, address = cpi::ata(&vault.key()))]

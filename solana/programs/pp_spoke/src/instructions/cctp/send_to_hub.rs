@@ -20,7 +20,7 @@ pub struct SendToHub<'info> {
     pub route: Account<'info, CctpRoute>,
     #[account(mut, seeds = [b"cctp_ledger", fund.key().as_ref()], bump, has_one = fund)]
     pub ledger: Account<'info, CctpLedger>,
-    #[account(init, payer = authority, space = 8 + Transit::INIT_SPACE, seeds = [b"transit", b"out", fund.key().as_ref(), &outbound_id(&fund.fund_id, transit_seed(&payload)?)?], bump)]
+    #[account(init, payer = authority, space = 8 + Transit::INIT_SPACE, seeds = [b"transit".as_ref(), b"out".as_ref(), fund.key().as_ref(), outbound_id(&fund.fund_id, transit_seed(&payload)?)?.as_ref()], bump)]
     pub transit: Account<'info, Transit>,
     /// CHECK: legacy native USDC ATA layout and custody checked before and after CPI.
     #[account(mut, address = cpi::ata(&vault.key()))]
