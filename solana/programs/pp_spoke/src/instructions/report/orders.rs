@@ -103,7 +103,7 @@ pub fn execute_acknowledgement(fund: &mut Account<FundState>, posted: &AccountIn
     }
     require!(payload[224..256] == word(2) && accounts.len() == 2, ReportError::InvalidOrder);
     let id: [u8;32] = payload[96..128].try_into().unwrap();
-    let key = Pubkey::find_program_address(&[b"transit", fund.key().as_ref(), &id], &crate::ID).0;
+    let key = Pubkey::find_program_address(&[b"transit", b"out", fund.key().as_ref(), &id], &crate::ID).0;
     require_keys_eq!(*accounts[0].key, key, ReportError::InvalidOrder);
     require_keys_eq!(*accounts[0].owner, crate::ID, ReportError::InvalidOrder);
     require!(accounts[0].is_writable && accounts[1].is_writable, ReportError::InvalidOrder);

@@ -40,6 +40,15 @@ pub fn transit_seed(payload: &[u8]) -> Result<&[u8]> {
         .ok_or_else(|| error!(CctpError::InvalidPayload))
 }
 
+/// DEC-191: bind outbound business nonce to Fund and direction before the burn hook is built.
+pub fn outbound_id(fund_id: &[u8;32], nonce: &[u8]) -> Result<[u8;32]> {
+    require!(nonce.len() == 32 && nonce != [0;32], CctpError::InvalidPayload);
+    Ok(anchor_lang::solana_program::keccak::hashv(&[
+        b"PoolParty/CCTPTransit/v2", fund_id, &uint_word(u64::from(SOLANA_DOMAIN)),
+        &uint_word(u64::from(HUB_DOMAIN)), nonce
+    ]).to_bytes())
+}
+
 pub fn evm(address: &[u8; 20]) -> [u8; 32] {
     let mut word = [0; 32];
     word[12..].copy_from_slice(address);
