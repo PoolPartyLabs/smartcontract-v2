@@ -9,6 +9,7 @@ use anchor_lang::prelude::*;
 #[derive(Accounts)]
 pub struct RaydiumCollectFees<'info> {
     pub authority: Signer<'info>,
+    #[account(mut)]
     pub fund: Box<Account<'info, FundState>>,
     /// CHECK: canonical Fund vault signs bounded venue CPIs.
     #[account(mut)]

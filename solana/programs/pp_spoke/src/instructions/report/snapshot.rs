@@ -117,19 +117,9 @@ pub fn snapshot(
             crate::instructions::core::admission::venue(fund, crate::instructions::raydium::wire::CLMM, position.pool, Pubkey::default())?;
             if position.closed { require!(position.liquidity == 0, ReportError::InvalidAccounts); continue; }
             active += 1;
-            let valuation_accounts = accounts.get(cursor..cursor + 4).ok_or(ReportError::AdapterNotIntegrated)?;
-            cursor += 4;
-            require_keys_eq!(*valuation_accounts[0].key, position.pool, ReportError::InvalidAccounts);
-            require_keys_eq!(*valuation_accounts[1].key, position.personal_position, ReportError::InvalidAccounts);
-            let native = crate::instructions::raydium::validation::position(&valuation_accounts[1])?;
-            require!(native.mint == position.nft_mint && native.lower == position.tick_lower && native.upper == position.tick_upper && native.liquidity == position.liquidity, ReportError::InvalidAccounts);
-            let pool = crate::instructions::raydium::validation::pool(&valuation_accounts[0])?;
-            let (principal, income) = crate::instructions::raydium::validation::valuation(&valuation_accounts[0], &valuation_accounts[1], &valuation_accounts[2], &valuation_accounts[3])?;
-            report.positions.push([
-                crate::instructions::raydium::wire::CLMM.to_bytes(), position.pool.to_bytes(), [0;32], position.personal_position.to_bytes(),
-                codec::signed_word(i64::from(position.tick_lower)), codec::signed_word(i64::from(position.tick_upper)), word(position.liquidity),
-                pool.mints[0].to_bytes(), pool.mints[1].to_bytes(), word(u128::from(principal[0])), word(u128::from(principal[1])), word(u128::from(income[0])), word(u128::from(income[1])),
-            ]);
+            let valuation_accounts = accounts.get(cursor..cursor + 6).ok_or(ReportError::AdapterNotIntegrated)?;
+            cursor += 6;
+            report.positions.push(raydium_value(fund, &position, valuation_accounts, accounts)?);
         }
     }
     require!(active == fund.active_positions as usize, ReportError::AdapterNotIntegrated);
@@ -151,6 +141,29 @@ pub fn snapshot(
     }
     require!(cursor == accounts.len(), ReportError::InvalidAccounts);
     Ok(report)
+}
+
+#[inline(never)]
+fn raydium_value(fund: &FundState, position: &RaydiumPosition, valuation_accounts: &[AccountInfo], accounts: &[AccountInfo]) -> Result<[[u8;32];13]> {
+            require_keys_eq!(*valuation_accounts[0].key, position.pool, ReportError::InvalidAccounts);
+            require_keys_eq!(*valuation_accounts[1].key, position.personal_position, ReportError::InvalidAccounts);
+            let native = crate::instructions::raydium::validation::position(&valuation_accounts[1])?;
+            require!(native.mint == position.nft_mint && native.lower == position.tick_lower && native.upper == position.tick_upper && native.liquidity == position.liquidity, ReportError::InvalidAccounts);
+            let pool = crate::instructions::raydium::validation::pool(&valuation_accounts[0])?;
+            for side in 0..2 {
+                require_keys_eq!(*valuation_accounts[4 + side].key, pool.vaults[side], ReportError::InvalidAccounts);
+                crate::instructions::raydium::validation::token(&valuation_accounts[4 + side], pool.mints[side], position.pool, false, false)?;
+                if fund.assets.iter().any(|asset| asset.mint == pool.mints[side] && asset.stock) {
+                    let mint = accounts.iter().find(|account| *account.key == pool.mints[side]).ok_or(ReportError::StockWitnessNotIntegrated)?;
+                    crate::instructions::core::stock::witness(mint, &valuation_accounts[4 + side])?;
+                }
+            }
+            let (principal, income) = crate::instructions::raydium::validation::valuation(&valuation_accounts[0], &valuation_accounts[1], &valuation_accounts[2], &valuation_accounts[3])?;
+    Ok([
+                crate::instructions::raydium::wire::CLMM.to_bytes(), position.pool.to_bytes(), [0;32], position.personal_position.to_bytes(),
+                codec::signed_word(i64::from(position.tick_lower)), codec::signed_word(i64::from(position.tick_upper)), word(position.liquidity),
+                pool.mints[0].to_bytes(), pool.mints[1].to_bytes(), word(u128::from(principal[0])), word(u128::from(principal[1])), word(u128::from(income[0])), word(u128::from(income[1])),
+    ])
 }
 
 pub fn encoded_snapshot(

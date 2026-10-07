@@ -32,6 +32,14 @@ pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, SwapToRatio<'info>>, paylo
     let mut output = crate::instructions::core::admission::read_ledger(output_account, ctx.accounts.fund.key(), request.output_mint)?;
     require!(request.requested_input <= input.principal, SwapError::Custody);
     let mints: Vec<Pubkey> = ctx.accounts.fund.assets.iter().map(|asset| asset.mint).collect();
+    for mint in [request.input_mint, request.output_mint] {
+        if ctx.accounts.fund.assets.iter().any(|asset| asset.mint == mint && asset.stock) {
+            let mint_account = ctx.remaining_accounts[..ledger_offset].iter().find(|account| *account.key == mint).ok_or(SwapError::Mint)?;
+            let ata = crate::instructions::core::custody::associated_address(&ctx.accounts.vault.key(), &mint)?;
+            let token_account = ctx.remaining_accounts[..ledger_offset].iter().find(|account| *account.key == ata).ok_or(SwapError::Custody)?;
+            crate::instructions::core::stock::witness(mint_account, token_account)?;
+        }
+    }
     let policy = SealedPolicy { mints: &mints, max_slippage_bps: request.slippage_bps };
     // DEC-197, R6.2/R6.3: guarded V1 rehearsal path only; T5b replaces pricing/quote/decoder.
     let fund_key = ctx.accounts.fund.key();
