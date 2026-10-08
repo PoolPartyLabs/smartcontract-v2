@@ -1,0 +1,158 @@
+Pool Party Source-Available License 1.0
+
+SPDX identifier: LicenseRef-PoolParty-Source-Available-1.0
+
+Copyright (c) 2026 Pool Party Labs and the respective contributors.
+All rights reserved except for the permissions expressly granted below.
+
+1. Scope and definitions
+
+"Licensor" means Pool Party Labs, solely for material it owns or is authorized
+to license. A commercial agreement must identify the contracting legal entity
+and be signed by its authorized representative.
+
+"Material" means the Pool Party-authored source code, interfaces, contracts,
+adapters, libraries, applications, tests, scripts, configuration, documentation
+and original assets distributed with this license, including modifications.
+This is the default license for current and future first-party material in the
+repository while this license remains in effect, regardless of development
+stage. Separately licensed third-party material and the exceptions identified
+in LICENSING.md are excluded.
+
+"Official Platform" means the Pool Party services and contract deployments
+operated or expressly designated by the Licensor as official. A copy, fork or
+deployment does not become official merely by reproducing the name, branding,
+source code, addresses or documentation.
+
+"Written Authorization" means express permission in an agreement signed by
+an authorized representative of the Licensor. Public source access, a fork,
+a pull request, a token holding or silence is not Written Authorization.
+
+2. Existing and third-party rights
+
+This license does not revoke, narrow or replace any rights already granted
+under MIT, AGPL, another upstream license or a separate agreement. Recipients
+may continue to exercise those rights on the material covered by that grant,
+including unchanged portions included in later versions. Adding this notice
+does not make previously licensed material exclusively subject to these terms.
+
+Third-party code, fonts, artwork, trademarks and other material retain their
+own applicable rights, notices and conditions. This license grants no rights
+in those materials and does not impose these restrictions on them. No rights
+are asserted over independently written software, uncopyrightable ideas,
+public interface facts or uses permitted by mandatory applicable law.
+
+3. Permitted purposes
+
+Subject to sections 2 and 5, the Licensor grants a worldwide, royalty-free,
+non-exclusive license to use, reproduce and modify the Material, and to
+distribute copies only as needed for the following purposes:
+
+a. Reading, learning, research, local testing, and personal or internal
+   evaluation in non-production environments, including local or test-network
+   simulations with test assets.
+
+b. Security research, vulnerability investigation, and independent audits,
+   whether paid or unpaid. This permission does not authorize interference
+   with deployed systems or movement of another person's assets.
+
+c. Creating contribution or study forks, sharing patches and submitting pull
+   requests. Such copies must remain identifiable as evaluation or contribution
+   copies, and may not be offered as a separate operational product or service.
+
+d. Accessing and operating the Official Platform through its documented
+   interfaces and features, subject to its applicable service terms and
+   contract permissions. Investors and managers may conduct the activities
+   supported by that platform, including earning returns and charging manager
+   fees. This does not authorize hosting a separate copy of the frontend,
+   backend or fund system.
+
+e. Developing and operating independently written adapters, tools and
+   integrations that interoperate with the Official Platform. Its published
+   interface definitions and integration examples may be copied to the extent
+   reasonably necessary for that interoperability. This does not authorize
+   copying restricted implementation code into a separate product, changing
+   an existing fund's mandate or bypassing platform permissions.
+
+The permitted purposes above include their expressly stated commercial
+activities. Paid audits, use of the Official Platform and permitted independent
+integrations do not require a separate commercial license solely because they
+are paid or revenue-generating.
+
+4. Uses requiring authorization
+
+Except to the extent already authorized by section 2, any use of the Material
+outside section 3 requires prior Written Authorization. In particular, without
+that authorization you may not:
+
+a. Deploy or operate a separate production instance of the fund system,
+   contracts or application, whether commercial or free.
+
+b. Use the Material to offer a separate product, hosted service, SaaS,
+   white-label service, managed solution or commercial integration containing
+   restricted implementation code.
+
+c. Sell, license, sublicense, rent or commercially redistribute the Material,
+   or publish a standalone or modified operational product derived from it.
+
+d. Distribute copies beyond the evaluation, research, audit, contribution and
+   official-platform integration purposes permitted in section 3.
+
+There is no automatic conversion to an open-source license after a fixed
+date. A separate written license may authorize additional rights.
+
+5. Conditions and contributions
+
+Permitted copies must retain this license, relevant copyright and attribution
+notices, third-party notices and the applicable legacy-license information.
+Mark substantive changes and identify a modified copy as unofficial unless
+the Licensor expressly designates it otherwise.
+
+No blanket trademark, trade-name, logo or endorsement license is granted.
+Truthful attribution and identification of the subject of research are
+permitted to the extent allowed by applicable law; do not imply sponsorship,
+certification or official status.
+
+The permission to submit a contribution does not transfer its ownership to the
+Licensor or give the Licensor rights it does not already have. Acceptance and
+distribution of contributions require the separate contributor permission
+described in CONTRIBUTING.md. Existing contributors' rights are not silently
+assigned or changed by this license.
+
+To the extent the Licensor has authority over necessary patent claims, it
+grants a royalty-free patent license solely for the permitted purposes in
+section 3. No license to third-party patents is granted.
+
+6. Termination
+
+The rights newly granted by this license terminate if you materially violate
+its conditions and fail to cure the violation within 30 days after written
+notice from the Licensor. Upon termination, cease exercising those rights and
+remove copies whose retention is not otherwise authorized.
+
+Termination does not affect rights under section 2, independently written
+material, or a separate valid agreement. Any broader remedy remains subject
+to applicable law.
+
+7. Disclaimer and liability
+
+THE MATERIAL IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE
+LICENSOR AND CONTRIBUTORS ARE NOT LIABLE FOR CLAIMS, DAMAGES OR OTHER
+LIABILITY ARISING FROM THE MATERIAL OR ITS USE, WHETHER IN CONTRACT, TORT
+OR OTHERWISE.
+
+This license grants copyright permissions, not a warranty, security audit,
+regulatory approval or authorization to access another person's system or
+assets.
+
+8. Interpretation
+
+If a provision is unenforceable, it is limited to the extent necessary under
+applicable law, without eliminating the remaining provisions. No implied
+rights are granted beyond applicable law and the express permissions above.
+The English text is the authoritative version of this license.
+
+This is a source-available license. Its restrictions on deployment, commercial
+use and redistribution mean it is not an OSI-approved open-source license.

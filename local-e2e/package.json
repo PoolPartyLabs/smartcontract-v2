@@ -2,6 +2,7 @@
   "name": "pool-party-local-e2e",
   "version": "0.0.0",
   "private": true,
+  "license": "SEE LICENSE IN LICENSE",
   "description": "Local two-fork development harness for the Pool Party v2 contracts: Arbitrum One and Robinhood Chain anvil forks, the real deployment scripts, a keeper standing in for Across relayers and Wormhole guardians, and an end-to-end scenario over JSON-RPC.",
   "type": "module",
   "engines": {
