@@ -2,7 +2,7 @@ import { createRequire } from 'node:module';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
-import { tmpdir } from 'node:os';
+import { tmpdir, constants as osConstants } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { R8_AUTHORITY, checkedEndpoint, assertGenesis, keypairFromParameter, keypairFromFile, requireOwnerOnly,
@@ -162,6 +162,11 @@ async function main() {
     fail('Approved combined-wallet funding minimum not met');
   }
   const directory = mkdtempSync(resolve(tmpdir(), 'pp-approved-deploy-'));
+  // An interrupt must not leave the plaintext temporary payer on disk. During a CLI step the child dies with
+  // the signal, spawnSync returns and `finally` runs; during the async recovery sends this handler removes it.
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+    process.once(signal, () => { rmSync(directory, { recursive: true, force: true }); process.exit(128 + osConstants.signals[signal]); });
+  }
   const payerPath = resolve(directory, 'payer.json');
   const childEnv = scrubbedEnv();
   function cli(step, args) {

@@ -207,6 +207,8 @@ test('CR-27: no raw key or endpoint on argv in the mainnet wrappers', () => {
   assert.doesNotMatch(solana, /'--url'/);
   assert.match(solana, /cli\('write-buffer', \['--config', configPath/);
   assert.match(solana, /cli\('deploy', \['--config', configPath/);
+  // The plaintext temporary payer is removed on an interrupt too, not only in `finally`.
+  assert.match(solana, /for \(const signal of \['SIGINT', 'SIGTERM', 'SIGHUP'\]\) \{\n    process\.once\(signal, \(\) => \{ rmSync\(directory/);
 });
 
 test('CR-27: broadcast resolves the RPC through the alias and fails closed without printing it or the key', () => {
