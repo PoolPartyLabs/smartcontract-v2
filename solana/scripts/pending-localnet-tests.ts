@@ -9,5 +9,5 @@ export const pendingLocalnetTests = [
   { path: 'tests/swap/streams.localnet.test.ts', reason: 'T8c: requires verifier-fixture genesis and local DON config; not prepared by core/report setup.' },
   { path: 'tests/report/close-pending.localnet.test.ts', reason: 'CR-28/DEC-205: runs in the production gate (solana-release-rehearsal.sh production) on its genesis: local attester and guardian CLOSE/ACK fixtures written by production.prepare.ts.' },
   { path: 'tests/swap/negatives.localnet.test.ts', reason: 'GO-2 negative sweep: fresh production.prepare.ts + production.start.sh genesis; waits >300 s for stale Pyth, so it is a separate release step, not the default gate.' },
-  { path: 'tests/swap/production.localnet.test.ts', reason: 'T8c: required separate signed-production gate needs freshly cloned oracles, canonical reward quarantine and default SBF; never substitute the default core gate.' },
+  { path: 'tests/swap/production.localnet.test.ts', reason: 'T8c: required separate signed-production gate needs freshly cloned oracles, no genesis reward quarantine (the program creates it, CR-03) and default SBF; never substitute the default core gate.' },
 ];

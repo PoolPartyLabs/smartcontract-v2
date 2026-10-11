@@ -104,8 +104,9 @@ npx tsc --noEmit
 ```
 
 The explicit fixture extension clones memo/reward accounts read-only; only local
-Fund/policy/ledger/quarantine/wallet accounts are synthesized, never pool/mint
-state. It exercises both pools, unauthorized/wrong-Fund/wrong-pool/zero-liquidity
+Fund/policy/ledger/wallet accounts are synthesized, never pool/mint state. Reward
+quarantines are not synthesized: the program creates them on the first collect
+(CR-03). It exercises both pools, unauthorized/wrong-Fund/wrong-pool/zero-liquidity
 and principal-budget negatives, a direct pool swap, real fee realization,
 ledger segregation, NFT closure, rent neutrality, CU and versioned tx size.
 ALTs are local test tables; production clients must provision their own tables.
