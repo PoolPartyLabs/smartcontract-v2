@@ -393,13 +393,19 @@ contract ComposedSolanaFundForkTest is Test, FactoryDeployment {
         _mockFeeds();
     }
 
-    /// @dev CR-18 fitness function. Fund creation is one Arbitrum transaction and Nitro caps a transaction at 32M gas;
-    ///      it must stay at or below 30M at the largest mandate the Hub admits: 3 native assets and 4 native venues
-    ///      (`SolanaSpokeRegistryV6.MAX_ASSETS/MAX_VENUES`), every venue listed as a Mandate pool, on the demo's
-    ///      Hub/Robinhood shape. Counted: 21,000 intrinsic + EIP-2028 calldata (CoreVaultV6's creation code travels in
-    ///      calldata) + execution from cold state. Not counted, and what the last 2M are for: Arbitrum's L1 data
-    ///      component (300,034 gas units measured 2026-10-09).
-    function testFundCreationFitsThirtyMillionGasAtLargestMandate() public {
+    /// @dev Measured warm-state undercount of the in-test number vs the anvil receipt (C7): 30,318,497 receipt vs
+    ///      28.85M here at the 2-venue NVDAx shape = 1,468,497, rounded up.
+    uint256 private constant WARM_STATE_RECEIPT_OFFSET = 1_500_000;
+
+    /// @dev CR-18 / C7 structural proxy. Fund creation is one Arbitrum transaction and Nitro caps its compute at
+    ///      `maxTxGasLimit` = 32M (ArbGasInfo, read live 2026-10-11); deploy day requires <= 32M with >= 1M margin. The
+    ///      AUTHORITATIVE fitness function is the anvil receipt (`script/solana-creation-gas-fitness.sh`: 28,790,965
+    ///      gas USDC+WSOL, 30,318,497 USDC+WSOL+NVDAx, 2026-10-11). This in-test number runs on warm fork state
+    ///      (21,000 intrinsic + EIP-2028 calldata + execution), so it is held to 32M - 1M margin - the calibrated
+    ///      warm-state offset, at the largest mandate the Hub admits: 3 native assets, 4 native venues
+    ///      (`SolanaSpokeRegistryV6.MAX_ASSETS/MAX_VENUES`), every venue a Mandate pool. Arbitrum's L1 poster component
+    ///      is charged outside `maxTxGasLimit`.
+    function testFundCreationFitsArbitrumCapAtLargestMandate() public {
         SolanaMandateV6.Config memory config = _largestNativeConfig();
         _assertLargestAdmissible(config);
         uint256 number = factory.nextCreationNumber();
@@ -432,7 +438,11 @@ contract ComposedSolanaFundForkTest is Test, FactoryDeployment {
         emit log_named_uint("creation calldata gas", calldataGas);
         emit log_named_uint("creation execution gas", execution);
         emit log_named_uint("creation transaction gas", total);
-        assertLe(total, 30_000_000, "CR-18: Fund creation must stay <= 30M gas (Arbitrum per-tx cap 32M)");
+        assertLe(
+            total + WARM_STATE_RECEIPT_OFFSET + 1_000_000,
+            32_000_000,
+            "CR-18/C7: Fund creation must leave >= 1M below Arbitrum's 32M per-tx cap (warm offset included)"
+        );
     }
 
     /// @dev 3 assets and 4 venues, the Hub's bounds: USDC/TSLAx and USDC/SOL Raydium pools, two Kamino reserves.

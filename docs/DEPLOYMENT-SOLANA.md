@@ -84,23 +84,38 @@ its max age. On a stale report or stock feed, an Instant payout reverts
 its reserve and 72 h term without burning, and its claim pays once state is fresh.
 Proven on the composed v6 fork path (`ComposedSolanaFund.fork.t.sol`).
 
-### Fund creation gas (CR-18)
+### Fund creation gas (CR-18, C7)
 
-Fitness test (`testFundCreationFitsThirtyMillionGasAtLargestMandate`): creation as
-one Arbitrum transaction (21,000 + calldata + cold execution) must stay <= 30M of
-Nitro's 32M per-transaction cap at the largest mandate the Hub admits. The factory no
-longer stages the native config in storage (-0.65M to -1.15M gas). Measured at 3
-native assets, every venue a Mandate pool:
+Fund creation is one Arbitrum transaction. Nitro caps its compute at `maxTxGasLimit`
+= **32,000,000** (`ArbGasInfo.getGasAccountingParams()`, read live 2026-10-11); the L1
+poster component is charged outside it. Deploy-day criterion: **receipt ≤ 32M with
+≥ 1M margin**.
 
-| Native venues | 2 | 3 | 4 | 5 | 6 | 8 |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Creation gas | 28.85M | 29.31M | **29.40M** | 29.86M | 29.79M | 30.00M |
+The fitness function is a **real receipt** on a loopback anvil fork,
+`bash script/solana-creation-gas-fitness.sh`: it broadcasts the v6 factory from the
+pinned deployer, builds the deploy-day plan with `BuildSolanaFundV6Plan` for the asset
+set prepared by `three-chain-creation.ts prepare`, sends approve + `createFundV6Committed`
+from the Manager (anvil-impersonated, no key on argv) and asserts the margin against the
+live cap. Measured 2026-10-11 at Arbitrum 513,926,501 (2 native venues):
 
-`SolanaSpokeRegistryV6` admits at most 3 assets (Solana's own bound) and **4 venues**
-(Solana accepts 8). The demo uses 2. Raising the venue bound is a founder decision
-(D10) that needs more creation-gas headroom first (e.g. CoreVaultV6 creation code
-through CodeStore, about -0.69M calldata gas). Arbitrum's L1 data component (~0.30M
-gas units on 2026-10-09) is outside the 30M and grows with L1 fees.
+| Asset set | Calldata | Receipt gas | Below the 32M cap |
+| --- | ---: | ---: | ---: |
+| USDC + WSOL (demo, default) | 47,812 B | **28,790,965** | 3,209,035 |
+| USDC + WSOL + NVDAx | 47,972 B | **30,318,497** | 1,681,503 |
+
+The in-test number (`ComposedSolanaFund.fork.t.sol`
+`testFundCreationFitsArbitrumCapAtLargestMandate`) runs on warm fork state and
+undercounts the receipt by 1,468,497 gas (28.85M vs 30,318,497 at the NVDAx 2-venue
+shape). It stays as a cheap structural proxy at the largest mandate the Hub admits
+(3 assets, 4 venues; 29.40M warm ≈ 30.9M receipt), held to 32M − 1M − a 1.5M calibrated
+offset. The factory no longer stages the native config in storage (−0.65M to −1.15M gas).
+`SolanaSpokeRegistryV6` admits at most 3 assets and 4 venues (Solana accepts 8; only 3
+distinct Solana-valid venues exist for a 3-asset Fund). Raising the venue bound is a
+founder decision (D10) that needs more headroom first (e.g. CoreVaultV6 creation code
+through CodeStore, about −0.69M calldata gas).
+
+`solana-evm-deploy.sh … fund-v6` passes `--gas-estimate-multiplier 105`: Foundry's
+default 130 % would request ≈ 39.5M gas, above the cap.
 
 ### Fork pins and test gas (CR-19)
 
@@ -140,7 +155,7 @@ Tools (all refuse to send without their approval file; all logs are sanitized):
 | **S3** EVM factory dry run | `solana-evm-deploy.sh arbitrum\|robinhood factory-v6 --dry-run` with the REAL deployer address | ☐ 27 / 15 transactions ☐ Pin = head − 100 ☐ Deployer nonce unchanged until S4 ☐ Role addresses and the `maxFeeBps = 50,000` constant in the artifacts | NO-GO |
 | **S4** BROADCAST factories | Arbitrum, then Robinhood, keystore or Ledger signer | ☐ Runtime hashes, owner/wiring, price source, Circle pins verified against the dry-run artifact ☐ Addresses recorded and `approvedFactory` set | Immutable. Partial (Arbitrum OK, Robinhood failed): retry Robinhood with the same signer; if the nonce drifted, addresses change → redeploy and update manifests. |
 | **S5** Solana program | `--preflight` → `--broadcast` → `--verify`; start the watcher | ☐ `7Ppt…` still unused ☐ Buffer address unused ☐ `--verify` exact ELF, authority, 1× capacity ☐ (D3) authority moved to the cold key, `expectedAuthority` set, `--verify` again ☐ Watcher cron OK | Partial upload keeps the buffer (≈ 5.057 SOL): resume with `--recover-prefunded` if the id was griefed, or `solana program close <BUFFER>`. Griefed id → `--recover-prefunded`. After success roll back only by **upgrade of the same id; never `program close`**. |
-| **S6** Create Fund | USDC approve + `createFundV6Committed` (`solana-evm-deploy.sh arbitrum fund-v6`) | ☐ Builder input equals the decisions (assets, Manager Solana Key, api_signer, swap policy, aliases, max report age 1,600) ☐ Dry run at a fresh pin with the actual Manager as sender ☐ Gas ≤ 30M ☐ Record tx hash, Hub core, factory, plan SHA-256 and Fund PDA in the Manager approval copy | **Irreversible.** Wrong config: do not allocate; holders exit by Instant payout while Open. |
+| **S6** Create Fund | USDC approve + `createFundV6Committed` (`solana-evm-deploy.sh arbitrum fund-v6`) | ☐ Builder input equals the decisions (assets, Manager Solana Key, api_signer, swap policy, aliases, max report age 1,600) ☐ Dry run at a fresh pin with the actual Manager as sender ☐ Gas ≤ 32M with ≥ 1M margin (C7: receipts 28,790,965 USDC+WSOL / 30,318,497 with NVDAx; `fund-v6` passes `--gas-estimate-multiplier 105`) ☐ Record tx hash, Hub core, factory, plan SHA-256 and Fund PDA in the Manager approval copy | **Irreversible.** Wrong config: do not allocate; holders exit by Instant payout while Open. |
 | **S7** Robinhood `createSpoke` | Manager EOA | ☐ SpokeVault equals the mandate's spoke | Do not allocate to Robinhood; deposits stay frozen until the spoke reports. |
 | **S8** Native bootstrap | 7 Manager-signed transactions: `three-chain-creation.ts broadcast` (or API `bootstrap` + `manager-sign.mjs` per chunk) | ☐ Fund PDA equals the commitment ☐ SwapConfig bytes equal the policy ☐ Every signature journaled; initializer landed | Rerun resumes from the journal; an uncertain signature is reconciled, never re-signed. No cancel: abandoned stage rent is stuck. |
 | **S9** Routes, emitters, keeper | Hub emitter (consistency 32), equal max ages, API discovers the v6 Fund, keeper funded | ☐ One Solana **and** one Robinhood report delivered before any capital ☐ API discovery of the three-chain Fund | NO-GO for capital; the Fund idles with its seed. |

@@ -244,3 +244,19 @@ test('CR-10: preflight reports an unreachable endpoint as a NO-GO row without na
   assert.match(result.stderr, /\[deploy-mainnet\] .* step=preflight status=nogo/);
   assert.doesNotMatch(result.stdout + result.stderr, /secret-provider-host|SECRET_PATH_KEY/);
 });
+
+test('C7: creation gas is a receipt fitness on loopback, and fund-v6 requests at most 105% of the estimate', () => {
+  const evm = readFileSync('script/solana-evm-deploy.sh', 'utf8');
+  assert.match(evm, /if \[\[ "\$MODULE" == fund-v6 \]\]; then ARGS\+=\(--gas-estimate-multiplier 105\); fi/);
+  const fitness = readFileSync('script/solana-creation-gas-fitness.sh', 'utf8');
+  assert.match(fitness, /^#![^\n]+\nset \+x\n/);
+  assert.doesNotMatch(fitness, /--private-key|--fork-url "\$ARBITRUM_RPC_URL"/);
+  assert.match(fitness, /--fork-url arbitrum .* --host 127\.0\.0\.1/);
+  assert.match(fitness, /--auto-impersonate >\/dev\/null 2>&1 &/);
+  assert.match(fitness, /GAS_USED \+ MARGIN > CAP/);
+  assert.equal(spawnSync('bash', ['-n', 'script/solana-creation-gas-fitness.sh']).status, 0);
+  const refused = spawnSync('bash', ['script/solana-creation-gas-fitness.sh'], { encoding: 'utf8',
+    env: { ...process.env, ARBITRUM_RPC_URL: 'https://SECRET_ENDPOINT.invalid', ARBITRUM_FORK_BLOCK: '', DEPLOYER_PRIVATE_KEY: 'SECRET_KEY' } });
+  assert.notEqual(refused.status, 0);
+  assert.doesNotMatch(refused.stdout + refused.stderr, /SECRET_ENDPOINT|SECRET_KEY/);
+});
