@@ -113,10 +113,11 @@ test('production signed swap plus open, real countertrade fees and NVDAx report'
   await sendMeasured(connection, keeper, receive);
   const recorded = JSON.parse(readFileSync(new URL('./fixtures/v2/wsol.json', import.meta.url), 'utf8'));
   const routeArrays = JSON.parse(readFileSync(new URL('../../.localnet/swap-production-route-arrays.json', import.meta.url), 'utf8'));
-  for (let index = 0; index < 3; index++) recorded.build.swapInstruction.accounts[20 + index].pubkey = routeArrays[index];
+  routeArrays.slots.forEach((slot: number, index: number) => { recorded.build.swapInstruction.accounts[slot].pubkey = routeArrays.arrays[index]; });
   const before = await connection.getMultipleAccountsInfo([fund, publicKey(config), publicKey(ledger(ADDRESSES.usdc)), publicKey(ledger(ADDRESSES.wsol))]);
   // CR-33: one exact named error per negative, never an alternation that a wrong-but-listed error satisfies.
-  for (const [options, expected] of [[{ forged: true }, 'InvalidSignature'], [{ deadline: 1n }, 'Expired'], [{ impact: 1 }, 'Impact'], [{ nonce: 1n }, 'Replay']] as const) {
+  // The Impact case quotes 1% below the recorded route so it never depends on the live quote/oracle sign.
+  for (const [options, expected] of [[{ forged: true }, 'InvalidSignature'], [{ deadline: 1n }, 'Expired'], [{ impact: 1, outputBps: 9_900n }, 'Impact'], [{ nonce: 1n }, 'Replay']] as const) {
     await assert.rejects(sendMeasured(connection, manager, signedSwap(recorded, common, core, apiKey, config, ledger, options)), new RegExp(`Error Code: ${expected}\\.`));
     const after = await connection.getMultipleAccountsInfo([fund, publicKey(config), publicKey(ledger(ADDRESSES.usdc)), publicKey(ledger(ADDRESSES.wsol))]);
     assert.deepEqual(after.map(account => account!.data), before.map(account => account!.data));
@@ -168,8 +169,8 @@ test('production signed swap plus open, real countertrade fees and NVDAx report'
   const atomicBefore = await connection.getMultipleAccountsInfo([publicKey(config), publicKey(ledger(ADDRESSES.usdc)), publicKey(ledger(ADDRESSES.wsol)), usdc, testAta(ADDRESSES.wsol, vault)]);
   const failedSimulation = await connection.simulateTransaction(failedAtomic, { sigVerify: true });
   assert.ok(failedSimulation.value.err);
-  assert.ok(failedSimulation.value.logs?.some(log => log.includes('Instruction: RouteV2')));
-  assert.ok(failedSimulation.value.logs?.some(log => log.includes('Error Code: Slippage.')));
+  assert.ok(failedSimulation.value.logs?.some(log => log.includes('Instruction: RouteV2')), failedSimulation.value.logs?.join('\n'));
+  assert.ok(failedSimulation.value.logs?.some(log => log.includes('Error Code: Slippage.')), failedSimulation.value.logs?.join('\n'));
   const failedSignature = await connection.sendRawTransaction(failedAtomic.serialize(), { skipPreflight: true });
   assert.ok((await connection.confirmTransaction({ signature: failedSignature, ...blockhash }, 'confirmed')).value.err);
   const atomicAfter = await connection.getMultipleAccountsInfo([publicKey(config), publicKey(ledger(ADDRESSES.usdc)), publicKey(ledger(ADDRESSES.wsol)), usdc, testAta(ADDRESSES.wsol, vault)]);

@@ -101,7 +101,8 @@ test('close is refused while an outbound CCTP transit is pending, then completes
   const reportAccounts = [ledger(ADDRESSES.usdc), usdc, ledger(ADDRESSES.wsol), testAta(ADDRESSES.wsol, vault)];
   const finalize = (transits: string[]) => {
     const operation = instruction('resume_command', { authority: manager.publicKey, fund, command, usdc_ledger: ledger(ADDRESSES.usdc), spoke_program: ADDRESSES.spoke }, Buffer.from([0]));
-    operation.keys.push(...[...reportAccounts, ...transits].map(address => key(address)));
+    // Exhaustive snapshot order: ledger/ATA pairs, registered transits, then registered commands.
+    operation.keys.push(...[...reportAccounts, ...transits, command].map(address => key(address)));
     return operation;
   };
   const CLOSED = 162; // FundState.closed byte after discriminator and identity fields
@@ -121,7 +122,7 @@ test('close is refused while an outbound CCTP transit is pending, then completes
   const publish = instruction('publish_report', { ...common, authority: keeper.publicKey, wormhole_program: ADDRESSES.wormhole, emitter: target.emitter,
     bridge: foreign(ADDRESSES.wormhole, Buffer.from('Bridge')), sequence: foreign(ADDRESSES.wormhole, Buffer.from('Sequence'), publicKey(target.emitter).toBuffer()),
     fee_collector: foreign(ADDRESSES.wormhole, Buffer.from('fee_collector')), message: message.publicKey, clock: SYSVAR_CLOCK_PUBKEY, rent: SYSVAR_RENT_PUBKEY }, Buffer.alloc(0));
-  publish.keys.push(...[...reportAccounts, inbound].map(address => key(address)));
+  publish.keys.push(...[...reportAccounts, inbound, command].map(address => key(address)));
   await sendMeasured(connection, keeper, publish, [message]);
   const closed = await fundState();
   assert.equal(closed[CLOSED], 1, 'final report closed the Fund only after the transit settled');

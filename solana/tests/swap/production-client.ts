@@ -105,7 +105,7 @@ export function creation(manager: PublicKey, core: Buffer, index: number, pool: 
 }
 
 export function signedSwap(recorded: any, common: Record<string, any>, core: Buffer, apiKey: Uint8Array, config: string, ledger: (mint: string) => string,
-  options: { nonce?: bigint; forged?: boolean; amount?: bigint; deadline?: bigint; impact?: number } = {}) {
+  options: { nonce?: bigint; forged?: boolean; amount?: bigint; deadline?: bigint; impact?: number; outputBps?: bigint } = {}) {
   const route = structuredClone(recorded.build.swapInstruction);
   const vault = common.vault as PublicKey;
   const substitutions = new Map<string, string>([[recorded.vault, vault.toBase58()],
@@ -114,7 +114,7 @@ export function signedSwap(recorded: any, common: Record<string, any>, core: Buf
   route.accounts = route.accounts.map((account: any) => ({ ...account, pubkey: substitutions.get(account.pubkey) ?? account.pubkey }));
   const data = Buffer.from(route.data, 'base64');
   const amount = options.amount ?? BigInt(recorded.build.inAmount);
-  const output = data.readBigUInt64LE(16) * amount / data.readBigUInt64LE(8);
+  const output = data.readBigUInt64LE(16) * amount / data.readBigUInt64LE(8) * (options.outputBps ?? 10_000n) / 10_000n;
   data.writeBigUInt64LE(amount, 8); data.writeBigUInt64LE(output, 16); route.data = data.toString('base64');
   const quote = { fund: common.fund as PublicKey, tokenIn: publicKey(recorded.build.inputMint), tokenOut: publicKey(recorded.build.outputMint),
     legsHash: routeHash(route, vault), quotedAmountIn: amount, minAmountOut: (output * 9800n + 9999n) / 10000n,
