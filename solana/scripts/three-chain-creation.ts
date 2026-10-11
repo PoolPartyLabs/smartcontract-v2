@@ -11,10 +11,11 @@ import { ADDRESSES, publicKey, fundAddresses, derive } from "../tests/helpers/ad
 import { integer, word, hash, stageSwapPolicy } from "../tests/core/fixtures.ts";
 import { discriminator } from "../tests/helpers/layouts.ts";
 import { testAta, localConnection, requireLoopback, fundSol, sendLocal } from "../tests/helpers/localnet.ts";
-import { SOL_PRICE, USDC_PRICE, SOL_FEED, USDC_FEED, NVDA, policyDigest } from "../tests/swap/production-client.ts";
+import { SOL_PRICE, USDC_PRICE, SOL_FEED, USDC_FEED, policyDigest } from "../tests/swap/production-client.ts";
 import { checkedEndpoint, assertGenesis, stepLogger } from "./ops-common.mjs";
 import { guardedSend, lockJournal, latestRecord } from "./guarded-send.mjs";
 import { classifyProgramAccount } from "./loader-v3.mjs";
+import { ASSET_MINTS, parseAssetSet, isStock, assetNames, nvdaxRemainingAccounts } from "./creation-assets.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const output = resolve(root, "cache/sol-t11");
@@ -70,6 +71,12 @@ async function broadcastGate() {
   const plan = JSON.parse(planBytes.toString("utf8"));
   if (plan.core?.toLowerCase() !== creation.hubCore?.toLowerCase() || plan.factory?.toLowerCase() !== creation.hubFactory?.toLowerCase()) {
     throw new Error("Plan Hub core/factory differ from the approval");
+  }
+  // DF-1: the sealed asset set is a reviewed input; the plan must seal exactly the approved set.
+  const native = new Interface(JSON.parse(readFileSync(resolve(root, "out/FundFactoryV6.sol/FundFactoryV6.json"), "utf8")).abi)
+    .decodeFunctionData("createFundV6Committed", plan.calldata)[2];
+  if (!Array.isArray(creation.assets) || assetNames(native.assets.map((asset: any) => asset.mint)).join(",") !== creation.assets.join(",")) {
+    throw new Error("Plan sealed assets differ from the approved creation.assets; no transaction signed");
   }
   const arbitrum = checkedEndpoint("mainnet", process.env.ARBITRUM_RPC_URL);
   if (await evmCall(arbitrum, "eth_chainId", []) !== "0xa4b1") throw new Error("Arbitrum endpoint is not chain 42161");
@@ -148,7 +155,7 @@ async function broadcastNative(gate: any, solana: Keypair, stage: any, operation
     assert.equal(state.owner.toBase58(), ADDRESSES.spoke);
     const config = (await connection.getAccountInfo(operation.keys[18].pubkey, "finalized"))!;
     assert.ok(config.data.subarray(72, 72 + sealed.length).equals(sealed));
-    writeFileSync(resolve(output, "native-broadcast.json"), JSON.stringify({ status: "PASS", cluster: "mainnet", fund: target.fund,
+    writeFileSync(resolve(output, "native-broadcast.json"), JSON.stringify({ status: "PASS", cluster: "mainnet", fund: target.fund, assets: gate.approval.creation.assets,
       lookupTable: tableAddress.toBase58(), signatures, journal: journalPath, scopeEnabled: false }, null, 2));
     console.log("Manager native bootstrap landed on mainnet; signatures journaled.");
   } finally { unlock(); }
@@ -183,8 +190,8 @@ function policy() {
 function prepare() {
   const { manager, solana } = wallets();
   const sealed = policy();
-  const mints = [ADDRESSES.usdc, ADDRESSES.wsol, NVDA];
-  const assets = mints.map(mint => ({ mint: keyHex(mint), accountingId: "0x" + keccak256(abi.encode(["string", "uint16", "bytes32"], ["PoolParty/SolanaAsset/v6", 1, keyHex(mint)])).slice(-40), stock: mint === NVDA }));
+  const assetSet = parseAssetSet(process.env.PP_CREATION_ASSETS);
+  const assets = assetSet.map(name => ({ mint: keyHex(ASSET_MINTS[name]), accountingId: "0x" + keccak256(abi.encode(["string", "uint16", "bytes32"], ["PoolParty/SolanaAsset/v6", 1, keyHex(ASSET_MINTS[name])])).slice(-40), stock: isStock(name) }));
   const venues = [
     { program: keyHex(ADDRESSES.kamino), pool: zero, reserve: keyHex(ADDRESSES.reserve), token0: keyHex(ADDRESSES.usdc), token1: zero },
     { program: keyHex(ADDRESSES.raydium), pool: keyHex(ADDRESSES.solPool), reserve: zero, token0: keyHex(ADDRESSES.wsol), token1: keyHex(ADDRESSES.usdc) },
@@ -193,8 +200,8 @@ function prepare() {
     assets, venues, transport: { hubUsdc: "0xaf88d065e77c8cc2239327c5edb3a432268e5831", tokenMessenger: "0x28b5a0e9c621a5badaa536219b3a228c8168cf5d", messageTransmitter: "0x81d40f21f12a8f0e3252bccb954d722d4c464b64", destinationDomain: 5, mintRecipient: zero, destinationCaller: zero, remoteTokenMessenger: keyHex(ADDRESSES.cctpMessenger), remoteVaultAuthority: zero, fastFeeCeiling: 50000 }, swapPolicyHash: hex(hash(sealed)) };
   mkdirSync(output, { recursive: true });
   writeFileSync(resolve(output, "native-config.hex"), abi.encode([configType], [config]));
-  writeFileSync(resolve(output, "builder-input.json"), JSON.stringify({ manager: computeAddress(manager), managerSolana: solana.publicKey.toBase58(), config, policy: hex(sealed), scopeEnabled: false, stockSwapsAvailable: false, approval: "NOT_APPROVED", policyLimits: "Explicit engineering proposal; founder approval required" }, null, 2));
-  console.log("Real wallet public commitments prepared; no transaction submitted.");
+  writeFileSync(resolve(output, "builder-input.json"), JSON.stringify({ manager: computeAddress(manager), managerSolana: solana.publicKey.toBase58(), assetSet, config, policy: hex(sealed), scopeEnabled: false, stockSwapsAvailable: false, approval: "NOT_APPROVED", policyLimits: "Explicit engineering proposal; founder approval required" }, null, 2));
+  console.log(`Real wallet public commitments prepared for assets ${assetSet.join(",")}; no transaction submitted.`);
 }
 
 async function accept() {
@@ -248,12 +255,13 @@ async function accept() {
     ...mints.map(mint => key(publicKey(derive(ADDRESSES.spoke, Buffer.from("ledger"), fund.toBuffer(), publicKey(mint).toBuffer())), true)),
     ...["cctp_route", "cctp_ledger"].map(seed => key(publicKey(derive(ADDRESSES.spoke, Buffer.from(seed), fund.toBuffer())), true)),
     ...[ADDRESSES.token, ADDRESSES.token2022, ADDRESSES.ata].map(program => key(publicKey(program))), key(SystemProgram.programId),
-    key(publicKey(derive(ADDRESSES.spoke, Buffer.from("swap_config"), fund.toBuffer())), true), key(stage.stage, true), key(publicKey(NVDA)), key(testAta(NVDA, vault), true), key(publicKey(derive(ADDRESSES.spoke, Buffer.from("ledger"), fund.toBuffer(), publicKey(NVDA).toBuffer())), true)],
+    key(publicKey(derive(ADDRESSES.spoke, Buffer.from("swap_config"), fund.toBuffer())), true), key(stage.stage, true), ...nvdaxRemainingAccounts(native.assets.map((asset: any) => asset.mint), fund, vault)],
     data: Buffer.concat([discriminator("global", "initialize_fund"), integer(1, 4), Buffer.from([2])]) });
   const instructions = [...stage.instructions, operation];
   const exportInstruction = (instruction: TransactionInstruction) => ({ programId: instruction.programId.toBase58(), dataBase64: instruction.data.toString("base64"), accounts: instruction.keys.map(meta => ({ ...meta, pubkey: meta.pubkey.toBase58() })) });
   mkdirSync(output, { recursive: true }); // broadcast may run on a checkout that never ran `prepare`
-  writeFileSync(resolve(output, "signer-prompts.json"), JSON.stringify({ approval: "NOT_APPROVED", seedUsdc: 50, scopeEnabled: false, stockSwapsAvailable: false,
+  const assetSet = assetNames(native.assets.map((asset: any) => asset.mint));
+  writeFileSync(resolve(output, "signer-prompts.json"), JSON.stringify({ approval: "NOT_APPROVED", assets: assetSet, seedUsdc: 50, scopeEnabled: false, stockSwapsAvailable: false,
     ordered: ["EVM operator: deploy reviewed v6 factories on Arbitrum then Robinhood", "EVM Manager: sign exact SolanaBootstrap EIP-712 commitment", "EVM Manager: sign sealed SolanaSwapPolicy EIP-712 commitment", "EVM Manager: approve 50 USDC to Hub factory", "EVM Manager: createFundV6Committed on Arbitrum", "EVM Manager: createSpoke on Robinhood", ...stage.instructions.map((_, index) => `Manager Solana Key: stage immutable chunk ${index + 1}/${stage.instructions.length}`), "Manager Solana Key: create lookup table", "Manager Solana Key: extend lookup table (20 accounts/chunk)", "Manager Solana Key: sign initialize_fund acceptance"],
     evmTransactions: [{ chainId: 42161, to: mandate.usdc, data: plan.approveCalldata }, { chainId: 42161, to: plan.factory, data: plan.calldata }, { chainId: 4663, to: plan.factory, data: plan.robinhoodCalldata }], solanaInstructions: instructions.map(exportInstruction), payloadSha256: createHash("sha256").update(payload).digest("hex"), fund: target.fund }, null, 2));
   if (process.argv[2] === "export") { console.log("Exact EVM calldata and native instruction list exported; NOT_APPROVED."); return; }
@@ -289,8 +297,8 @@ async function accept() {
   assert.equal(state.owner.toBase58(), ADDRESSES.spoke);
   const config = (await connection.getAccountInfo(operation.keys[18].pubkey))!;
   assert.ok(config.data.subarray(72, 72 + sealed.length).equals(sealed));
-  writeFileSync(resolve(output, "native-acceptance.json"), JSON.stringify({ status: "PASS", fund: target.fund, signatures, transactionCount: signatures.length, initializerBytes: transaction.serialize().length, initializerCU: simulation.value.unitsConsumed, managerDebitLamports: before - await connection.getBalance(solana.publicKey), scopeEnabled: false, stockSwapsAvailable: false, mainnetTransactions: 0 }, null, 2));
-  console.log("Genuine Manager native acceptance PASS on cloned loopback localnet.");
+  writeFileSync(resolve(output, "native-acceptance.json"), JSON.stringify({ status: "PASS", fund: target.fund, assets: assetSet, signatures, transactionCount: signatures.length, initializerBytes: transaction.serialize().length, initializerCU: simulation.value.unitsConsumed, managerDebitLamports: before - await connection.getBalance(solana.publicKey), scopeEnabled: false, stockSwapsAvailable: false, mainnetTransactions: 0 }, null, 2));
+  console.log(`Genuine Manager native acceptance PASS on cloned loopback localnet (assets ${assetSet.join(",")}).`);
 }
 
 try {
