@@ -19,8 +19,9 @@ import {SolanaPolicyV6} from "../src/mandate/SolanaPolicyV6.sol";
 ///           cache/sol-t11/mainnet-plan.json            plan for S6/S7/S8 (copy it out of the repo, record its SHA-256)
 ///           cache/sol-t11/mainnet-creation-calldata.hex SOLANA_V6_CREATION_CALLDATA_FILE for `fund-v6`
 ///         Run: forge script script/BuildSolanaFundV6Plan.s.sol --fork-url arbitrum --fork-block-number <head-100>
-/// @dev The binding expires `PP_BINDING_TTL_SECONDS` (default 4 h, 15 min .. 24 h) after the pinned block: S6 and the
-///      S8 native initializer (binding.rs `now <= expiry`) must both land before it; otherwise rebuild. Another Fund
+/// @dev The binding expires `PP_BINDING_TTL_SECONDS` (default 4 h, 15 min .. 24 h) after the pinned block, recorded as
+///      the plan's `bindingExpiry` (unix): S6 and the S8 native initializer (binding.rs `now <= expiry`) must both land
+///      before it; otherwise rebuild. Another Fund
 ///      created on the factory first moves `nextCreationNumber` (S6 reverts `CreationNumberTaken`): rebuild.
 contract BuildSolanaFundV6Plan is Script, SolanaFundV6Plan {
     error NotArbitrum(uint256 chainId);
@@ -59,6 +60,8 @@ contract BuildSolanaFundV6Plan is Script, SolanaFundV6Plan {
         Mandate memory mandateConfig = abi.decode(mandateBytes, (Mandate));
         bytes memory robinhoodCalldata =
             abi.encodeCall(factory.createSpoke, (creationNumber, mandateConfig, _spokeParams(mandateConfig)));
+        // The S8 deadline travels in the plan the operator copies out (same "creation" object `_writePlan` serializes).
+        vm.serializeUint("creation", "bindingExpiry", expiry);
         _writePlan(PLAN_PATH, factory, core, id, digest, creationCalldata, robinhoodCalldata);
         vm.writeFile(CALLDATA_PATH, vm.toString(creationCalldata));
         console.log("factory (live, pinned)", address(factory));

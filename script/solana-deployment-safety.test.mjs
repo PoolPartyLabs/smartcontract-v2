@@ -94,6 +94,9 @@ test('C2: the deploy-day plan builder reads the live pinned factory, never deplo
   assert.match(builder, /if \(address\(factory\)\.code\.length == 0\) revert FactoryNotLive/);
   assert.match(builder, /factory\.wiring\(\)\.coreVaultCreationCodeHash/);
   assert.match(builder, /vm\.envUint\("DEPLOYER_PRIVATE_KEY"\)/);
+  // The S8 deadline (runbook S8 checkpoint) is recorded in the plan itself, not only in the builder's console log.
+  assert.match(builder, /vm\.serializeUint\("creation", "bindingExpiry", expiry\);\n\s+_writePlan\(PLAN_PATH/);
+  assert.match(readFileSync('script/SolanaFundV6Plan.sol', 'utf8'), /string memory output = "creation";/);
   assert.match(readFileSync('test/fork/deployment/SolanaThreeChainCreation.fork.t.sol', 'utf8'), /is Test, SolanaFundV6Plan/);
   const gate = readFileSync('solana/scripts/three-chain-creation.ts', 'utf8');
   assert.match(gate, /Plan factory is not the manifest-pinned approvedFactory/);

@@ -280,6 +280,7 @@ cp script/solana-manager-approval.json "$HOME/.pp/solana-manager-approval.json"
 #   fill: status FOUNDER_APPROVED, approvedBy/At, sourceCommit $(git rev-parse HEAD), managerSolanaKey, priorityMicroLamportsPerCU,
 #   creation.{planSha256, hubCore = plan.core, hubFactory 0xe964…40dE, hubCreationTx = S6 tx, fundPda, assets ["usdc","wsol"]}
 export PP_MANAGER_APPROVAL_FILE="$HOME/.pp/solana-manager-approval.json" PP_CREATION_PLAN_FILE="$HOME/.pp/mainnet-plan.json"
+node -p 'require(process.env.PP_CREATION_PLAN_FILE).bindingExpiry - Math.floor(Date.now() / 1000)'   # seconds left; must stay > 0 until the initializer lands, else rebuild
 node solana/scripts/three-chain-creation.ts broadcast   # 6 tx (USDC+WSOL); rerun reconciles from the journal, never re-signs
 ```
 
