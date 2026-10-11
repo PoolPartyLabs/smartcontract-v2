@@ -9,36 +9,18 @@ pub const NVDAX: Pubkey = pubkey!("Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh")
 const TSLA_FEED: [u8; 32] = [0,8,0x4e,0xdc,0x84,0x4a,0x6f,0x88,0x44,0x9c,0x59,0xc8,0xcf,0xcd,0xb2,0x22,0x57,0x99,0xa2,0x33,0x05,0x03,0x47,0x2c,0xb0,0xbc,0x4f,0x93,0x69,0xa7,0x17,0xfa];
 const NVDA_FEED: [u8; 32] = [0,8,0xad,0xc1,0x84,0x84,0x7b,0xa8,0xd1,0x7f,0,0x30,0xc1,0x5e,0x78,0xf6,0x1b,0x83,0xed,0xa2,0xe1,0x90,0xf3,0x03,0x46,0xc4,0xea,0x3b,0xab,0xed,0x64,0x7d];
 
-/// DEC-198, DEC-204: admit only the regular session; unknown calendars are unavailable.
-/// TODO(decision): approve Scope option A and the calendar horizon before enabling Funds.
-pub fn regular_session(now: i64) -> Result<(i64, i64)> {
-    const YEAR_START: i64 = 1_767_225_600;
-    const YEAR_END: i64 = 1_798_761_600;
-    require!((YEAR_START..YEAR_END).contains(&now), OracleError::MarketClosed);
-    let offset = if (1_772_953_200..1_793_512_800).contains(&now) { 4 * 3600 } else { 5 * 3600 };
-    let eastern = now - offset;
-    let day = eastern.div_euclid(86_400);
-    let ordinal = day - YEAR_START / 86_400;
-    let weekday = (day + 4).rem_euclid(7);
-    require!(weekday != 0 && weekday != 6
-        && ![0,18,46,92,144,169,183,249,329,358].contains(&ordinal), OracleError::MarketClosed);
-    let open = day * 86_400 + offset + 9 * 3600 + 30 * 60;
-    let close = day * 86_400 + offset + if [330,357].contains(&ordinal) { 13 * 3600 } else { 16 * 3600 };
-    require!(now >= open && now < close, OracleError::MarketClosed);
-    Ok((open, close))
-}
-
 fn integer(bytes: &[u8], offset: usize) -> Result<u64> {
     let value = bytes.get(offset..offset + 8).ok_or(OracleError::InvalidAccount)?;
     Ok(u64::from_le_bytes(value.try_into().map_err(|_| OracleError::InvalidAccount)?))
 }
 
 /// DEC-203, DEC-204: read the pinned Open v8 underlying, never an AllUpdates/xStock slot.
+/// R9.1 (2026-10-11): no market-session gate; the tokenized stock trades 24/7 and price staleness
+/// (`min(max_age, 60)` seconds, non-future) is the only freshness guard.
 /// Layout pin: Kamino-Finance/scope 8d01cb8cfb9cfb3f75aec8ee39bcf9f6b40b16c5.
 pub fn reference(prices: &AccountInfo, mappings: &AccountInfo, mint: &AccountInfo,
     enabled: bool, policy: &OraclePolicy, clock: &Clock) -> Result<Price> {
     require!(enabled && policy.stock_enabled, OracleError::StockDisabled);
-    let (open, _) = regular_session(clock.unix_timestamp)?;
     require!(*prices.key == PRICES && *mappings.key == MAPPINGS
         && *prices.owner == PROGRAM && *mappings.owner == PROGRAM
         && !prices.is_writable && !mappings.is_writable && !prices.executable && !mappings.executable,
@@ -68,7 +50,7 @@ pub fn reference(prices: &AccountInfo, mappings: &AccountInfo, mint: &AccountInf
     let timestamp = i64::try_from(integer(&data, start + 24)?).map_err(|_| OracleError::Stale)?;
     require!(value > 0 && exponent == 15, OracleError::InvalidPrice);
     require!(policy.max_age_seconds > 0 && policy.max_age_seconds <= 300
-        && timestamp >= open && timestamp <= clock.unix_timestamp
+        && timestamp > 0 && timestamp <= clock.unix_timestamp
         && (clock.unix_timestamp - timestamp) as u64 <= policy.max_age_seconds.min(60)
         && slot > 0 && slot <= clock.slot
         && integer(&data, start + 32)? == timestamp as u64
@@ -81,28 +63,40 @@ mod tests {
     use super::*;
 
     #[test]
-    fn calendar_handles_dst_holidays_early_closes_and_unknown_years() {
-        for open in [1_772_807_400, 1_773_063_000, 1_793_367_000, 1_793_629_800,
-            1_791_379_800, 1_791_466_200, 1_791_552_600] {
-            assert!(regular_session(open - 1).is_err());
-            assert!(regular_session(open).is_ok());
-            assert!(regular_session(open + 23_399).is_ok());
-            assert!(regular_session(open + 23_400).is_err());
-        }
-        for closed in [1_767_277_800, 1_768_833_000, 1_771_252_200, 1_775_223_000,
-            1_779_715_800, 1_781_875_800, 1_783_085_400, 1_788_787_800,
-            1_795_703_400, 1_798_209_000, 1_791_640_800, 1_799_074_800] {
-            assert!(regular_session(closed).is_err(), "{closed}");
-        }
-        for day in [1_795_737_600, 1_798_070_400] {
-            assert!(regular_session(day + 14 * 3600 + 30 * 60).is_ok());
-            assert!(regular_session(day + 18 * 3600 - 1).is_ok());
-            assert!(regular_session(day + 18 * 3600).is_err());
-        }
-        assert!(regular_session(1_767_312_000 + 14 * 3600 + 30 * 60).is_ok());
-        assert!(regular_session(1_767_312_000 + 14 * 3600 + 30 * 60 - 1).is_err());
-        for outside in [i64::MIN, 1_767_225_599, 1_798_761_600, i64::MAX] {
-            assert!(regular_session(outside).is_err());
+    fn off_session_fresh_price_is_accepted_and_only_staleness_rejects() {
+        let policy = OraclePolicy { max_age_seconds: 120, max_confidence_bps: 100,
+            cross_check_deviation_bps: 50, block_cross_check: false,
+            require_manager_bound: false, stock_enabled: true };
+        // Saturday 2026-10-10 12:00 UTC and Sunday 2026-10-11 17:25 UTC: no session, fresh source.
+        for now in [1_791_633_600i64, 1_791_739_500] {
+            let start = 40 + 56 * 60;
+            let mut prices_data = vec![0; 28_712];
+            prices_data[..8].copy_from_slice(&[0x59,0x80,0x76,0xdd,0x06,0x48,0xb4,0x92]);
+            prices_data[8..40].copy_from_slice(&MAPPINGS.to_bytes());
+            for (offset, value) in [(0, 237_060_000_000_000_000u64), (8, 15), (16, 100),
+                (24, (now - 30) as u64), (32, (now - 30) as u64)] {
+                prices_data[start + offset..start + offset + 8].copy_from_slice(&value.to_le_bytes());
+            }
+            let mut mapping_data = vec![0; 29_704];
+            mapping_data[..8].copy_from_slice(&[0x28,0xf4,0x6e,0x50,0xff,0xd6,0xf3,0xbc]);
+            mapping_data[8 + 60 * 32..40 + 60 * 32].copy_from_slice(&TSLA_FEED);
+            mapping_data[16_392 + 60] = 34;
+            mapping_data[19_464 + 20 * 60] = 1;
+            let mut mint_data = vec![0; 226];
+            mint_data[44] = 8; mint_data[45] = 1; mint_data[165] = 1;
+            mint_data[166..168].copy_from_slice(&25u16.to_le_bytes());
+            mint_data[168..170].copy_from_slice(&56u16.to_le_bytes());
+            mint_data[202..210].copy_from_slice(&1f64.to_le_bytes());
+            mint_data[218..226].copy_from_slice(&1f64.to_le_bytes());
+            let (mut a, mut b, mut c) = (1, 1, 1);
+            let prices = AccountInfo::new(&PRICES, false, false, &mut a, &mut prices_data, &PROGRAM, false, 0);
+            let mapping = AccountInfo::new(&MAPPINGS, false, false, &mut b, &mut mapping_data, &PROGRAM, false, 0);
+            let mint = AccountInfo::new(&TSLAX, false, false, &mut c, &mut mint_data, &TOKEN_2022, false, 0);
+            let fresh = Clock { unix_timestamp: now, slot: 100, ..Clock::default() };
+            assert!(reference(&prices, &mapping, &mint, true, &policy, &fresh).is_ok(), "{now}");
+            let stale = Clock { unix_timestamp: now + 31, slot: 100, ..Clock::default() };
+            assert_eq!(reference(&prices, &mapping, &mint, true, &policy, &stale).unwrap_err(),
+                error!(OracleError::Stale));
         }
     }
 

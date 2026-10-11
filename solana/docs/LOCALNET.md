@@ -90,8 +90,9 @@ be tested by T4, not erased from the mint. No private fixtures are committed.
 The validator warps to the latest cloned slot to avoid slot-underflow in
 Kamino interest refresh. Reads are not an atomic bank snapshot; the manifest's
 slot range documents this. Local wall-clock time is used after startup, not a
-promise of historic market-time pricing. TSLAx valuation is admitted only in
-US market hours on the Hub (DEC-194); the smoke price ratio is diagnostic,
+promise of historic market-time pricing. Per R9.1 (2026-10-11) stock valuation
+is 24/7 with price staleness as the only guard (no session gate on Solana; the
+Hub side is tracked separately); the smoke price ratio is diagnostic,
 **never** an independent NAV oracle. Re-clone immediately before integration
 tests/demo rather than treating snapshot capacity/config as permanent.
 
