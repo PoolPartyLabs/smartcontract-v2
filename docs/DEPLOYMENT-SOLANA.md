@@ -155,7 +155,7 @@ Tools (all refuse to send without their approval file; all logs are sanitized):
 | **S2** Gates | Suites at fresh pins (head − 100 taken immediately before) | ☐ All PASS without cache-served stale pins ☐ `node --test script/solana-deployment-safety.test.mjs script/solana-release-safety.test.mjs` ☐ `node --test --test-concurrency=1 script/solana-ops.localnet.test.mjs` | NO-GO |
 | **S3** EVM factory dry run | `solana-evm-deploy.sh arbitrum\|robinhood factory-v6 --dry-run` with the REAL deployer address | ☐ 27 / 15 transactions ☐ Pin = head − 100 ☐ Deployer nonce unchanged until S4 ☐ Role addresses in the artifacts ☐ The log prints `FundFactoryV6 equals manifest approvedFactory true` on both chains (C1) | NO-GO |
 | **S4** BROADCAST factories | Arbitrum, then Robinhood, keystore or Ledger signer | ☐ Runtime hashes, owner/wiring, price source, Circle pins verified against the dry-run artifact ☐ Addresses recorded and `approvedFactory` set | Immutable. Partial (Arbitrum OK, Robinhood failed): retry Robinhood with the same signer; if the nonce drifted, addresses change → redeploy and update manifests. |
-| **S5** Solana program | `--preflight` → `--broadcast` → `--verify`; start the watcher | ☐ `7Ppt…` still unused ☐ Buffer address unused ☐ `--verify` exact ELF, authority, 1× capacity ☐ (D3) authority moved to the cold key, `expectedAuthority` set, `--verify` again ☐ Watcher cron OK | Partial upload keeps the buffer (≈ 5.057 SOL): resume with `--recover-prefunded` if the id was griefed, or `solana program close <BUFFER>`. Griefed id → `--recover-prefunded`. After success roll back only by **upgrade of the same id; never `program close`**. |
+| **S5** Solana program | `--preflight` → `--broadcast` → `--verify`; start the watcher | ☐ `7Ppt…` still unused ☐ Buffer address unused ☐ `--verify` exact ELF, authority, 1× capacity ☐ (D3) authority moved to the cold key, `expectedAuthority` set, `--verify` again ☐ Watcher cron OK with `--release <archived release.json>` and the expected authority (C14) | Partial upload keeps the buffer (≈ 5.057 SOL): resume with `--recover-prefunded` if the id was griefed, or `solana program close <BUFFER>`. Griefed id → `--recover-prefunded`. After success roll back only by **upgrade of the same id; never `program close`**. |
 | **S6** Create Fund | USDC approve + `createFundV6Committed` (`solana-evm-deploy.sh arbitrum fund-v6`) | ☐ Builder input equals the decisions (assets, Manager Solana Key, api_signer, swap policy, aliases, max report age 1,600) ☐ Dry run at a fresh pin with the actual Manager as sender ☐ Gas ≤ 32M with ≥ 1M margin (C7: receipts 28,790,965 USDC+WSOL / 30,318,497 with NVDAx; `fund-v6` passes `--gas-estimate-multiplier 105`) ☐ Record tx hash, Hub core, factory, plan SHA-256 and Fund PDA in the Manager approval copy ☐ (C13) The Fund's CCTP adapter caps the fee at 5 bps: `cast call <CctpBridgeAdapter> "maxFeeBps()(uint256)"` = 50000 (per-Fund immutable set at creation, `SolanaDeploymentV6.sol:145`; not observable in the S3 factory artifacts) | **Irreversible.** Wrong config: do not allocate; holders exit by Instant payout while Open. |
 | **S7** Robinhood `createSpoke` | Manager EOA | ☐ SpokeVault equals the mandate's spoke | Do not allocate to Robinhood; deposits stay frozen until the spoke reports. |
 | **S8** Native bootstrap | 7 Manager-signed transactions: `three-chain-creation.ts broadcast` (or API `bootstrap` + `manager-sign.mjs` per chunk) | ☐ Fund PDA equals the commitment ☐ SwapConfig bytes equal the policy ☐ Every signature journaled; initializer landed | Rerun resumes from the journal; an uncertain signature is reconciled, never re-signed. No cancel: abandoned stage rent is stuck. |
@@ -289,10 +289,21 @@ bytes hash to `release.json` `binarySha256`. It prints one JSON line and exits 0
 (OK), 2 (ALERT) or 1 (could not check). An upgrade alerts once; the new slot then
 becomes the baseline. Run it on the dev host every 5 minutes and page on exit 2:
 
+One-time host setup: a checkout of the approved commit, `npm ci --prefix solana`, and
+the archived `pp_spoke.release.json` of the approved build next to the approved
+approval copy (the default `--release` path exists only after a build on that host,
+and the repo template still names R8, so after the D3 move every run would alert
+falsely). The cron line pins both inputs (C14):
+
 ```cron
 */5 * * * * cd /srv/pool-party/smartcontract-v2 && SOLANA_MAINNET_RPC="$KEYLESS_SOLANA_RPC" \
-  node solana/scripts/programdata-watch.mjs >> /var/log/pp-programdata-watch.jsonl 2>&1 || pp-alert programdata
+  node solana/scripts/programdata-watch.mjs --release /srv/pool-party/release/pp_spoke.release.json \
+  --authority <EXPECTED_AUTHORITY_PUBKEY|none> >> /var/log/pp-programdata-watch.jsonl 2>&1 || pp-alert programdata
 ```
+
+`<EXPECTED_AUTHORITY_PUBKEY>` is R8 until the D3 move, then the cold key, then `none`
+after `--final`; update the cron line in the same change as `expectedAuthority`
+(or replace `--authority` with `PP_DEPLOY_APPROVAL_FILE=<archived approval copy>`).
 
 Archive the approved ELF, IDL and `pp_spoke.release.json` (SHA-256 recorded)
 alongside the approval copy. Before deploy, a mainnet run reports
