@@ -5,7 +5,7 @@
   "arbitrum": {
     "chainId": 42161, "wormholeChainId": 23, "cctpDomain": 3,
     "forkBlock": 512553166,
-    "approvedFactory": null,
+    "approvedFactory": "0x0000000000000000000000000000000000000000",
     "usdc": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
     "cctpMessengerV2": "0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d",
     "cctpTransmitterV2": "0x81D40F21F12A8F0E3252Bccb954D722d4c464B64",

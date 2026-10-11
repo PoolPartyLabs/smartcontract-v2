@@ -1,4 +1,6 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: LicenseRef-PoolParty-Source-Available-1.0
+// @implements-rules-version: v2
+// Prior license grants and third-party rights remain valid. See LICENSE and LICENSING.md.
 pragma solidity 0.8.28;
 
 import {Test, console2} from "forge-std/Test.sol";
@@ -12,6 +14,7 @@ import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {IStateView} from "@uniswap/v4-periphery/src/interfaces/IStateView.sol";
 import {V4SwapRouter} from "../../mocks/v4/V4SwapRouter.sol";
+import {ForkPins} from "../../fork/ForkPins.sol";
 
 /// @notice Review probe (spoke-a), not a finding: how much WETH moves the real Arbitrum V4 WETH/USDC 0.05% pool
 ///         (docs/INTEGRATIONS.md) down to a given fraction of its price, on a fork pinned near the head. Context for
@@ -24,7 +27,7 @@ contract PoolDepthProbe is Test {
     address constant USDC = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
 
     function test_REVIEW_I08_measure_probeDepth() public {
-        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envUint("ARBITRUM_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), ForkPins.arbitrum());
         PoolKey memory key = PoolKey(Currency.wrap(WETH), Currency.wrap(USDC), 500, 10, IHooks(address(0)));
         bytes32 poolId = PoolId.unwrap(key.toId());
         V4SwapRouter router = new V4SwapRouter(IPoolManager(PM));

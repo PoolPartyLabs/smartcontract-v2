@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: LicenseRef-PoolParty-Source-Available-1.0
+// @implements-rules-version: v2
+// Prior license grants and third-party rights remain valid. See LICENSE and LICENSING.md.
 pragma solidity 0.8.28;
 
 import {FactoryDeployment} from "./FactoryDeployment.sol";
@@ -28,18 +31,19 @@ abstract contract SolanaV6Deployment is FactoryDeployment {
     error InvalidDeploymentConfiguration();
     error OversizedRuntime(string role, uint256 size);
 
+    /// @param stockMaxAge TSLA/NVDA feed max age in seconds; `solMaxAge` the SOL feed's (CR-12: separate, both
+    ///        bounded by `SolanaPriceSourceV6.MAX_STOCK_PRICE_AGE` / `MAX_SOL_PRICE_AGE`; unused off the Hub).
     function _deployV6(
         address recipient,
         address guardian,
         address registryOwner,
         address apiSigner,
-        uint64 sessionOpen,
-        uint64 sessionClose,
-        uint32 maxAge
+        uint32 stockMaxAge,
+        uint32 solMaxAge
     ) internal returns (V6Deployment memory result) {
         if (
             recipient == address(0) || guardian == address(0) || apiSigner == address(0) || registryOwner == address(0)
-                || maxAge == 0
+                || stockMaxAge == 0 || solMaxAge == 0
         ) revert InvalidDeploymentConfiguration();
         bool hub = block.chainid == ARBITRUM;
         if (!hub && block.chainid != ROBINHOOD) revert InvalidDeploymentConfiguration();
@@ -54,7 +58,7 @@ abstract contract SolanaV6Deployment is FactoryDeployment {
         wiring.spokeCrossChainLib = result.common.spokeCrossChainLib;
         if (hub) {
             result.common.managerRegistry = address(new ManagerRegistry(registryOwner));
-            result.common.priceSource = address(_nativePriceSource(sessionOpen, sessionClose, maxAge));
+            result.common.priceSource = address(_nativePriceSource(stockMaxAge, solMaxAge));
             wiring.managerRegistry = result.common.managerRegistry;
             wiring.priceSource = result.common.priceSource;
             wiring.coreVaultLogic = result.common.coreVaultLogic;
@@ -142,10 +146,7 @@ abstract contract SolanaV6Deployment is FactoryDeployment {
         }
     }
 
-    function _nativePriceSource(uint64 sessionOpen, uint64 sessionClose, uint32 maxAge)
-        private
-        returns (SolanaPriceSourceV6)
-    {
+    function _nativePriceSource(uint32 stockMaxAge, uint32 solMaxAge) private returns (SolanaPriceSourceV6) {
         ChainlinkPriceSource.FeedConfig[] memory feeds = new ChainlinkPriceSource.FeedConfig[](2);
         feeds[0] = ChainlinkPriceSource.FeedConfig(ARB_WETH, 18, ARB_ETH_USD_FEED, ETH_USD_MAX_PRICE_AGE);
         feeds[1] = ChainlinkPriceSource.FeedConfig(RH_WETH, 18, ARB_ETH_USD_FEED, ETH_USD_MAX_PRICE_AGE);
@@ -157,10 +158,8 @@ abstract contract SolanaV6Deployment is FactoryDeployment {
                 0x07e83582411fea1482f0994b80aa512a97c94f25df283bec5a67a381fc862b4a,
                 0x069b8857feab8184fb687f634618c035dac439dc1aeb3b5598a0f00000000001,
                 0xc6fa7af3bedbad3a3d65f36aabc97431b1bbe4c2d2f6e0e47ca60203452f5d61,
-                maxAge,
-                maxAge,
-                sessionOpen,
-                sessionClose
+                stockMaxAge,
+                solMaxAge
             ),
             feeds,
             fixedTokens

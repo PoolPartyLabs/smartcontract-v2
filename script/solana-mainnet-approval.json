@@ -9,6 +9,7 @@
   "idlSha256": null,
   "maxLen": null,
   "authority": "6VTveiPVZVM7H9BWEsUsu4ivsrPjKw9ePrLQqHaFgJaA",
+  "expectedAuthority": null,
   "priorityMicroLamportsPerCU": null,
   "walletMinimumLamports": null,
   "decisions": [

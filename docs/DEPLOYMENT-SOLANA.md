@@ -32,6 +32,312 @@ CR-12 Solana side (R9.1: no stock market-session gate; staleness only).
 - Heaviest measured spoke transaction 498,777 CU (`raydium_close_position`,
   55.4% of the 900k builder cap); largest packet 952 bytes (CCTP receive).
 
+## Hub fixes — October 11, 2026 (POO-2256)
+
+> **Never call `closeFund` on a v6 Fund until CR-02 G1-G3 land.** `finalizeClosure`
+> cannot complete: G1 collected Solana income has no route home (multi-asset Funds),
+> G2 non-USDC residue cannot be liquidated under CLOSE, G3 the Hub ACK drops the EVM
+> spoke's CLOSE result (G3 is also on `main`, so alpha Funds carry it). Holders of a
+> Closing Fund can exit only after Closed. Closure is post-demo (R9.2) and stays
+> fail-closed; while a Fund is Open, holders exit by payout (see CR-36 below).
+
+### Native feed max ages (CR-12, R9.1)
+
+Stock pricing is 24/7 (R9.1): no session window; each feed's max age is the only
+time guard. `DeploySolanaV6` takes two explicit parameters, and
+`SolanaPriceSourceV6` refuses zero or anything above its measured ceilings:
+
+| Parameter | Feeds | Value | Ceiling in code |
+| --- | --- | ---: | --- |
+| `SOLANA_STOCK_PRICE_MAX_AGE` | TSLA/USD, NVDA/USD | 90,000 s (25 h) | `MAX_STOCK_PRICE_AGE` |
+| `SOLANA_SOL_PRICE_MAX_AGE` | SOL/USD | 7,200 s (2 h) | `MAX_SOL_PRICE_AGE` |
+
+Data, read 2026-10-11 17:31 UTC from `arb1.arbitrum.io` at Arbitrum block
+513,882,670 (head-100, block time Sun 17:31:01 UTC), one Multicall3
+`getRoundData` batch per feed; Chainlink directory metadata fetched the same minute:
+
+| Feed | Rounds | Window (UTC) | Median gap | Gaps > 1 h | Max gap | Heartbeat / deviation |
+| --- | ---: | --- | ---: | ---: | ---: | --- |
+| TSLA/USD `0x3609…C3E3` | 200 | Sep 16 15:02 → Oct 11 15:43 | 960 s | 47 | **86,429 s** (Tue Oct 6 13:40 → Wed 13:40) | 86,400 s / 0.5% |
+| NVDA/USD `0x4881…262F` | 200 | Aug 31 13:33 → Oct 11 15:58 | 3,242 s | 96 | **86,430 s** (Sat Sep 26 19:55 → Sun 19:56) | 86,400 s / 0.5% |
+| SOL/USD `0x24ce…590c` | 1,000 | Oct 8 10:52 → Oct 11 17:27 | 150 s | 1 | **3,692 s** (Sat Oct 10 23:22) | 86,400 s / 0.1% |
+
+The equity feeds do update on weekends (heartbeat only), so the previous shared
+3,600 s blocked mint/burn/exit for most of every weekend and for long in-session
+gaps (NVDA 96 of 199 gaps exceeded it). 90,000 s is the 24 h heartbeat plus one
+hour; the largest observed gap overshoots the heartbeat by 30 s. SOL stays tight at
+about twice its largest observed gap (3,600 s would have failed closed once in
+the sample). No incomplete round (`updatedAt == 0` or `answeredInRound < roundId`)
+was observed. Trade-off accepted by R9.1: a stock price up to 25 h old can price
+a mint or burn when the feed is quiet (weekends, holidays); a missed heartbeat
+fails closed (`UnsafeStockState`), never silently. Under a stale stock feed every
+v6 share mint/burn path (deposit, Instant request, claim, settle, closed exit)
+reverts until the next round; a Standard payout *request* still books.
+
+### Payout liveness (CR-36)
+
+The payout-liveness fallback covers the valuation only (price-source and hub-read
+failures use last-known values). Burning a share additionally needs every accepted
+spoke report fresh (DEC-160, both modes) and, on v6, every admitted stock feed within
+its max age. On a stale report or stock feed, an Instant payout reverts
+(`StaleSpokeReport` / `UnsafeStockState`); a **Standard request stays live**: it books
+its reserve and 72 h term without burning, and its claim pays once state is fresh.
+Proven on the composed v6 fork path (`ComposedSolanaFund.fork.t.sol`).
+
+### Fund creation gas (CR-18)
+
+Fitness test (`testFundCreationFitsThirtyMillionGasAtLargestMandate`): creation as
+one Arbitrum transaction (21,000 + calldata + cold execution) must stay <= 30M of
+Nitro's 32M per-transaction cap at the largest mandate the Hub admits. The factory no
+longer stages the native config in storage (-0.65M to -1.15M gas). Measured at 3
+native assets, every venue a Mandate pool:
+
+| Native venues | 2 | 3 | 4 | 5 | 6 | 8 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Creation gas | 28.85M | 29.31M | **29.40M** | 29.86M | 29.79M | 30.00M |
+
+`SolanaSpokeRegistryV6` admits at most 3 assets (Solana's own bound) and **4 venues**
+(Solana accepts 8). The demo uses 2. Raising the venue bound is a founder decision
+(D10) that needs more creation-gas headroom first (e.g. CoreVaultV6 creation code
+through CodeStore, about -0.69M calldata gas). Arbitrum's L1 data component (~0.30M
+gas units on 2026-10-09) is outside the 30M and grows with L1 fees.
+
+### Fork pins and test gas (CR-19)
+
+Fork tests read `ARBITRUM_FORK_BLOCK` / `ROBINHOOD_FORK_BLOCK` (CCTP suites:
+`CCTP_ARBITRUM_FORK_BLOCK`, then the Arbitrum pin); unset, they fork at head-100
+(`test/fork/ForkPins.sol`). No pin or stock session remains in test source.
+`foundry.toml` sets `gas_limit = max` for the whole-stack deployment tests. The
+Solana creation builder's fixed localnet port (8998) is owned by the `solana/` track.
+
+## Deploy-day runbook S0–S12 (current; supersedes every older ordering below)
+
+Status 2026-10-11: **NO-GO** until every S0 box is ticked. Nothing in this file
+authorizes a mainnet transaction; **every S-step needs its own founder
+authorization**, and any unticked box is NO-GO. Source: `results/e2e-sweep/risk-review.md`
+§6, updated for the 2026-10-11 founder rulings: stock value is on-chain and 24/7 with
+price staleness as the only guard (R9.1); closure is not a demo blocker and stays
+fail-closed (R9.2); CCTP must work for the demo (R9.3). DEC-188..206 apply.
+
+Tools (all refuse to send without their approval file; all logs are sanitized):
+
+| Purpose | Command | Gate |
+| --- | --- | --- |
+| Read-only deploy preflight | `node solana/scripts/deploy-mainnet.mjs --preflight` | none (read-only) |
+| Program deploy / verify | `deploy-mainnet.mjs --broadcast` · `--verify` | `FOUNDER_APPROVED` copy, clean commit |
+| Griefed program id | `deploy-mainnet.mjs --recover-prefunded` | same as `--broadcast` |
+| ProgramData watch | `node solana/scripts/programdata-watch.mjs` (cron) | none (read-only) |
+| EVM factories / Fund | `bash script/solana-evm-deploy.sh <chain> <module> --dry-run\|--broadcast` | `PP_EVM_FOUNDER_APPROVED`, approved commit, keystore/Ledger |
+| Native bootstrap | `node solana/scripts/three-chain-creation.ts broadcast` | `script/solana-manager-approval.json` copy, plan SHA, landed Hub tx |
+| API-built Manager txs | `node solana/scripts/manager-sign.mjs inspect\|send` | same approval copy, reviewed intent hash |
+| Budgets | `node solana/scripts/deploy-mainnet-budget.mjs` · `node script/solana-evm-budget.mjs` | read-only |
+
+| Step | Action | NO-GO checkpoint (all must hold) | Failure → rollback / recovery |
+| --- | --- | --- | --- |
+| **S0** Pre-flight (read-only) | Decisions recorded; providers provisioned; keys split; funding landed | ☐ D1 asset set recorded. R9.1: no market-hours premise; the only guard is price age. Read TSLA/NVDA `latestRoundData` right before S4 and S6: the sealed max price age must exceed the observed gap or every stock read reverts (2026-10-11 18:09 UTC, Sunday: TSLA/USD 8,785 s, NVDA/USD 7,854 s old). Confirm the approved commit contains the session-gating removal; otherwise seal a no-stock Fund ☐ RPC: chain ids 42161/4663 and Solana mainnet genesis on key-less or paid providers that allow about 1,100 sends ☐ `deploy-mainnet.mjs --preflight` exits 0 (id unused and not pre-funded, buffer unused, R8 ≥ approved minimum, genesis). 2026-10-11 17:50 UTC: id unused, **R8 0 lamports → NO-GO** ☐ Role split done (CR-11 table): new keeper key on the dev host, R8 absent from it ☐ Program keypair backed up encrypted on two media (CR-22) ☐ Manager approval copy pins `managerSolanaKey` (sealed per Fund, DEC-190) ☐ `closeFund` out of scope (R9.2) | Nothing sent. Rollback = NO-GO. |
+| **S1** Freeze | Record approved commit, ELF, IDL, toolchains | ☐ Clean checkout equals the approval file ☐ `bash solana/scripts/deploy-build.sh` byte-identical: ELF 1,002,944 B `7653083a…866d` (fix-sp candidate, program source `26fb7a1`; IDL hash = the approval build's, see fix-sp section) | NO-GO |
+| **S2** Gates | Suites at fresh pins (head − 100 taken immediately before) | ☐ All PASS without cache-served stale pins ☐ `node --test script/solana-deployment-safety.test.mjs script/solana-release-safety.test.mjs` ☐ `node --test --test-concurrency=1 script/solana-ops.localnet.test.mjs` | NO-GO |
+| **S3** EVM factory dry run | `solana-evm-deploy.sh arbitrum\|robinhood factory-v6 --dry-run` with the REAL deployer address | ☐ 27 / 15 transactions ☐ Pin = head − 100 ☐ Deployer nonce unchanged until S4 ☐ Role addresses and the `maxFeeBps = 50,000` constant in the artifacts | NO-GO |
+| **S4** BROADCAST factories | Arbitrum, then Robinhood, keystore or Ledger signer | ☐ Runtime hashes, owner/wiring, price source, Circle pins verified against the dry-run artifact ☐ Addresses recorded and `approvedFactory` set | Immutable. Partial (Arbitrum OK, Robinhood failed): retry Robinhood with the same signer; if the nonce drifted, addresses change → redeploy and update manifests. |
+| **S5** Solana program | `--preflight` → `--broadcast` → `--verify`; start the watcher | ☐ `7Ppt…` still unused ☐ Buffer address unused ☐ `--verify` exact ELF, authority, 1× capacity ☐ (D3) authority moved to the cold key, `expectedAuthority` set, `--verify` again ☐ Watcher cron OK | Partial upload keeps the buffer (≈ 5.057 SOL): resume with `--recover-prefunded` if the id was griefed, or `solana program close <BUFFER>`. Griefed id → `--recover-prefunded`. After success roll back only by **upgrade of the same id; never `program close`**. |
+| **S6** Create Fund | USDC approve + `createFundV6Committed` (`solana-evm-deploy.sh arbitrum fund-v6`) | ☐ Builder input equals the decisions (assets, Manager Solana Key, api_signer, swap policy, aliases, max report age 1,600) ☐ Dry run at a fresh pin with the actual Manager as sender ☐ Gas ≤ 30M ☐ Record tx hash, Hub core, factory, plan SHA-256 and Fund PDA in the Manager approval copy | **Irreversible.** Wrong config: do not allocate; holders exit by Instant payout while Open. |
+| **S7** Robinhood `createSpoke` | Manager EOA | ☐ SpokeVault equals the mandate's spoke | Do not allocate to Robinhood; deposits stay frozen until the spoke reports. |
+| **S8** Native bootstrap | 7 Manager-signed transactions: `three-chain-creation.ts broadcast` (or API `bootstrap` + `manager-sign.mjs` per chunk) | ☐ Fund PDA equals the commitment ☐ SwapConfig bytes equal the policy ☐ Every signature journaled; initializer landed | Rerun resumes from the journal; an uncertain signature is reconciled, never re-signed. No cancel: abandoned stage rent is stuck. |
+| **S9** Routes, emitters, keeper | Hub emitter (consistency 32), equal max ages, API discovers the v6 Fund, keeper funded | ☐ One Solana **and** one Robinhood report delivered before any capital ☐ API discovery of the three-chain Fund | NO-GO for capital; the Fund idles with its seed. |
+| **S10** CCTP probe (R9.3) | 1 USDC Arb→Sol with `maxFee` at the cap; keeper receive; report; then 1 USDC Sol→Arb | ☐ In-flight = amount − maxFee ☐ Credited ☐ Unspent fee booked as principal ☐ No pending claim. **Fast only:** `CctpBridgeAdapter.sol:18,114` and `wire.rs:7,116` hard-code finality 1000; a Standard route needs a code change, a new ELF and new factories — it is not an operational cut | A pending claim is never written off: retry the keeper, then manual `build-receive` signed with `manager-sign.mjs`. Do not proceed while any transit is pending. |
+| **S11** Venues | Kamino supply; Raydium position (demo scope) via API `build/:action` + `manager-sign.mjs` | ☐ Report delivered after each action ☐ Manager SOL ≥ reserve | `UnexpectedDelta`: re-simulate and retry. Positions exit only by the Manager. |
+| **S12** Unwind to the Hub | Kamino redeem / LP close → `send_to_hub` (5 bps cap) → Hub credit → report | ☐ Fund stays Open; holders exit by Instant payout ☐ No `closeFund` (R9.2, G1–G3 fixed post-demo) | Pending claims persist; any closure attempt traps capital. |
+
+### Funding — repriced live 2026-10-11
+
+Budget numbers come **only** from `deploy-mainnet-budget.mjs` (mainnet rent,
+5,080 lamports/byte with overhead) and `script/solana-evm-budget.mjs` (Nitro
+L1-inclusive). Local-validator rent (6,960 lamports/byte) in older sections
+overstates mainnet by ≈ 1.87 SOL and is never a funding figure.
+
+| Wallet / role | Measured now | Recommended envelope | Source |
+| --- | ---: | ---: | --- |
+| R8 deployer (Solana) | 5.101940754 SOL for the fix-sp ELF: Program 0.000833120 + ProgramData 5.095834360 + 1,047 tx fees 0.005273274 (finalized slot 455,756,330, 18:51 UTC, 10,000 µlamports/CU floor, p75 = 0; was 5.063495738 for the superseded 995,384 B ELF) | **5.30 SOL** (one full-retry and fee margin; a failed buffer is recoverable by `program close <BUFFER>`) | `deploy-mainnet-budget.mjs` |
+| Manager Solana Key | modeled peak 0.168 SOL per lifecycle (sweep) | **0.25 SOL** | solana-program lane |
+| Keeper (new key, CR-11) | ≈ 0.011 SOL permanent rent per Solana report | **1.0 SOL** at a 20-min demo heartbeat; cadence is D6/CR-15 | risk-review R07 |
+| Arbitrum deployer / Manager | v6 factory 27 tx **0.001986161 ETH** L1-inclusive at 0.020004 gwei (pin 513,890,045, 18:08 UTC); creation ≈ 29.6M gas ≈ 0.00059 ETH | **0.02 ETH** (stress 0.018) | `solana-evm-budget.mjs`, evm-hub lane |
+| Arbitrum keeper / delivery signer | ≈ 0.0124 ETH/day of Hub deliveries at a 10-min cadence | **0.015 ETH/day** | risk-review RR12, CR-26 |
+| Robinhood deployer / Manager | v6 factory 15 tx **0.001185643 ETH** at 0.02021 gwei (pin 86,031,040, 18:08 UTC) | **0.012 ETH** | `solana-evm-budget.mjs` |
+| Seed | — | **50 USDC** (49 principal after the 2% flow fee) | DEC-195 |
+
+Total Solana ≈ 6.55 SOL. Set `walletMinimumLamports` in the approval copy to the
+R8 figure the founder approves; `--preflight` then checks it.
+
+### Port registry — the single source of truth for local validators
+
+Every lane, script and brief takes its block from this table; a port in use is
+never killed, the run stops instead. API dev servers use the port in their own
+brief; a lane header and a coordinator matrix must not disagree with this table.
+
+| RPC / faucet / gossip / dynamic | Owner |
+| --- | --- |
+| 8899 / 9900 / 1024 / 1025–1065 | `localnet.sh` defaults (single-run only) |
+| 8910 / 9910 / 11000 / 11001–11060 | fix-sp lane (program fixes) |
+| 8920 / 9920 / 12000 / 12001–12060 | CCTP track |
+| 8930 / 9930 / 13000 / 13001–13060 | fix-api lane (API e2e contracts); formerly the Kamino track — never run both |
+| 8940 / 9940 / 14000 / 14001–14060 | fix-ops lane; `script/solana-ops.localnet.test.mjs` defaults |
+| 8950 / 9950 / 15000 / 15001–15060 | swap track |
+| 8960 / 9960 / 16000 / 16001–16060 | integration track (T8a); the e2e sweep coordinator matrix also used it |
+| 8970 / 9970 / 17000 / 17001–17060 | finish-work default suite; `deploy-local.mjs` default 8970 |
+| 8990 / 9990 / 19000 / 19001–19060 | NVDAx swap track (T8c) |
+| 8983 / 9983 / 18300 / 18301–18360 | `solana-release-rehearsal.sh`; `deploy-loader-rehearsal.mjs` |
+| 8995 / 9995 / 19500 / 19501–19560 | native clone harness evidence |
+| 8996 / 9996 / 19700 / 19701–19760 | size-optimization track |
+| 8997 / 9997 / 19800 / 19801–19860 | Scope track |
+| 8998 / 9998 / 19900 / 19901–19960 | `solana-three-chain-creation.sh` (`accept-local` asserts 8998) |
+
+Blocks are reusable only after their owner finished; a new lane is added here
+before it starts, never assigned from memory in a brief.
+
+## Key roles and the keeper split (CR-11)
+
+R8 was deployer, upgrade authority, keeper and test Manager at once, with a copy
+on the dev host: a dev-host compromise could upgrade the program and drain every
+vault. Every keeper instruction is permissionless, so the keeper needs no special
+key and no code change: `receive_and_credit.rs:8` ("permissionless relaying"),
+`publish_report.rs:15-17` (any `authority: Signer`, which only pays) and
+`kamino_refresh.rs:9` ("anyone may pay").
+
+**Prepared 2026-10-11:** a new keeper keypair at the founder-machine
+`smartcontract-v2/.keys/keeper.json` (file 0600, directory 0700, excluded from Git,
+never printed). Public key **`8VLSQNmrHGyWzzoTKXZYjegPRbCm8UY7AmPyUUqzZe1x`**,
+balance 0: fund it per the table above (1.0 SOL envelope, cadence D6).
+
+| Role | Key | Lives on | Power | Rotation |
+| --- | --- | --- | --- | --- |
+| Solana deployer, initial upgrade authority | R8 `6VTvei…FgJaA` | founder machine only, **never the dev host** | deploy; upgrade until moved | move to the cold key right after `--verify` (D3) |
+| Upgrade authority after `--verify` | cold key (hardware/offline) | offline | upgrade | `--final` before client capital (DEC-189) |
+| Program id signer | `7Ppt…` keypair | `.keys/` + two encrypted offline copies | none after deploy | n/a |
+| Solana keeper | `8VLSQ…Ze1x` | dev host, `V2_SOLANA_KEEPER_PRIVATE_KEY` | pays receives, reports, refreshes | any time; no on-chain change |
+| Manager Solana Key | founder Phantom/hardware (or R8, kept off servers) | founder | Manager actions; sealed per Fund (DEC-190) | cannot rotate; new Fund |
+| EVM deployer | `.env.alpha` deployer imported into a Foundry keystore | founder machine | factory deploys | n/a |
+| API quote signer | dedicated hot EVM key | dev host, `V2_API_SIGNER_KEY` | quote signatures; sealed in factory wiring and `SwapPolicy.api_signer` | choose **before** the factory deploy; new Fund to rotate |
+| EVM keeper / delivery payer | dedicated hot EVM key | dev host, `V2_KEEPER_KEY` | pays Hub deliveries (CR-26 moves them off the quote signer) | any time |
+| Protocol recipient, adapter guardian, registry owner | cold (founder wallet or Safe) | offline | fees, guardian, registry | immutable per factory |
+
+Dev-host install (separately approved; nothing here was done on the host). Copy
+the file without printing it, write a separate 0600 env file, restart the API,
+then remove R8 from the host and from any backup or log copy:
+
+```sh
+scp .keys/keeper.json devhost:/srv/pool-party/secrets/solana-keeper.json   # 0600 on arrival
+ssh devhost 'umask 077; printf "V2_SOLANA_KEEPER_PRIVATE_KEY=%s\n" "$(cat /srv/pool-party/secrets/solana-keeper.json)" \
+  > /srv/pool-party/secrets/solana-keeper.env && rm /srv/pool-party/secrets/solana-keeper.json'
+```
+
+Verify by public key only, never by echoing the variable: run
+`solana-keygen pubkey` on the local file before copying, and check that the fee
+payer of the first keeper transaction on an explorer is `8VLSQ…Ze1x`.
+
+## Upgrade authority, ProgramData watch and program-key custody (CR-22)
+
+**Rule — never close the program.** Never run `solana program close` on the spoke
+program while any Fund exists, has ever held capital, or has a pending CCTP claim.
+Closing refunds only ProgramData rent, the program id can never be redeployed, and
+every Fund PDA, vault ATA, position NFT and in-flight CCTP mint (whose
+`destinationCaller` is the vault PDA) becomes permanently unreachable. Rollback is
+always an upgrade of the same id (risk-review R09). `solana program close` is
+acceptable only for a **buffer** account (`solana program close <BUFFER>`).
+
+**Authority.** `script/solana-mainnet-approval.json` carries two fields:
+
+| Field | Meaning | Used by |
+| --- | --- | --- |
+| `authority` | R8 deployer and initial upgrade authority; pinned in code | `--broadcast`, `--recover-prefunded`, the post-deploy verify |
+| `expectedAuthority` | Current upgrade authority after a reviewed move (D3), or `"none"` once revoked (DEC-189); `null` means "same as `authority`" | `--verify`, `programdata-watch.mjs` |
+
+After `deploy-mainnet.mjs --verify` passes, the founder may move the authority to a
+cold key (separately approved transaction):
+
+```sh
+solana program set-upgrade-authority 7PptZ653uyn5eoAFKqs4DXR1ijxH6sf49f2YAGMLTfCx \
+  --upgrade-authority "$R8_SIGNER_FILE" --new-upgrade-authority <COLD_PUBKEY> \
+  --skip-new-upgrade-authority-signer-check   # only for a hardware/offline key
+```
+
+Then set `expectedAuthority` to `<COLD_PUBKEY>` in the out-of-repo approval copy and
+rerun `--verify`. Revocation before client capital (DEC-189) is
+`solana program set-upgrade-authority <PROGRAM_ID> --final`, recorded as
+`expectedAuthority: "none"`; it is irreversible and needs its own approval.
+
+**Watcher.** `solana/scripts/programdata-watch.mjs` is read-only. It checks that the
+program is present and executable, the ProgramData authority equals the expected
+authority, the deploy slot is unchanged since the recorded baseline, and the ELF
+bytes hash to `release.json` `binarySha256`. It prints one JSON line and exits 0
+(OK), 2 (ALERT) or 1 (could not check). An upgrade alerts once; the new slot then
+becomes the baseline. Run it on the dev host every 5 minutes and page on exit 2:
+
+```cron
+*/5 * * * * cd /srv/pool-party/smartcontract-v2 && SOLANA_MAINNET_RPC="$KEYLESS_SOLANA_RPC" \
+  node solana/scripts/programdata-watch.mjs >> /var/log/pp-programdata-watch.jsonl 2>&1 || pp-alert programdata
+```
+
+Archive the approved ELF, IDL and `pp_spoke.release.json` (SHA-256 recorded)
+alongside the approval copy. Before deploy, a mainnet run reports
+`programState: "absent"` and exits 2 (measured 2026-10-11 18:02 UTC).
+
+**Encrypted offline backup of the program keypair.** `.keys/pp_spoke-program-keypair.json`
+exists as one copy. Losing it before deploy forces a new program id, a rebuild and
+every derivation again; a leak before deploy lets anyone squat `7Ppt…` with their
+own code. After deploy it has no power. Back it up before funding R8:
+
+```sh
+umask 077
+# 1. Encrypt to each of TWO offline media (USB keys kept in different places).
+#    gpg prompts for the passphrase through pinentry; it never appears on argv.
+gpg --symmetric --cipher-algo AES256 --s2k-digest-algo SHA512 --s2k-count 65011712 \
+  --no-symkey-cache --output /Volumes/<OFFLINE_1>/pp_spoke-program-keypair.json.gpg \
+  .keys/pp_spoke-program-keypair.json
+# 2. Verify each copy without writing plaintext: same hash and same public key.
+gpg --decrypt --no-symkey-cache /Volumes/<OFFLINE_1>/pp_spoke-program-keypair.json.gpg | shasum -a 256
+shasum -a 256 .keys/pp_spoke-program-keypair.json
+solana-keygen pubkey <(gpg --decrypt --no-symkey-cache /Volumes/<OFFLINE_1>/pp_spoke-program-keypair.json.gpg)
+#    -> 7PptZ653uyn5eoAFKqs4DXR1ijxH6sf49f2YAGMLTfCx
+```
+
+Keep the passphrase in the founder's password manager, never next to a medium,
+never in Slack, a repository or the dev host. Use the same procedure for R8 and for
+any cold upgrade-authority key file. Record the date and media labels (not the
+passphrase) in the deploy log.
+
+## Secrets off argv and key-less RPC (CR-27)
+
+Nothing secret appears on a command line (`ps`, shell history, CI logs):
+
+- **EVM broadcast signer.** `script/solana-evm-deploy.sh --broadcast` no longer
+  accepts `--private-key`. It signs with a Foundry keystore (default) or a Ledger
+  and refuses when the signer address differs from `EVM_DEPLOYER_ADDRESS`:
+
+  ```sh
+  cast wallet import pp-evm-deployer --interactive   # prompts; stored encrypted in ~/.foundry/keystores
+  export EVM_KEYSTORE_ACCOUNT=pp-evm-deployer
+  export EVM_KEYSTORE_PASSWORD_FILE="$HOME/.pp/evm-keystore.pass"   # optional, mode 0600; else forge prompts
+  # or: export EVM_SIGNER=ledger
+  ```
+
+- **EVM endpoints.** argv carries only the `foundry.toml` `[rpc_endpoints]` alias
+  (`arbitrum`, `robinhood`); Foundry resolves it from `ARBITRUM_RPC_URL` /
+  `ROBINHOOD_RPC_URL` in the environment (`--fork-url arbitrum`,
+  `cast chain-id --rpc-url arbitrum`).
+- **Solana endpoint.** `deploy-mainnet.mjs` hands the Solana CLI a 0600 config file
+  (`--config`) inside its 0700 temporary directory, next to the 0600 temporary payer
+  file; both are deleted in `finally`. Node-side reads use the environment only.
+- **Key-less providers.** Prefer endpoints whose URL is not a credential: IP- or
+  origin-allowlisted, or header-authenticated. Treat any keyed URL as a secret:
+  never paste it into Slack, reports, evidence or a browser bundle.
+- **Out of this package (API repo):** add `V2_API_SIGNER_KEY`, `V2_KEEPER_KEY`,
+  `V2_SOLANA_KEEPER_PRIVATE_KEY` and `V2_JUPITER_API_KEY` to the Sentry exact-value
+  redaction list, and allow `http` for Iris/VAA only on loopback mocks.
+
+> **Historical evidence below (October 7–9).** The runbook, funding table and port
+> registry above supersede every ordering, budget, funding proposal and port listed
+> further down. Keep the sections below for provenance only.
+
 ## Post-Scope integration review — October 7, 2026
 
 PR #49 is integrated. The production ELF is now **995,384 bytes**, SHA-256
@@ -72,7 +378,8 @@ approval. **Still NO-GO:** the supplied Alchemy Robinhood provider returns HTTP
   (directory 0700, file 0600, tracked Git exclusion; never distribute/commit).
 - `script/solana-three-chain-creation.sh` builds real Manager EIP-712 consent,
   sealed swap config, policyHash-qualified identities, Hub creation (50 USDC),
-  Robinhood `createSpoke` and native staged acceptance. It has no broadcast mode;
+  Robinhood `createSpoke` and native staged acceptance. It has no broadcast mode
+  (superseded 2026-10-11: `three-chain-creation.ts broadcast` is approval-gated, see S8);
   native sends require loopback port 8998 (other ports 9998/19900/19901-19960).
 - `cache/sol-t11/creation.json` contains exact EVM calldata;
   `signer-prompts.json` contains ordered signers and native account/data lists.
@@ -91,8 +398,7 @@ approval. **Still NO-GO:** the supplied Alchemy Robinhood provider returns HTTP
 
 Load `.env.alpha` / `.env.solana` in a shell with tracing disabled and export
 parameters without printing. Source the handoff `tools/rpc-env.sh` for approved
-providers. Explicit `ARBITRUM_FORK_BLOCK`, `ROBINHOOD_FORK_BLOCK`,
-`SOLANA_STOCK_SESSION_OPEN/CLOSE`, and `PP_SWAP_MAX_AGE`,
+providers. Explicit `ARBITRUM_FORK_BLOCK`, `ROBINHOOD_FORK_BLOCK`, and `PP_SWAP_MAX_AGE`,
 `PP_SWAP_CONFIDENCE_BPS`, `PP_SWAP_CROSS_CHECK_BPS`, `PP_SWAP_SLIPPAGE_BPS`
 are required. Tested **proposal** limits were 300 seconds / 100 / 50 / 200 bps;
 they are not a founder ruling. Scope OFF and stock swaps unavailable are sealed
@@ -100,7 +406,7 @@ as the two final zero bytes of the swap policy; Manager impact has no default.
 Prepare mainnet clones using the existing README harness before the wrapper.
 DEC-188/189/190/195/196/200/202/203 and R4.2/R8 apply.
 
-### Funding proposal — founder approval required
+### Funding proposal — founder approval required (superseded by the 2026-10-11 repricing at the top)
 
 Propose **5.75 SOL**, **0.015 ETH Arbitrum**, **0.010 ETH Robinhood**,
 and **50 USDC seed** (49 USDC initial Fund principal after existing 2% flow fee).
@@ -214,8 +520,9 @@ set -a; . "$EVM_ENV_FILE"; set +a
 source /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
 # Set explicit ARBITRUM_FORK_BLOCK and ROBINHOOD_FORK_BLOCK; record them.
 # EVM_DEPLOYER_ADDRESS is the .env.alpha deployer's PUBLIC address.
-# Supply reviewed recipients, guardian, API signer, registry owner, stock session
-# boundaries and SOLANA_PRICE_MAX_AGE. Test placeholders are never launch config.
+# Supply reviewed recipients, guardian, API signer, registry owner,
+# SOLANA_STOCK_PRICE_MAX_AGE and SOLANA_SOL_PRICE_MAX_AGE (CR-12, see "Native feed
+# max ages"). Test placeholders are never launch config.
 bash script/solana-evm-rehearsal-all.sh
 node script/solana-evm-budget.mjs
 bash script/solana-release-rehearsal.sh core
@@ -288,7 +595,7 @@ approved factories. No complete exact EVM launch total can be claimed yet.
 1. **Freeze source and approve configuration.** Merge the reviewed integration
    and record its full commit; pin both fork blocks, CLI/compiler versions,
    EVM public signer, API signer/registry owner, protocol recipient/guardian,
-   finalized report max age, stock session/pricing rules and Solana identity.
+   finalized report max age, stock pricing max ages (24/7, R9.1) and Solana identity.
    API-only keys remain server-side (DEC-201/202). Review TSLA/NVDA/SOL feeds and
    effective multipliers (DEC-198); stock swaps remain unavailable without an
    admitted fresh Solana oracle (DEC-203/204). Preserve 500-bps management cap
@@ -387,7 +694,8 @@ approved factories. No complete exact EVM launch total can be claimed yet.
 - Before any send, rollback is simply NO-GO; keep immutable manifests/evidence.
 - Partial initial upload: preserve Buffer signer/address; inspect loader owner,
   authority, funded bytes and ELF before explicitly resuming the same buffer or
-  closing it. The initial-send wrapper intentionally refuses implicit resume.
+  closing it. The initial-send wrapper intentionally refuses implicit resume;
+  `--recover-prefunded` (2026-10-11) resumes only from a complete reviewed-ELF buffer.
   `solana program close "$BUFFER_PUBLIC_ADDRESS" --authority "$PAYER_SIGNER_FILE"`
   can recover funded Buffer rent to the authorized recipient; fees are spent.
 - Program rollback: prefer reviewed upgrade of the same persistent id. At 1×,
@@ -473,7 +781,9 @@ Local deployment is opt-in: `node solana/scripts/deploy-local.mjs --broadcast`.
 Without that explicit flag, even a valid supplied key cannot submit transactions.
 It remains loopback-only; this flag does not authorize any mainnet deployment.
 Per-Fund creation refuses an unapproved destination: `arbitrum.approvedFactory`
-in the committed manifest is null until a reviewed deployment identity is pinned.
+in the committed manifest is the zero address until a reviewed deployment identity
+is pinned, and `DeploySolanaFundV6` reverts `FactoryNotApproved()` on it (CR-35;
+`FactoryNotPinned(supplied, approved)` for any other address).
 Never substitute an arbitrary environment address for that approval.
 
 Default cloned tests require `node tests/core/prepare-fixtures.ts` before starting
@@ -592,7 +902,7 @@ CoreVaultV6 23,021; FundFactoryV6 22,760; ValueReportReceiverV6 15,333;
 CctpBridgeAdapter 4,230; CctpReceiveConnector 4,521 bytes.
 Recheck linked runtime AND constructor-inclusive EIP-3860 sizes after integration.
 
-## Solana rent and deployer funding
+## Solana rent and deployer funding (local-validator rent — historical, never a mainnet budget)
 
 Plain `anchor build` succeeded, no rehearsal-only feature. Local ELF:
 
@@ -713,9 +1023,9 @@ must NEVER become the deployment artifact.
 5. Complete the shared three-chain Fund acceptance and Fund/Spoke deployment
    dry runs, L1-inclusive costs, Manager/keeper payer deltas and API/manual claim
    fallback before founder funding approval. T8b/T8c own logic fixes.
-6. **TODO(decision):** retain existing fail-closed stock session handling; durable
-   holiday/DST/off-hours exit valuation remains undecided. Current script session
-   inputs are explicit, not an automatic market-calendar authority.
+6. **R9.1 (founder, 2026-10-11):** stock pricing is 24/7. The on-chain value of the
+   tokenized stock is what counts; there is no market-hours/session gate and no
+   session input. The stock feeds' max age is the only time guard (stale fails closed).
 
 ## Ordered mainnet runbook — approval required before ANY execution
 

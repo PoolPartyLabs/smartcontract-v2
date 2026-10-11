@@ -12,6 +12,10 @@ via_ir = false
 gas_reports = ["*"]
 fs_permissions = [{ access = "read", path = "./" }, { access = "read-write", path = "./cache/sol-t11" }]
 ffi = false
+# CR-19: the test EVM's per-test gas cap (Foundry default 2^30). Deploying both full v6 stacks plus a Fund inside one
+# test (SolanaThreeChainCreation all-three: ~1.15e9 gas; SolanaV6Deployment fork: ~1.0e9) exceeds it with MemoryOOG.
+# Chain limits are asserted separately (Fund creation fitness test vs Arbitrum's 32M per-tx cap).
+gas_limit = "18446744073709551615"
 
 [fuzz]
 runs = 512

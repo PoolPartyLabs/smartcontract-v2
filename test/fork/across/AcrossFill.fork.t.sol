@@ -1,4 +1,6 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: LicenseRef-PoolParty-Source-Available-1.0
+// @implements-rules-version: v2
+// Prior license grants and third-party rights remain valid. See LICENSE and LICENSING.md.
 pragma solidity 0.8.28;
 
 import {Test} from "forge-std/Test.sol";
@@ -12,6 +14,7 @@ import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {AcrossHarnessVault} from "../../mocks/across/AcrossHarnessVault.sol";
 import {AcrossFillSimulator} from "../../mocks/across/AcrossFillSimulator.sol";
 import {MockAcrossMessageHandler} from "../../mocks/across/MockAcrossMessageHandler.sol";
+import {ForkPins} from "../ForkPins.sol";
 
 /// @dev Live SpokePool fill entry point (across-protocol/contracts `V3SpokePoolInterface.fillRelay`, selector
 ///      0xdeff4b24, present in both pinned implementations). Outside the frozen subset; read only by these tests.
@@ -117,13 +120,13 @@ contract AcrossFillForkTest is Test {
 
     /// DEC-090: the simulator's argument order, types and transfer-before-callback match the live Arbitrum pool.
     function test_DEC090_arbitrum_realFillRelayMatchesSimulator() public {
-        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envUint("ARBITRUM_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), ForkPins.arbitrum());
         _assertRealFillMatchesSimulator(ARB_SPOKE_POOL, ARB_USDC, ROBINHOOD_CHAIN_ID);
     }
 
     /// DEC-090: the same on the live Robinhood Chain pool with USDG.
     function test_DEC090_robinhood_realFillRelayMatchesSimulator() public {
-        vm.createSelectFork(vm.envString("ROBINHOOD_RPC_URL"), vm.envUint("ROBINHOOD_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ROBINHOOD_RPC_URL"), ForkPins.robinhood());
         _assertRealFillMatchesSimulator(RH_SPOKE_POOL, RH_USDG, ARBITRUM_CHAIN_ID);
     }
 
@@ -153,7 +156,7 @@ contract AcrossFillForkTest is Test {
     /// DEC-158: the quote terms are the adapter's; a vault that passes a quote in `bridgeData` is refused before the
     /// live pool is reached; the vault keeps its balance and the approval is not left open.
     function test_DEC158_arbitrum_passedQuoteIsRefusedAndMovesNothing() public {
-        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envUint("ARBITRUM_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), ForkPins.arbitrum());
         (AcrossHarnessVault harness,) = _deploy(ARB_SPOKE_POOL, ARB_USDC);
         IBridgeAdapter.SendRequest memory req = _hubToSpokeRequest();
 
@@ -166,7 +169,7 @@ contract AcrossFillForkTest is Test {
     /// DEC-090: on the live pool, a stranger's deposit between a build and its execution makes the earlier
     /// `transitRef` stale by one; the harness, which builds and executes in one transaction, matches the emitted id.
     function test_DEC090_arbitrum_strangerDepositShiftsStaleTransitRef() public {
-        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envUint("ARBITRUM_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), ForkPins.arbitrum());
         (AcrossHarnessVault harness, AcrossBridgeAdapter adapter) = _deploy(ARB_SPOKE_POOL, ARB_USDC);
         IBridgeAdapter.SendRequest memory req = _hubToSpokeRequest();
 

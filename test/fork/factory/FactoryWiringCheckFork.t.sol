@@ -1,15 +1,18 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: LicenseRef-PoolParty-Source-Available-1.0
+// @implements-rules-version: v2
+// Prior license grants and third-party rights remain valid. See LICENSE and LICENSING.md.
 pragma solidity 0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {IFundFactory} from "../../../src/interfaces/IFundFactory.sol";
 import {FactoryDeployment} from "../../../script/FactoryDeployment.sol";
+import {ForkPins} from "../ForkPins.sol";
 
 /// @notice Independent verification plan F-12 (FF-10, SF-1, CF-V4-10): the deployment script refuses a wiring the
 ///         factory would accept but no fund could use, checked against the live Arbitrum One contracts.
 contract FactoryWiringCheckForkTest is Test, FactoryDeployment {
     function setUp() public {
-        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envUint("ARBITRUM_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), ForkPins.arbitrum());
     }
 
     function _liveWiring() internal returns (IFundFactory.ProtocolWiring memory w) {

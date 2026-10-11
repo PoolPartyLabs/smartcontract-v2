@@ -1,4 +1,6 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: LicenseRef-PoolParty-Source-Available-1.0
+// @implements-rules-version: v2
+// Prior license grants and third-party rights remain valid. See LICENSE and LICENSING.md.
 pragma solidity 0.8.28;
 
 import {Test} from "forge-std/Test.sol";
@@ -27,6 +29,7 @@ import {MockReportReceiver} from "../../mocks/core/MockReportReceiver.sol";
 import {MockPriceSource} from "../../mocks/core/MockPriceSource.sol";
 import {MockManagerRegistry} from "../../mocks/core/MockManagerRegistry.sol";
 import {MandateFixture} from "../../utils/MandateFixture.sol";
+import {ForkPins} from "../ForkPins.sol";
 
 /// @notice Core Vault custody against the live Across SpokePool on Arbitrum One (docs/INTEGRATIONS.md): the vault
 ///         approves exactly, the SpokePool pulls exactly the input amount from the vault with the per-send escrow as
@@ -50,7 +53,7 @@ contract CoreVaultAcrossForkTest is Test, FundSeed {
     address internal spokeVaultAddress = makeAddr("robinhoodSpokeVault");
 
     function setUp() public {
-        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envUint("ARBITRUM_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), ForkPins.arbitrum());
         bridge = new MockBridgeAdapter(SPOKE_POOL);
         hubVault = new MockHubSpokeVault(USDC);
         receiver = new MockReportReceiver();

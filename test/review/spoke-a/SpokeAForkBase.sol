@@ -1,4 +1,6 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: LicenseRef-PoolParty-Source-Available-1.0
+// @implements-rules-version: v2
+// Prior license grants and third-party rights remain valid. See LICENSE and LICENSING.md.
 pragma solidity 0.8.28;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -37,6 +39,7 @@ import {MockReportReceiver} from "../../mocks/core/MockReportReceiver.sol";
 import {MandateFixture} from "../../utils/MandateFixture.sol";
 import {UniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
 import {ArbitrumSwapAdapter} from "../../utils/ArbitrumSwapAdapter.sol";
+import {ForkPins} from "../../fork/ForkPins.sol";
 
 interface IPermit2Holder {
     function permit2() external view returns (address);
@@ -125,7 +128,7 @@ abstract contract SpokeAForkBase is Test, FundSeed {
     address internal alice = makeAddr("alice");
 
     function setUp() public virtual {
-        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envUint("ARBITRUM_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), ForkPins.arbitrum());
         key = PoolKey(Currency.wrap(WETH), Currency.wrap(USDC), 500, 10, IHooks(address(0)));
         poolId = PoolId.unwrap(key.toId());
         (, tick0,,) = IStateView(SV).getSlot0(PoolId.wrap(poolId));

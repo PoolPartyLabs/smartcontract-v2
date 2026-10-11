@@ -1,4 +1,6 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: LicenseRef-PoolParty-Source-Available-1.0
+// @implements-rules-version: v2
+// Prior license grants and third-party rights remain valid. See LICENSE and LICENSING.md.
 pragma solidity 0.8.28;
 
 import {Vm} from "forge-std/Vm.sol";
@@ -22,6 +24,7 @@ import {UniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.s
 import {SpokeIncomeTypes} from "../../../src/spoke/SpokeIncomeTypes.sol";
 import {OrderCodec} from "../../../src/libraries/OrderCodec.sol";
 import {MandateFixture} from "../../utils/MandateFixture.sol";
+import {ForkPins} from "../ForkPins.sol";
 
 /// @notice Spoke role on a pinned Robinhood Chain fork: real USDG, the real Wormhole Core Bridge (report publication,
 ///         parsed with `WormholeOverride.fetchPublishedMessages`, then signed and verified with an overridden guardian
@@ -38,7 +41,7 @@ contract SpokeVaultRobinhoodForkTest is SpokeVaultForkBase {
     SpokeVault internal vault;
 
     function setUp() public {
-        vm.createSelectFork(vm.envString("ROBINHOOD_RPC_URL"), vm.envUint("ROBINHOOD_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ROBINHOOD_RPC_URL"), ForkPins.robinhood());
         assertEq(block.chainid, ROBINHOOD);
 
         spokeUni = new MockPositionAdapter(guardian, false);

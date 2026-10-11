@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: LicenseRef-PoolParty-Source-Available-1.0
+// @implements-rules-version: v2
+// Prior license grants and third-party rights remain valid. See LICENSE and LICENSING.md.
 pragma solidity 0.8.28;
 
 import {Script, console} from "forge-std/Script.sol";
@@ -11,17 +14,14 @@ contract DeploySolanaV6 is Script, SolanaV6Deployment {
         address guardian = vm.envAddress("ADAPTER_GUARDIAN");
         address signer = vm.envAddress("API_SIGNER");
         address owner = vm.envAddress("REGISTRY_OWNER");
-        uint256 rawOpen = vm.envUint("SOLANA_STOCK_SESSION_OPEN");
-        uint256 rawClose = vm.envUint("SOLANA_STOCK_SESSION_CLOSE");
-        uint256 rawMaxAge = vm.envUint("SOLANA_PRICE_MAX_AGE");
-        if (rawOpen > type(uint64).max || rawClose > type(uint64).max || rawMaxAge > type(uint32).max) {
+        // CR-12: stock and SOL feeds have separate max ages (see SolanaPriceSourceV6.MAX_*_PRICE_AGE for the data).
+        uint256 rawStockMaxAge = vm.envUint("SOLANA_STOCK_PRICE_MAX_AGE");
+        uint256 rawSolMaxAge = vm.envUint("SOLANA_SOL_PRICE_MAX_AGE");
+        if (rawStockMaxAge > type(uint32).max || rawSolMaxAge > type(uint32).max) {
             revert InvalidDeploymentConfiguration();
         }
-        uint64 open = uint64(rawOpen);
-        uint64 close = uint64(rawClose);
-        uint32 maxAge = uint32(rawMaxAge);
         vm.startBroadcast();
-        result = _deployV6(recipient, guardian, owner, signer, open, close, maxAge);
+        result = _deployV6(recipient, guardian, owner, signer, uint32(rawStockMaxAge), uint32(rawSolMaxAge));
         vm.stopBroadcast();
         console.log("chain id", block.chainid);
         console.log("FundFactoryV6", address(result.factory));
