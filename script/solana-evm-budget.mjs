@@ -64,7 +64,13 @@ for (const chain of ['arbitrum', 'robinhood']) {
       entry.executionWei = transactions.reduce((sum, transaction) => sum + BigInt(transaction.executionWei), 0n).toString();
       entry.l1Wei = transactions.reduce((sum, transaction) => sum + BigInt(transaction.l1Wei), 0n).toString();
       entry.dryRunCommit = simulation.commit;
-      entry.forkPins = JSON.parse(readFileSync(resolve(root, 'evm-pins.json')));
+      // DF-4/C10: pins are provenance, never part of the measurement. solana-evm-deploy.sh records each run's pin;
+      // evm-pins.json (written only by solana-evm-rehearsal-all.sh) is optional.
+      const pinPath = resolve(directory, 'pin');
+      if (existsSync(pinPath)) entry.forkPin = Number(readFileSync(pinPath, 'utf8').trim());
+      const pinsPath = resolve(root, 'evm-pins.json');
+      if (existsSync(pinsPath)) entry.forkPins = JSON.parse(readFileSync(pinsPath));
+      if (!existsSync(pinPath) && !existsSync(pinsPath)) entry.forkPinNote = 'No recorded pin; see the dry-run run.log';
     } catch { entry.reason = 'Missing/failed fork, signed calldata, transaction artifacts or L1 oracle quote; never assume zero L1 fee'; }
     results.push(entry);
   }

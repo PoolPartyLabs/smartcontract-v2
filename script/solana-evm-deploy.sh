@@ -54,10 +54,17 @@ case "$MODULE" in
   fund-legacy) SCRIPT=CreateFund ;;
   check-legacy) SCRIPT=CheckAlphaDeployment ;;
 esac
+# C5: Foundry's sensitive script cache (cache/<Script>.s.sol/<chain>/...) stores the resolved, possibly keyed, RPC
+# URL; purge it on every exit, success or failure.
+trap 'rm -rf "$ROOT/cache/$SCRIPT.s.sol"' EXIT
 STATE="$ROOT/cache/sol-t9/evm-$CHAIN-$MODULE"
 mkdir -p "$STATE"
+printf '%s\n' "$PIN" >"$STATE/pin"   # DF-4/C10: fork-pin provenance for solana-evm-budget.mjs
 export FOUNDRY_BROADCAST="$STATE/broadcast"
 ARGS=(script "script/$SCRIPT.s.sol" --fork-url "$RPC_ALIAS" --fork-block-number "$PIN" --sender "${EVM_DEPLOYER_ADDRESS:?Explicit EVM signer address required}" --compute-units-per-second 30 --fork-retry-backoff 3000)
+# C7: Fund creation measures 28.8-30.3M gas (anvil receipts) against Arbitrum's 32M per-tx cap; Foundry's default
+# 130% estimate multiplier would request ~39.5M (Nitro behaviour above the cap unverified). 105% stays under 32M.
+if [[ "$MODULE" == fund-v6 ]]; then ARGS+=(--gas-estimate-multiplier 105); fi
 if [[ "$MODE" == --broadcast ]]; then
   if [[ "$MODULE" == check-legacy ]]; then printf 'Read-only check cannot broadcast\n' >&2; exit 1; fi
   if [[ "$MODULE" == factory-legacy || "$MODULE" == fund-legacy ]]; then printf 'Legacy deployment is dry-run only in this package\n' >&2; exit 1; fi

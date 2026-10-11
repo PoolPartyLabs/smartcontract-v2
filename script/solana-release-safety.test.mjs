@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -243,4 +243,62 @@ test('CR-10: preflight reports an unreachable endpoint as a NO-GO row without na
   assert.equal(report.checks.find(check => check.name === 'genesis').ok, false);
   assert.match(result.stderr, /\[deploy-mainnet\] .* step=preflight status=nogo/);
   assert.doesNotMatch(result.stdout + result.stderr, /secret-provider-host|SECRET_PATH_KEY/);
+});
+
+test('C7: creation gas is a receipt fitness on loopback, and fund-v6 requests at most 105% of the estimate', () => {
+  const evm = readFileSync('script/solana-evm-deploy.sh', 'utf8');
+  assert.match(evm, /if \[\[ "\$MODULE" == fund-v6 \]\]; then ARGS\+=\(--gas-estimate-multiplier 105\); fi/);
+  const fitness = readFileSync('script/solana-creation-gas-fitness.sh', 'utf8');
+  assert.match(fitness, /^#![^\n]+\nset \+x\n/);
+  assert.doesNotMatch(fitness, /--private-key|--fork-url "\$ARBITRUM_RPC_URL"/);
+  assert.match(fitness, /--fork-url arbitrum .* --host 127\.0\.0\.1/);
+  assert.match(fitness, /--auto-impersonate >\/dev\/null 2>&1 &/);
+  assert.match(fitness, /GAS_USED \+ MARGIN > CAP/);
+  assert.equal(spawnSync('bash', ['-n', 'script/solana-creation-gas-fitness.sh']).status, 0);
+  const refused = spawnSync('bash', ['script/solana-creation-gas-fitness.sh'], { encoding: 'utf8',
+    env: { ...process.env, ARBITRUM_RPC_URL: 'https://SECRET_ENDPOINT.invalid', ARBITRUM_FORK_BLOCK: '', DEPLOYER_PRIVATE_KEY: 'SECRET_KEY' } });
+  assert.notEqual(refused.status, 0);
+  assert.doesNotMatch(refused.stdout + refused.stderr, /SECRET_ENDPOINT|SECRET_KEY/);
+});
+
+test('C5: the EVM wrapper purges Foundry\'s sensitive script cache on every exit', () => {
+  const evm = readFileSync('script/solana-evm-deploy.sh', 'utf8');
+  assert.match(evm, /trap 'rm -rf "\$ROOT\/cache\/\$SCRIPT\.s\.sol"' EXIT/);
+  assert.ok(evm.indexOf("trap 'rm -rf") > evm.indexOf('check-legacy) SCRIPT=CheckAlphaDeployment'));
+  assert.ok(evm.indexOf("trap 'rm -rf") < evm.indexOf('forge "${ARGS[@]}"'));
+});
+
+test('DF-4/C10: the EVM budget never marks a measured entry failed for missing pin provenance', () => {
+  const source = readFileSync('script/solana-evm-budget.mjs', 'utf8');
+  assert.doesNotMatch(source, /entry\.forkPins = JSON\.parse\(readFileSync\(resolve\(root, 'evm-pins\.json'\)\)\);/);
+  assert.match(source, /if \(existsSync\(pinsPath\)\) entry\.forkPins = /);
+  assert.match(readFileSync('script/solana-evm-deploy.sh', 'utf8'), /printf '%s\\n' "\$PIN" >"\$STATE\/pin"/);
+});
+
+test('C11: the mainnet budget retries a null fee quote and fails with a sanitized cause', t => {
+  const script = readFileSync('solana/scripts/deploy-mainnet-budget.mjs', 'utf8');
+  assert.match(script, /for \(let attempt = 0; attempt < 4; attempt\+\+\) \{\n      const blockhash = /);
+  assert.match(script, /console\.error\(`Read-only budget failed: \$\{sanitize\(error\?\.message \?\? error\)\}`\)/);
+  assert.match(script, /endpointSource/);
+  // The budget sizes the S1 ELF at load time; on a checkout without S1 the runtime probe has nothing to measure.
+  if (!existsSync('solana/target/deploy/pp_spoke.so')) return t.skip('runtime probe needs the S1 ELF (solana/target/deploy/pp_spoke.so)');
+  const result = spawnSync(process.execPath, ['solana/scripts/deploy-mainnet-budget.mjs'], { encoding: 'utf8',
+    env: { ...process.env, SOLANA_MAINNET_RPC: 'https://secret-provider-host.invalid/SECRET_PATH_KEY' }, timeout: 120000 });
+  if (result.error?.code !== 'ETIMEDOUT') {
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Read-only budget failed: Read-only budget RPC getGenesisHash failed after 5 attempts/);
+    assert.doesNotMatch(result.stdout + result.stderr, /secret-provider-host|SECRET_PATH_KEY/);
+  }
+});
+
+test('C8: the approval candidate names the deploy checkout HEAD rule, never the pre-preflight 26fb7a1', () => {
+  const approval = JSON.parse(readFileSync('script/solana-mainnet-approval.json'));
+  assert.equal(approval.sourceCommit, null);
+  assert.equal(approval.candidate.programSourceCommit, null);
+  assert.match(approval.candidate.programSourceCommitRule, /git rev-parse HEAD/);
+  assert.match(approval.candidate.idlNote, /idlSha256 that deploy-build\.sh prints/);
+  const source = readFileSync('solana/scripts/deploy-mainnet.mjs', 'utf8');
+  assert.match(source, /git\.stdout\.trim\(\) !== manifest\.sourceCommit/);
+  assert.match(source, /release\.sourceCommit !== manifest\.sourceCommit/);
+  assert.match(source, /release\.idlSha256 !== manifest\.idlSha256/);
 });

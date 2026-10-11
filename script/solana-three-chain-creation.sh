@@ -12,7 +12,11 @@ if [[ "$#" != 0 ]]; then printf 'No flags supported; fork/localnet only\n' >&2; 
 : "${ROBINHOOD_FORK_BLOCK:?Explicit fork pin required}"
 [[ "$ARBITRUM_FORK_BLOCK" =~ ^[1-9][0-9]*$ && "$ROBINHOOD_FORK_BLOCK" =~ ^[1-9][0-9]*$ ]] || exit 2
 export PRIVATE_KEY="$DEPLOYER_PRIVATE_KEY"
-export PP_LOCALNET_RPC_PORT=8998 PP_LOCALNET_FAUCET_PORT=9998 PP_LOCALNET_GOSSIP_PORT=19900 PP_LOCALNET_DYNAMIC_PORTS=19901-19960
+# DF-2: the validator block comes from the environment (docs/DEPLOYMENT-SOLANA.md port registry); 8998 is the default.
+export PP_LOCALNET_RPC_PORT="${PP_LOCALNET_RPC_PORT:-8998}" PP_LOCALNET_FAUCET_PORT="${PP_LOCALNET_FAUCET_PORT:-9998}"
+export PP_LOCALNET_GOSSIP_PORT="${PP_LOCALNET_GOSSIP_PORT:-19900}" PP_LOCALNET_DYNAMIC_PORTS="${PP_LOCALNET_DYNAMIC_PORTS:-19901-19960}"
+[[ "$PP_LOCALNET_RPC_PORT" =~ ^[0-9]+$ && "$PP_LOCALNET_FAUCET_PORT" =~ ^[0-9]+$ && "$PP_LOCALNET_GOSSIP_PORT" =~ ^[0-9]+$ \
+  && "$PP_LOCALNET_DYNAMIC_PORTS" =~ ^[0-9]+-[0-9]+$ ]] || { printf 'Numeric validator ports required\n' >&2; exit 2; }
 mkdir -p cache/sol-t11
 rm -f cache/sol-t11/creation.json cache/sol-t11/hub-created cache/sol-t11/robinhood-created cache/sol-t11/native-acceptance.json cache/sol-t11/signer-prompts.json
 node solana/scripts/three-chain-creation.ts prepare

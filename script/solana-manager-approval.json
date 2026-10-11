@@ -17,8 +17,9 @@
     "hubCore": null,
     "hubFactory": null,
     "hubCreationTx": null,
-    "fundPda": null
+    "fundPda": null,
+    "assets": null
   },
   "decisions": ["DEC-190", "DEC-195", "DEC-200"],
-  "notes": "Template only. Copy outside the repo, fill, and point PP_MANAGER_APPROVAL_FILE at the copy. managerSolanaKey is sealed per Fund (DEC-190) and cannot rotate."
+  "notes": "Template only. Copy outside the repo, fill, and point PP_MANAGER_APPROVAL_FILE at the copy. managerSolanaKey is sealed per Fund (DEC-190) and cannot rotate. creation.assets is the reviewed sealed asset list in plan order, e.g. [\"usdc\", \"wsol\"] (DF-1); broadcast refuses a plan that seals anything else."
 }

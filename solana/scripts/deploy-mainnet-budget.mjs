@@ -3,10 +3,14 @@ import { createHash } from 'node:crypto';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction, ComputeBudgetProgram } from '@solana/web3.js';
+import { sanitize } from './ops-common.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const path = resolve(root, 'target/deploy/pp_spoke.so');
 const size = statSync(path).size;
+// C9: the provider comes from SOLANA_MAINNET_RPC (rpc-env.sh exports SOLANA_RPC_URL: set SOLANA_MAINNET_RPC from it);
+// the public fallback is reported in the output instead of being silent.
+const endpointSource = process.env.SOLANA_MAINNET_RPC ? 'SOLANA_MAINNET_RPC' : 'public api.mainnet-beta (SOLANA_MAINNET_RPC unset)';
 const endpoint = process.env.SOLANA_MAINNET_RPC ?? 'https://api.mainnet-beta.solana.com';
 const methods = new Set(['getGenesisHash', 'getMinimumBalanceForRentExemption', 'getRecentPrioritizationFees', 'getLatestBlockhash', 'getFeeForMessage', 'getSlot']);
 async function rpc(method, params = []) {
@@ -20,7 +24,7 @@ async function rpc(method, params = []) {
     } catch {}
     await new Promise(resolve => setTimeout(resolve, 1000 * 2 ** attempt));
   }
-  throw new Error('Read-only budget RPC failed; endpoint/response suppressed');
+  throw new Error(`Read-only budget RPC ${method} failed after 5 attempts; endpoint/response suppressed`);
 }
 async function main() {
   if (await rpc('getGenesisHash') !== '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d') throw new Error('Mainnet required');
@@ -39,13 +43,21 @@ async function main() {
   const encoded = (opcode, length, bytes = Buffer.alloc(0)) => {
     const data = Buffer.alloc(4 + length); data.writeUInt32LE(opcode); bytes.copy(data, 4); return data;
   };
-  const blockhash = (await rpc('getLatestBlockhash', [{ commitment: 'finalized' }])).value.blockhash;
+  // C11: getFeeForMessage answers value=null when the node no longer (or not yet) knows the blockhash; retry the quote
+  // with a fresh finalized blockhash instead of failing the whole budget opaquely.
   async function messageFee(instructions, units) {
-    const transaction = new Transaction({ feePayer: payer, recentBlockhash: blockhash }).add(
-      ...instructions, ComputeBudgetProgram.setComputeUnitPrice({ microLamports: priority }),
-      ComputeBudgetProgram.setComputeUnitLimit({ units }));
-    const result = await rpc('getFeeForMessage', [transaction.compileMessage().serialize().toString('base64'), { commitment: 'finalized' }]);
-    if (!Number.isSafeInteger(result.value) || result.value < 0) throw new Error('Fee message unavailable; rerun with fresh blockhash');
+    let transaction;
+    let result;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const blockhash = (await rpc('getLatestBlockhash', [{ commitment: 'finalized' }])).value.blockhash;
+      transaction = new Transaction({ feePayer: payer, recentBlockhash: blockhash }).add(
+        ...instructions, ComputeBudgetProgram.setComputeUnitPrice({ microLamports: priority }),
+        ComputeBudgetProgram.setComputeUnitLimit({ units }));
+      result = await rpc('getFeeForMessage', [transaction.compileMessage().serialize().toString('base64'), { commitment: 'finalized' }]);
+      if (Number.isSafeInteger(result.value) && result.value >= 0) break;
+      await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+    }
+    if (!Number.isSafeInteger(result.value) || result.value < 0) throw new Error('Fee quote (getFeeForMessage) returned no value after 4 fresh blockhashes');
     return { lamports: result.value, contextSlot: result.context.slot, requestedCU: units,
       signatures: transaction.compileMessage().header.numRequiredSignatures };
   }
@@ -72,7 +84,7 @@ async function main() {
     one900kSingleSignatureTransactionLamports: 5000 + Math.ceil(900000 * priority / 1000000) }));
   console.log(JSON.stringify({ measuredAt: new Date().toISOString(), finalizedSlot: await rpc('getSlot', [{ commitment: 'finalized' }]),
     scope: 'Read-only mainnet rent and fee-message model; not deployment or exact future expenditure',
-    binaryBytes: size, binarySha256: createHash('sha256').update(readFileSync(path)).digest('hex'),
+    endpointSource, binaryBytes: size, binarySha256: createHash('sha256').update(readFileSync(path)).digest('hex'),
     multiplier: 1, priorityMicroLamportsPerCU: priority, recentFeeSamples: samples.length, percentile75MicroLamports: percentile75,
     feeModel: 'Agave 2.3.0 shared payer/authority, 960-byte chunks; CU limits from measured loader sequence; resimulate if CLI changes',
     programRentLamports: programRent, programDataRentLamports: programDataRent,
@@ -83,4 +95,5 @@ async function main() {
     combinedKey: '6VTveiPVZVM7H9BWEsUsu4ivsrPjKw9ePrLQqHaFgJaA',
     combinedWalletMinimum: 'TODO(decision): approve keeper/Manager counts, adapter rents, retries and funding margin' }, null, 2));
 }
-main().catch(() => { console.error('Read-only budget failed; endpoint suppressed'); process.exitCode = 1; });
+// C11: a sanitized cause (no endpoint, no secret value) instead of an opaque failure.
+main().catch(error => { console.error(`Read-only budget failed: ${sanitize(error?.message ?? error)}`); process.exitCode = 1; });
