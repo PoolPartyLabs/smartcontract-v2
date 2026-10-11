@@ -5,7 +5,11 @@ pragma solidity 0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {SolanaV6Deployment} from "../../../script/SolanaV6Deployment.sol";
-import {SolanaPriceSourceV6} from "../../../src/report/SolanaPriceSourceV6.sol";
+import {
+    SolanaPriceSourceV6,
+    SOLANA_MAX_STOCK_PRICE_AGE,
+    SOLANA_MAX_SOL_PRICE_AGE
+} from "../../../src/report/SolanaPriceSourceV6.sol";
 import {ValueReportReceiverV6} from "../../../src/report/ValueReportReceiverV6.sol";
 
 /// @notice DEC-188/196/198: fork-test the exact deploy path, with no contract size-limit override.
@@ -35,6 +39,8 @@ contract SolanaV6DeploymentForkTest is Test, SolanaV6Deployment {
     }
 
     function _deploy() private returns (V6Deployment memory) {
-        return _deployV6(address(11), address(12), address(13), address(13), 3600);
+        return _deployV6(
+            address(11), address(12), address(13), address(13), SOLANA_MAX_STOCK_PRICE_AGE, SOLANA_MAX_SOL_PRICE_AGE
+        );
     }
 }

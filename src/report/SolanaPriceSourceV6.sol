@@ -7,6 +7,14 @@ import {ChainlinkPriceSource} from "./ChainlinkPriceSource.sol";
 import {SolanaMandateV6} from "../mandate/SolanaMandateV6.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
+/// @dev CR-12: ceiling for `stockMaxAge` (TSLA/USD, NVDA/USD). Both are 24 h heartbeat feeds (Chainlink directory:
+///      heartbeat 86,400 s, deviation 0.5%) that also update on weekends; over their last 200 rounds (read 2026-10-11
+///      17:31 UTC, Arbitrum block 513,882,670) the largest gap was 86,430 s. Heartbeat plus one hour of margin.
+uint32 constant SOLANA_MAX_STOCK_PRICE_AGE = 90_000;
+/// @dev CR-12: ceiling for `solMaxAge`, kept tight. SOL/USD (heartbeat 86,400 s, deviation 0.1%) never went more than
+///      3,692 s without an update over its last 1,000 rounds (2026-10-08 to 2026-10-11, weekend included).
+uint32 constant SOLANA_MAX_SOL_PRICE_AGE = 7200;
+
 /// @notice Immutable Arbitrum USD feeds for native Solana assets (DEC-123, DEC-188, DEC-194).
 /// @dev TSLAx uses the unit multiplier; NVDAx uses the pinned effective binary multiplier.
 ///      The v6 registry authenticates both witnesses; changed issuer state requires a new version.
@@ -25,6 +33,8 @@ contract SolanaPriceSourceV6 {
     bytes32 public constant TSLA_MINT = 0x07e83582411fea1482f0994b80aa512a97c94f25df283bec5a67a381fc862b4a;
     bytes32 public constant WSOL_MINT = 0x069b8857feab8184fb687f634618c035dac439dc1aeb3b5598a0f00000000001;
     bytes32 public constant USDC_MINT = 0xc6fa7af3bedbad3a3d65f36aabc97431b1bbe4c2d2f6e0e47ca60203452f5d61;
+    uint32 public constant MAX_STOCK_PRICE_AGE = SOLANA_MAX_STOCK_PRICE_AGE;
+    uint32 public constant MAX_SOL_PRICE_AGE = SOLANA_MAX_SOL_PRICE_AGE;
     ChainlinkPriceSource public immutable underlying;
     address public immutable stockAccountingId;
 
@@ -40,7 +50,8 @@ contract SolanaPriceSourceV6 {
     ) {
         if (
             block.chainid != 42_161 || config.stockMint != TSLA_MINT || config.wrappedSolMint != WSOL_MINT
-                || config.usdcMint != USDC_MINT
+                || config.usdcMint != USDC_MINT || config.stockMaxAge == 0 || config.stockMaxAge > MAX_STOCK_PRICE_AGE
+                || config.solMaxAge == 0 || config.solMaxAge > MAX_SOL_PRICE_AGE
         ) revert InvalidConfiguration();
         stockAccountingId = SolanaMandateV6.accountingId(config.stockMint);
         ChainlinkPriceSource.FeedConfig[] memory feeds = new ChainlinkPriceSource.FeedConfig[](evmFeeds.length + 3);

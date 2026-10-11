@@ -11,7 +11,7 @@ import {FactoryDeployment} from "../../../script/FactoryDeployment.sol";
 import {FundFactoryV6} from "../../../src/factory/FundFactoryV6.sol";
 import {CoreVaultV6} from "../../../src/core/CoreVaultV6.sol";
 import {CctpReceiveConnector} from "../../../src/core/CctpReceiveConnector.sol";
-import {SolanaPriceSourceV6} from "../../../src/report/SolanaPriceSourceV6.sol";
+import {SolanaPriceSourceV6, SOLANA_MAX_STOCK_PRICE_AGE, SOLANA_MAX_SOL_PRICE_AGE} from "../../../src/report/SolanaPriceSourceV6.sol";
 import {ChainlinkPriceSource} from "../../../src/report/ChainlinkPriceSource.sol";
 import {ValueReportReceiverV6} from "../../../src/report/ValueReportReceiverV6.sol";
 import {IFundFactory} from "../../../src/interfaces/IFundFactory.sol";
@@ -44,8 +44,9 @@ contract ComposedSolanaFundForkTest is Test, FactoryDeployment {
     uint256 private constant ATTESTER_KEY = 0xC1AC1E;
     address private constant TSLA_USD = 0x3609baAa0a9b1f0FE4d6CC01884585d0e191C3E3;
     address private constant SOL_USD = 0x24ceA4b8ce57cdA5058b924B9B9987992450590c;
-    uint32 private constant STOCK_MAX_AGE = 3600;
-    uint32 private constant SOL_MAX_AGE = 3600;
+    /// @dev CR-12: the deploy values (stock: 24 h heartbeat + 1 h; SOL: tight).
+    uint32 private constant STOCK_MAX_AGE = SOLANA_MAX_STOCK_PRICE_AGE;
+    uint32 private constant SOL_MAX_AGE = SOLANA_MAX_SOL_PRICE_AGE;
     FundFactoryV6 private factory;
     CoreVaultV6 private core;
     ValueReportReceiverV6 private receiver;

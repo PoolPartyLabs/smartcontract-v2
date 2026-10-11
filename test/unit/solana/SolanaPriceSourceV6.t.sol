@@ -18,8 +18,9 @@ contract SolanaPriceSourceV6Test is Test {
     uint64 private constant WEEKDAY = 1_791_293_400;
     /// @dev Sat 2026-10-10 02:00 UTC: no US session; R9.1 prices it anyway.
     uint64 private constant SATURDAY = 1_791_597_600;
-    uint32 private constant STOCK_MAX_AGE = 3600;
-    uint32 private constant SOL_MAX_AGE = 3600;
+    /// @dev CR-12 deploy values: stock = 24 h heartbeat + 1 h, SOL tight.
+    uint32 private constant STOCK_MAX_AGE = 90_000;
+    uint32 private constant SOL_MAX_AGE = 7200;
 
     function setUp() public {
         vm.chainId(42_161);
@@ -38,13 +39,35 @@ contract SolanaPriceSourceV6Test is Test {
     }
 
     function _source(bytes32 stockMint) private returns (SolanaPriceSourceV6) {
+        return _source(stockMint, STOCK_MAX_AGE, SOL_MAX_AGE);
+    }
+
+    function _source(bytes32 stockMint, uint32 stockMaxAge, uint32 solMaxAge) private returns (SolanaPriceSourceV6) {
         return new SolanaPriceSourceV6(
-            SolanaPriceSourceV6.NativeConfig(
-                stockMint, SolanaFixture.SOL, SolanaFixture.USDC, STOCK_MAX_AGE, SOL_MAX_AGE
-            ),
+            SolanaPriceSourceV6.NativeConfig(stockMint, SolanaFixture.SOL, SolanaFixture.USDC, stockMaxAge, solMaxAge),
             new ChainlinkPriceSource.FeedConfig[](0),
             new ChainlinkPriceSource.FixedConfig[](0)
         );
+    }
+
+    /// @dev CR-12: stock and SOL max ages are separate, non-zero and capped by the measured feed cadence.
+    function testSeparateMaxAgesBoundedByMeasuredCadence() public {
+        assertEq(source.MAX_STOCK_PRICE_AGE(), STOCK_MAX_AGE);
+        assertEq(source.MAX_SOL_PRICE_AGE(), SOL_MAX_AGE);
+        assertEq(source.maxPriceAge(SolanaMandateV6.accountingId(source.NVDA_MINT())), STOCK_MAX_AGE);
+        assertEq(source.maxPriceAge(SolanaMandateV6.accountingId(SolanaFixture.SOL)), SOL_MAX_AGE);
+        _source(SolanaFixture.STOCK, 3600, 600);
+        bytes32 stock = SolanaFixture.STOCK;
+        uint32[2][4] memory refused = [
+            [uint32(0), SOL_MAX_AGE],
+            [STOCK_MAX_AGE + 1, SOL_MAX_AGE],
+            [STOCK_MAX_AGE, uint32(0)],
+            [STOCK_MAX_AGE, SOL_MAX_AGE + 1]
+        ];
+        for (uint256 index; index < refused.length; ++index) {
+            vm.expectRevert(SolanaPriceSourceV6.InvalidConfiguration.selector);
+            _source(stock, refused[index][0], refused[index][1]);
+        }
     }
 
     function _registry() private returns (SolanaSpokeRegistryV6) {

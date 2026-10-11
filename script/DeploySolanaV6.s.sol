@@ -14,11 +14,14 @@ contract DeploySolanaV6 is Script, SolanaV6Deployment {
         address guardian = vm.envAddress("ADAPTER_GUARDIAN");
         address signer = vm.envAddress("API_SIGNER");
         address owner = vm.envAddress("REGISTRY_OWNER");
-        uint256 rawMaxAge = vm.envUint("SOLANA_PRICE_MAX_AGE");
-        if (rawMaxAge > type(uint32).max) revert InvalidDeploymentConfiguration();
-        uint32 maxAge = uint32(rawMaxAge);
+        // CR-12: stock and SOL feeds have separate max ages (see SolanaPriceSourceV6.MAX_*_PRICE_AGE for the data).
+        uint256 rawStockMaxAge = vm.envUint("SOLANA_STOCK_PRICE_MAX_AGE");
+        uint256 rawSolMaxAge = vm.envUint("SOLANA_SOL_PRICE_MAX_AGE");
+        if (rawStockMaxAge > type(uint32).max || rawSolMaxAge > type(uint32).max) {
+            revert InvalidDeploymentConfiguration();
+        }
         vm.startBroadcast();
-        result = _deployV6(recipient, guardian, owner, signer, maxAge);
+        result = _deployV6(recipient, guardian, owner, signer, uint32(rawStockMaxAge), uint32(rawSolMaxAge));
         vm.stopBroadcast();
         console.log("chain id", block.chainid);
         console.log("FundFactoryV6", address(result.factory));

@@ -7,6 +7,7 @@ import {Test} from "forge-std/Test.sol";
 import {SolanaV6Deployment} from "../../../script/SolanaV6Deployment.sol";
 import {FundFactoryV6} from "../../../src/factory/FundFactoryV6.sol";
 import {CoreVaultV6} from "../../../src/core/CoreVaultV6.sol";
+import {SOLANA_MAX_STOCK_PRICE_AGE, SOLANA_MAX_SOL_PRICE_AGE} from "../../../src/report/SolanaPriceSourceV6.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IFundFactory} from "../../../src/interfaces/IFundFactory.sol";
 import {Mandate, TokenConfig, AdapterConfig, PoolConfig, SpokeConfig, BridgeAdapterConfig} from "../../../src/mandate/Mandate.sol";
@@ -45,7 +46,8 @@ contract SolanaThreeChainCreationForkTest is Test, SolanaV6Deployment {
         manager = vm.addr(managerKey);
         vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envUint("ARBITRUM_FORK_BLOCK"));
         vm.startPrank(manager);
-        hub = _deployV6(vm.envAddress("PROTOCOL_RECIPIENT"), vm.envAddress("ADAPTER_GUARDIAN"), vm.envAddress("API_SIGNER"), vm.envAddress("API_SIGNER"), 3600);
+        hub = _deployV6(vm.envAddress("PROTOCOL_RECIPIENT"), vm.envAddress("ADAPTER_GUARDIAN"), vm.envAddress("API_SIGNER"), vm.envAddress("API_SIGNER"),
+            SOLANA_MAX_STOCK_PRICE_AGE, SOLANA_MAX_SOL_PRICE_AGE);
         vm.stopPrank();
         creationNumber = hub.factory.nextCreationNumber();
         id = hub.factory.fundIdOf(42161, creationNumber, manager);
@@ -108,7 +110,8 @@ contract SolanaThreeChainCreationForkTest is Test, SolanaV6Deployment {
     function _createRobinhood() private {
         vm.createSelectFork(vm.envString("ROBINHOOD_RPC_URL"), vm.envUint("ROBINHOOD_FORK_BLOCK"));
         vm.startPrank(manager);
-        V6Deployment memory spoke = _deployV6(vm.envAddress("PROTOCOL_RECIPIENT"), vm.envAddress("ADAPTER_GUARDIAN"), vm.envAddress("API_SIGNER"), vm.envAddress("API_SIGNER"), 3600);
+        V6Deployment memory spoke = _deployV6(vm.envAddress("PROTOCOL_RECIPIENT"), vm.envAddress("ADAPTER_GUARDIAN"), vm.envAddress("API_SIGNER"), vm.envAddress("API_SIGNER"),
+            SOLANA_MAX_STOCK_PRICE_AGE, SOLANA_MAX_SOL_PRICE_AGE);
         vm.stopPrank();
         assertEq(address(spoke.factory), address(hub.factory));
         Mandate memory mandateConfig = abi.decode(mandateBytes, (Mandate));

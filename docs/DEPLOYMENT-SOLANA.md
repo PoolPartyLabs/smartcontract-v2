@@ -1,5 +1,40 @@
 # Solana v6 deployment rehearsal — founder approval packet
 
+## Hub fixes — October 11, 2026 (POO-2256)
+
+### Native feed max ages (CR-12, R9.1)
+
+Stock pricing is 24/7 (R9.1): no session window; each feed's max age is the only
+time guard. `DeploySolanaV6` takes two explicit parameters, and
+`SolanaPriceSourceV6` refuses zero or anything above its measured ceilings:
+
+| Parameter | Feeds | Value | Ceiling in code |
+| --- | --- | ---: | --- |
+| `SOLANA_STOCK_PRICE_MAX_AGE` | TSLA/USD, NVDA/USD | 90,000 s (25 h) | `MAX_STOCK_PRICE_AGE` |
+| `SOLANA_SOL_PRICE_MAX_AGE` | SOL/USD | 7,200 s (2 h) | `MAX_SOL_PRICE_AGE` |
+
+Data, read 2026-10-11 17:31 UTC from `arb1.arbitrum.io` at Arbitrum block
+513,882,670 (head-100, block time Sun 17:31:01 UTC), one Multicall3
+`getRoundData` batch per feed; Chainlink directory metadata fetched the same minute:
+
+| Feed | Rounds | Window (UTC) | Median gap | Gaps > 1 h | Max gap | Heartbeat / deviation |
+| --- | ---: | --- | ---: | ---: | ---: | --- |
+| TSLA/USD `0x3609…C3E3` | 200 | Sep 16 15:02 → Oct 11 15:43 | 960 s | 47 | **86,429 s** (Tue Oct 6 13:40 → Wed 13:40) | 86,400 s / 0.5% |
+| NVDA/USD `0x4881…262F` | 200 | Aug 31 13:33 → Oct 11 15:58 | 3,242 s | 96 | **86,430 s** (Sat Sep 26 19:55 → Sun 19:56) | 86,400 s / 0.5% |
+| SOL/USD `0x24ce…590c` | 1,000 | Oct 8 10:52 → Oct 11 17:27 | 150 s | 1 | **3,692 s** (Sat Oct 10 23:22) | 86,400 s / 0.1% |
+
+The equity feeds do update on weekends (heartbeat only), so the previous shared
+3,600 s blocked mint/burn/exit for most of every weekend and for long in-session
+gaps (NVDA 96 of 199 gaps exceeded it). 90,000 s is the 24 h heartbeat plus one
+hour; the largest observed gap overshoots the heartbeat by 30 s. SOL stays tight at
+about twice its largest observed gap (3,600 s would have failed closed once in
+the sample). No incomplete round (`updatedAt == 0` or `answeredInRound < roundId`)
+was observed. Trade-off accepted by R9.1: a stock price up to 25 h old can price
+a mint or burn when the feed is quiet (weekends, holidays); a missed heartbeat
+fails closed (`UnsafeStockState`), never silently. Under a stale stock feed every
+v6 share mint/burn path (deposit, Instant request, claim, settle, closed exit)
+reverts until the next round; a Standard payout *request* still books.
+
 ## Post-Scope integration review — October 7, 2026
 
 PR #49 is integrated. The production ELF is now **995,384 bytes**, SHA-256
@@ -181,8 +216,9 @@ set -a; . "$EVM_ENV_FILE"; set +a
 source /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
 # Set explicit ARBITRUM_FORK_BLOCK and ROBINHOOD_FORK_BLOCK; record them.
 # EVM_DEPLOYER_ADDRESS is the .env.alpha deployer's PUBLIC address.
-# Supply reviewed recipients, guardian, API signer, registry owner and
-# SOLANA_PRICE_MAX_AGE. Test placeholders are never launch config.
+# Supply reviewed recipients, guardian, API signer, registry owner,
+# SOLANA_STOCK_PRICE_MAX_AGE and SOLANA_SOL_PRICE_MAX_AGE (CR-12, see "Native feed
+# max ages"). Test placeholders are never launch config.
 bash script/solana-evm-rehearsal-all.sh
 node script/solana-evm-budget.mjs
 bash script/solana-release-rehearsal.sh core
