@@ -20,6 +20,8 @@ Connection.prototype.simulateTransaction = async function (...parameters) {
       break;
     } catch (error) {
       if (!error.message?.includes('Transaction address table lookup uses an invalid index') || attempt === 19) throw error;
+      if (process.env.PP_REHEARSAL_METRICS) appendFileSync(process.env.PP_REHEARSAL_METRICS,
+        JSON.stringify({ kind: 'retry', reason: 'alt-invalid-index', attempt, measuredAt: new Date().toISOString() }) + '\n');
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
   }

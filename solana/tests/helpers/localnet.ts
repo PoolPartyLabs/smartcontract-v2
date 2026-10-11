@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 import { Connection, Keypair, PublicKey, Transaction, SendTransactionError } from '@solana/web3.js';
 import type { TransactionInstruction } from '@solana/web3.js';
 import { ADDRESSES, derive, publicKey } from './addresses.ts';
@@ -12,6 +12,12 @@ export function requireLoopback(endpoint: string): string {
     throw new Error('Transactions are allowed only on an uncredentialed loopback HTTP RPC');
   }
   return endpoint;
+}
+
+/** CR-33: harness retries are counted in the rehearsal metrics instead of passing silently. */
+export function recordRetry(reason: string, attempt: number): void {
+  if (process.env.PP_REHEARSAL_METRICS) appendFileSync(process.env.PP_REHEARSAL_METRICS,
+    JSON.stringify({ kind: 'retry', reason, attempt, measuredAt: new Date().toISOString() }) + '\n');
 }
 
 export function localConnection(): Connection {
@@ -52,6 +58,7 @@ export async function sendLocal(connection: Connection, payer: Keypair, instruct
     } catch (error) {
       if (!(error instanceof SendTransactionError) || !error.message.startsWith('Simulation failed.')
           || !error.transactionError.message.includes('Program cache hit max limit') || attempt === 4) throw error;
+      recordRetry('program-cache', attempt);
       await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
       continue;
     }

@@ -12,6 +12,17 @@ import { integer, word, fundId, addressWord } from '../core/fixtures.ts';
 import { attest, evm } from '../cctp/fixtures.ts';
 import { creation, productionApiKey, stageSwapPolicy, signedSwap, NVDA, NVDA_POOL, SOL_PRICE, USDC_PRICE, CROSS_CHECK } from './production-client.ts';
 
+/** CR-33: read the ScaledUiAmount (type 25) next multiplier from the cloned mint instead of pinning it. */
+function nextMultiplier(mint: Buffer): bigint {
+  for (let cursor = 166; cursor + 4 <= mint.length;) {
+    const type = mint.readUInt16LE(cursor); const length = mint.readUInt16LE(cursor + 2); cursor += 4;
+    if (type === 25) return mint.readBigUInt64LE(cursor + 48);
+    if (type === 0) break;
+    cursor += length;
+  }
+  throw new Error('Cloned NVDAx mint lacks ScaledUiAmount');
+}
+
 test('production signed swap plus open, real countertrade fees and NVDAx report', { timeout: 900_000 }, async () => {
   const connection = localConnection(); requireLoopback(connection.rpcEndpoint);
   const manager = testWallet(); const keeper = testWallet('keeper');
@@ -104,8 +115,9 @@ test('production signed swap plus open, real countertrade fees and NVDAx report'
   const routeArrays = JSON.parse(readFileSync(new URL('../../.localnet/swap-production-route-arrays.json', import.meta.url), 'utf8'));
   for (let index = 0; index < 3; index++) recorded.build.swapInstruction.accounts[20 + index].pubkey = routeArrays[index];
   const before = await connection.getMultipleAccountsInfo([fund, publicKey(config), publicKey(ledger(ADDRESSES.usdc)), publicKey(ledger(ADDRESSES.wsol))]);
-  for (const options of [{ forged: true }, { deadline: 1n }, { impact: 1 }, { nonce: 1n }]) {
-    await assert.rejects(sendMeasured(connection, manager, signedSwap(recorded, common, core, apiKey, config, ledger, options)), /InvalidSignature|Expired|Impact|Replay/);
+  // CR-33: one exact named error per negative, never an alternation that a wrong-but-listed error satisfies.
+  for (const [options, expected] of [[{ forged: true }, 'InvalidSignature'], [{ deadline: 1n }, 'Expired'], [{ impact: 1 }, 'Impact'], [{ nonce: 1n }, 'Replay']] as const) {
+    await assert.rejects(sendMeasured(connection, manager, signedSwap(recorded, common, core, apiKey, config, ledger, options)), new RegExp(`Error Code: ${expected}\\.`));
     const after = await connection.getMultipleAccountsInfo([fund, publicKey(config), publicKey(ledger(ADDRESSES.usdc)), publicKey(ledger(ADDRESSES.wsol))]);
     assert.deepEqual(after.map(account => account!.data), before.map(account => account!.data));
   }
@@ -227,7 +239,7 @@ test('production signed swap plus open, real countertrade fees and NVDAx report'
   assert.equal(sum, fees[0] + fees[1]);
   const states = 64 + Number(readWord(64 + 17 * 32));
   assert.equal(readWord(states), 1n);
-  assert.equal(readWord(states + 32 + 64), 0x3ff006f7d589fea9n);
+  assert.equal(readWord(states + 32 + 64), nextMultiplier((await connection.getAccountInfo(publicKey(NVDA)))!.data), 'witness equals the cloned mint');
   writeFileSync(new URL('../../.localnet/swap-production-report.hex', import.meta.url), `0x${report.toString('hex')}\n`);
   console.log(`REPORT: ${report.length} bytes; collected income=${sum}; NVDAx effective multiplier witness included`);
   assert.equal((await connection.getAccountInfo(vault))?.lamports ?? 0, 0);

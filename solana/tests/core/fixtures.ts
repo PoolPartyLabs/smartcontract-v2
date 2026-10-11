@@ -5,7 +5,7 @@ import { secp256k1 } from '@noble/curves/secp256k1';
 import { keccak_256 } from '@noble/hashes/sha3';
 import { ADDRESSES, fundAddresses, derive, publicKey } from '../helpers/addresses.ts';
 import { discriminator } from '../helpers/layouts.ts';
-import { requireLoopback, testAta, testWallet } from '../helpers/localnet.ts';
+import { recordRetry, requireLoopback, testAta, testWallet } from '../helpers/localnet.ts';
 
 export const hubCore = Buffer.alloc(20, 0x71);
 export const factory = Buffer.alloc(20, 0x72);
@@ -224,6 +224,7 @@ export async function sendSignedLocal(connection: Connection, payer: Keypair, in
     catch (error) {
       if (!(error instanceof SendTransactionError) || !error.message.startsWith('Simulation failed.')
           || !error.transactionError.message.includes('Program cache hit max limit') || attempt === 19) throw error;
+      recordRetry('program-cache', attempt);
       await new Promise(resolve => setTimeout(resolve, 1000 * Math.min(attempt + 1, 5)));
       continue;
     }
