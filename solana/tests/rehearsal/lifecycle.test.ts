@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import test from 'node:test';
-import { Keypair, PublicKey, SystemProgram, TransactionInstruction, SYSVAR_CLOCK_PUBKEY, SYSVAR_RENT_PUBKEY, TransactionMessage, VersionedTransaction, ComputeBudgetProgram } from '@solana/web3.js';
+import { Keypair, PublicKey, SystemProgram, TransactionInstruction, SYSVAR_CLOCK_PUBKEY, SYSVAR_RENT_PUBKEY } from '@solana/web3.js';
 import { ADDRESSES, derive, fundAddresses, publicKey } from '../helpers/addresses.ts';
 import { decodePool, discriminator } from '../helpers/layouts.ts';
 import { localConnection, testAta, testWallet, requireLoopback } from '../helpers/localnet.ts';
@@ -87,14 +87,12 @@ test('composed authenticated Fund lifecycle on cloned mainnet programs', { timeo
     market_authority:pda(ADDRESSES.kamino,Buffer.from('lma'),publicKey(ADDRESSES.market).toBuffer()),liquidity_mint:ADDRESSES.usdc,collateral_mint:collateral,
     liquidity_supply:'Bgq7trRgVMeq33yt235zM2onQ4bRDBsY5EWiTetF4qw6',vault_usdc:usdc,vault_collateral:collateralAta,token_program:ADDRESSES.token,
     instructions_sysvar:'Sysvar1nstructions1111111111111111111111111',token_ledger:ledger(ADDRESSES.usdc)};
-  let supply: TransactionInstruction | undefined;
-  for(let offset=0;offset<32;offset++) {
-    const candidate=instruction('kamino_supply',kaminoAccounts,integer(10_000_000+offset,8));
-    const transaction=new VersionedTransaction(new TransactionMessage({payerKey:manager.publicKey,recentBlockhash:(await connection.getLatestBlockhash()).blockhash,instructions:[ComputeBudgetProgram.setComputeUnitLimit({units:600_000}),candidate]}).compileToV0Message());
-    transaction.sign([manager]); const simulation=await connection.simulateTransaction(transaction);
-    if(!simulation.value.err){supply=candidate;break;}
-  }
-  assert.ok(supply,'find exact Kamino debit within 32 raw units'); await send('Kamino supply',supply);
+  // CR-17: one request, no exact-debit search; the program books the measured debit (<= request).
+  const principalBeforeSupply=(await connection.getAccountInfo(publicKey(ledger(ADDRESSES.usdc))))!.data.readBigUInt64LE(72);
+  await send('Kamino supply',instruction('kamino_supply',kaminoAccounts,integer(10_000_000,8)));
+  const supplied=principalBeforeSupply-(await connection.getAccountInfo(publicKey(ledger(ADDRESSES.usdc))))!.data.readBigUInt64LE(72);
+  assert.ok(supplied<=10_000_000n && supplied>=9_999_990n,`booked Kamino debit ${supplied}`);
+  console.log(`KAMINO SUPPLY: requested 10000000, booked ${supplied}`);
   const recorded=JSON.parse(readFileSync(new URL('../swap/fixtures/tslax.json',import.meta.url),'utf8'));
   const routeData=Buffer.from(recorded.instructions.swapInstruction.data,'base64');
   const swap=instruction('swap_to_ratio',{...common,swap_program:recorded.instructions.swapInstruction.programId},Buffer.concat([publicKey(ADDRESSES.usdc).toBuffer(),publicKey(ADDRESSES.tslax).toBuffer(),integer(15_000_000,8),integer(BigInt(recorded.quote.otherAmountThreshold),8),integer(200,2),integer(routeData.length,4),routeData]));
