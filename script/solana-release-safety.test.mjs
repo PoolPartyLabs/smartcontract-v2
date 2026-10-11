@@ -288,3 +288,15 @@ test('C11: the mainnet budget retries a null fee quote and fails with a sanitize
     assert.doesNotMatch(result.stdout + result.stderr, /secret-provider-host|SECRET_PATH_KEY/);
   }
 });
+
+test('C8: the approval candidate names the deploy checkout HEAD rule, never the pre-preflight 26fb7a1', () => {
+  const approval = JSON.parse(readFileSync('script/solana-mainnet-approval.json'));
+  assert.equal(approval.sourceCommit, null);
+  assert.equal(approval.candidate.programSourceCommit, null);
+  assert.match(approval.candidate.programSourceCommitRule, /git rev-parse HEAD/);
+  assert.match(approval.candidate.idlNote, /idlSha256 that deploy-build\.sh prints/);
+  const source = readFileSync('solana/scripts/deploy-mainnet.mjs', 'utf8');
+  assert.match(source, /git\.stdout\.trim\(\) !== manifest\.sourceCommit/);
+  assert.match(source, /release\.sourceCommit !== manifest\.sourceCommit/);
+  assert.match(source, /release\.idlSha256 !== manifest\.idlSha256/);
+});

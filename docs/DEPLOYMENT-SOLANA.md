@@ -12,8 +12,9 @@ CR-12 Solana side (R9.1: no stock market-session gate; staleness only).
 
 - Production ELF **1,002,944 bytes**, SHA-256
   `7653083a23a7932ac5934cce6b61c42cb67c79b89a6194a11b1c6817a907866d`,
-  features `no-idl,no-log-ix-name`, opt-level z; program source
-  `26fb7a112d23a28f1ae63f4851f9f8ab0bcc75f0`. Rebuilt byte-identical after a
+  features `no-idl,no-log-ix-name`, opt-level z; program source unchanged since
+  `26fb7a112d23a28f1ae63f4851f9f8ab0bcc75f0` (the approval's `sourceCommit` is the
+  deploy checkout HEAD, never this commit: C8). Rebuilt byte-identical after a
   `rehearsal-v1-swap` feature build. The IDL top-level `errors` list alternates
   between error enums across builds (three hashes observed on identical source):
   approve the IDL bytes of the approval build, never a historical hash.
@@ -150,7 +151,7 @@ Tools (all refuse to send without their approval file; all logs are sanitized):
 | Step | Action | NO-GO checkpoint (all must hold) | Failure → rollback / recovery |
 | --- | --- | --- | --- |
 | **S0** Pre-flight (read-only) | Decisions recorded; providers provisioned; keys split; funding landed | ☐ D1 asset set recorded. R9.1: no market-hours premise; the only guard is price age. Read TSLA/NVDA `latestRoundData` right before S4 and S6: the sealed max price age must exceed the observed gap or every stock read reverts (2026-10-11 18:09 UTC, Sunday: TSLA/USD 8,785 s, NVDA/USD 7,854 s old). Confirm the approved commit contains the session-gating removal; otherwise seal a no-stock Fund ☐ RPC: chain ids 42161/4663 and Solana mainnet genesis on key-less or paid providers that allow about 1,100 sends ☐ `deploy-mainnet.mjs --preflight` exits 0 (id unused and not pre-funded, buffer unused, R8 ≥ approved minimum, genesis). 2026-10-11 17:50 UTC: id unused, **R8 0 lamports → NO-GO** ☐ Role split done (CR-11 table): new keeper key on the dev host, R8 absent from it ☐ Program keypair backed up encrypted on two media (CR-22) ☐ Manager approval copy pins `managerSolanaKey` (sealed per Fund, DEC-190) ☐ `closeFund` out of scope (R9.2) | Nothing sent. Rollback = NO-GO. |
-| **S1** Freeze | Record approved commit, ELF, IDL, toolchains | ☐ Clean checkout equals the approval file ☐ `bash solana/scripts/deploy-build.sh` byte-identical: ELF 1,002,944 B `7653083a…866d` (fix-sp candidate, program source `26fb7a1`; IDL hash = the approval build's, see fix-sp section) | NO-GO |
+| **S1** Freeze | Record approved commit, ELF, IDL, toolchains | ☐ Clean checkout equals the approval file: `sourceCommit` = `git rev-parse HEAD` of the deploy checkout (the P0 merge or later; **never `26fb7a1`**, whose deploy script lacks `--preflight`/`--recover-prefunded`) (C8) ☐ `bash solana/scripts/deploy-build.sh` byte-identical: ELF 1,002,944 B `7653083a…866d` (program source unchanged since `26fb7a1`) ☐ `idlSha256` = the value THIS build prints in `pp_spoke.release.json` (C8) | NO-GO |
 | **S2** Gates | Suites at fresh pins (head − 100 taken immediately before) | ☐ All PASS without cache-served stale pins ☐ `node --test script/solana-deployment-safety.test.mjs script/solana-release-safety.test.mjs` ☐ `node --test --test-concurrency=1 script/solana-ops.localnet.test.mjs` | NO-GO |
 | **S3** EVM factory dry run | `solana-evm-deploy.sh arbitrum\|robinhood factory-v6 --dry-run` with the REAL deployer address | ☐ 27 / 15 transactions ☐ Pin = head − 100 ☐ Deployer nonce unchanged until S4 ☐ Role addresses and the `maxFeeBps = 50,000` constant in the artifacts | NO-GO |
 | **S4** BROADCAST factories | Arbitrum, then Robinhood, keystore or Ledger signer | ☐ Runtime hashes, owner/wiring, price source, Circle pins verified against the dry-run artifact ☐ Addresses recorded and `approvedFactory` set | Immutable. Partial (Arbitrum OK, Robinhood failed): retry Robinhood with the same signer; if the nonce drifted, addresses change → redeploy and update manifests. |
