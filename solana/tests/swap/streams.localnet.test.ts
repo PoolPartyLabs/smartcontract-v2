@@ -48,17 +48,18 @@ async function build(negative?: string) {
   transaction.sign([manager]); return transaction;
 }
 
-for (const negative of [undefined, 'forged', 'closed', 'stale']) {
+// R9.1: a closed-market v10 status is accepted (24/7 tokenized value); only staleness/expiry reject.
+for (const negative of [undefined, 'closed', 'forged', 'stale'] as const) {
   test(`cloned Streams verifier CPI ${negative ?? 'accepts local DON-signed v10'}`, async () => {
     requireLoopback(connection.rpcEndpoint);
     const transaction = await build(negative);
     const simulation = await connection.simulateTransaction(transaction);
-    if (!negative) {
+    if (!negative || negative === 'closed') {
       assert.equal(simulation.value.err, null, JSON.stringify(simulation.value.logs));
       assert.ok(simulation.value.logs?.some(log => log.includes('STOCK PROBE:')));
     } else {
       assert.ok(simulation.value.err, JSON.stringify(simulation.value));
-      const expected = { forged: 'BadVerification', closed: 'MarketClosed', stale: 'Stale' }[negative];
+      const expected = { forged: 'BadVerification', stale: 'Stale' }[negative];
       assert.ok(simulation.value.logs?.some(log => log.includes(`Error Code: ${expected}.`)), JSON.stringify(simulation.value.logs));
     }
     console.log(`Streams ${negative ?? 'happy'}: CU=${simulation.value.unitsConsumed}, bytes=${transaction.serialize().length}`);

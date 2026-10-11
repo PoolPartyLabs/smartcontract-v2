@@ -18,6 +18,7 @@ pub enum OracleError {
     Confidence,
     Overflow,
     StockDisabled,
+    /// Unused since R9.1 (no session gating); kept so later error codes do not shift.
     MarketClosed,
     Impact,
 }

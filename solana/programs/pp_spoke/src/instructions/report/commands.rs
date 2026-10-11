@@ -55,7 +55,7 @@ pub fn accept<'info>(fund: &mut Account<'info, FundState>, payer: &AccountInfo<'
         transit_id: [0;32], delivered: 0, excluded: 0, completed: false, rent_payer: *payer.key,
         payload: payload.try_into().unwrap(), delivered_steps: vec![] };
     command.try_serialize(&mut &mut accounts[0].try_borrow_mut_data()?[..])?;
-    fund.order_sequence = command.sequence;
+    super::orders::consume_sequence(fund, command.sequence)?;
     fund.active_command = key;
     fund.close_requested |= kind == 2;
     fund.command_registry.push(key);

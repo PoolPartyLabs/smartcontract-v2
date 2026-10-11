@@ -1,7 +1,10 @@
-use super::guards::{require_fund_address, CoreError};
+use super::guards::{require_fund_address, require_manager, CoreError};
 use crate::state::{FundState, kamino::KaminoPosition, raydium::RaydiumPosition};
 use anchor_lang::prelude::*;
 
+/// CR-28: Manager-bound. Detaching changes the exhaustive report account set, so neither the keeper
+/// nor a third party may reshape the registry under a pending report; the Manager prunes before opening
+/// new exposure once the 32/64 registry bounds are reached.
 #[derive(Accounts)]
 pub struct PruneRegistry<'info> {
     pub authority: Signer<'info>,
@@ -13,6 +16,7 @@ pub struct PruneRegistry<'info> {
 pub fn handler(ctx: Context<PruneRegistry>, payload: Vec<u8>) -> Result<()> {
     require!(payload.is_empty() && ctx.accounts.fund.active_command == Pubkey::default(), CoreError::InvalidConfiguration);
     require_fund_address(&ctx.accounts.fund, &ctx.accounts.fund.key())?;
+    require_manager(&ctx.accounts.fund, &ctx.accounts.authority.to_account_info())?;
     for account in ctx.remaining_accounts {
         require_keys_eq!(*account.owner, crate::ID, CoreError::InvalidConfiguration);
         let data = account.try_borrow_data()?;

@@ -28,7 +28,7 @@ The shared entrypoints retain `Vec<u8>`; inside that vector:
 
 | Instruction | Payload |
 | --- | --- |
-| `kamino_supply` | Exactly 8 bytes: little-endian u64 USDC amount |
+| `kamino_supply` | Exactly 8 bytes: little-endian u64 USDC amount, an upper bound; the measured debit (at most one cToken value + 1 raw unit below it, CR-17) is booked |
 | `kamino_redeem` | Exactly 16 bytes: little-endian u64 cToken units, u64 minimum USDC; max-u64 units = all recorded units |
 | `kamino_refresh` | Empty |
 

@@ -86,8 +86,11 @@ T8c verifies it against the real feed instead of applying a second multiplier.
 
 DEC-206 incidental rewards on exit go only to validated quarantine accounts;
 no reward amount is added to principal/income. Exits no longer reject merely
-because rewards accrued. Nonzero incidental-reward transfer is not demonstrated
-by this fixture; its RAY quarantine remains zero during this run.
+because rewards accrued. CR-03: genesis has no quarantine account; the first
+`raydium_collect_fees` creates `[b"raydium_reward", fund, mint]` PDA-signed
+(Manager-paid rent, token owner = Fund vault) and the test asserts it was absent
+before, initialized after, and retained after close. The quarantined RAY amount
+is logged, never asserted as income.
 
 ## Reproduce (local transactions only)
 
@@ -114,15 +117,15 @@ PP_LOCALNET_RPC_PORT=8970 node --test tests/swap/production.localnet.test.ts
 Preparation creates/retains `production-api-key.json` under ignored `.localnet/`
 with owner-only permissions on creation. Its default is a deterministic public
 test-only key, never a production credential. The test loads the same local
-file without regeneration; preparation derives reward quarantine addresses and
-owners from the resulting canonical Fund and vault. Do not print key contents.
-Changing/removing this file requires preparing quarantine fixtures again.
+file without regeneration; preparation derives reward quarantine addresses
+from the resulting canonical Fund (the program creates them). Do not print key contents.
+Changing/removing this file requires preparing again.
 
 Preparation includes the exact signed V2 route accounts, Jupiter executable,
 its upgradeable program data and lookup tables; it does not assume another
 track's validator genesis has already cloned them.
-Track extension changes only local snapshots, synthetic Manager WSOL/reward
-quarantine accounts, and Circle's explicitly local attester fixture. Protocol
+Track extension changes only local snapshots, a synthetic Manager WSOL
+account, and Circle's explicitly local attester fixture. Protocol
 mint/pool/oracle bytes stay cloned. The launcher uses 32-slot epochs so a huge
 mainnet-slot warp does not advance Clock by ~15 hours against fresh oracle bytes.
 Mainnet epoch behavior is not proven by that local timing setting. Ports are

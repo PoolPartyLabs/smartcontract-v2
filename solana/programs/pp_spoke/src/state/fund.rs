@@ -11,7 +11,8 @@ pub struct FundState {
     pub manager_evm: [u8; 20],
     pub manager_solana: Pubkey,
     pub report_sequence: u64,
-    pub order_sequence: u64,
+    /// CR-16, DEC-111: lowest Hub Wormhole sequence still executable; Hub emitters start at 0.
+    pub next_order_sequence: u64,
     pub closed: bool,
     pub bump: u8,
     pub vault_bump: u8,

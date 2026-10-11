@@ -1,5 +1,37 @@
 # Solana v6 deployment rehearsal — founder approval packet
 
+## fix-sp candidate ELF — October 11, 2026 (POO-2263)
+
+Supersedes the 995,384-byte / `6b1d78f7…3ed2` ELF below; that hash is no longer
+the release candidate. Program fixes: CR-03 (Raydium reward quarantine created
+PDA-signed on first collect/close, Manager-paid), CR-16 (first Hub order at
+Wormhole sequence 0), CR-17 (Kamino supply books the measured debit within one
+cToken of rounding), CR-28 (`prune_registry` Manager-bound; localnet DEC-205
+close-with-pending test), CR-33 (`swap_exact_in` typed Fund; harness fixes),
+CR-12 Solana side (R9.1: no stock market-session gate; staleness only).
+
+- Production ELF **1,002,944 bytes**, SHA-256
+  `7653083a23a7932ac5934cce6b61c42cb67c79b89a6194a11b1c6817a907866d`,
+  features `no-idl,no-log-ix-name`, opt-level z; program source
+  `26fb7a112d23a28f1ae63f4851f9f8ab0bcc75f0`. Rebuilt byte-identical after a
+  `rehearsal-v1-swap` feature build. The IDL top-level `errors` list alternates
+  between error enums across builds (three hashes observed on identical source):
+  approve the IDL bytes of the approval build, never a historical hash.
+- `script/solana-mainnet-approval.json` stays `NOT_APPROVED` with null top-level
+  hashes; the candidate is recorded under `candidate` for founder review.
+- GO-2 on a fresh mainnet clone (2026-10-11, slots 455,748,903–455,749,032 plus
+  per-suite oracle refreshes): core 43/43, signed production 1/1 + DEC-205
+  close 1/1, Scope 9/9, legacy composed 1/1 (15 tx, 2,176-byte report), 27/27
+  named negatives (`tests/swap/negatives.localnet.test.ts`), local loader
+  rehearsal with the real program keypair and R8 authority (1,048 tx; on-chain
+  ELF equals file; authority R8).
+- Read-only mainnet repricing at finalized slot 455,756,330: successful initial
+  deploy **5.101940754 SOL** (ProgramData rent 5.095834360 + Program 0.000833120
+  + 1,047 tx fees 0.005273274). R8 held 0 lamports and `7Ppt…` was unused at
+  2026-10-11T18:51:33Z.
+- Heaviest measured spoke transaction 498,777 CU (`raydium_close_position`,
+  55.4% of the 900k builder cap); largest packet 952 bytes (CCTP receive).
+
 ## Hub fixes — October 11, 2026 (POO-2256)
 
 > **Never call `closeFund` on a v6 Fund until CR-02 G1-G3 land.** `finalizeClosure`
@@ -103,7 +135,7 @@ Tools (all refuse to send without their approval file; all logs are sanitized):
 | Step | Action | NO-GO checkpoint (all must hold) | Failure → rollback / recovery |
 | --- | --- | --- | --- |
 | **S0** Pre-flight (read-only) | Decisions recorded; providers provisioned; keys split; funding landed | ☐ D1 asset set recorded. R9.1: no market-hours premise; the only guard is price age. Read TSLA/NVDA `latestRoundData` right before S4 and S6: the sealed max price age must exceed the observed gap or every stock read reverts (2026-10-11 18:09 UTC, Sunday: TSLA/USD 8,785 s, NVDA/USD 7,854 s old). Confirm the approved commit contains the session-gating removal; otherwise seal a no-stock Fund ☐ RPC: chain ids 42161/4663 and Solana mainnet genesis on key-less or paid providers that allow about 1,100 sends ☐ `deploy-mainnet.mjs --preflight` exits 0 (id unused and not pre-funded, buffer unused, R8 ≥ approved minimum, genesis). 2026-10-11 17:50 UTC: id unused, **R8 0 lamports → NO-GO** ☐ Role split done (CR-11 table): new keeper key on the dev host, R8 absent from it ☐ Program keypair backed up encrypted on two media (CR-22) ☐ Manager approval copy pins `managerSolanaKey` (sealed per Fund, DEC-190) ☐ `closeFund` out of scope (R9.2) | Nothing sent. Rollback = NO-GO. |
-| **S1** Freeze | Record approved commit, ELF, IDL, toolchains | ☐ Clean checkout equals the approval file ☐ `bash solana/scripts/deploy-build.sh` byte-identical: ELF 995,384 B `6b1d78f7…3ed2`, IDL `305cc4d5…c24b` (reproduced 2026-10-11 from `f40f010`) | NO-GO |
+| **S1** Freeze | Record approved commit, ELF, IDL, toolchains | ☐ Clean checkout equals the approval file ☐ `bash solana/scripts/deploy-build.sh` byte-identical: ELF 1,002,944 B `7653083a…866d` (fix-sp candidate, program source `26fb7a1`; IDL hash = the approval build's, see fix-sp section) | NO-GO |
 | **S2** Gates | Suites at fresh pins (head − 100 taken immediately before) | ☐ All PASS without cache-served stale pins ☐ `node --test script/solana-deployment-safety.test.mjs script/solana-release-safety.test.mjs` ☐ `node --test --test-concurrency=1 script/solana-ops.localnet.test.mjs` | NO-GO |
 | **S3** EVM factory dry run | `solana-evm-deploy.sh arbitrum\|robinhood factory-v6 --dry-run` with the REAL deployer address | ☐ 27 / 15 transactions ☐ Pin = head − 100 ☐ Deployer nonce unchanged until S4 ☐ Role addresses and the `maxFeeBps = 50,000` constant in the artifacts | NO-GO |
 | **S4** BROADCAST factories | Arbitrum, then Robinhood, keystore or Ledger signer | ☐ Runtime hashes, owner/wiring, price source, Circle pins verified against the dry-run artifact ☐ Addresses recorded and `approvedFactory` set | Immutable. Partial (Arbitrum OK, Robinhood failed): retry Robinhood with the same signer; if the nonce drifted, addresses change → redeploy and update manifests. |
@@ -125,7 +157,7 @@ overstates mainnet by ≈ 1.87 SOL and is never a funding figure.
 
 | Wallet / role | Measured now | Recommended envelope | Source |
 | --- | ---: | ---: | --- |
-| R8 deployer (Solana) | 5.063495738 SOL: Program 0.000833120 + ProgramData 5.057429560 + 1,039 tx fees 0.005233058 (finalized slot 455,744,663, 18:09 UTC, 10,000 µlamports/CU floor, p75 = 0) | **5.30 SOL** (one full-retry and fee margin; a failed buffer is recoverable by `program close <BUFFER>`) | `deploy-mainnet-budget.mjs` |
+| R8 deployer (Solana) | 5.101940754 SOL for the fix-sp ELF: Program 0.000833120 + ProgramData 5.095834360 + 1,047 tx fees 0.005273274 (finalized slot 455,756,330, 18:51 UTC, 10,000 µlamports/CU floor, p75 = 0; was 5.063495738 for the superseded 995,384 B ELF) | **5.30 SOL** (one full-retry and fee margin; a failed buffer is recoverable by `program close <BUFFER>`) | `deploy-mainnet-budget.mjs` |
 | Manager Solana Key | modeled peak 0.168 SOL per lifecycle (sweep) | **0.25 SOL** | solana-program lane |
 | Keeper (new key, CR-11) | ≈ 0.011 SOL permanent rent per Solana report | **1.0 SOL** at a 20-min demo heartbeat; cadence is D6/CR-15 | risk-review R07 |
 | Arbitrum deployer / Manager | v6 factory 27 tx **0.001986161 ETH** L1-inclusive at 0.020004 gwei (pin 513,890,045, 18:08 UTC); creation ≈ 29.6M gas ≈ 0.00059 ETH | **0.02 ETH** (stress 0.018) | `solana-evm-budget.mjs`, evm-hub lane |

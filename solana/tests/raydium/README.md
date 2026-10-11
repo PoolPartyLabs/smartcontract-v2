@@ -45,9 +45,10 @@ revokes both delegates atomically. Vault tokens/NFT remain Fund-owned.
    valuation results, ledger buckets and cumulative/collected fees exactly once.
    Authenticate Hub collect/unwind dispatch separately; these public entrypoints
    require the bound Manager and reject closed Funds.
-4. Create segregated reward token accounts at `[b"raydium_reward", fund, mint]`
-   owned by the vault, never ordinary pair ATAs. Required optional reward triples
-   are passed in initialized slot order. Any reward transfer rolls back atomically.
+4. Segregated reward token accounts live at `[b"raydium_reward", fund, mint]`
+   owned by the vault, never ordinary pair ATAs. CR-03: collect/close create a
+   missing one PDA-signed (Manager-paid rent, also for slots initialized after
+   open). Required optional reward triples are passed in initialized slot order.
 5. Coordinate Raydium error codes 7400–7409 and track events. Update shared
    entrypoint comments that still call implemented handlers scaffolds.
 6. Retained position-record rent is refundable only when the coordinator defines
@@ -103,8 +104,9 @@ npx tsc --noEmit
 ```
 
 The explicit fixture extension clones memo/reward accounts read-only; only local
-Fund/policy/ledger/quarantine/wallet accounts are synthesized, never pool/mint
-state. It exercises both pools, unauthorized/wrong-Fund/wrong-pool/zero-liquidity
+Fund/policy/ledger/wallet accounts are synthesized, never pool/mint state. Reward
+quarantines are not synthesized: the program creates them on the first collect
+(CR-03). It exercises both pools, unauthorized/wrong-Fund/wrong-pool/zero-liquidity
 and principal-budget negatives, a direct pool swap, real fee realization,
 ledger segregation, NFT closure, rent neutrality, CU and versioned tx size.
 ALTs are local test tables; production clients must provision their own tables.

@@ -63,24 +63,21 @@ accepted in Scope mode. USDC still uses the pinned Pyth primary reader.
 Both swap entrypoints reach the same production handler. Nonce and principal
 ledger updates occur only after guarded CPI/postconditions succeed.
 
-## Market and freshness gates
+## Freshness gate (no market-session gate)
 
-The reviewed NYSE 2026 calendar admits only 09:30–16:00 Eastern weekdays,
-excluding all ten full holidays. November 27 and December 24 close at 13:00
-Eastern. US DST switches are March 8 at 07:00 UTC and November 1 at 06:00 UTC.
-Exact open is inclusive, exact close exclusive. Unknown years are unavailable;
-no extrapolated calendar or stale closing value is substituted.
+Founder ruling R9.1 (2026-10-11): the on-chain value of the tokenized stock is
+what matters, 24/7. The NYSE calendar/session gate was removed from the Scope
+reader and the Streams v10 market-status gate from the verifier decode; there is
+no weekday, holiday or session check. `OracleError::MarketClosed` stays in the
+enum only so later error codes do not shift.
 
-Source publication must be inside the current session, non-future, and at most
+Source publication must be non-future, positive and at most
 `min(sealed.max_age_seconds, 60)` seconds old. The update slot must be positive
 and not future; retained observations timestamp must equal the publication
-timestamp, with standard-price reserved bytes zero. These are conservative
-engineering admission gates, not new founder economic rules.
-**TODO(decision): approve the provider, freshness ceiling and calendar horizon;
-review emergency closures and next-year calendar before widening admission.**
-Scope's Open adapter controls which upstream session updates enter the account;
-the cached entry does not retain a separate live market-status attestation.
-An extraordinary exchange halt/closure is not independently signaled here.
+timestamp, with standard-price reserved bytes zero. Staleness is the only
+freshness guard: if Scope's Open adapter does not refresh the cached entry off
+session, the swap is unavailable as stale, never priced from a cached value.
+**TODO(decision): approve the provider and freshness ceiling before enabling.**
 
 DEC-203 uses existing exact integer cancellation/upward rounding: with Manager
 bound `0 < bps < 10000`, min-out is the larger of API min-out and the oracle
@@ -137,7 +134,7 @@ reader probe used 19,120 CU TSLAx / 26,786 CU NVDAx. Production creation measure
   in coordinated acceptance CI. This suite requires its dedicated harness;
   unrelated production lifecycle suites were not run against it.
 - Obtain founder Scope approval/data-use and operator-risk acceptance. Verify a
-  live fresh regular-session snapshot immediately before the Friday demo.
+  live fresh snapshot immediately before the demo (staleness is the only gate, R9.1).
 - Run an approved fresh production API-signed TSLAx/NVDAx Jupiter V2 swap/LP
   packet and rollback test before capital. The track proves reader/min-out and
   creation paths, **not a complete signed stock Jupiter CPI or all-chain Fund**.

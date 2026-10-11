@@ -5,11 +5,23 @@ import { Keypair, PublicKey, SystemProgram, TransactionInstruction, SYSVAR_CLOCK
   ComputeBudgetProgram, TransactionMessage, VersionedTransaction, AddressLookupTableProgram } from '@solana/web3.js';
 import { ADDRESSES, publicKey, derive } from '../helpers/addresses.ts';
 import { decodePool, discriminator } from '../helpers/layouts.ts';
+import { positionRegistry } from '../helpers/fund-state.ts';
 import { localConnection, requireLoopback, testWallet, testAta, sendLocal } from '../helpers/localnet.ts';
 import { instruction, sendMeasured, u128 } from '../raydium/client.ts';
 import { integer, word, fundId, addressWord } from '../core/fixtures.ts';
 import { attest, evm } from '../cctp/fixtures.ts';
 import { creation, productionApiKey, stageSwapPolicy, signedSwap, NVDA, NVDA_POOL, SOL_PRICE, USDC_PRICE, CROSS_CHECK } from './production-client.ts';
+
+/** CR-33: read the ScaledUiAmount (type 25) next multiplier from the cloned mint instead of pinning it. */
+function nextMultiplier(mint: Buffer): bigint {
+  for (let cursor = 166; cursor + 4 <= mint.length;) {
+    const type = mint.readUInt16LE(cursor); const length = mint.readUInt16LE(cursor + 2); cursor += 4;
+    if (type === 25) return mint.readBigUInt64LE(cursor + 48);
+    if (type === 0) break;
+    cursor += length;
+  }
+  throw new Error('Cloned NVDAx mint lacks ScaledUiAmount');
+}
 
 test('production signed swap plus open, real countertrade fees and NVDAx report', { timeout: 900_000 }, async () => {
   const connection = localConnection(); requireLoopback(connection.rpcEndpoint);
@@ -101,10 +113,12 @@ test('production signed swap plus open, real countertrade fees and NVDAx report'
   await sendMeasured(connection, keeper, receive);
   const recorded = JSON.parse(readFileSync(new URL('./fixtures/v2/wsol.json', import.meta.url), 'utf8'));
   const routeArrays = JSON.parse(readFileSync(new URL('../../.localnet/swap-production-route-arrays.json', import.meta.url), 'utf8'));
-  for (let index = 0; index < 3; index++) recorded.build.swapInstruction.accounts[20 + index].pubkey = routeArrays[index];
+  routeArrays.slots.forEach((slot: number, index: number) => { recorded.build.swapInstruction.accounts[slot].pubkey = routeArrays.arrays[index]; });
   const before = await connection.getMultipleAccountsInfo([fund, publicKey(config), publicKey(ledger(ADDRESSES.usdc)), publicKey(ledger(ADDRESSES.wsol))]);
-  for (const options of [{ forged: true }, { deadline: 1n }, { impact: 1 }, { nonce: 1n }]) {
-    await assert.rejects(sendMeasured(connection, manager, signedSwap(recorded, common, core, apiKey, config, ledger, options)), /InvalidSignature|Expired|Impact|Replay/);
+  // CR-33: one exact named error per negative, never an alternation that a wrong-but-listed error satisfies.
+  // The Impact case quotes 1% below the recorded route so it never depends on the live quote/oracle sign.
+  for (const [options, expected] of [[{ forged: true }, 'InvalidSignature'], [{ deadline: 1n }, 'Expired'], [{ impact: 1, outputBps: 9_900n }, 'Impact'], [{ nonce: 1n }, 'Replay']] as const) {
+    await assert.rejects(sendMeasured(connection, manager, signedSwap(recorded, common, core, apiKey, config, ledger, options)), new RegExp(`Error Code: ${expected}\\.`));
     const after = await connection.getMultipleAccountsInfo([fund, publicKey(config), publicKey(ledger(ADDRESSES.usdc)), publicKey(ledger(ADDRESSES.wsol))]);
     assert.deepEqual(after.map(account => account!.data), before.map(account => account!.data));
   }
@@ -155,8 +169,8 @@ test('production signed swap plus open, real countertrade fees and NVDAx report'
   const atomicBefore = await connection.getMultipleAccountsInfo([publicKey(config), publicKey(ledger(ADDRESSES.usdc)), publicKey(ledger(ADDRESSES.wsol)), usdc, testAta(ADDRESSES.wsol, vault)]);
   const failedSimulation = await connection.simulateTransaction(failedAtomic, { sigVerify: true });
   assert.ok(failedSimulation.value.err);
-  assert.ok(failedSimulation.value.logs?.some(log => log.includes('Instruction: RouteV2')));
-  assert.ok(failedSimulation.value.logs?.some(log => log.includes('Error Code: Slippage.')));
+  assert.ok(failedSimulation.value.logs?.some(log => log.includes('Instruction: RouteV2')), failedSimulation.value.logs?.join('\n'));
+  assert.ok(failedSimulation.value.logs?.some(log => log.includes('Error Code: Slippage.')), failedSimulation.value.logs?.join('\n'));
   const failedSignature = await connection.sendRawTransaction(failedAtomic.serialize(), { skipPreflight: true });
   assert.ok((await connection.confirmTransaction({ signature: failedSignature, ...blockhash }, 'confirmed')).value.err);
   const atomicAfter = await connection.getMultipleAccountsInfo([publicKey(config), publicKey(ledger(ADDRESSES.usdc)), publicKey(ledger(ADDRESSES.wsol)), usdc, testAta(ADDRESSES.wsol, vault)]);
@@ -183,14 +197,31 @@ test('production signed swap plus open, real countertrade fees and NVDAx report'
     data: Buffer.concat([discriminator('global', 'swap_v2'), integer(1_000_000_000, 8), integer(1, 8), u128(beforeTrade.sqrtPriceX64 * 1001n / 1000n), Buffer.from([1])]) });
   await sendMeasured(connection, manager, countertrade);
   const prior = await connection.getMultipleAccountsInfo([publicKey(ledger(pool.mint0)), publicKey(ledger(pool.mint1))]);
+  // CR-03 / DEC-206: SOL/USDC carries an initialized reward slot; its quarantine must not pre-exist in genesis.
+  assert.ok(rewards.length > 0, 'reward-bearing pool expected');
+  for (const reward of rewards) assert.equal(await connection.getAccountInfo(publicKey(reward.quarantine)), null);
+  const managerBeforeCollect = await connection.getBalance(manager.publicKey);
   await sendMeasured(connection, manager, instruction('raydium_collect_fees', lpAccounts, Buffer.alloc(0)));
+  let quarantineRent = 0;
+  for (const reward of rewards) {
+    const created = (await connection.getAccountInfo(publicKey(reward.quarantine)))!;
+    const mintOwner = (await connection.getAccountInfo(publicKey(reward.mint)))!.owner;
+    assert.ok(created.owner.equals(mintOwner), 'quarantine owned by the reward mint token program');
+    assert.equal(new PublicKey(created.data.subarray(0, 32)).toBase58(), reward.mint);
+    assert.ok(new PublicKey(created.data.subarray(32, 64)).equals(vault), 'quarantine token owner is the Fund vault');
+    assert.equal(created.data[108], 1);
+    quarantineRent += created.lamports;
+  }
+  assert.ok(managerBeforeCollect - await connection.getBalance(manager.publicKey) >= quarantineRent, 'Manager paid quarantine rent');
+  console.log(`QUARANTINE CREATED: ${rewards.map((reward: any) => reward.quarantine).join(',')}; rent ${quarantineRent} lamports paid by Manager`);
   const after = await connection.getMultipleAccountsInfo([publicKey(ledger(pool.mint0)), publicKey(ledger(pool.mint1))]);
   const fees = after.map((account, index) => {
     assert.equal(account!.data.readBigUInt64LE(72), prior[index]!.data.readBigUInt64LE(72), 'fees never increase principal');
     return account!.data.readBigUInt64LE(80) - prior[index]!.data.readBigUInt64LE(80);
   });
   assert.ok(fees[0] + fees[1] > 0n);
-  for (const reward of rewards) assert.equal((await connection.getAccountInfo(publicKey(reward.quarantine)))!.data.readBigUInt64LE(64), 0n);
+  const quarantined = await Promise.all(rewards.map(async (reward: any) => (await connection.getAccountInfo(publicKey(reward.quarantine)))!.data.readBigUInt64LE(64)));
+  console.log(`QUARANTINED REWARDS after collect: ${quarantined.join(',')} (DEC-206: never income/principal)`);
   console.log(`REAL FEES: ${fees.map(amount => amount.toString()).join(',')}; principal unchanged`);
   const message = Keypair.generate();
   const publish = instruction('publish_report', { ...common, authority: keeper.publicKey, wormhole_program: ADDRESSES.wormhole, emitter: target.emitter,
@@ -209,11 +240,21 @@ test('production signed swap plus open, real countertrade fees and NVDAx report'
   assert.equal(sum, fees[0] + fees[1]);
   const states = 64 + Number(readWord(64 + 17 * 32));
   assert.equal(readWord(states), 1n);
-  assert.equal(readWord(states + 32 + 64), 0x3ff006f7d589fea9n);
+  assert.equal(readWord(states + 32 + 64), nextMultiplier((await connection.getAccountInfo(publicKey(NVDA)))!.data), 'witness equals the cloned mint');
   writeFileSync(new URL('../../.localnet/swap-production-report.hex', import.meta.url), `0x${report.toString('hex')}\n`);
   console.log(`REPORT: ${report.length} bytes; collected income=${sum}; NVDAx effective multiplier witness included`);
   assert.equal((await connection.getAccountInfo(vault))?.lamports ?? 0, 0);
   await sendMeasured(connection, manager, instruction('raydium_close_position', lpAccounts, Buffer.alloc(16)));
   assert.equal(await connection.getAccountInfo(publicKey(personal)), null);
   assert.equal((await connection.getAccountInfo(vault))?.lamports ?? 0, 0);
+  for (const reward of rewards) assert.ok(await connection.getAccountInfo(publicKey(reward.quarantine)), 'quarantine retained after close');
+  // CR-28: registry GC is Manager-bound; the keeper cannot detach the closed record, the Manager can.
+  const positions = async () => positionRegistry((await connection.getAccountInfo(fund))!.data);
+  const prune = (signer: PublicKey) => { const operation = instruction('prune_registry', { authority: signer, fund }, Buffer.alloc(0));
+    operation.keys.push(key(record)); return operation; };
+  assert.ok((await positions()).includes(record));
+  await assert.rejects(sendMeasured(connection, keeper, prune(keeper.publicKey)), /UnauthorizedManager/);
+  assert.ok((await positions()).includes(record));
+  await sendMeasured(connection, manager, prune(manager.publicKey));
+  assert.ok(!(await positions()).includes(record), 'Manager detached the closed zero-liquidity record');
 });

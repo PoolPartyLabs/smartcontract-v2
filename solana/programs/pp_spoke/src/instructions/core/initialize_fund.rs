@@ -159,7 +159,7 @@ pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, InitializeFund<'info>>, pa
         manager_evm: args.manager_evm,
         manager_solana: manager,
         report_sequence: 0,
-        order_sequence: 0,
+        next_order_sequence: 0,
         closed: false,
         bump,
         vault_bump,
@@ -308,6 +308,18 @@ pub(crate) fn allocate<'info>(
     space: usize,
     seeds: &[&[u8]],
 ) -> Result<()> {
+    allocate_owned(payer, account, system, space, &crate::ID, seeds)
+}
+
+/// Rent-prefunded PDAs (a squatter's lamports) are topped up, allocated and assigned instead of failing.
+pub(crate) fn allocate_owned<'info>(
+    payer: &AccountInfo<'info>,
+    account: &AccountInfo<'info>,
+    system: &AccountInfo<'info>,
+    space: usize,
+    owner: &Pubkey,
+    seeds: &[&[u8]],
+) -> Result<()> {
     require!(
         account.owner == &System::id() && account.data_is_empty(),
         CoreError::InvalidConfiguration
@@ -320,7 +332,7 @@ pub(crate) fn allocate<'info>(
                 account.key,
                 rent,
                 space as u64,
-                &crate::ID,
+                owner,
             ),
             &[payer.clone(), account.clone(), system.clone()],
             &[seeds],
@@ -339,7 +351,7 @@ pub(crate) fn allocate<'info>(
             &[seeds],
         )?;
         invoke_signed(
-            &system_instruction::assign(account.key, &crate::ID),
+            &system_instruction::assign(account.key, owner),
             &[account.clone(), system.clone()],
             &[seeds],
         )?;

@@ -37,7 +37,9 @@ case "$1" in
     node tests/swap/production.prepare.ts
     bash tests/swap/production.start.sh
     started=1
+    # Oracle-fresh signed swaps first (sealed 300 s Pyth age), then the DEC-205 close test on the same genesis.
     node --test tests/swap/production.localnet.test.ts
+    node --test tests/report/close-pending.localnet.test.ts
     ;;
   legacy)
     anchor build -- --features no-idl,no-log-ix-name,rehearsal-v1-swap

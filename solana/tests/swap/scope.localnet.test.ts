@@ -123,7 +123,8 @@ test('DEC-203 keeps the stricter API minimum and optional Manager-bound semantic
 
 for (const [name, enabled, negative, wrong, error] of [
   ['disabled switch is unavailable', false, 0, false, 'StockDisabled'],
-  ['closed market never reuses a cached price', true, 1, false, 'MarketClosed'],
+  // R9.1: no session gate; an off-session Clock (Wed 2026-10-07 20:00 UTC) rejects the cached price only as stale.
+  ['off-session clock rejects a cached price only as stale', true, 1, false, 'Stale'],
   ['stale source is rejected', true, 2, false, 'Stale'],
   ['future source is rejected', true, 3, false, 'Stale'],
   ['wrong pinned account is rejected', true, 0, true, 'InvalidAccount'],

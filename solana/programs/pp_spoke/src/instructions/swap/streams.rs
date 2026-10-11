@@ -21,7 +21,8 @@ fn unsigned(data: &[u8], field: usize, width: usize) -> Result<u128> {
     Ok(u128::from_be_bytes(encoded))
 }
 
-/// DEC-198, DEC-202: authenticated v10 underlying equity, regular-session-only.
+/// DEC-198, DEC-202: authenticated v10 underlying equity. R9.1: market status is decoded for wire
+/// validity but never gates (24/7 tokenized value); staleness/expiry are the only freshness guards.
 pub fn decode_v10(report: &[u8], stock: &StockPolicy, policy: &OraclePolicy, now: i64) -> Result<Price> {
     require!(policy.stock_enabled, OracleError::StockDisabled);
     require!(report.len() == 13 * 32 && report[..32] == stock.feed_id
@@ -36,7 +37,7 @@ pub fn decode_v10(report: &[u8], stock: &StockPolicy, policy: &OraclePolicy, now
         && source_ns <= now_seconds * 1_000_000_000
         && now_seconds * 1_000_000_000 - source_ns <= u128::from(policy.max_age_seconds) * 1_000_000_000
         && source_ns > 0, OracleError::Stale);
-    require!(unsigned(report, 8, 4)? == 2, OracleError::MarketClosed);
+    unsigned(report, 8, 4)?;
     let value = unsigned(report, 7, 16)?;
     require!(value > 0, OracleError::InvalidPrice);
     let activation = unsigned(report, 11, 4)?;
@@ -91,12 +92,14 @@ mod tests {
         (report, stock, policy)
     }
     #[test]
-    fn v10_session_staleness_disabled_and_wire() {
+    fn v10_staleness_disabled_and_wire_without_session_gate() {
         let (report, stock, mut policy) = fixture();
         assert_eq!(decode_v10(&report, &stock, &policy, 120).unwrap().value, 120_000_000_000_000_000_000);
         assert!(decode_v10(&report, &stock, &policy, 201).is_err());
         assert!(decode_v10(&report, &stock, &policy, 109).is_err());
         let mut closed = report.clone(); closed[8 * 32 + 31] = 1;
+        assert!(decode_v10(&closed, &stock, &policy, 120).is_ok());
+        closed[8 * 32] = 1;
         assert!(decode_v10(&closed, &stock, &policy, 120).is_err());
         let mut stale = report.clone(); stale[6 * 32..7 * 32].fill(0);
         assert!(decode_v10(&stale, &stock, &policy, 120).is_err());

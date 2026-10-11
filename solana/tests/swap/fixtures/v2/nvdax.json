@@ -1,5 +1,5 @@
 {
-  "recordedAt": "2026-10-07T00:38:12.303Z",
+  "recordedAt": "2026-10-11T17:59:41.469Z",
   "apiVersion": 2,
   "probe": "6Ckm2BrnXxsSjyG5b17kQQRjoECVrts92RKXVGT8XeqS",
   "fund": "6Gg4AVKo8GAft4Wb2JSfhHCW3PQhXxYxapzBYeVjGzA9",
@@ -8,11 +8,11 @@
     "inputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
     "outputMint": "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh",
     "inAmount": "15000000",
-    "outAmount": "6229647",
-    "otherAmountThreshold": "6105055",
+    "outAmount": "6467253",
+    "otherAmountThreshold": "6337908",
     "swapMode": "ExactIn",
     "slippageBps": 200,
-    "priceImpactPct": "0.0006909032680738874630503483",
+    "priceImpactPct": "0.0006578960149214618354918842",
     "routePlan": [
       {
         "percent": 100,
@@ -23,7 +23,7 @@
           "inputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
           "outputMint": "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh",
           "inAmount": "15000000",
-          "outAmount": "6229647"
+          "outAmount": "6467253"
         }
       }
     ],
@@ -31,7 +31,7 @@
       {
         "programId": "ComputeBudget111111111111111111111111111111",
         "accounts": [],
-        "data": "A5gIAAAAAAAA"
+        "data": "A2N0AAAAAAAA"
       }
     ],
     "setupInstructions": [
@@ -221,7 +221,7 @@
           "isWritable": false
         }
       ],
-      "data": "u2T6zDHErxTA4eQAAAAAAI8OXwAAAAAAyAAAAAAAAQAAACgQJwAB"
+      "data": "u2T6zDHErxTA4eQAAAAAALWuYgAAAAAAyAAAAAAAAQAAACgQJwAB"
     },
     "cleanupInstruction": null,
     "otherInstructions": [],
@@ -480,43 +480,43 @@
     },
     "blockhashWithMetadata": {
       "blockhash": [
-        131,
+        186,
+        181,
+        216,
+        152,
+        77,
+        90,
+        119,
+        121,
+        155,
+        246,
+        186,
+        195,
+        205,
+        158,
         37,
-        23,
-        61,
-        49,
-        115,
-        112,
-        130,
-        5,
-        93,
-        40,
-        168,
-        128,
-        204,
-        182,
-        80,
-        103,
-        172,
-        176,
-        51,
-        165,
-        25,
-        226,
-        189,
         28,
-        143,
-        82,
-        8,
-        21,
-        116,
-        2,
-        33
+        46,
+        198,
+        215,
+        132,
+        235,
+        145,
+        23,
+        162,
+        60,
+        112,
+        70,
+        51,
+        200,
+        179,
+        107,
+        135
       ],
-      "lastValidBlockHeight": 432101807,
+      "lastValidBlockHeight": 433779424,
       "fetchedAt": {
-        "secs_since_epoch": 1791333492,
-        "nanos_since_epoch": 309398319
+        "secs_since_epoch": 1791741581,
+        "nanos_since_epoch": 514179551
       }
     },
     "transactionVersion": 0,

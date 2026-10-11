@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { PublicKey } from '@solana/web3.js';
 import { ADDRESSES } from '../helpers/addresses.ts';
@@ -6,6 +6,7 @@ import { testAta, testWallet } from '../helpers/localnet.ts';
 import { decodePool } from '../helpers/layouts.ts';
 import { creation, productionApiKey, NVDA, NVDA_POOL, SOL_PRICE, USDC_PRICE, CROSS_CHECK } from './production-client.ts';
 import { prepareCctpFixtures } from '../cctp/fixtures.ts';
+import { prepareClosePendingVaas } from '../report/close-pending.fixtures.ts';
 
 const root = new URL('../../.localnet/', import.meta.url);
 const endpoint = process.env.SOLANA_MAINNET_RPC ?? 'https://api.mainnet-beta.solana.com';
@@ -48,22 +49,28 @@ const currentArray = PublicKey.findProgramAddressSync([Buffer.from('tick_array')
 await clone(currentArray);
 const recorded = JSON.parse(readFileSync(new URL('./fixtures/v2/wsol.json', import.meta.url), 'utf8'));
 await clone(recorded.build.swapInstruction.programId);
-for (const [index, account] of recorded.build.swapInstruction.accounts.entries()) {
-  if ([0,1,2,7,11,14,15,20,21,22].includes(index) || account.pubkey === '11111111111111111111111111111111' || account.pubkey.startsWith('Sysvar')) continue;
+const routeAccounts = recorded.build.swapInstruction.accounts;
+const routePoolAddress = routeAccounts[13].pubkey;
+// Raydium swap_v2 tail: tick arrays plus the pool's bitmap extension in any position (Jupiter currently
+// places the bitmap second). Substitute only tick-array slots; the bitmap PDA is cloned, never replaced.
+const bitmapAddress = PublicKey.findProgramAddressSync([Buffer.from('pool_tick_array_bitmap_extension'), new PublicKey(routePoolAddress).toBuffer()], new PublicKey(ADDRESSES.raydium))[0].toBase58();
+const routeSlots = routeAccounts.map((account: any, index: number) => index).filter((index: number) =>
+  index >= 20 && index < routeAccounts.length - 1 && routeAccounts[index].pubkey !== bitmapAddress);
+for (const [index, account] of routeAccounts.entries()) {
+  if ([0,1,2,7,11,14,15].includes(index) || routeSlots.includes(index) || account.pubkey === '11111111111111111111111111111111' || account.pubkey.startsWith('Sysvar')) continue;
   await clone(account.pubkey);
 }
 for (const address of recorded.build.addressLookupTableAddresses) await clone(address);
-const routePoolAddress = recorded.build.swapInstruction.accounts[13].pubkey;
 const routePool = decodePool(Buffer.from((await clone(routePoolAddress)).account.data[0], 'base64'));
 const routeSpan = routePool.tickSpacing * 60;
 const routeStart = Math.floor(routePool.tickCurrent / routeSpan) * routeSpan;
 const routeArrays: string[] = [];
-for (let distance = 0; distance < 3; distance++) {
+for (let distance = 0; distance < routeSlots.length; distance++) {
   const seed = Buffer.alloc(4); seed.writeInt32BE(routeStart + distance * routeSpan);
   const address = PublicKey.findProgramAddressSync([Buffer.from('tick_array'), new PublicKey(routePoolAddress).toBuffer(), seed], new PublicKey(ADDRESSES.raydium))[0].toBase58();
   await clone(address); routeArrays.push(address);
 }
-writeFileSync(new URL('swap-production-route-arrays.json', root), JSON.stringify(routeArrays));
+writeFileSync(new URL('swap-production-route-arrays.json', root), JSON.stringify({ slots: routeSlots, arrays: routeArrays }));
 const manager = testWallet();
 const manifest = JSON.parse(readFileSync(new URL('manifest.json', root), 'utf8'));
 const solPool = manifest.pools.find((entry: any) => entry.address === ADDRESSES.solPool);
@@ -76,13 +83,10 @@ for (let index = 0; index < 3; index++) {
   if (mint === '11111111111111111111111111111111') continue;
   const rewardVault = new PublicKey(solPoolData.subarray(offset + 89, offset + 121)).toBase58();
   await clone(mint);
-  const reward = await clone(rewardVault);
-  const data = Buffer.from(reward.account.data[0], 'base64');
-  new PublicKey(fund.vault).toBuffer().copy(data, 32); data.writeBigUInt64LE(0n, 64);
-  data.fill(0, 72, 108); data[108] = 1; data.fill(0, 109, 165);
+  await clone(rewardVault);
+  // CR-03: no genesis quarantine; the program must create it PDA-signed on the first decrease.
   const quarantine = PublicKey.findProgramAddressSync([Buffer.from('raydium_reward'), new PublicKey(fund.fund).toBuffer(), new PublicKey(mint).toBuffer()], new PublicKey(ADDRESSES.spoke))[0].toBase58();
-  writeFileSync(new URL(`overrides/${quarantine}.json`, root), JSON.stringify({ pubkey: quarantine,
-    account: { ...reward.account, data: [data.toString('base64'), 'base64'], lamports: 10_000_000 } }));
+  rmSync(new URL(`overrides/${quarantine}.json`, root), { force: true });
   rewards.push({ mint, vault: rewardVault, quarantine });
 }
 writeFileSync(new URL('swap-production-rewards.json', root), JSON.stringify(rewards));
@@ -96,5 +100,7 @@ writeFileSync(new URL(`overrides/${testAta(ADDRESSES.wsol, manager.publicKey)}.j
 manifest.warpSlot = Math.max(manifest.warpSlot, ...evidence.map(item => item.slot));
 writeFileSync(new URL('manifest.json', root), JSON.stringify(manifest, null, 2));
 writeFileSync(new URL('swap-production-clones.json', root), JSON.stringify(evidence, null, 2));
-console.log(`Production extension: ${evidence.length} finalized read-only clones; local Manager WSOL and reward quarantine fixtures.`);
+console.log(`Production extension: ${evidence.length} finalized read-only clones; local Manager WSOL fixture; ${rewards.length} reward slot(s) left for program-created quarantine.`);
 prepareCctpFixtures();
+const closePending = prepareClosePendingVaas(root);
+console.log(`DEC-205 close-pending fixture: local guardian CLOSE (seq 0) ${closePending.close}, ACK (seq 1) ${closePending.ack}.`);

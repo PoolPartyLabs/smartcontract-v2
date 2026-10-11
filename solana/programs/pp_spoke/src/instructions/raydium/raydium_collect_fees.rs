@@ -4,10 +4,16 @@ use crate::state::{
     FundState,
 };
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::{
+    instruction::{AccountMeta, Instruction},
+    program::{get_return_data, invoke},
+};
 
 /// DEC-193: zero-liquidity decrease collects trading fees, never farm income.
+/// DEC-195, DEC-206: the bound Manager pays rent for any missing reward quarantine.
 #[derive(Accounts)]
 pub struct RaydiumCollectFees<'info> {
+    #[account(mut)]
     pub authority: Signer<'info>,
     #[account(mut)]
     pub fund: Box<Account<'info, FundState>>,
@@ -144,6 +150,7 @@ pub fn decrease<'info>(
         accounts.vault.key(),
         &accounts.raydium_program,
     )?;
+    ensure_quarantines(accounts)?;
     let pool = check::pool(&accounts.pool)?;
     crate::instructions::core::admission::venue(&accounts.fund, CLMM, accounts.pool.key(), Pubkey::default())?;
     crate::instructions::core::admission::read_ledger(&accounts.token_ledger_0.to_account_info(), accounts.fund.key(), pool.mints[0])?;
@@ -411,6 +418,89 @@ pub fn decrease<'info>(
         fees_1: realized[1]
     });
     Ok(())
+}
+
+/// CR-03: a reward slot can be initialized on the pool after admission or open, so the quarantine
+/// is created on the first decrease that needs it; the PDA-owned address cannot be pre-created by anyone else.
+/// Out of line so decrease() keeps its SBF stack frame; the slot loop in decrease() still validates every
+/// triple against the pool's initialized rewards, so a wrong mint here only reverts the transaction.
+#[inline(never)]
+fn ensure_quarantines<'info>(accounts: &RaydiumCollectFees<'info>) -> Result<()> {
+    let fund = accounts.fund.key();
+    for (quarantine, mint) in [
+        (&accounts.reward_quarantine_0, &accounts.reward_mint_0),
+        (&accounts.reward_quarantine_1, &accounts.reward_mint_1),
+        (&accounts.reward_quarantine_2, &accounts.reward_mint_2),
+    ] {
+        let (Some(quarantine), Some(mint)) = (quarantine, mint) else { continue };
+        if *quarantine.owner != anchor_lang::system_program::ID {
+            continue;
+        }
+        let (expected, bump) = Pubkey::find_program_address(
+            &[b"raydium_reward", fund.as_ref(), mint.key.as_ref()],
+            &crate::ID,
+        );
+        require_keys_eq!(quarantine.key(), expected, RaydiumError::InvalidAccount);
+        require!(quarantine.is_writable, RaydiumError::InvalidAccount);
+        create_quarantine(
+            accounts,
+            &quarantine.to_account_info(),
+            &mint.to_account_info(),
+            &[b"raydium_reward", fund.as_ref(), mint.key.as_ref(), &[bump]],
+        )?;
+    }
+    Ok(())
+}
+
+#[inline(never)]
+fn create_quarantine<'info>(
+    accounts: &RaydiumCollectFees<'info>,
+    quarantine: &AccountInfo<'info>,
+    mint: &AccountInfo<'info>,
+    seeds: &[&[u8]],
+) -> Result<()> {
+    let token = if *mint.owner == TOKEN {
+        accounts.token_program.to_account_info()
+    } else {
+        require_keys_eq!(*mint.owner, TOKEN_2022, RaydiumError::InvalidAccount);
+        accounts.token_program_2022.to_account_info()
+    };
+    invoke(
+        &Instruction { program_id: *token.key, accounts: vec![AccountMeta::new_readonly(*mint.key, false)], data: vec![21] },
+        &[mint.clone(), token.clone()],
+    )?;
+    let (program, size) = get_return_data().ok_or(RaydiumError::InvalidData)?;
+    require_keys_eq!(program, *token.key, RaydiumError::InvalidData);
+    let space = u64::from_le_bytes(size.as_slice().try_into().map_err(|_| RaydiumError::InvalidData)?);
+    crate::instructions::core::initialize_fund::allocate_owned(
+        &accounts.authority.to_account_info(),
+        quarantine,
+        &accounts.system_program.to_account_info(),
+        usize::try_from(space).map_err(|_| RaydiumError::InvalidData)?,
+        token.key,
+        seeds,
+    )?;
+    let mut data = vec![18];
+    data.extend_from_slice(accounts.vault.key().as_ref());
+    invoke(
+        &Instruction {
+            program_id: *token.key,
+            accounts: vec![AccountMeta::new(*quarantine.key, false), AccountMeta::new_readonly(*mint.key, false)],
+            data,
+        },
+        &[quarantine.clone(), mint.clone(), token],
+    )?;
+    emit!(RaydiumRewardQuarantineCreated { fund: accounts.fund.key(), mint: *mint.key,
+        quarantine: *quarantine.key, payer: accounts.authority.key() });
+    Ok(())
+}
+
+#[event]
+pub struct RaydiumRewardQuarantineCreated {
+    pub fund: Pubkey,
+    pub mint: Pubkey,
+    pub quarantine: Pubkey,
+    pub payer: Pubkey,
 }
 
 #[event]

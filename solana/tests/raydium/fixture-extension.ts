@@ -98,14 +98,8 @@ export async function extendFixtures() {
       const rewardVault = readKey(poolData, offset + 89);
       await clone(mint);
       await clone(rewardVault);
+      // CR-03: the program creates the quarantine PDA-signed on the first decrease; no genesis account.
       const quarantine = derive(ADDRESSES.spoke, Buffer.from('raydium_reward'), fund.toBuffer(), publicKey(mint).toBuffer());
-      const template = load(rewardVault);
-      const data = Buffer.from(template.account.data[0], 'base64');
-      vault.toBuffer().copy(data, 32);
-      data.writeBigUInt64LE(0n, 64);
-      data.fill(0, 72, 165);
-      data[108] = 1;
-      override(quarantine, template.account.owner, data);
       rewards.push({ mint, vault: rewardVault, quarantine });
     }
     fixtures.push({ ...pool, ...addresses, policy, ledger, rewards });
