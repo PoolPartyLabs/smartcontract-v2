@@ -219,16 +219,16 @@ the existing 1:1 convention. For raw stock amount B, decimals d, multiplier m
 and equity USD/share P, value = `(B / 10**d) * m * P` in USD, converted to USDC
 base units. Here m is authenticated as exactly 1 **before** LP ratio math.
 
-The immutable source permits one Oct 6–9, 2026 regular US session only (13:30–20:00
-UTC; inclusive open, exclusive close). It rejects weekends/out-of-demo sessions
-and must be deployed with that session's preflight-verified window. Refreshed
-off-hours feed timestamps do not open stock valuation (DEC-194). This is not a
-general market calendar. SOL and USDC remain available off hours.
+Founder ruling R9.1 (2026-10-11) supersedes the market-hours clause of DEC-194/DEC-198:
+the on-chain value of the tokenized stock counts 24/7. The source has no session
+window and no `StockMarketClosed` gate; weekends and off-hours price like any other
+hour. Price staleness is the only time guard: each feed carries its own max age
+(stock vs SOL) and consumers fail closed past it.
 
 The existing Core consumer checks feed/report staleness on mints and can use
-cached prices on payouts. Off-hours fresh TSLA quotation is refused; this is not
-proof of an authenticated off-hours exit price. Fail-closed mint policy and
-cached-price payout policy need coordinated production review.
+cached prices on payouts, except that CoreVaultV6 requires every admitted stock
+price to be within its max age before any share mint or burn
+(`SolanaSpokeRegistryV6.requireStockPricing`).
 
 ## Golden vectors and verification
 
@@ -264,9 +264,9 @@ spare: any T2b integration must rerun the strict 1,000-byte-margin size suite.
 1. Canonical native accounting chain-ID namespace and PDA/genesis/program
    derivation inputs must be agreed with Solana init; the codec does not confuse
    EVM ID, Wormhole ID and Circle domain. No deployment address is invented here.
-2. Durable holiday/DST calendar, corporate-action alignment, non-unit multiplier
-   support and authenticated off-hours exits remain undefined; the demo uses the
-   bounded immutable session and strict unit-state refusal.
+2. Corporate-action alignment and non-unit multiplier support beyond the pinned
+   NVDAx witness remain undefined; strict unit-state refusal applies. Stock pricing
+   is 24/7 with a staleness bound only (R9.1); there is no market calendar.
 3. Native unwind/collection result codec and complete permissionless closure/
    income settlement integration are absent: nonempty result blobs are refused.
 4. Swap route/DEC-136 overlap remains pending in the founder record; no swap
@@ -396,11 +396,11 @@ Changed state, pause/freeze/hook or missing witnesses fail closed. TSLAx retains
 unit-multiplier guards. Share mint/burn preflight in CoreVaultV6 additionally
 checks admitted stock pricing before deposits, instant payout requests, payout
 claims/settlements and closed exits; legacy payout cached-price fallback cannot
-bypass the native stock market-hours gate. Legacy Core's hook is a no-op.
+price a native stock on a feed older than its max age. Legacy Core's hook is a no-op.
 
-**TODO(decision):** durable holiday/DST calendar, future multiplier/corporate-action
-updates and off-hours exits still need a separately approved version. This
-implementation supports only the immutable verified October 6–9 demo sessions.
+**TODO(decision):** future multiplier/corporate-action updates still need a
+separately approved version. Stock pricing is 24/7 (R9.1, 2026-10-11): no session
+window, staleness is the only time guard.
 DEC-197 resolves Jupiter/overlap policy; swap implementation is a Solana track,
 not a remaining Hub venue decision. Producer report-size/CU bounds, real Solana
 encoder/PDA/init acceptance and complete CPI flows remain release gates.

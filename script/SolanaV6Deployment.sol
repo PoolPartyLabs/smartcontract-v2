@@ -31,15 +31,10 @@ abstract contract SolanaV6Deployment is FactoryDeployment {
     error InvalidDeploymentConfiguration();
     error OversizedRuntime(string role, uint256 size);
 
-    function _deployV6(
-        address recipient,
-        address guardian,
-        address registryOwner,
-        address apiSigner,
-        uint64 sessionOpen,
-        uint64 sessionClose,
-        uint32 maxAge
-    ) internal returns (V6Deployment memory result) {
+    function _deployV6(address recipient, address guardian, address registryOwner, address apiSigner, uint32 maxAge)
+        internal
+        returns (V6Deployment memory result)
+    {
         if (
             recipient == address(0) || guardian == address(0) || apiSigner == address(0) || registryOwner == address(0)
                 || maxAge == 0
@@ -57,7 +52,7 @@ abstract contract SolanaV6Deployment is FactoryDeployment {
         wiring.spokeCrossChainLib = result.common.spokeCrossChainLib;
         if (hub) {
             result.common.managerRegistry = address(new ManagerRegistry(registryOwner));
-            result.common.priceSource = address(_nativePriceSource(sessionOpen, sessionClose, maxAge));
+            result.common.priceSource = address(_nativePriceSource(maxAge));
             wiring.managerRegistry = result.common.managerRegistry;
             wiring.priceSource = result.common.priceSource;
             wiring.coreVaultLogic = result.common.coreVaultLogic;
@@ -145,10 +140,7 @@ abstract contract SolanaV6Deployment is FactoryDeployment {
         }
     }
 
-    function _nativePriceSource(uint64 sessionOpen, uint64 sessionClose, uint32 maxAge)
-        private
-        returns (SolanaPriceSourceV6)
-    {
+    function _nativePriceSource(uint32 maxAge) private returns (SolanaPriceSourceV6) {
         ChainlinkPriceSource.FeedConfig[] memory feeds = new ChainlinkPriceSource.FeedConfig[](2);
         feeds[0] = ChainlinkPriceSource.FeedConfig(ARB_WETH, 18, ARB_ETH_USD_FEED, ETH_USD_MAX_PRICE_AGE);
         feeds[1] = ChainlinkPriceSource.FeedConfig(RH_WETH, 18, ARB_ETH_USD_FEED, ETH_USD_MAX_PRICE_AGE);
@@ -161,9 +153,7 @@ abstract contract SolanaV6Deployment is FactoryDeployment {
                 0x069b8857feab8184fb687f634618c035dac439dc1aeb3b5598a0f00000000001,
                 0xc6fa7af3bedbad3a3d65f36aabc97431b1bbe4c2d2f6e0e47ca60203452f5d61,
                 maxAge,
-                maxAge,
-                sessionOpen,
-                sessionClose
+                maxAge
             ),
             feeds,
             fixedTokens

@@ -17,8 +17,6 @@ contract SolanaPriceSourceV6 {
         bytes32 usdcMint;
         uint32 stockMaxAge;
         uint32 solMaxAge;
-        uint64 sessionOpen;
-        uint64 sessionClose;
     }
     address public constant TSLA_USD = 0x3609baAa0a9b1f0FE4d6CC01884585d0e191C3E3;
     address public constant SOL_USD = 0x24ceA4b8ce57cdA5058b924B9B9987992450590c;
@@ -29,14 +27,12 @@ contract SolanaPriceSourceV6 {
     bytes32 public constant USDC_MINT = 0xc6fa7af3bedbad3a3d65f36aabc97431b1bbe4c2d2f6e0e47ca60203452f5d61;
     ChainlinkPriceSource public immutable underlying;
     address public immutable stockAccountingId;
-    uint64 public immutable stockSessionOpen;
-    uint64 public immutable stockSessionClose;
 
     error InvalidConfiguration();
-    error StockMarketClosed();
 
-    /// @dev TODO(decision): durable holiday/DST/calendar and off-hours exit valuation. Fail closed outside one
-    ///      immutable, preflight-verified US regular session; timestamp freshness alone never opens the market.
+    /// @dev Founder ruling R9.1 (2026-10-11), superseding the market-hours clause of DEC-194/DEC-198: the on-chain
+    ///      value of the tokenized stock counts 24/7, so there is no session gate. Each feed's own max age
+    ///      (`stockMaxAge` for TSLA/NVDA, `solMaxAge` for SOL) is the only time guard; consumers enforce it.
     constructor(
         NativeConfig memory config,
         ChainlinkPriceSource.FeedConfig[] memory evmFeeds,
@@ -44,19 +40,9 @@ contract SolanaPriceSourceV6 {
     ) {
         if (
             block.chainid != 42_161 || config.stockMint != TSLA_MINT || config.wrappedSolMint != WSOL_MINT
-                || config.usdcMint != USDC_MINT || config.sessionOpen == 0 || config.sessionClose <= config.sessionOpen
-                || config.sessionClose - config.sessionOpen > 6 hours + 30 minutes
-                || config.sessionOpen / 1 days != (config.sessionClose - 1) / 1 days
-        ) revert InvalidConfiguration();
-        uint256 weekday = (config.sessionOpen / 1 days + 4) % 7;
-        if (
-            weekday == 0 || weekday == 6 || config.sessionOpen % 1 days != 13 hours + 30 minutes
-                || config.sessionClose % 1 days != 20 hours || config.sessionOpen < 1_791_293_400
-                || config.sessionClose > 1_791_576_000
+                || config.usdcMint != USDC_MINT
         ) revert InvalidConfiguration();
         stockAccountingId = SolanaMandateV6.accountingId(config.stockMint);
-        stockSessionOpen = config.sessionOpen;
-        stockSessionClose = config.sessionClose;
         ChainlinkPriceSource.FeedConfig[] memory feeds = new ChainlinkPriceSource.FeedConfig[](evmFeeds.length + 3);
         for (uint256 index; index < evmFeeds.length; ++index) {
             feeds[index] = evmFeeds[index];
@@ -96,21 +82,12 @@ contract SolanaPriceSourceV6 {
     }
 
     /// @dev DEC-198: exact binary effective multiplier, authenticated by the registry; changes fail closed.
+    ///      Applied once, here, on top of the underlying feed price. R9.1: no clock gate; staleness is judged by the
+    ///      consumer against `maxPriceAge` (`SolanaSpokeRegistryV6.requireStockPricing`, mint-time checks).
     function _price(address token) private view returns (uint256 price, uint256 timestamp) {
-        _checkSession(token);
         (price, timestamp) = underlying.priceInUsdc(token);
         if (token == SolanaMandateV6.accountingId(NVDA_MINT)) {
             price = Math.mulDiv(price, uint256(0x1006f7d589fea9), uint256(1) << 52);
-        }
-    }
-
-    function _checkSession(address token) private view {
-        uint256 nowTimestamp = block.timestamp;
-        if (
-            (token == stockAccountingId || token == SolanaMandateV6.accountingId(NVDA_MINT))
-                && (nowTimestamp < stockSessionOpen || nowTimestamp >= stockSessionClose)
-        ) {
-            revert StockMarketClosed();
         }
     }
 }

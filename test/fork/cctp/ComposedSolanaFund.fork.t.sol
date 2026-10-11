@@ -32,6 +32,7 @@ import {MockManagerRegistry} from "../../mocks/core/MockManagerRegistry.sol";
 import {CctpTestMessage} from "../../mocks/cctp/CctpHarness.sol";
 import {SolanaFixture} from "../../unit/solana/SolanaFixture.sol";
 import {ICctpLiveMessenger, ICctpLiveTransmitter} from "./CctpReceive.fork.t.sol";
+import {IChainlinkAggregatorV3} from "../../../src/interfaces/external/IChainlinkAggregatorV3.sol";
 
 /// @notice DEC-188/191/192/196/199: real Arbitrum protocols, local guardian/attester overrides, no broadcast.
 contract ComposedSolanaFundForkTest is Test, FactoryDeployment {
@@ -41,6 +42,10 @@ contract ComposedSolanaFundForkTest is Test, FactoryDeployment {
     address private constant TRANSMITTER = 0x81D40F21F12A8F0E3252Bccb954D722d4c464B64;
     uint256 private constant MANAGER_KEY = 0x2256C011055E;
     uint256 private constant ATTESTER_KEY = 0xC1AC1E;
+    address private constant TSLA_USD = 0x3609baAa0a9b1f0FE4d6CC01884585d0e191C3E3;
+    address private constant SOL_USD = 0x24ceA4b8ce57cdA5058b924B9B9987992450590c;
+    uint32 private constant STOCK_MAX_AGE = 3600;
+    uint32 private constant SOL_MAX_AGE = 3600;
     FundFactoryV6 private factory;
     CoreVaultV6 private core;
     ValueReportReceiverV6 private receiver;
@@ -48,6 +53,7 @@ contract ComposedSolanaFundForkTest is Test, FactoryDeployment {
     SolanaMandateV6.Config private native;
     bytes private coreCode;
     address private manager;
+    mapping(address feed => bytes roundData) private _feeds;
 
     function setUp() public {
         vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envOr("CCTP_ARBITRUM_FORK_BLOCK", uint256(512_239_244)));
@@ -103,7 +109,7 @@ contract ComposedSolanaFundForkTest is Test, FactoryDeployment {
         fixedTokens[1] = ChainlinkPriceSource.FixedConfig(RH_USDG, 6);
         return new SolanaPriceSourceV6(
             SolanaPriceSourceV6.NativeConfig(
-                SolanaFixture.STOCK, SolanaFixture.SOL, SolanaFixture.USDC, 3600, 3600, 1_791_379_800, 1_791_403_200
+                SolanaFixture.STOCK, SolanaFixture.SOL, SolanaFixture.USDC, STOCK_MAX_AGE, SOL_MAX_AGE
             ),
             new ChainlinkPriceSource.FeedConfig[](0),
             fixedTokens
@@ -272,16 +278,56 @@ contract ComposedSolanaFundForkTest is Test, FactoryDeployment {
         assertEq(core.sharePrice(), uint256(48_998_000) * 1e18 / 49);
     }
 
-    function testOffHoursShareMintAndBurnFailClosed() public {
-        uint256 supply = IERC20(core.shareToken()).totalSupply();
-        vm.warp(1_791_403_200);
-        vm.expectRevert(SolanaPriceSourceV6.StockMarketClosed.selector);
-        vm.prank(manager);
+    /// @dev R9.1: no market-hours gate. On a Saturday, with live feeds, a stock-admitting Fund mints and burns; once the
+    ///      stock feed is older than its max age both fail closed (`UnsafeStockState`) and the supply stays put.
+    function testWeekendShareMintAndBurnUseStalenessOnly() public {
+        vm.warp(_nextSaturday());
+        _feedAt(TSLA_USD, block.timestamp);
+        _feedAt(SOL_USD, block.timestamp);
+        IERC20 shares = IERC20(core.shareToken());
+        uint256 supply = shares.totalSupply();
+        vm.startPrank(manager);
+        IERC20(ARB_USDC).approve(address(core), 2e6);
         core.deposit(2e6, 0);
-        vm.expectRevert(SolanaPriceSourceV6.StockMarketClosed.selector);
+        vm.stopPrank();
+        uint256 minted = shares.totalSupply();
+        assertGt(minted, supply);
         vm.prank(manager);
-        core.requestPayout(2e6, ICoreVaultPayouts.PayoutMode.Instant, 0);
-        assertEq(IERC20(core.shareToken()).totalSupply(), supply);
+        core.requestPayout(1e6, ICoreVaultPayouts.PayoutMode.Instant, 0);
+        uint256 burned = shares.totalSupply();
+        assertLt(burned, minted);
+        _feedAt(TSLA_USD, block.timestamp - STOCK_MAX_AGE - 1);
+        bytes memory stale = abi.encodeWithSelector(SolanaSpokeRegistryV6.UnsafeStockState.selector, SolanaFixture.STOCK);
+        vm.expectRevert(stale);
+        vm.prank(manager);
+        core.deposit(1e6, 0);
+        vm.expectRevert(stale);
+        vm.prank(manager);
+        core.requestPayout(1e6, ICoreVaultPayouts.PayoutMode.Instant, 0);
+        assertEq(shares.totalSupply(), burned);
+    }
+
+    /// @dev Next Saturday 02:00 UTC strictly after the fork time (1970-01-01 was a Thursday).
+    function _nextSaturday() private view returns (uint256 saturday) {
+        uint256 day = block.timestamp / 1 days;
+        saturday = (day + (6 + 7 - (day + 4) % 7) % 7) * 1 days + 2 hours;
+        if (saturday <= block.timestamp) saturday += 7 days;
+    }
+
+    /// @dev Keeps the live answer and round of `feed`, only moving its `updatedAt`.
+    function _feedAt(address feed, uint256 updatedAt) private {
+        vm.clearMockedCalls();
+        (uint80 round, int256 answer,,, uint80 answered) = IChainlinkAggregatorV3(feed).latestRoundData();
+        _feeds[feed] = abi.encode(round, answer, updatedAt, updatedAt, answered);
+        _mockFeeds();
+    }
+
+    function _mockFeeds() private {
+        address[2] memory feeds = [TSLA_USD, SOL_USD];
+        for (uint256 index; index < feeds.length; ++index) {
+            if (_feeds[feeds[index]].length == 0) continue;
+            vm.mockCall(feeds[index], abi.encodeCall(IChainlinkAggregatorV3.latestRoundData, ()), _feeds[feeds[index]]);
+        }
     }
 
     function testNativeIncomeResultSplitsFeesAndKeepsFeeSurplusPrincipal() public {

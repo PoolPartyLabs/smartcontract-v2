@@ -128,7 +128,9 @@ contract SolanaSpokeRegistryV6 {
         return _config;
     }
 
-    /// @notice DEC-194, DEC-198: native share mints/burns cannot use cached off-hours stock prices.
+    /// @notice DEC-194, DEC-198, R9.1: native share mints/burns need a live price for every admitted stock, at any
+    ///         hour. A zero price, an incomplete round (`updatedAt == 0`) or a price older than the feed's own
+    ///         `maxPriceAge` fails closed; there is no market-hours gate (R9.1 superseded it on 2026-10-11).
     function requireStockPricing(address source) external view {
         for (uint256 index; index < _config.assets.length; ++index) {
             SolanaMandateV6.Asset memory asset = _config.assets[index];

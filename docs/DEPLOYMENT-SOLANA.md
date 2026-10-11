@@ -59,8 +59,7 @@ approval. **Still NO-GO:** the supplied Alchemy Robinhood provider returns HTTP
 
 Load `.env.alpha` / `.env.solana` in a shell with tracing disabled and export
 parameters without printing. Source the handoff `tools/rpc-env.sh` for approved
-providers. Explicit `ARBITRUM_FORK_BLOCK`, `ROBINHOOD_FORK_BLOCK`,
-`SOLANA_STOCK_SESSION_OPEN/CLOSE`, and `PP_SWAP_MAX_AGE`,
+providers. Explicit `ARBITRUM_FORK_BLOCK`, `ROBINHOOD_FORK_BLOCK`, and `PP_SWAP_MAX_AGE`,
 `PP_SWAP_CONFIDENCE_BPS`, `PP_SWAP_CROSS_CHECK_BPS`, `PP_SWAP_SLIPPAGE_BPS`
 are required. Tested **proposal** limits were 300 seconds / 100 / 50 / 200 bps;
 they are not a founder ruling. Scope OFF and stock swaps unavailable are sealed
@@ -182,8 +181,8 @@ set -a; . "$EVM_ENV_FILE"; set +a
 source /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
 # Set explicit ARBITRUM_FORK_BLOCK and ROBINHOOD_FORK_BLOCK; record them.
 # EVM_DEPLOYER_ADDRESS is the .env.alpha deployer's PUBLIC address.
-# Supply reviewed recipients, guardian, API signer, registry owner, stock session
-# boundaries and SOLANA_PRICE_MAX_AGE. Test placeholders are never launch config.
+# Supply reviewed recipients, guardian, API signer, registry owner and
+# SOLANA_PRICE_MAX_AGE. Test placeholders are never launch config.
 bash script/solana-evm-rehearsal-all.sh
 node script/solana-evm-budget.mjs
 bash script/solana-release-rehearsal.sh core
@@ -256,7 +255,7 @@ approved factories. No complete exact EVM launch total can be claimed yet.
 1. **Freeze source and approve configuration.** Merge the reviewed integration
    and record its full commit; pin both fork blocks, CLI/compiler versions,
    EVM public signer, API signer/registry owner, protocol recipient/guardian,
-   finalized report max age, stock session/pricing rules and Solana identity.
+   finalized report max age, stock pricing max ages (24/7, R9.1) and Solana identity.
    API-only keys remain server-side (DEC-201/202). Review TSLA/NVDA/SOL feeds and
    effective multipliers (DEC-198); stock swaps remain unavailable without an
    admitted fresh Solana oracle (DEC-203/204). Preserve 500-bps management cap
@@ -681,9 +680,9 @@ must NEVER become the deployment artifact.
 5. Complete the shared three-chain Fund acceptance and Fund/Spoke deployment
    dry runs, L1-inclusive costs, Manager/keeper payer deltas and API/manual claim
    fallback before founder funding approval. T8b/T8c own logic fixes.
-6. **TODO(decision):** retain existing fail-closed stock session handling; durable
-   holiday/DST/off-hours exit valuation remains undecided. Current script session
-   inputs are explicit, not an automatic market-calendar authority.
+6. **R9.1 (founder, 2026-10-11):** stock pricing is 24/7. The on-chain value of the
+   tokenized stock is what counts; there is no market-hours/session gate and no
+   session input. The stock feeds' max age is the only time guard (stale fails closed).
 
 ## Ordered mainnet runbook — approval required before ANY execution
 

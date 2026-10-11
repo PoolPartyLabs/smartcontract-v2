@@ -45,8 +45,7 @@ contract SolanaThreeChainCreationForkTest is Test, SolanaV6Deployment {
         manager = vm.addr(managerKey);
         vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envUint("ARBITRUM_FORK_BLOCK"));
         vm.startPrank(manager);
-        hub = _deployV6(vm.envAddress("PROTOCOL_RECIPIENT"), vm.envAddress("ADAPTER_GUARDIAN"), vm.envAddress("API_SIGNER"), vm.envAddress("API_SIGNER"),
-            uint64(vm.envUint("SOLANA_STOCK_SESSION_OPEN")), uint64(vm.envUint("SOLANA_STOCK_SESSION_CLOSE")), 3600);
+        hub = _deployV6(vm.envAddress("PROTOCOL_RECIPIENT"), vm.envAddress("ADAPTER_GUARDIAN"), vm.envAddress("API_SIGNER"), vm.envAddress("API_SIGNER"), 3600);
         vm.stopPrank();
         creationNumber = hub.factory.nextCreationNumber();
         id = hub.factory.fundIdOf(42161, creationNumber, manager);
@@ -109,7 +108,7 @@ contract SolanaThreeChainCreationForkTest is Test, SolanaV6Deployment {
     function _createRobinhood() private {
         vm.createSelectFork(vm.envString("ROBINHOOD_RPC_URL"), vm.envUint("ROBINHOOD_FORK_BLOCK"));
         vm.startPrank(manager);
-        V6Deployment memory spoke = _deployV6(vm.envAddress("PROTOCOL_RECIPIENT"), vm.envAddress("ADAPTER_GUARDIAN"), vm.envAddress("API_SIGNER"), vm.envAddress("API_SIGNER"), 1791379800, 1791403200, 3600);
+        V6Deployment memory spoke = _deployV6(vm.envAddress("PROTOCOL_RECIPIENT"), vm.envAddress("ADAPTER_GUARDIAN"), vm.envAddress("API_SIGNER"), vm.envAddress("API_SIGNER"), 3600);
         vm.stopPrank();
         assertEq(address(spoke.factory), address(hub.factory));
         Mandate memory mandateConfig = abi.decode(mandateBytes, (Mandate));

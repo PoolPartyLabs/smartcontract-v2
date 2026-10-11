@@ -35,6 +35,6 @@ contract SolanaV6DeploymentForkTest is Test, SolanaV6Deployment {
     }
 
     function _deploy() private returns (V6Deployment memory) {
-        return _deployV6(address(11), address(12), address(13), address(13), 1_791_293_400, 1_791_316_800, 3600);
+        return _deployV6(address(11), address(12), address(13), address(13), 3600);
     }
 }
