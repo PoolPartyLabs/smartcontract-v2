@@ -215,6 +215,19 @@ test('CR-27: broadcast resolves the RPC through the alias and fails closed witho
   assert.doesNotMatch(result.stdout + result.stderr, /SECRET_KEY|SECRET_ENDPOINT/);
 });
 
+test('CR-32: the runbook keeps S0-S12 checkpoints, the Fast-only fact, one budget source and one port registry', () => {
+  const runbook = readFileSync('docs/DEPLOYMENT-SOLANA.md', 'utf8');
+  const current = runbook.slice(0, runbook.indexOf('Historical evidence below'));
+  for (let step = 0; step <= 12; step++) assert.match(current, new RegExp(`\\| \\*\\*S${step}\\*\\* `));
+  assert.match(current, /\*\*Fast only:\*\* `CctpBridgeAdapter\.sol:18,114` and `wire\.rs:7,116`/);
+  assert.match(readFileSync('src/adapters/CctpBridgeAdapter.sol', 'utf8'), /uint32 public constant FAST_FINALITY = 1000;/);
+  assert.match(current, /Budget numbers come \*\*only\*\* from `deploy-mainnet-budget\.mjs`/);
+  assert.match(current, /### Port registry — the single source of truth/);
+  assert.match(current, /\| 8940 \/ 9940 \/ 14000 \/ 14001–14060 \| fix-ops lane/);
+  const ops = readFileSync('script/solana-ops.localnet.test.mjs', 'utf8');
+  assert.match(ops, /PP_LOCALNET_RPC_PORT \?\? '8940'/);
+});
+
 test('CR-10: preflight reports an unreachable endpoint as a NO-GO row without naming it', () => {
   const result = spawnSync(process.execPath, ['solana/scripts/deploy-mainnet.mjs', '--preflight'], {
     encoding: 'utf8', env: { ...process.env, SOLANA_MAINNET_RPC: 'https://secret-provider-host.invalid/SECRET_PATH_KEY' },
