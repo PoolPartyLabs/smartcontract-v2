@@ -2,6 +2,10 @@
 src = "src"
 out = "out"
 libs = ["lib"]
+# Remappings enter every artifact's CBOR metadata, hence every CREATE2/CREATE3 address (Create3Deployer, libraries,
+# FundFactoryV6 pinned in script/solana-v6-addresses.json). remappings.txt lists the full set of a recursive submodule
+# checkout and auto-detection is off, so a partial lib checkout cannot silently move a deterministic address.
+auto_detect_remappings = false
 script = "script"
 test = "test"
 solc_version = "0.8.28"
