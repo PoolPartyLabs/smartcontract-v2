@@ -1,6 +1,9 @@
 import { readFileSync, readdirSync, existsSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+
+const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 const root = resolve(process.argv[2] ?? 'cache/sol-t9');
 const modules = ['factory-v6', 'fund-v6', 'factory-legacy', 'fund-legacy', 'check-legacy'];
@@ -13,12 +16,13 @@ function files(directory) {
   });
 }
 function cast(args) {
-  const result = spawnSync('cast', args, { encoding: 'utf8', timeout: 60000 });
+  const result = spawnSync('cast', args, { encoding: 'utf8', timeout: 60000, cwd: repo });
   if (result.status !== 0) throw new Error('Read-only fee query failed');
   return result.stdout.trim();
 }
 for (const chain of ['arbitrum', 'robinhood']) {
-  const rpc = process.env[chain === 'arbitrum' ? 'ARBITRUM_RPC_URL' : 'ROBINHOOD_RPC_URL'];
+  // CR-27: cast receives the foundry.toml alias; the (possibly keyed) URL stays in the environment.
+  const rpc = process.env[chain === 'arbitrum' ? 'ARBITRUM_RPC_URL' : 'ROBINHOOD_RPC_URL'] ? chain : undefined;
   for (const module of modules) {
     const directory = resolve(root, `evm-${chain}-${module}`);
     const logPath = resolve(directory, 'run.log');
