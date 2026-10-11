@@ -269,7 +269,8 @@ async function accept() {
   if (process.argv[2] !== "accept-local") throw new Error("Only prepare, export, accept-local or approval-gated broadcast supported");
   assert.equal(readFileSync(resolve(output, "hub-created"), "utf8"), "PASS");
   const connection = localConnection(); requireLoopback(connection.rpcEndpoint);
-  assert.equal(process.env.PP_LOCALNET_RPC_PORT, "8998");
+  // DF-2: an explicit registry block (solana-three-chain-creation.sh defaults to 8998), never localnet.sh's shared 8899.
+  if (!/^[0-9]+$/.test(process.env.PP_LOCALNET_RPC_PORT ?? "") || process.env.PP_LOCALNET_RPC_PORT === "8899") throw new Error("Explicit PP_LOCALNET_RPC_PORT from the port registry required");
   const idl = JSON.parse(readFileSync(resolve(root, "solana/target/idl/pp_spoke.json"), "utf8"));
   assert.equal(idl.address, ADDRESSES.spoke);
   await fundSol(connection, solana.publicKey, 10);

@@ -108,7 +108,7 @@ Fork tests read `ARBITRUM_FORK_BLOCK` / `ROBINHOOD_FORK_BLOCK` (CCTP suites:
 `CCTP_ARBITRUM_FORK_BLOCK`, then the Arbitrum pin); unset, they fork at head-100
 (`test/fork/ForkPins.sol`). No pin or stock session remains in test source.
 `foundry.toml` sets `gas_limit = max` for the whole-stack deployment tests. The
-Solana creation builder's fixed localnet port (8998) is owned by the `solana/` track.
+Solana creation wrapper takes its validator block from `PP_LOCALNET_*` (default 8998, DF-2).
 
 ## Deploy-day runbook S0–S12 (current; supersedes every older ordering below)
 
@@ -189,7 +189,8 @@ brief; a lane header and a coordinator matrix must not disagree with this table.
 | 8995 / 9995 / 19500 / 19501–19560 | native clone harness evidence |
 | 8996 / 9996 / 19700 / 19701–19760 | size-optimization track |
 | 8997 / 9997 / 19800 / 19801–19860 | Scope track |
-| 8998 / 9998 / 19900 / 19901–19960 | `solana-three-chain-creation.sh` (`accept-local` asserts 8998) |
+| 8998 / 9998 / 19900 / 19901–19960 | `solana-three-chain-creation.sh` default; a lane overrides it with `PP_LOCALNET_RPC_PORT` / `_FAUCET_PORT` / `_GOSSIP_PORT` / `_DYNAMIC_PORTS` (DF-2) |
+| 8980 / 9980 / 18000 / 18001–18060 | fix-p0 lane (POO-2263 deploy-day P0) |
 
 Blocks are reusable only after their owner finished; a new lane is added here
 before it starts, never assigned from memory in a brief.

@@ -22,11 +22,12 @@ test('independent ABI generator matches current cross-VM golden values', () => {
   }
 });
 
-test('creation wrapper cannot select mainnet broadcast or arbitrary ports', () => {
+test('creation wrapper cannot select mainnet broadcast and takes registry ports from the environment', () => {
   const wrapper = readFileSync(new URL('../../../script/solana-three-chain-creation.sh', import.meta.url), 'utf8');
   assert.ok(!wrapper.includes('--broadcast'));
-  assert.ok(wrapper.includes('PP_LOCALNET_RPC_PORT=8998'));
-  assert.ok(wrapper.includes('PP_LOCALNET_DYNAMIC_PORTS=19901-19960'));
+  // DF-2: ports come from the environment with the registry default.
+  assert.ok(wrapper.includes('PP_LOCALNET_RPC_PORT="${PP_LOCALNET_RPC_PORT:-8998}"'));
+  assert.ok(wrapper.includes('PP_LOCALNET_DYNAMIC_PORTS="${PP_LOCALNET_DYNAMIC_PORTS:-19901-19960}"'));
   const builder = readFileSync(new URL('../../scripts/three-chain-creation.ts', import.meta.url), 'utf8');
   assert.ok(builder.includes('requireLoopback(connection.rpcEndpoint)'));
   assert.ok(builder.includes('TypedDataEncoder.hash'));
