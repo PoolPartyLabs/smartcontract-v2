@@ -59,7 +59,7 @@ pub(crate) fn fixture() -> (FundState, Pubkey) {
             manager_evm: [4; 20],
             manager_solana: Pubkey::new_unique(),
             report_sequence: 0,
-            order_sequence: 0,
+            next_order_sequence: 0,
             closed: false,
             bump,
             vault_bump,

@@ -159,7 +159,7 @@ pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, InitializeFund<'info>>, pa
         manager_evm: args.manager_evm,
         manager_solana: manager,
         report_sequence: 0,
-        order_sequence: 0,
+        next_order_sequence: 0,
         closed: false,
         bump,
         vault_bump,

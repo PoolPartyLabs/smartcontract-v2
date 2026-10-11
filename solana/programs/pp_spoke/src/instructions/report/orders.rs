@@ -28,7 +28,7 @@ pub fn verify_order(
     require!(
         chain == fund.hub_emitter_chain
             && data[59..91] == fund.hub_emitter
-            && sequence > fund.order_sequence,
+            && sequence >= fund.next_order_sequence,
         ReportError::InvalidOrder
     );
     let length = u32::from_le_bytes(data[91..95].try_into().unwrap()) as usize;
@@ -86,6 +86,13 @@ pub fn verify_order(
     Ok(())
 }
 
+/// CR-16: the first Hub order is Wormhole sequence 0; after executing N only N + 1 or later is accepted.
+pub fn consume_sequence(fund: &mut FundState, sequence: u64) -> Result<()> {
+    require!(sequence >= fund.next_order_sequence, ReportError::InvalidOrder);
+    fund.next_order_sequence = sequence.checked_add(1).ok_or(ReportError::SequenceOverflow)?;
+    Ok(())
+}
+
 pub fn dispatch_unavailable() -> Result<()> {
     // TODO(interface): DEC-120/121/122/191 require resumable T3/T4/T1b execution and ACK reconciliation.
     err!(ReportError::OrderExecutionNotIntegrated)
@@ -98,7 +105,7 @@ pub fn execute_acknowledgement(fund: &mut Account<FundState>, posted: &AccountIn
     require!(payload[63] == 4, ReportError::OrderExecutionNotIntegrated);
     let sequence = u64::from_le_bytes(data[49..57].try_into().unwrap());
     if payload[192..224] != word(u128::from(fund.spoke_chain_id)) {
-        fund.order_sequence = sequence;
+        consume_sequence(fund, sequence)?;
         return Ok(());
     }
     require!(payload[224..256] == word(2) && accounts.len() == 2, ReportError::InvalidOrder);
@@ -124,7 +131,7 @@ pub fn execute_acknowledgement(fund: &mut Account<FundState>, posted: &AccountIn
         transit.try_serialize(&mut &mut accounts[0].try_borrow_mut_data()?[..])?;
         ledger.try_serialize(&mut &mut accounts[1].try_borrow_mut_data()?[..])?;
     }
-    fund.order_sequence = sequence;
+    consume_sequence(fund, sequence)?;
     emit!(HubArrivalAcknowledged { fund: fund.key(), transit_id: id, sequence });
     Ok(())
 }
@@ -141,6 +148,10 @@ mod tests {
     use super::*;
 
     fn posted(fund: &FundState) -> (Pubkey, Vec<u8>) {
+        posted_at(fund, 1)
+    }
+
+    fn posted_at(fund: &FundState, sequence: u64) -> (Pubkey, Vec<u8>) {
         let payload = [
             word(1),
             word(1),
@@ -159,7 +170,7 @@ mod tests {
         body.extend(0u32.to_be_bytes());
         body.extend(fund.hub_emitter_chain.to_be_bytes());
         body.extend(fund.hub_emitter);
-        body.extend(1u64.to_be_bytes());
+        body.extend(sequence.to_be_bytes());
         body.push(200);
         body.extend(&payload);
         let key = Pubkey::find_program_address(
@@ -173,7 +184,7 @@ mod tests {
         data.extend([1; 32]);
         data.extend(1001u32.to_le_bytes());
         data.extend(0u32.to_le_bytes());
-        data.extend(1u64.to_le_bytes());
+        data.extend(sequence.to_le_bytes());
         data.extend(fund.hub_emitter_chain.to_le_bytes());
         data.extend(fund.hub_emitter);
         data.extend((payload.len() as u32).to_le_bytes());
@@ -199,11 +210,29 @@ mod tests {
         verify_order(&fund, fund_key, &account, Some(1), 1100).unwrap();
         assert!(verify_order(&fund, fund_key, &account, Some(2), 1001).is_err());
         assert!(verify_order(&fund, fund_key, &account, None, 1101).is_err());
-        fund.order_sequence = 1;
+        fund.next_order_sequence = 2;
         assert!(verify_order(&fund, fund_key, &account, None, 1001).is_err());
-        fund.order_sequence = 0;
+        fund.next_order_sequence = 0;
         fund.fund_id[0] ^= 1;
         assert!(verify_order(&fund, fund_key, &account, None, 1001).is_err());
+    }
+
+    #[test]
+    fn first_hub_order_at_sequence_zero_executes_once() {
+        let (mut fund, fund_key) = crate::instructions::core::guards::fixture();
+        assert_eq!(fund.next_order_sequence, 0);
+        let (key, mut data) = posted_at(&fund, 0);
+        let mut lamports = 1;
+        let account = AccountInfo::new(&key, false, false, &mut lamports, &mut data, &WORMHOLE, false, 0);
+        verify_order(&fund, fund_key, &account, None, 1001).unwrap();
+        consume_sequence(&mut fund, 0).unwrap();
+        assert_eq!(fund.next_order_sequence, 1);
+        assert!(verify_order(&fund, fund_key, &account, None, 1001).is_err());
+        assert!(consume_sequence(&mut fund, 0).is_err());
+        consume_sequence(&mut fund, 5).unwrap();
+        assert_eq!(fund.next_order_sequence, 6);
+        assert!(consume_sequence(&mut fund, u64::MAX).is_err());
+        assert_eq!(fund.next_order_sequence, 6);
     }
 
     #[test]
