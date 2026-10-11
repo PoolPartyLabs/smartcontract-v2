@@ -72,6 +72,9 @@ test('out-of-range JSON key bytes cannot silently coerce to a valid key', () => 
 
 test('Fund creation fails closed until the manifest pins an approved factory', () => {
   const manifest = JSON.parse(readFileSync('script/solana-v6-addresses.json', 'utf8'));
-  assert.equal(manifest.arbitrum.approvedFactory, null);
-  assert.match(readFileSync('script/DeploySolanaFundV6.s.sol', 'utf8'), /parseJsonAddress\(manifest, "\.arbitrum.approvedFactory"\)/);
+  // CR-35: zero-address placeholder (a JSON null failed inside parseJsonAddress before the explicit guard).
+  assert.equal(manifest.arbitrum.approvedFactory, '0x0000000000000000000000000000000000000000');
+  const script = readFileSync('script/DeploySolanaFundV6.s.sol', 'utf8');
+  assert.match(script, /parseJsonAddress\(manifest, "\.arbitrum.approvedFactory"\)/);
+  assert.match(script, /if \(approvedFactory == address\(0\)\) revert FactoryNotApproved\(\);/);
 });

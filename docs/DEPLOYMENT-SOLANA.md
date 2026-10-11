@@ -476,7 +476,9 @@ Local deployment is opt-in: `node solana/scripts/deploy-local.mjs --broadcast`.
 Without that explicit flag, even a valid supplied key cannot submit transactions.
 It remains loopback-only; this flag does not authorize any mainnet deployment.
 Per-Fund creation refuses an unapproved destination: `arbitrum.approvedFactory`
-in the committed manifest is null until a reviewed deployment identity is pinned.
+in the committed manifest is the zero address until a reviewed deployment identity
+is pinned, and `DeploySolanaFundV6` reverts `FactoryNotApproved()` on it (CR-35;
+`FactoryNotPinned(supplied, approved)` for any other address).
 Never substitute an arbitrary environment address for that approval.
 
 Default cloned tests require `node tests/core/prepare-fixtures.ts` before starting
