@@ -21,6 +21,7 @@ import {ValueReportReceiverV6} from "../../../src/report/ValueReportReceiverV6.s
 import {IFundFactory} from "../../../src/interfaces/IFundFactory.sol";
 import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
+import {ICoreVault} from "../../../src/interfaces/ICoreVault.sol";
 import {SpokeUnwindTypes} from "../../../src/spoke/SpokeUnwindTypes.sol";
 import {CoreVaultConfig} from "../../../src/core/CoreVaultTypes.sol";
 import {CctpRoute} from "../../../src/interfaces/ICctpCoreVault.sol";
@@ -324,6 +325,57 @@ contract ComposedSolanaFundForkTest is Test, FactoryDeployment {
         vm.prank(manager);
         core.requestPayout(1e6, ICoreVaultPayouts.PayoutMode.Instant, 0);
         assertEq(shares.totalSupply(), burned);
+    }
+
+    /// @dev CR-36: which payout mode is live on a stale Solana report. DEC-160 lets no share burn on a stale report,
+    ///      in either mode, so the Instant request (a burn) is refused `StaleSpokeReport`. The Standard request books its
+    ///      reserve and term without burning, priced on last-known values (payout liveness, D-28); its claim after the
+    ///      term again needs a fresh report, then pays. Feeds are kept live to isolate the report gate.
+    function testStandardRequestIsTheOnlyPayoutStepLiveOnAStaleSolanaReport() public {
+        receiver.deliver(bridge.craftVaa(1, native.spoke, ReportCodecV6.encode(_report(1, 0))));
+        vm.warp(block.timestamp + 1601);
+        _feedAt(TSLA_USD, block.timestamp);
+        _feedAt(SOL_USD, block.timestamp);
+        assertFalse(receiver.isReportFresh(1));
+        IERC20 shares = IERC20(core.shareToken());
+        uint256 supply = shares.totalSupply();
+        bytes memory stale = abi.encodeWithSelector(ICoreVault.StaleSpokeReport.selector, uint256(1));
+        vm.expectRevert(stale);
+        vm.prank(manager);
+        core.requestPayout(2e6, ICoreVaultPayouts.PayoutMode.Instant, 0);
+        vm.prank(manager);
+        core.requestPayout(2e6, ICoreVaultPayouts.PayoutMode.Standard, 0);
+        ICoreVaultPayouts.PayoutRequest memory request = core.payoutRequest(manager);
+        assertTrue(request.open);
+        assertEq(request.reserved, 2e6);
+        assertEq(shares.totalSupply(), supply);
+        vm.warp(request.termEndsAt);
+        _feedAt(TSLA_USD, block.timestamp);
+        _feedAt(SOL_USD, block.timestamp);
+        vm.expectRevert(stale);
+        vm.prank(manager);
+        core.claimPayout(0);
+        receiver.deliver(bridge.craftVaa(1, native.spoke, ReportCodecV6.encode(_report(2, 0))));
+        uint256 balance = IERC20(ARB_USDC).balanceOf(manager);
+        vm.prank(manager);
+        ICoreVaultPayouts.PayoutReceipt memory receipt = core.claimPayout(0);
+        assertGt(receipt.sharesBurned, 0);
+        assertEq(shares.totalSupply(), supply - receipt.sharesBurned);
+        assertEq(IERC20(ARB_USDC).balanceOf(manager), balance + receipt.usdcPaid);
+        assertGt(receipt.usdcPaid, 0);
+    }
+
+    /// @dev CR-36, R9.1 on the v6 gate: a stale stock feed blocks every mint/burn (`UnsafeStockState`), but the
+    ///      Standard request, which burns nothing, still books.
+    function testStandardRequestStaysLiveOnAStaleStockFeed() public {
+        _feedAt(TSLA_USD, block.timestamp - STOCK_MAX_AGE - 1);
+        _feedAt(SOL_USD, block.timestamp);
+        vm.expectRevert(abi.encodeWithSelector(SolanaSpokeRegistryV6.UnsafeStockState.selector, SolanaFixture.STOCK));
+        vm.prank(manager);
+        core.requestPayout(2e6, ICoreVaultPayouts.PayoutMode.Instant, 0);
+        vm.prank(manager);
+        core.requestPayout(2e6, ICoreVaultPayouts.PayoutMode.Standard, 0);
+        assertEq(core.payoutRequest(manager).reserved, 2e6);
     }
 
     /// @dev Next Saturday 02:00 UTC strictly after the fork time (1970-01-01 was a Thursday).
