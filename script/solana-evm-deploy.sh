@@ -59,6 +59,7 @@ esac
 trap 'rm -rf "$ROOT/cache/$SCRIPT.s.sol"' EXIT
 STATE="$ROOT/cache/sol-t9/evm-$CHAIN-$MODULE"
 mkdir -p "$STATE"
+printf '%s\n' "$PIN" >"$STATE/pin"   # DF-4/C10: fork-pin provenance for solana-evm-budget.mjs
 export FOUNDRY_BROADCAST="$STATE/broadcast"
 ARGS=(script "script/$SCRIPT.s.sol" --fork-url "$RPC_ALIAS" --fork-block-number "$PIN" --sender "${EVM_DEPLOYER_ADDRESS:?Explicit EVM signer address required}" --compute-units-per-second 30 --fork-retry-backoff 3000)
 # C7: Fund creation measures 28.8-30.3M gas (anvil receipts) against Arbitrum's 32M per-tx cap; Foundry's default

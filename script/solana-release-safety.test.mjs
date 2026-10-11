@@ -267,3 +267,10 @@ test('C5: the EVM wrapper purges Foundry\'s sensitive script cache on every exit
   assert.ok(evm.indexOf("trap 'rm -rf") > evm.indexOf('check-legacy) SCRIPT=CheckAlphaDeployment'));
   assert.ok(evm.indexOf("trap 'rm -rf") < evm.indexOf('forge "${ARGS[@]}"'));
 });
+
+test('DF-4/C10: the EVM budget never marks a measured entry failed for missing pin provenance', () => {
+  const source = readFileSync('script/solana-evm-budget.mjs', 'utf8');
+  assert.doesNotMatch(source, /entry\.forkPins = JSON\.parse\(readFileSync\(resolve\(root, 'evm-pins\.json'\)\)\);/);
+  assert.match(source, /if \(existsSync\(pinsPath\)\) entry\.forkPins = /);
+  assert.match(readFileSync('script/solana-evm-deploy.sh', 'utf8'), /printf '%s\\n' "\$PIN" >"\$STATE\/pin"/);
+});
