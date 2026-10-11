@@ -274,3 +274,17 @@ test('DF-4/C10: the EVM budget never marks a measured entry failed for missing p
   assert.match(source, /if \(existsSync\(pinsPath\)\) entry\.forkPins = /);
   assert.match(readFileSync('script/solana-evm-deploy.sh', 'utf8'), /printf '%s\\n' "\$PIN" >"\$STATE\/pin"/);
 });
+
+test('C11: the mainnet budget retries a null fee quote and fails with a sanitized cause', () => {
+  const script = readFileSync('solana/scripts/deploy-mainnet-budget.mjs', 'utf8');
+  assert.match(script, /for \(let attempt = 0; attempt < 4; attempt\+\+\) \{\n      const blockhash = /);
+  assert.match(script, /console\.error\(`Read-only budget failed: \$\{sanitize\(error\?\.message \?\? error\)\}`\)/);
+  assert.match(script, /endpointSource/);
+  const result = spawnSync(process.execPath, ['solana/scripts/deploy-mainnet-budget.mjs'], { encoding: 'utf8',
+    env: { ...process.env, SOLANA_MAINNET_RPC: 'https://secret-provider-host.invalid/SECRET_PATH_KEY' }, timeout: 120000 });
+  if (result.error?.code !== 'ETIMEDOUT') {
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Read-only budget failed: Read-only budget RPC getGenesisHash failed after 5 attempts/);
+    assert.doesNotMatch(result.stdout + result.stderr, /secret-provider-host|SECRET_PATH_KEY/);
+  }
+});
