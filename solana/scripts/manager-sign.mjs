@@ -12,6 +12,8 @@
 // top-level programs only from the approved allowlist; spoke instructions must decode against the IDL;
 // priority fee capped; the operator must echo the reviewed intent hash (message with blockhash zeroed);
 // the signature is journaled (fsync) BEFORE send; a prior uncertain signature is reconciled, never re-signed.
+// The journal key is the intent hash, so an intent that already landed is reported (alreadyLanded) and never
+// sent twice; a deliberate repeat of a byte-identical action needs a fresh API build or a new --journal.
 import { createRequire } from 'node:module';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';

@@ -158,8 +158,8 @@ export async function recoverPrefundedProgram({ connection, payer, programKeypai
   return signatures;
 }
 
-// Exact on-chain identity: executable loader-v3 program, ProgramData capacity, ELF bytes and authority.
-// expectedAuthority null means the authority must be revoked (immutable, DEC-189 pre-client gate).
+// Reads the deployed program and its parsed ProgramData (slot, authority, capacity, ELF bytes); returns
+// programData null unless the program id is a deployed loader-v3 program. Comparison is the caller's job.
 export async function readDeployedProgram(connection, programId, commitment = 'finalized') {
   const program = classifyProgramAccount(await connection.getAccountInfo(new PublicKey(programId), commitment));
   if (program.state !== 'deployed') return { program, programData: null };
