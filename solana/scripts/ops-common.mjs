@@ -61,7 +61,8 @@ export function keypairFromFile(path, label = 'Signer file') {
 
 const SECRET_NAME = /PRIVATE_KEY|SECRET|RPC|API_KEY|PASSWORD|TOKEN|WEBHOOK/;
 
-// Removes secret-bearing environment values, URLs, JSON byte arrays and 64-byte base58 strings.
+// Removes secret-bearing environment values (exact match), URLs and JSON byte arrays. Base58 64-byte
+// strings are NOT pattern-redacted: signatures have the same shape and operators need them.
 export function sanitize(text) {
   let output = String(text ?? '');
   for (const [name, value] of Object.entries(process.env)) {
@@ -69,8 +70,7 @@ export function sanitize(text) {
   }
   return output
     .replace(/[a-z][a-z0-9+.-]*:\/\/[^\s"'<>)]+/gi, '<endpoint>')
-    .replace(/\[\s*\d{1,3}(\s*,\s*\d{1,3}){31,}\s*\]/g, '<bytes>')
-    .replace(/\b[1-9A-HJ-NP-Za-km-z]{80,90}\b/g, '<secret>');
+    .replace(/\[\s*\d{1,3}(\s*,\s*\d{1,3}){31,}\s*\]/g, '<bytes>');
 }
 
 // Child processes never inherit secret-bearing variables.

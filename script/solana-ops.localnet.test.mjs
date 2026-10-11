@@ -163,3 +163,124 @@ test('CR-10: recovery resumes from an allocated id and refuses a buffer that is 
   const { programData } = await readDeployedProgram(connection, programId, 'confirmed');
   assert.ok(programData.data.equals(elf));
 });
+
+// ---- CR-07: guarded Manager CLI signer. The genesis Memo program stands in for the spoke: a test IDL
+// maps the memo prefix "pp-probe" to an instruction name, so the full decode/allowlist path runs.
+const { TransactionInstruction, TransactionMessage, VersionedTransaction, ComputeBudgetProgram, PublicKey } = require('@solana/web3.js');
+const PROBE = Buffer.from('pp-probe');
+
+function signerEnv(manager, extra = {}) {
+  const approval = join(directory, 'manager-approval.json');
+  writeFileSync(approval, JSON.stringify({ schema: 1, status: 'NOT_APPROVED', programId: MEMO, managerSolanaKey: manager.publicKey.toBase58(),
+    allowedPrograms: [MEMO, 'ComputeBudget111111111111111111111111111111'], maxPriorityFeeLamports: 100000 }));
+  const idl = join(directory, 'probe-idl.json');
+  writeFileSync(idl, JSON.stringify({ instructions: [{ name: 'memo_probe', discriminator: Array.from(PROBE) }] }));
+  return { ...process.env, PP_MANAGER_APPROVAL_FILE: approval, PP_SPOKE_IDL: idl, PP_LOCALNET_RPC: endpoint,
+    SOLANA_MANAGER_PRIVATE_KEY: JSON.stringify(Array.from(manager.secretKey)), ...extra };
+}
+
+async function apiTransaction(payerKey, { memo = `pp-probe:${Math.random()}`, signers = [], extraInstructions = [], price } = {}) {
+  const block = await connection.getLatestBlockhash('finalized');
+  const instructions = [ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 })];
+  if (price) instructions.push(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: price }));
+  instructions.push(...extraInstructions, new TransactionInstruction({ programId: new PublicKey(MEMO), data: Buffer.from(memo),
+    keys: signers.map(pubkey => ({ pubkey, isSigner: true, isWritable: false })) }));
+  const transaction = new VersionedTransaction(new TransactionMessage({ payerKey, recentBlockhash: block.blockhash, instructions }).compileToV0Message());
+  const path = join(directory, `api-${Math.random().toString(16).slice(2)}.json`);
+  writeFileSync(path, JSON.stringify({ protocolVersion: 'v2', transaction: Buffer.from(transaction.serialize()).toString('base64') }));
+  return path;
+}
+
+function managerSign(args, env) {
+  const result = spawnSync(process.execPath, ['solana/scripts/manager-sign.mjs', ...args], { encoding: 'utf8', env, timeout: 300_000 });
+  return { ...result, json: (() => { try { return JSON.parse(result.stdout); } catch { return null; } })() };
+}
+
+test('CR-07: signer journals the signature before send, lands once and never re-signs a landed intent', async () => {
+  const manager = Keypair.generate();
+  await airdrop(manager.publicKey, 2);
+  const env = signerEnv(manager);
+  const tx = await apiTransaction(manager.publicKey);
+  const inspected = managerSign(['inspect', '--tx', tx], { ...env, SOLANA_MANAGER_PRIVATE_KEY: '' });
+  assert.equal(inspected.status, 0, inspected.stderr);
+  assert.match(inspected.json.intentSha256, /^[0-9a-f]{64}$/);
+  assert.deepEqual(inspected.json.instructions.map(entry => entry.name), ['SetComputeUnitLimit', 'memo_probe']);
+  const journal = join(directory, 'journal-landed.jsonl');
+  const args = ['send', '--tx', tx, '--cluster', 'localnet', '--journal', journal, '--expect-intent', inspected.json.intentSha256, '--expect-instruction', 'memo_probe'];
+  const sent = managerSign(args, env);
+  assert.equal(sent.status, 0, sent.stderr);
+  assert.equal(sent.json.status, 'landed');
+  assert.equal(sent.json.alreadyLanded, false);
+  const records = readFileSync(journal, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  assert.deepEqual(records.map(record => record.status), ['sent', 'landed']);
+  assert.equal(records[0].signature, sent.json.signature);
+  assert.ok(records[0].lastValidBlockHeight > 0);
+  assert.ok((await connection.getSignatureStatuses([sent.json.signature])).value[0]);
+  const again = managerSign(args, env);
+  assert.equal(again.status, 0, again.stderr);
+  assert.equal(again.json.alreadyLanded, true);
+  assert.equal(again.json.signature, sent.json.signature);
+  assert.equal(readFileSync(journal, 'utf8').trim().split('\n').length, 2, 'no new signature for a landed intent');
+  assert.doesNotMatch(sent.stdout + sent.stderr + again.stderr, /\[\s*\d+\s*,\s*\d+/);
+});
+
+test('CR-07: an uncertain prior signature is reconciled to expiry and re-signed only with --retry-expired', async () => {
+  const manager = Keypair.generate();
+  await airdrop(manager.publicKey, 2);
+  const env = signerEnv(manager);
+  const tx = await apiTransaction(manager.publicKey);
+  const intent = managerSign(['inspect', '--tx', tx], env).json.intentSha256;
+  const journal = join(directory, 'journal-uncertain.jsonl');
+  // A crash after journaling but before delivery: the signature never reached the cluster.
+  const bs58 = require('bs58');
+  const ghost = (bs58.default ?? bs58).encode(Keypair.generate().secretKey);
+  const height = await connection.getBlockHeight('finalized');
+  writeFileSync(journal, JSON.stringify({ key: intent, status: 'sent', signature: ghost, lastValidBlockHeight: height + 3 }) + '\n');
+  const args = ['send', '--tx', tx, '--cluster', 'localnet', '--journal', journal, '--expect-intent', intent];
+  const refused = managerSign(args, env);
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /provably expired without landing; rerun with --retry-expired/);
+  assert.deepEqual(readFileSync(journal, 'utf8').trim().split('\n').map(line => JSON.parse(line).status), ['sent', 'expired']);
+  const retried = managerSign([...args, '--retry-expired'], env);
+  assert.equal(retried.status, 0, retried.stderr);
+  assert.equal(retried.json.status, 'landed');
+  assert.notEqual(retried.json.signature, ghost);
+});
+
+test('CR-07: signer refuses foreign payers, unpinned keys, non-allowlisted programs, fee drains and reused signers', async () => {
+  const manager = Keypair.generate();
+  const stranger = Keypair.generate();
+  await airdrop(manager.publicKey, 2);
+  await airdrop(stranger.publicKey, 1);
+  const env = signerEnv(manager);
+  const send = async (tx, extraArgs = [], overrides = {}) => {
+    const intent = managerSign(['inspect', '--tx', tx], env).json?.intentSha256 ?? 'none';
+    return managerSign(['send', '--tx', tx, '--cluster', 'localnet', '--journal', join(directory, 'journal-refusals.jsonl'),
+      '--expect-intent', intent, ...extraArgs], { ...env, ...overrides });
+  };
+  assert.match((await send(await apiTransaction(stranger.publicKey))).stderr, /Fee payer is not the pinned Manager/);
+  assert.match((await send(await apiTransaction(manager.publicKey), [], { SOLANA_MANAGER_PRIVATE_KEY: JSON.stringify(Array.from(stranger.secretKey)) })).stderr,
+    /differs from the pinned managerSolanaKey/);
+  const drain = SystemProgram.transfer({ fromPubkey: manager.publicKey, toPubkey: stranger.publicKey, lamports: 1_000_000 });
+  assert.match(managerSign(['inspect', '--tx', await apiTransaction(manager.publicKey, { extraInstructions: [drain] })], env).stderr, /not in the approved allowlist/);
+  assert.match(managerSign(['inspect', '--tx', await apiTransaction(manager.publicKey, { price: 1_000_000_000 })], env).stderr, /exceeds the approved cap/);
+  const tx = await apiTransaction(manager.publicKey);
+  const wrongIntent = managerSign(['send', '--tx', tx, '--cluster', 'localnet', '--expect-intent', '0'.repeat(64)], env);
+  assert.match(wrongIntent.stderr, /--expect-intent must equal the reviewed intentSha256/);
+  assert.match((await send(tx, ['--expect-instruction', 'kamino_supply'])).stderr, /not the expected kamino_supply/);
+  assert.match((await send(tx, [], { PP_LOCALNET_RPC: 'https://example.invalid/' })).stderr, /restricted to an uncredentialed loopback/);
+  assert.match(managerSign(['send', '--tx', tx, '--cluster', 'mainnet', '--expect-intent', '0'.repeat(64)], env).stderr, /Founder-approved Manager signing file required/);
+  // Fresh one-shot signers only: an account that already exists (here: funded) is refused before signing.
+  const reusedPath = writeKeypair(join(directory, 'reused-signer.json'), stranger);
+  assert.match((await send(await apiTransaction(manager.publicKey, { signers: [stranger.publicKey] }), ['--extra-signer', reusedPath])).stderr,
+    /already exists on-chain/);
+  assert.match((await send(await apiTransaction(manager.publicKey, { signers: [stranger.publicKey] }))).stderr,
+    /Required signers must be exactly the Manager plus the supplied fresh signers/);
+  const fresh = managerSign(['new-signer', '--out', join(directory, 'fresh-signer.json')], env);
+  assert.equal(fresh.status, 0, fresh.stderr);
+  const freshKey = new PublicKey(fresh.json.publicKey);
+  const landed = await send(await apiTransaction(manager.publicKey, { signers: [freshKey] }), ['--extra-signer', join(directory, 'fresh-signer.json')]);
+  assert.equal(landed.status, 0, landed.stderr);
+  assert.equal(landed.json.status, 'landed');
+  assert.notEqual(managerSign(['new-signer', '--out', join(directory, 'fresh-signer.json')], env).status, 0, 'never overwrites a signer file');
+});

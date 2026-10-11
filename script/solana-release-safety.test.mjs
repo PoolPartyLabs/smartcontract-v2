@@ -136,6 +136,49 @@ test('CR-10: the pre-funded recovery mode is approval-gated like the initial dep
   assert.doesNotMatch(result.stdout + result.stderr, /SECRET_ENDPOINT|SECRET_KEY/);
 });
 
+test('CR-07: creation broadcast refuses an unapproved or unclean source before parsing any key', () => {
+  const env = { ...process.env, DEPLOYER_PRIVATE_KEY: 'SECRET_KEY_EVM', SOLANA_DEPLOYER_PRIVATE_KEY: 'SECRET_KEY_SOL',
+    SOLANA_MAINNET_RPC: 'SECRET_ENDPOINT', ARBITRUM_RPC_URL: 'SECRET_ENDPOINT' };
+  const unapproved = spawnSync(process.execPath, ['solana/scripts/three-chain-creation.ts', 'broadcast'], { encoding: 'utf8', env });
+  assert.notEqual(unapproved.status, 0);
+  assert.match(unapproved.stderr, /Founder-approved Manager signing file/);
+  assert.doesNotMatch(unapproved.stdout + unapproved.stderr, /SECRET_KEY|SECRET_ENDPOINT/);
+  const directory = mkdtempSync(join(tmpdir(), 'pp-creation-gate-'));
+  try {
+    const approval = join(directory, 'approval.json');
+    writeFileSync(approval, JSON.stringify({ ...JSON.parse(readFileSync('script/solana-manager-approval.json')), status: 'FOUNDER_APPROVED',
+      approvedBy: 'test', approvedAt: new Date().toISOString(), sourceCommit: 'a'.repeat(40), managerSolanaKey: '6VTveiPVZVM7H9BWEsUsu4ivsrPjKw9ePrLQqHaFgJaA' }));
+    const unclean = spawnSync(process.execPath, ['solana/scripts/three-chain-creation.ts', 'broadcast'], { encoding: 'utf8',
+      env: { ...env, PP_MANAGER_APPROVAL_FILE: approval } });
+    assert.notEqual(unclean.status, 0);
+    assert.match(unclean.stderr, /Approval source does not match a clean checkout/);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+  const source = readFileSync('solana/scripts/three-chain-creation.ts', 'utf8');
+  assert.match(source, /const gate = process\.argv\[2\] === "broadcast" \? await broadcastGate\(\) : null;\n  const \{ manager, solana \} = gate \? wallets\(gate\.approval\.managerSolanaKey\) : wallets\(\);/);
+  assert.match(source, /the fork cache plan is never broadcast/);
+  assert.match(source, /eth_getTransactionReceipt/);
+});
+
+test('CR-07: Manager CLI signer requires an explicit command and founder approval for mainnet', () => {
+  const usage = spawnSync(process.execPath, ['solana/scripts/manager-sign.mjs'], { encoding: 'utf8' });
+  assert.notEqual(usage.status, 0);
+  assert.match(usage.stderr, /no implicit signing/);
+  const mainnet = spawnSync(process.execPath, ['solana/scripts/manager-sign.mjs', 'send', '--expect-intent', '0'.repeat(64)], {
+    encoding: 'utf8', env: { ...process.env, SOLANA_MANAGER_PRIVATE_KEY: 'SECRET_KEY', SOLANA_MAINNET_RPC: 'SECRET_ENDPOINT' } });
+  assert.notEqual(mainnet.status, 0);
+  assert.match(mainnet.stderr, /Founder-approved Manager signing file required/);
+  assert.doesNotMatch(mainnet.stdout + mainnet.stderr, /SECRET_KEY|SECRET_ENDPOINT/);
+  const template = JSON.parse(readFileSync('script/solana-manager-approval.json'));
+  assert.equal(template.status, 'NOT_APPROVED');
+  assert.equal(template.managerSolanaKey, null);
+  assert.deepEqual(template.allowedPrograms, ['7PptZ653uyn5eoAFKqs4DXR1ijxH6sf49f2YAGMLTfCx', 'ComputeBudget111111111111111111111111111111']);
+  const sender = readFileSync('solana/scripts/guarded-send.mjs', 'utf8');
+  const guarded = sender.slice(sender.indexOf('export async function guardedSend'), sender.indexOf('export async function sendInstructions'));
+  const journaled = guarded.indexOf("appendJournal(journalPath, { key, status: 'sent'");
+  assert.ok(journaled > 0 && journaled < guarded.indexOf('sendRawTransaction'), 'signature is journaled before the first send');
+  assert.doesNotMatch(sender, /onSignature|confirmTransaction\(/);
+});
+
 test('CR-10: preflight reports an unreachable endpoint as a NO-GO row without naming it', () => {
   const result = spawnSync(process.execPath, ['solana/scripts/deploy-mainnet.mjs', '--preflight'], {
     encoding: 'utf8', env: { ...process.env, SOLANA_MAINNET_RPC: 'https://secret-provider-host.invalid/SECRET_PATH_KEY' },
