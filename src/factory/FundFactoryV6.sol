@@ -54,7 +54,6 @@ contract FundFactoryV6 is IFundFactory, ReentrancyGuardTransient, EIP712 {
     mapping(address manager => uint256) public bindingNonce;
     mapping(address fund => bytes32) public bindingCommitment;
     mapping(address fund => bytes32) public fullSolanaCommitment;
-    SolanaMandateV6.Config private _pendingNative;
 
     struct Binding {
         uint256 nonce;
@@ -92,9 +91,7 @@ contract FundFactoryV6 is IFundFactory, ReentrancyGuardTransient, EIP712 {
         ++bindingNonce[mandate_.manager];
         bindingCommitment[core] = digest;
         fullSolanaCommitment[core] = envelope;
-        SolanaDeploymentV6.store(_pendingNative, native);
-        addresses = _createFund(mandate_, params);
-        SolanaDeploymentV6.clear(_pendingNative);
+        addresses = _createFund(mandate_, params, native);
     }
 
     function bootstrapDigest(
@@ -251,7 +248,13 @@ contract FundFactoryV6 is IFundFactory, ReentrancyGuardTransient, EIP712 {
         revert NativeCreationRequired();
     }
 
-    function _createFund(Mandate memory m, HubParams memory p) private returns (FundAddresses memory addresses) {
+    /// @dev CR-18: `native` travels in memory to the CCTP and registry deployments. Staging it in factory storage and
+    ///      clearing it afterwards cost ~22k gas per word written (~0.9M for the demo shape, ~1.7M with 8 venues)
+    ///      against Arbitrum's 32M per-transaction cap, for no state that outlives the call.
+    function _createFund(Mandate memory m, HubParams memory p, SolanaMandateV6.Config memory native)
+        private
+        returns (FundAddresses memory addresses)
+    {
         uint256 chainId = block.chainid;
         // DEC-011: the Core Vault lives on the Mandate's Hub Chain only.
         if (m.hubChainId != chainId) revert NotHubChain(chainId, m.hubChainId);
@@ -279,11 +282,11 @@ contract FundFactoryV6 is IFundFactory, ReentrancyGuardTransient, EIP712 {
         // Adapters first: the Spoke Vault and the Core Vault read them in their constructors.
         addresses.chains = new ChainAddresses[](1);
         addresses.chains[0] = _deployChainAdapters(m, fundId, chainId, addresses.coreVault, p.uniswapV4Pools);
-        SolanaDeploymentV6.deploy(_pendingNative, fundId, addresses.coreVault, _guardian);
+        SolanaDeploymentV6.deploy(native, fundId, addresses.coreVault, _guardian);
         // The hub Spoke Vault publishes no report, so it takes no Wormhole Core (DEC-054).
         _deploySpokeVault(m, fundId, chainId, addresses.coreVault, address(0));
         SolanaDeploymentV6.deployReports(
-            _pendingNative,
+            native,
             fundId,
             addresses.coreVault,
             _wormholeCore,
