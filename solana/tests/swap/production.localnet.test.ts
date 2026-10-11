@@ -5,6 +5,7 @@ import { Keypair, PublicKey, SystemProgram, TransactionInstruction, SYSVAR_CLOCK
   ComputeBudgetProgram, TransactionMessage, VersionedTransaction, AddressLookupTableProgram } from '@solana/web3.js';
 import { ADDRESSES, publicKey, derive } from '../helpers/addresses.ts';
 import { decodePool, discriminator } from '../helpers/layouts.ts';
+import { positionRegistry } from '../helpers/fund-state.ts';
 import { localConnection, requireLoopback, testWallet, testAta, sendLocal } from '../helpers/localnet.ts';
 import { instruction, sendMeasured, u128 } from '../raydium/client.ts';
 import { integer, word, fundId, addressWord } from '../core/fixtures.ts';
@@ -234,4 +235,13 @@ test('production signed swap plus open, real countertrade fees and NVDAx report'
   assert.equal(await connection.getAccountInfo(publicKey(personal)), null);
   assert.equal((await connection.getAccountInfo(vault))?.lamports ?? 0, 0);
   for (const reward of rewards) assert.ok(await connection.getAccountInfo(publicKey(reward.quarantine)), 'quarantine retained after close');
+  // CR-28: registry GC is Manager-bound; the keeper cannot detach the closed record, the Manager can.
+  const positions = async () => positionRegistry((await connection.getAccountInfo(fund))!.data);
+  const prune = (signer: PublicKey) => { const operation = instruction('prune_registry', { authority: signer, fund }, Buffer.alloc(0));
+    operation.keys.push(key(record)); return operation; };
+  assert.ok((await positions()).includes(record));
+  await assert.rejects(sendMeasured(connection, keeper, prune(keeper.publicKey)), /UnauthorizedManager/);
+  assert.ok((await positions()).includes(record));
+  await sendMeasured(connection, manager, prune(manager.publicKey));
+  assert.ok(!(await positions()).includes(record), 'Manager detached the closed zero-liquidity record');
 });

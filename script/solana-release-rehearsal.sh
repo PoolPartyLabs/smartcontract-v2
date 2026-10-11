@@ -37,7 +37,7 @@ case "$1" in
     node tests/swap/production.prepare.ts
     bash tests/swap/production.start.sh
     started=1
-    node --test tests/swap/production.localnet.test.ts
+    node --test --test-concurrency=1 tests/swap/production.localnet.test.ts tests/report/close-pending.localnet.test.ts
     ;;
   legacy)
     anchor build -- --features no-idl,no-log-ix-name,rehearsal-v1-swap

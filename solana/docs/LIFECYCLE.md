@@ -135,7 +135,10 @@ retain Circle's nonce. Equal input bytes cannot squat the opposite direction.
 Hub ACK checks outbound canonical PDA and emitted id before retiring the net
 claim. Transport kind is retained in Transit and reports.
 
-`prune_registry` removes only zero-principal/zero-units/zero-pending Kamino or
+`prune_registry` is Manager-bound (CR-28): only the Fund's bound Manager Solana
+Key, on an open Fund with no active command, may call it; the keeper and third
+parties are rejected with `UnauthorizedManager`, so nobody else can reshape the
+exhaustive report account set. It removes only zero-principal/zero-units/zero-pending Kamino or
 fully closed zero-liquidity Raydium position entries. It never closes the
 position account, destroys replay evidence, refunds Fund assets as rent or
 prunes pending claims. Reusing a pruned Kamino account requires adapter

@@ -6,6 +6,7 @@ import { testAta, testWallet } from '../helpers/localnet.ts';
 import { decodePool } from '../helpers/layouts.ts';
 import { creation, productionApiKey, NVDA, NVDA_POOL, SOL_PRICE, USDC_PRICE, CROSS_CHECK } from './production-client.ts';
 import { prepareCctpFixtures } from '../cctp/fixtures.ts';
+import { prepareClosePendingVaas } from '../report/close-pending.fixtures.ts';
 
 const root = new URL('../../.localnet/', import.meta.url);
 const endpoint = process.env.SOLANA_MAINNET_RPC ?? 'https://api.mainnet-beta.solana.com';
@@ -95,3 +96,5 @@ writeFileSync(new URL('manifest.json', root), JSON.stringify(manifest, null, 2))
 writeFileSync(new URL('swap-production-clones.json', root), JSON.stringify(evidence, null, 2));
 console.log(`Production extension: ${evidence.length} finalized read-only clones; local Manager WSOL fixture; ${rewards.length} reward slot(s) left for program-created quarantine.`);
 prepareCctpFixtures();
+const closePending = prepareClosePendingVaas(root);
+console.log(`DEC-205 close-pending fixture: local guardian CLOSE (seq 0) ${closePending.close}, ACK (seq 1) ${closePending.ack}.`);

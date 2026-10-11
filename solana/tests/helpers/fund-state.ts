@@ -17,3 +17,12 @@ export function completeFundState(prefix: Buffer, venues: Buffer[] = [], positio
     positionCount, ...positions.map(position => publicKey(position).toBuffer()),
     transitCount, ...transits.map(transit => publicKey(transit).toBuffer()), Buffer.alloc(4096)]);
 }
+
+/** FundState.position_registry (base58), decoded after the sealed assets, venues and transport. */
+export function positionRegistry(data: Buffer): string[] {
+  let offset = 378;
+  offset += 4 + data.readUInt32LE(offset) * 53;
+  offset += 4 + data.readUInt32LE(offset) * 160 + 200;
+  const count = data.readUInt32LE(offset);
+  return Array.from({ length: count }, (_, index) => new PublicKey(data.subarray(offset + 4 + index * 32, offset + 36 + index * 32)).toBase58());
+}
