@@ -232,7 +232,7 @@ cast nonce "$EVM_DEPLOYER_ADDRESS" --rpc-url arbitrum; cast nonce "$EVM_DEPLOYER
 set -a; . ./.env.solana; set +a                      # Manager Solana key (R8 by default) for `prepare`, parameter only
 export PP_CREATION_ASSETS=usdc,wsol                  # DF-1: the ruled demo set (default); a stock only on founder request
 export PP_SWAP_MAX_AGE=300 PP_SWAP_CONFIDENCE_BPS=100 PP_SWAP_CROSS_CHECK_BPS=50 PP_SWAP_SLIPPAGE_BPS=200   # reviewed swap policy
-export EVM_MANAGER_ADDRESS=<address of DEPLOYER_PRIVATE_KEY>
+export EVM_MANAGER_ADDRESS="$DEPLOYER_ADDRESS"       # .env.alpha: the address of DEPLOYER_PRIVATE_KEY (the plan builder refuses ManagerMismatch otherwise)
 node solana/scripts/three-chain-creation.ts prepare  # writes cache/sol-t11/native-config.hex + builder-input.json (assetSet)
 PP_FITNESS_ANVIL_PORT=<registry port> bash script/solana-creation-gas-fitness.sh   # C7: receipt + 1M <= 32M (28,790,965 measured)
 
@@ -260,6 +260,7 @@ cast send 0xaf88d065e77c8cC2239327C5EDb3A432268e5831 "approve(address,uint256)" 
   --account <Manager keystore> --rpc-url arbitrum                      # -> <APPROVE_TX>
 export ARBITRUM_FORK_BLOCK=$(cast receipt <APPROVE_TX> blockNumber --rpc-url arbitrum)   # the fund-v6 simulation must see the allowance
 export SOLANA_V6_FACTORY=0xe964f36Eb23E95e20049D97122f375FbFe6B40dE SOLANA_V6_CREATION_CALLDATA_FILE=cache/sol-t11/mainnet-creation-calldata.hex
+node -e 'const p=require(process.env.HOME+"/.pp/mainnet-plan.json");const c=require("fs").readFileSync(process.env.SOLANA_V6_CREATION_CALLDATA_FILE,"utf8").trim();if(p.calldata.toLowerCase()!==c.toLowerCase())throw new Error("calldata differs from the recorded plan: rebuild and re-copy")'   # S6 sends the planSha256 bytes
 export EVM_DEPLOYER_ADDRESS="$EVM_MANAGER_ADDRESS" EVM_KEYSTORE_ACCOUNT=<Manager keystore>
 bash script/solana-evm-deploy.sh arbitrum fund-v6 --dry-run    # gas limit ~30.29M at 105% (C7); 1 tx
 PP_EVM_FOUNDER_APPROVED=YES bash script/solana-evm-deploy.sh arbitrum fund-v6 --broadcast
