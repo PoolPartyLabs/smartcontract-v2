@@ -284,3 +284,51 @@ test('CR-07: signer refuses foreign payers, unpinned keys, non-allowlisted progr
   assert.equal(landed.json.status, 'landed');
   assert.notEqual(managerSign(['new-signer', '--out', join(directory, 'fresh-signer.json')], env).status, 0, 'never overwrites a signer file');
 });
+
+// ---- CR-22: ProgramData watcher (slot / authority / SHA-256 vs release.json).
+test('CR-22: watcher alerts on upgrade, authority change, ELF drift and program closure', async () => {
+  const { createHash } = await import('node:crypto');
+  const programKeypair = Keypair.generate();
+  const programId = programKeypair.publicKey.toBase58();
+  const payerPath = writeKeypair(join(directory, 'watch-payer.json'), payer);
+  const programPath = writeKeypair(join(directory, 'watch-program.json'), programKeypair);
+  const cold = Keypair.generate();
+  const coldPath = writeKeypair(join(directory, 'watch-cold.json'), cold);
+  const deploy = () => solana(['--keypair', payerPath, '--commitment', 'confirmed', 'program', 'deploy', join(directory, 'elf.so'),
+    '--program-id', programPath, '--upgrade-authority', payerPath, '--use-rpc']);
+  assert.equal(deploy().status, 0);
+  const release = join(directory, 'watch-release.json');
+  writeFileSync(release, JSON.stringify({ programId, binarySha256: createHash('sha256').update(elf).digest('hex'), binaryBytes: elf.length }));
+  const drifted = join(directory, 'watch-release-drift.json');
+  writeFileSync(drifted, JSON.stringify({ programId, binarySha256: '0'.repeat(64), binaryBytes: elf.length }));
+  const state = join(directory, 'watch-state.json');
+  const watch = (authority = payer.publicKey.toBase58(), releasePath = release) => {
+    const result = spawnSync(process.execPath, ['solana/scripts/programdata-watch.mjs', '--cluster', 'localnet', '--commitment', 'confirmed',
+      '--release', releasePath, '--state', state, '--authority', authority], { encoding: 'utf8', env: { ...process.env, PP_LOCALNET_RPC: endpoint } });
+    return { status: result.status, report: JSON.parse(result.stdout || 'null'), stderr: result.stderr };
+  };
+  const baseline = watch();
+  assert.equal(baseline.status, 0, baseline.stderr);
+  assert.equal(baseline.report.status, 'OK');
+  assert.equal(baseline.report.authority, payer.publicKey.toBase58());
+  assert.equal(watch().report.status, 'OK', 'stable program stays OK on the cached SHA');
+  assert.equal(deploy().status, 0, 'same-ELF upgrade');
+  const upgraded = watch();
+  assert.equal(upgraded.status, 2);
+  assert.match(upgraded.report.findings.join(' '), /program upgraded: deploy slot \d+ -> \d+/);
+  assert.equal(watch().report.status, 'OK', 'an upgrade alerts once, then the new slot is the baseline');
+  const drift = watch(payer.publicKey.toBase58(), drifted);
+  assert.equal(drift.status, 2);
+  assert.match(drift.report.findings.join(' '), /on-chain ELF [0-9a-f]{64} differs from release/);
+  assert.equal(solana(['--keypair', payerPath, '--commitment', 'confirmed', 'program', 'set-upgrade-authority', programId,
+    '--upgrade-authority', payerPath, '--new-upgrade-authority', coldPath]).status, 0);
+  const moved = watch();
+  assert.equal(moved.status, 2);
+  assert.match(moved.report.findings.join(' '), new RegExp(`upgrade authority ${cold.publicKey.toBase58()} differs from expected`));
+  assert.equal(watch(cold.publicKey.toBase58()).report.status, 'OK', 'a reviewed cold-key move verifies against the new expected authority');
+  assert.equal(solana(['--keypair', payerPath, '--commitment', 'confirmed', 'program', 'close', programId, '--authority', coldPath,
+    '--recipient', payer.publicKey.toBase58(), '--bypass-warning']).status, 0);
+  const closed = watch(cold.publicKey.toBase58());
+  assert.equal(closed.status, 2);
+  assert.equal(closed.report.status, 'ALERT');
+});

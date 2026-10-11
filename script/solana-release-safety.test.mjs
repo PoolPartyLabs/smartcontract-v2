@@ -179,6 +179,20 @@ test('CR-07: Manager CLI signer requires an explicit command and founder approva
   assert.doesNotMatch(sender, /onSignature|confirmTransaction\(/);
 });
 
+test('CR-22: deploy stays R8-pinned while --verify reads the expected authority from the approval manifest', () => {
+  const source = readFileSync('solana/scripts/deploy-mainnet.mjs', 'utf8');
+  assert.match(source, /const expected = manifest\.expectedAuthority \?\? manifest\.authority;/);
+  assert.match(source, /if \(mode === '--verify'\) \{ await verify\(expectedAuthority\); return; \}/);
+  assert.match(source, /    await verify\(authority\);\n  \} finally/);
+  assert.equal(JSON.parse(readFileSync('script/solana-mainnet-approval.json')).expectedAuthority, null);
+  const watcher = readFileSync('solana/scripts/programdata-watch.mjs', 'utf8');
+  assert.doesNotMatch(watcher, /sendRawTransaction|sendTransaction|\.sign\(/);
+  assert.match(watcher, /manifest\.expectedAuthority \?\? manifest\.authority/);
+  const runbook = readFileSync('docs/DEPLOYMENT-SOLANA.md', 'utf8');
+  assert.match(runbook, /Never run `solana program close` on the spoke\s+program while any Fund exists/);
+  assert.match(runbook, /gpg --symmetric --cipher-algo AES256/);
+});
+
 test('CR-10: preflight reports an unreachable endpoint as a NO-GO row without naming it', () => {
   const result = spawnSync(process.execPath, ['solana/scripts/deploy-mainnet.mjs', '--preflight'], {
     encoding: 'utf8', env: { ...process.env, SOLANA_MAINNET_RPC: 'https://secret-provider-host.invalid/SECRET_PATH_KEY' },

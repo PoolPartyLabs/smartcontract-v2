@@ -1,5 +1,76 @@
 # Solana v6 deployment rehearsal — founder approval packet
 
+## Upgrade authority, ProgramData watch and program-key custody (CR-22)
+
+**Rule — never close the program.** Never run `solana program close` on the spoke
+program while any Fund exists, has ever held capital, or has a pending CCTP claim.
+Closing refunds only ProgramData rent, the program id can never be redeployed, and
+every Fund PDA, vault ATA, position NFT and in-flight CCTP mint (whose
+`destinationCaller` is the vault PDA) becomes permanently unreachable. Rollback is
+always an upgrade of the same id (risk-review R09). `solana program close` is
+acceptable only for a **buffer** account (`solana program close <BUFFER>`).
+
+**Authority.** `script/solana-mainnet-approval.json` carries two fields:
+
+| Field | Meaning | Used by |
+| --- | --- | --- |
+| `authority` | R8 deployer and initial upgrade authority; pinned in code | `--broadcast`, `--recover-prefunded`, the post-deploy verify |
+| `expectedAuthority` | Current upgrade authority after a reviewed move (D3), or `"none"` once revoked (DEC-189); `null` means "same as `authority`" | `--verify`, `programdata-watch.mjs` |
+
+After `deploy-mainnet.mjs --verify` passes, the founder may move the authority to a
+cold key (separately approved transaction):
+
+```sh
+solana program set-upgrade-authority 7PptZ653uyn5eoAFKqs4DXR1ijxH6sf49f2YAGMLTfCx \
+  --upgrade-authority "$R8_SIGNER_FILE" --new-upgrade-authority <COLD_PUBKEY> \
+  --skip-new-upgrade-authority-signer-check   # only for a hardware/offline key
+```
+
+Then set `expectedAuthority` to `<COLD_PUBKEY>` in the out-of-repo approval copy and
+rerun `--verify`. Revocation before client capital (DEC-189) is
+`solana program set-upgrade-authority <PROGRAM_ID> --final`, recorded as
+`expectedAuthority: "none"`; it is irreversible and needs its own approval.
+
+**Watcher.** `solana/scripts/programdata-watch.mjs` is read-only. It checks that the
+program is present and executable, the ProgramData authority equals the expected
+authority, the deploy slot is unchanged since the recorded baseline, and the ELF
+bytes hash to `release.json` `binarySha256`. It prints one JSON line and exits 0
+(OK), 2 (ALERT) or 1 (could not check). An upgrade alerts once; the new slot then
+becomes the baseline. Run it on the dev host every 5 minutes and page on exit 2:
+
+```cron
+*/5 * * * * cd /srv/pool-party/smartcontract-v2 && SOLANA_MAINNET_RPC="$KEYLESS_SOLANA_RPC" \
+  node solana/scripts/programdata-watch.mjs >> /var/log/pp-programdata-watch.jsonl 2>&1 || pp-alert programdata
+```
+
+Archive the approved ELF, IDL and `pp_spoke.release.json` (SHA-256 recorded)
+alongside the approval copy. Before deploy, a mainnet run reports
+`programState: "absent"` and exits 2 (measured 2026-10-11 18:02 UTC).
+
+**Encrypted offline backup of the program keypair.** `.keys/pp_spoke-program-keypair.json`
+exists as one copy. Losing it before deploy forces a new program id, a rebuild and
+every derivation again; a leak before deploy lets anyone squat `7Ppt…` with their
+own code. After deploy it has no power. Back it up before funding R8:
+
+```sh
+umask 077
+# 1. Encrypt to each of TWO offline media (USB keys kept in different places).
+#    gpg prompts for the passphrase through pinentry; it never appears on argv.
+gpg --symmetric --cipher-algo AES256 --s2k-digest-algo SHA512 --s2k-count 65011712 \
+  --no-symkey-cache --output /Volumes/<OFFLINE_1>/pp_spoke-program-keypair.json.gpg \
+  .keys/pp_spoke-program-keypair.json
+# 2. Verify each copy without writing plaintext: same hash and same public key.
+gpg --decrypt --no-symkey-cache /Volumes/<OFFLINE_1>/pp_spoke-program-keypair.json.gpg | shasum -a 256
+shasum -a 256 .keys/pp_spoke-program-keypair.json
+solana-keygen pubkey <(gpg --decrypt --no-symkey-cache /Volumes/<OFFLINE_1>/pp_spoke-program-keypair.json.gpg)
+#    -> 7PptZ653uyn5eoAFKqs4DXR1ijxH6sf49f2YAGMLTfCx
+```
+
+Keep the passphrase in the founder's password manager, never next to a medium,
+never in Slack, a repository or the dev host. Use the same procedure for R8 and for
+any cold upgrade-authority key file. Record the date and media labels (not the
+passphrase) in the deploy log.
+
 ## Post-Scope integration review — October 7, 2026
 
 PR #49 is integrated. The production ELF is now **995,384 bytes**, SHA-256

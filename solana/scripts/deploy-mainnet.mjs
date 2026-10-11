@@ -103,24 +103,30 @@ async function main() {
   await assertGenesis(connection, 'mainnet');
   log('genesis', 'ok', 'mainnet');
   const programId = new PublicKey(manifest.programId);
+  // manifest.authority is the R8 deployer and INITIAL upgrade authority (pinned above). After a reviewed
+  // `set-upgrade-authority` to a cold key (CR-22, D3) the founder records it as expectedAuthority in the
+  // out-of-repo approval file; 'none' means revoked/immutable (DEC-189 pre-client-capital gate).
   const authority = new PublicKey(manifest.authority);
-  async function verify() {
+  const expected = manifest.expectedAuthority ?? manifest.authority;
+  const expectedAuthority = expected === 'none' ? null : new PublicKey(expected);
+  async function verify(required) {
     const program = await connection.getAccountInfo(programId);
     if (!program?.executable || !program.owner.equals(LOADER_V3)
         || program.data.length !== 36 || program.data.readUInt32LE(0) !== 2) fail('Program owner/executable/layout mismatch');
     const dataId = new PublicKey(program.data.subarray(4));
     const data = await connection.getAccountInfo(dataId);
+    const authorityMatches = required ? data?.data[12] === 1 && data.data.subarray(13, 45).equals(required.toBuffer()) : data?.data[12] === 0;
     if (!data || !data.owner.equals(program.owner) || data.data.length !== 45 + binary.length
-        || data.data.readUInt32LE(0) !== 3 || data.data[12] !== 1
-        || !data.data.subarray(13, 45).equals(authority.toBuffer())
+        || data.data.readUInt32LE(0) !== 3 || !authorityMatches
         || !data.data.subarray(45).equals(binary)) fail('On-chain ELF/capacity/authority mismatch');
     console.log(JSON.stringify({ verifiedAt: new Date().toISOString(), programId: manifest.programId,
-      programData: dataId.toBase58(), binarySha256: sha256, authority: manifest.authority,
+      programData: dataId.toBase58(), binarySha256: sha256, authority: required ? required.toBase58() : 'none',
+      deploySlot: Number(data.data.readBigUInt64LE(4)),
       programRentLamports: program.lamports, programDataRentLamports: data.lamports,
       onChainIdlCreatedByThisPackage: false }, null, 2));
     log('verify', 'ok', `programData=${dataId.toBase58()}`);
   }
-  if (mode === '--verify') { await verify(); return; }
+  if (mode === '--verify') { await verify(expectedAuthority); return; }
   const recovery = mode === '--recover-prefunded';
   const programState = classifyProgramAccount(await connection.getAccountInfo(programId));
   log('program-id', 'inspected', `state=${programState.state}`);
@@ -185,7 +191,7 @@ async function main() {
         '--upgrade-authority', payerPath, '--max-len', String(binary.length), '--no-auto-extend',
         '--with-compute-unit-price', String(priority), '--use-rpc']);
     }
-    await verify();
+    await verify(authority);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 }
 main().catch(error => {
