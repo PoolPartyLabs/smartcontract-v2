@@ -11,7 +11,11 @@ import {FactoryDeployment} from "../../../script/FactoryDeployment.sol";
 import {FundFactoryV6} from "../../../src/factory/FundFactoryV6.sol";
 import {CoreVaultV6} from "../../../src/core/CoreVaultV6.sol";
 import {CctpReceiveConnector} from "../../../src/core/CctpReceiveConnector.sol";
-import {SolanaPriceSourceV6, SOLANA_MAX_STOCK_PRICE_AGE, SOLANA_MAX_SOL_PRICE_AGE} from "../../../src/report/SolanaPriceSourceV6.sol";
+import {
+    SolanaPriceSourceV6,
+    SOLANA_MAX_STOCK_PRICE_AGE,
+    SOLANA_MAX_SOL_PRICE_AGE
+} from "../../../src/report/SolanaPriceSourceV6.sol";
 import {ChainlinkPriceSource} from "../../../src/report/ChainlinkPriceSource.sol";
 import {ValueReportReceiverV6} from "../../../src/report/ValueReportReceiverV6.sol";
 import {IFundFactory} from "../../../src/interfaces/IFundFactory.sol";
@@ -118,17 +122,23 @@ contract ComposedSolanaFundForkTest is Test, FactoryDeployment {
         );
     }
 
-    function _mandate() private view returns (Mandate memory mandate_) {
-        bytes32 id = factory.fundIdOf(42_161, 1, manager);
+    /// @dev `everyVenue` lists each native venue as a Mandate pool (the creation builder's shape); otherwise only the
+    ///      first, as the original composed fixture does.
+    function _mandate(uint256 number, SolanaMandateV6.Config memory config, bool everyVenue)
+        private
+        view
+        returns (Mandate memory mandate_)
+    {
+        bytes32 id = factory.fundIdOf(42_161, number, manager);
         mandate_.manager = manager;
         mandate_.hubChainId = 42_161;
         mandate_.hubWormholeChainId = 23;
         mandate_.usdc = ARB_USDC;
-        mandate_.tokens = new TokenConfig[](5);
+        mandate_.tokens = new TokenConfig[](2 + config.assets.length);
         mandate_.tokens[0] = TokenConfig(42_161, ARB_USDC);
         mandate_.tokens[1] = TokenConfig(4663, RH_USDG);
-        for (uint256 index; index < 3; ++index) {
-            mandate_.tokens[index + 2] = TokenConfig(1, native.assets[index].accountingId);
+        for (uint256 index; index < config.assets.length; ++index) {
+            mandate_.tokens[index + 2] = TokenConfig(1, config.assets[index].accountingId);
         }
         address aave = factory.addressOf(id, "AaveV3Adapter", 42_161);
         address robinhood = factory.addressOf(id, "UniswapV4Adapter", 4663);
@@ -136,10 +146,14 @@ contract ComposedSolanaFundForkTest is Test, FactoryDeployment {
         mandate_.adapters[0] = AdapterConfig(42_161, aave);
         mandate_.adapters[1] = AdapterConfig(4663, robinhood);
         mandate_.adapters[2] = AdapterConfig(1, address(1000));
-        mandate_.pools = new PoolConfig[](3);
+        mandate_.pools = new PoolConfig[](everyVenue ? 2 + config.venues.length : 3);
         mandate_.pools[0] = PoolConfig(42_161, aave, bytes32(uint256(uint160(ARB_USDC))));
         mandate_.pools[1] = PoolConfig(4663, robinhood, bytes32(uint256(42)));
-        mandate_.pools[2] = PoolConfig(1, address(1000), bytes32(uint256(400)));
+        if (!everyVenue) mandate_.pools[2] = PoolConfig(1, address(1000), bytes32(uint256(400)));
+        for (uint256 index; everyVenue && index < config.venues.length; ++index) {
+            SolanaMandateV6.Venue memory venue = config.venues[index];
+            mandate_.pools[index + 2] = PoolConfig(1, address(1000), venue.pool == 0 ? venue.reserve : venue.pool);
+        }
         mandate_.swapAdapters = new AdapterConfig[](3);
         mandate_.swapAdapters[0] = AdapterConfig(42_161, factory.addressOf(id, "UniswapV3SwapAdapter", 42_161));
         mandate_.swapAdapters[1] = AdapterConfig(4663, factory.addressOf(id, "UniswapV3SwapAdapter", 4663));
@@ -166,10 +180,10 @@ contract ComposedSolanaFundForkTest is Test, FactoryDeployment {
         FundFactoryV6.Binding memory binding;
         binding.expiry = block.timestamp + 1 hours;
         address predicted = factory.addressOf(factory.fundIdOf(42_161, 1, manager), "CoreVault", 42_161);
-        Mandate memory mandate_ = _mandate();
         SolanaMandateV6.Config memory nativeConfig = native;
+        Mandate memory mandate_ = _mandate(1, nativeConfig, false);
         SolanaPolicyV6.Commitment memory commitment = _seal(mandate_, nativeConfig, predicted);
-        binding.signature = _bootstrapSignature(mandate_, nativeConfig, commitment, predicted, binding.expiry);
+        binding.signature = _bootstrapSignature(mandate_, nativeConfig, commitment, predicted, binding.expiry, 1, 0);
         SolanaDeploymentV6.store(native, nativeConfig);
         assertEq(manager.code.length, 0);
         CoreVaultConfig memory sizeConfig;
@@ -211,7 +225,9 @@ contract ComposedSolanaFundForkTest is Test, FactoryDeployment {
         SolanaMandateV6.Config memory config,
         SolanaPolicyV6.Commitment memory commitment,
         address predicted,
-        uint256 expiry
+        uint256 expiry,
+        uint256 number,
+        uint256 nonce
     ) private returns (bytes memory) {
         bytes32 domain = keccak256(
             abi.encode(
@@ -229,8 +245,8 @@ contract ComposedSolanaFundForkTest is Test, FactoryDeployment {
             keccak256(abi.encode(mandate_)),
             config,
             commitment,
-            factory.fundIdOf(42_161, 1, manager),
-            0,
+            factory.fundIdOf(42_161, number, manager),
+            nonce,
             expiry
         );
         (uint8 recovery, bytes32 signatureR, bytes32 signatureS) =
@@ -299,7 +315,8 @@ contract ComposedSolanaFundForkTest is Test, FactoryDeployment {
         uint256 burned = shares.totalSupply();
         assertLt(burned, minted);
         _feedAt(TSLA_USD, block.timestamp - STOCK_MAX_AGE - 1);
-        bytes memory stale = abi.encodeWithSelector(SolanaSpokeRegistryV6.UnsafeStockState.selector, SolanaFixture.STOCK);
+        bytes memory stale =
+            abi.encodeWithSelector(SolanaSpokeRegistryV6.UnsafeStockState.selector, SolanaFixture.STOCK);
         vm.expectRevert(stale);
         vm.prank(manager);
         core.deposit(1e6, 0);
@@ -322,6 +339,101 @@ contract ComposedSolanaFundForkTest is Test, FactoryDeployment {
         (uint80 round, int256 answer,,, uint80 answered) = IChainlinkAggregatorV3(feed).latestRoundData();
         _feeds[feed] = abi.encode(round, answer, updatedAt, updatedAt, answered);
         _mockFeeds();
+    }
+
+    /// @dev CR-18 fitness function. Fund creation is one Arbitrum transaction and Nitro caps a transaction at 32M gas;
+    ///      it must stay at or below 30M at the largest mandate the Hub admits: 3 native assets and 4 native venues
+    ///      (`SolanaSpokeRegistryV6.MAX_ASSETS/MAX_VENUES`), every venue listed as a Mandate pool, on the demo's
+    ///      Hub/Robinhood shape. Counted: 21,000 intrinsic + EIP-2028 calldata (CoreVaultV6's creation code travels in
+    ///      calldata) + execution from cold state. Not counted, and what the last 2M are for: Arbitrum's L1 data
+    ///      component (300,034 gas units measured 2026-10-09).
+    function testFundCreationFitsThirtyMillionGasAtLargestMandate() public {
+        SolanaMandateV6.Config memory config = _largestNativeConfig();
+        _assertLargestAdmissible(config);
+        uint256 number = factory.nextCreationNumber();
+        address predicted = factory.addressOf(factory.fundIdOf(42_161, number, manager), "CoreVault", 42_161);
+        Mandate memory mandate_ = _mandate(number, config, true);
+        SolanaPolicyV6.Commitment memory commitment = _seal(mandate_, config, predicted);
+        FundFactoryV6.Binding memory binding;
+        binding.nonce = factory.bindingNonce(manager);
+        binding.expiry = block.timestamp + 1 hours;
+        binding.signature =
+            _bootstrapSignature(mandate_, config, commitment, predicted, binding.expiry, number, binding.nonce);
+        IFundFactory.HubParams memory params;
+        params.creationNumber = number;
+        params.seedAmount = 50e6;
+        params.coreVaultCreationCode = coreCode;
+        bytes memory data =
+            abi.encodeCall(factory.createFundV6Committed, (mandate_, params, config, commitment, binding));
+        // A real transaction starts cold (the factory account itself is warm there: <= 2,600 gas conservative).
+        vm.cool(address(factory));
+        vm.cool(MESSENGER);
+        vm.cool(ARB_USDC);
+        vm.prank(manager);
+        (bool created, bytes memory result) = address(factory).call(data);
+        uint256 execution = vm.lastCallGas().gasTotalUsed;
+        assertTrue(created, "largest admissible mandate must be creatable");
+        assertEq(abi.decode(result, (IFundFactory.FundAddresses)).coreVault, predicted);
+        uint256 calldataGas = _calldataGas(data);
+        uint256 total = 21_000 + calldataGas + execution;
+        emit log_named_uint("creation calldata bytes", data.length);
+        emit log_named_uint("creation calldata gas", calldataGas);
+        emit log_named_uint("creation execution gas", execution);
+        emit log_named_uint("creation transaction gas", total);
+        assertLe(total, 30_000_000, "CR-18: Fund creation must stay <= 30M gas (Arbitrum per-tx cap 32M)");
+    }
+
+    /// @dev 3 assets and 4 venues, the Hub's bounds: USDC/TSLAx and USDC/SOL Raydium pools, two Kamino reserves.
+    function _largestNativeConfig() private view returns (SolanaMandateV6.Config memory config) {
+        config = SolanaFixture.nativeConfig();
+        config.transport.hubUsdc = ARB_USDC;
+        config.transport.remoteTokenMessenger = ICctpLiveMessenger(MESSENGER).remoteTokenMessengers(5);
+        assertEq(config.assets.length, 3);
+        config.venues = new SolanaMandateV6.Venue[](4);
+        for (uint256 index; index < config.venues.length; ++index) {
+            config.venues[index] = index % 2 == 0
+                ? SolanaMandateV6.Venue(
+                    bytes32(uint256(300)),
+                    bytes32(uint256(400 + index)),
+                    0,
+                    index % 4 == 0 ? SolanaFixture.STOCK : SolanaFixture.SOL,
+                    SolanaFixture.USDC
+                )
+                : SolanaMandateV6.Venue(bytes32(uint256(500)), 0, bytes32(uint256(600 + index)), SolanaFixture.USDC, 0);
+        }
+    }
+
+    /// @dev The fitness input is the bound itself: one more asset or venue is refused before any capital moves.
+    function _assertLargestAdmissible(SolanaMandateV6.Config memory config) private {
+        SolanaSpokeRegistryV6 registry = new SolanaSpokeRegistryV6(config);
+        assertEq(config.assets.length, registry.MAX_ASSETS());
+        assertEq(config.venues.length, registry.MAX_VENUES());
+        SolanaMandateV6.Config memory wider = _largestNativeConfig();
+        SolanaMandateV6.Venue[] memory venues = new SolanaMandateV6.Venue[](5);
+        for (uint256 index; index < 4; ++index) {
+            venues[index] = wider.venues[index];
+        }
+        venues[4] = SolanaMandateV6.Venue(bytes32(uint256(500)), 0, bytes32(uint256(700)), SolanaFixture.USDC, 0);
+        wider.venues = venues;
+        vm.expectRevert(SolanaSpokeRegistryV6.InvalidNativeConfig.selector);
+        new SolanaSpokeRegistryV6(wider);
+        wider = _largestNativeConfig();
+        SolanaMandateV6.Asset[] memory assets = new SolanaMandateV6.Asset[](4);
+        for (uint256 index; index < 3; ++index) {
+            assets[index] = wider.assets[index];
+        }
+        bytes32 nvda = 0x07e8a50e140fda5791f4566a957fd3ae3f873e6a3466ffc13d79119dfa9ab50a;
+        assets[3] = SolanaMandateV6.Asset(nvda, SolanaMandateV6.accountingId(nvda), true);
+        wider.assets = assets;
+        vm.expectRevert(SolanaSpokeRegistryV6.InvalidNativeConfig.selector);
+        new SolanaSpokeRegistryV6(wider);
+    }
+
+    /// @dev EIP-2028 calldata cost: 4 gas per zero byte, 16 per non-zero byte.
+    function _calldataGas(bytes memory data) private pure returns (uint256 gas) {
+        for (uint256 index; index < data.length; ++index) {
+            gas += data[index] == 0 ? 4 : 16;
+        }
     }
 
     function _mockFeeds() private {
