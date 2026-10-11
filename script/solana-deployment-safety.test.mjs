@@ -70,11 +70,19 @@ test('out-of-range JSON key bytes cannot silently coerce to a valid key', () => 
   assert.match(result.stderr, /Invalid deployer parameter/);
 });
 
-test('Fund creation fails closed until the manifest pins an approved factory', () => {
+test('C1: the deterministic factory is pinned in the reviewed manifest; creation and S4 fail closed otherwise', () => {
   const manifest = JSON.parse(readFileSync('script/solana-v6-addresses.json', 'utf8'));
-  // CR-35: zero-address placeholder (a JSON null failed inside parseJsonAddress before the explicit guard).
-  assert.equal(manifest.arbitrum.approvedFactory, '0x0000000000000000000000000000000000000000');
+  // Pinned before S1 so S4 never dirties the approved checkout (deterministic for the recorded deployer).
+  assert.equal(manifest.arbitrum.approvedFactory, '0xe964f36Eb23E95e20049D97122f375FbFe6B40dE');
+  assert.equal(manifest.robinhood.approvedFactory, manifest.arbitrum.approvedFactory);
+  assert.equal(manifest.approvedFactoryDeployer, '0x26cD63ca3fe96e1D963f0160cb7542CEd13A53DE');
   const script = readFileSync('script/DeploySolanaFundV6.s.sol', 'utf8');
   assert.match(script, /parseJsonAddress\(manifest, "\.arbitrum.approvedFactory"\)/);
+  // CR-35: a zero (unknown) pin still refuses Fund creation.
   assert.match(script, /if \(approvedFactory == address\(0\)\) revert FactoryNotApproved\(\);/);
+  const factory = readFileSync('script/DeploySolanaV6.s.sol', 'utf8');
+  assert.match(factory, /vm\.isContext\(VmSafe\.ForgeContext\.ScriptBroadcast\) && address\(result\.factory\) != pinned/);
+  // The pin is reproducible only with the recursive checkout's full remapping set (CBOR metadata -> CREATE2/CREATE3).
+  assert.match(readFileSync('foundry.toml', 'utf8'), /^auto_detect_remappings = false$/m);
+  assert.equal(readFileSync('remappings.txt', 'utf8').trim().split('\n').length, 23);
 });
