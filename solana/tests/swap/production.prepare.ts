@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { PublicKey } from '@solana/web3.js';
 import { ADDRESSES } from '../helpers/addresses.ts';
@@ -76,13 +76,10 @@ for (let index = 0; index < 3; index++) {
   if (mint === '11111111111111111111111111111111') continue;
   const rewardVault = new PublicKey(solPoolData.subarray(offset + 89, offset + 121)).toBase58();
   await clone(mint);
-  const reward = await clone(rewardVault);
-  const data = Buffer.from(reward.account.data[0], 'base64');
-  new PublicKey(fund.vault).toBuffer().copy(data, 32); data.writeBigUInt64LE(0n, 64);
-  data.fill(0, 72, 108); data[108] = 1; data.fill(0, 109, 165);
+  await clone(rewardVault);
+  // CR-03: no genesis quarantine; the program must create it PDA-signed on the first decrease.
   const quarantine = PublicKey.findProgramAddressSync([Buffer.from('raydium_reward'), new PublicKey(fund.fund).toBuffer(), new PublicKey(mint).toBuffer()], new PublicKey(ADDRESSES.spoke))[0].toBase58();
-  writeFileSync(new URL(`overrides/${quarantine}.json`, root), JSON.stringify({ pubkey: quarantine,
-    account: { ...reward.account, data: [data.toString('base64'), 'base64'], lamports: 10_000_000 } }));
+  rmSync(new URL(`overrides/${quarantine}.json`, root), { force: true });
   rewards.push({ mint, vault: rewardVault, quarantine });
 }
 writeFileSync(new URL('swap-production-rewards.json', root), JSON.stringify(rewards));
@@ -96,5 +93,5 @@ writeFileSync(new URL(`overrides/${testAta(ADDRESSES.wsol, manager.publicKey)}.j
 manifest.warpSlot = Math.max(manifest.warpSlot, ...evidence.map(item => item.slot));
 writeFileSync(new URL('manifest.json', root), JSON.stringify(manifest, null, 2));
 writeFileSync(new URL('swap-production-clones.json', root), JSON.stringify(evidence, null, 2));
-console.log(`Production extension: ${evidence.length} finalized read-only clones; local Manager WSOL and reward quarantine fixtures.`);
+console.log(`Production extension: ${evidence.length} finalized read-only clones; local Manager WSOL fixture; ${rewards.length} reward slot(s) left for program-created quarantine.`);
 prepareCctpFixtures();

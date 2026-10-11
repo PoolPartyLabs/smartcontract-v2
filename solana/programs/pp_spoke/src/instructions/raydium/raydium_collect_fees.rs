@@ -4,10 +4,16 @@ use crate::state::{
     FundState,
 };
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::{
+    instruction::{AccountMeta, Instruction},
+    program::{get_return_data, invoke},
+};
 
 /// DEC-193: zero-liquidity decrease collects trading fees, never farm income.
+/// DEC-195, DEC-206: the bound Manager pays rent for any missing reward quarantine.
 #[derive(Accounts)]
 pub struct RaydiumCollectFees<'info> {
+    #[account(mut)]
     pub authority: Signer<'info>,
     #[account(mut)]
     pub fund: Box<Account<'info, FundState>>,
@@ -261,15 +267,11 @@ pub fn decrease<'info>(
         let triple = &reward_accounts[index * 3..index * 3 + 3];
         require_keys_eq!(*triple[0].key, *vault, RaydiumError::InvalidAccount);
         require_keys_eq!(*triple[2].key, *mint, RaydiumError::InvalidAccount);
-        let quarantine = Pubkey::find_program_address(
-            &[
-                b"raydium_reward",
-                accounts.fund.key().as_ref(),
-                mint.as_ref(),
-            ],
+        let fund_key = accounts.fund.key();
+        let (quarantine, bump) = Pubkey::find_program_address(
+            &[b"raydium_reward", fund_key.as_ref(), mint.as_ref()],
             &crate::ID,
-        )
-        .0;
+        );
         require_keys_eq!(*triple[1].key, quarantine, RaydiumError::InvalidAccount);
         require!(
             triple[0].is_writable
@@ -279,6 +281,14 @@ pub fn decrease<'info>(
                 && !triple[2].is_signer,
             RaydiumError::InvalidAccount
         );
+        if *triple[1].owner == anchor_lang::system_program::ID {
+            create_quarantine(
+                accounts,
+                &triple[1],
+                &triple[2],
+                &[b"raydium_reward", fund_key.as_ref(), mint.as_ref(), &[bump]],
+            )?;
+        }
         let data = triple[1].try_borrow_data()?;
         require!(
             data.len() >= 165 && data[108] == 1,
@@ -411,6 +421,58 @@ pub fn decrease<'info>(
         fees_1: realized[1]
     });
     Ok(())
+}
+
+/// CR-03: a reward slot can be initialized on the pool after admission or open, so the quarantine
+/// is created on the first decrease that needs it; the PDA-owned address cannot be pre-created by anyone else.
+fn create_quarantine<'info>(
+    accounts: &RaydiumCollectFees<'info>,
+    quarantine: &AccountInfo<'info>,
+    mint: &AccountInfo<'info>,
+    seeds: &[&[u8]],
+) -> Result<()> {
+    let token = if *mint.owner == TOKEN {
+        accounts.token_program.to_account_info()
+    } else {
+        require_keys_eq!(*mint.owner, TOKEN_2022, RaydiumError::InvalidAccount);
+        accounts.token_program_2022.to_account_info()
+    };
+    invoke(
+        &Instruction { program_id: *token.key, accounts: vec![AccountMeta::new_readonly(*mint.key, false)], data: vec![21] },
+        &[mint.clone(), token.clone()],
+    )?;
+    let (program, size) = get_return_data().ok_or(RaydiumError::InvalidData)?;
+    require_keys_eq!(program, *token.key, RaydiumError::InvalidData);
+    let space = u64::from_le_bytes(size.as_slice().try_into().map_err(|_| RaydiumError::InvalidData)?);
+    crate::instructions::core::initialize_fund::allocate_owned(
+        &accounts.authority.to_account_info(),
+        quarantine,
+        &accounts.system_program.to_account_info(),
+        usize::try_from(space).map_err(|_| RaydiumError::InvalidData)?,
+        token.key,
+        seeds,
+    )?;
+    let mut data = vec![18];
+    data.extend_from_slice(accounts.vault.key().as_ref());
+    invoke(
+        &Instruction {
+            program_id: *token.key,
+            accounts: vec![AccountMeta::new(*quarantine.key, false), AccountMeta::new_readonly(*mint.key, false)],
+            data,
+        },
+        &[quarantine.clone(), mint.clone(), token],
+    )?;
+    emit!(RaydiumRewardQuarantineCreated { fund: accounts.fund.key(), mint: *mint.key,
+        quarantine: *quarantine.key, payer: accounts.authority.key() });
+    Ok(())
+}
+
+#[event]
+pub struct RaydiumRewardQuarantineCreated {
+    pub fund: Pubkey,
+    pub mint: Pubkey,
+    pub quarantine: Pubkey,
+    pub payer: Pubkey,
 }
 
 #[event]

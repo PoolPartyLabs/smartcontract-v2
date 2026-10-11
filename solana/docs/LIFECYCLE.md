@@ -113,7 +113,12 @@ arrival allocation still needs a sealed garbage collector; receives stay
 fail-closed when closed. No arrival is intentionally written off.
 
 DEC-206: principal and trading-fee exits permit incidental reward credits only
-into canonical segregated reward quarantine accounts. Rewards never enter the
+into canonical segregated reward quarantine accounts. CR-03: `raydium_collect_fees`
+and `raydium_close_position` create a missing quarantine `[b"raydium_reward", fund,
+mint]` PDA-signed as a vault-owned token account sized by the mint's token program;
+the bound Manager (now a writable signer) pays its rent (DEC-195). Creating it at
+first decrease, not at admission/open, also covers reward slots the pool
+initializes later, which would otherwise lock principal. Rewards never enter the
 principal/income ledgers or NAV. If the external position still records rewards
 after exiting all principal/fees, retain its NFT/account/rent evidence rather
 than reverting the exit or attempting a reward claim. Reward-account GC remains

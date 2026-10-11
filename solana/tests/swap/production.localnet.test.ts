@@ -183,14 +183,31 @@ test('production signed swap plus open, real countertrade fees and NVDAx report'
     data: Buffer.concat([discriminator('global', 'swap_v2'), integer(1_000_000_000, 8), integer(1, 8), u128(beforeTrade.sqrtPriceX64 * 1001n / 1000n), Buffer.from([1])]) });
   await sendMeasured(connection, manager, countertrade);
   const prior = await connection.getMultipleAccountsInfo([publicKey(ledger(pool.mint0)), publicKey(ledger(pool.mint1))]);
+  // CR-03 / DEC-206: SOL/USDC carries an initialized reward slot; its quarantine must not pre-exist in genesis.
+  assert.ok(rewards.length > 0, 'reward-bearing pool expected');
+  for (const reward of rewards) assert.equal(await connection.getAccountInfo(publicKey(reward.quarantine)), null);
+  const managerBeforeCollect = await connection.getBalance(manager.publicKey);
   await sendMeasured(connection, manager, instruction('raydium_collect_fees', lpAccounts, Buffer.alloc(0)));
+  let quarantineRent = 0;
+  for (const reward of rewards) {
+    const created = (await connection.getAccountInfo(publicKey(reward.quarantine)))!;
+    const mintOwner = (await connection.getAccountInfo(publicKey(reward.mint)))!.owner;
+    assert.ok(created.owner.equals(mintOwner), 'quarantine owned by the reward mint token program');
+    assert.equal(new PublicKey(created.data.subarray(0, 32)).toBase58(), reward.mint);
+    assert.ok(new PublicKey(created.data.subarray(32, 64)).equals(vault), 'quarantine token owner is the Fund vault');
+    assert.equal(created.data[108], 1);
+    quarantineRent += created.lamports;
+  }
+  assert.ok(managerBeforeCollect - await connection.getBalance(manager.publicKey) >= quarantineRent, 'Manager paid quarantine rent');
+  console.log(`QUARANTINE CREATED: ${rewards.map((reward: any) => reward.quarantine).join(',')}; rent ${quarantineRent} lamports paid by Manager`);
   const after = await connection.getMultipleAccountsInfo([publicKey(ledger(pool.mint0)), publicKey(ledger(pool.mint1))]);
   const fees = after.map((account, index) => {
     assert.equal(account!.data.readBigUInt64LE(72), prior[index]!.data.readBigUInt64LE(72), 'fees never increase principal');
     return account!.data.readBigUInt64LE(80) - prior[index]!.data.readBigUInt64LE(80);
   });
   assert.ok(fees[0] + fees[1] > 0n);
-  for (const reward of rewards) assert.equal((await connection.getAccountInfo(publicKey(reward.quarantine)))!.data.readBigUInt64LE(64), 0n);
+  const quarantined = await Promise.all(rewards.map(async (reward: any) => (await connection.getAccountInfo(publicKey(reward.quarantine)))!.data.readBigUInt64LE(64)));
+  console.log(`QUARANTINED REWARDS after collect: ${quarantined.join(',')} (DEC-206: never income/principal)`);
   console.log(`REAL FEES: ${fees.map(amount => amount.toString()).join(',')}; principal unchanged`);
   const message = Keypair.generate();
   const publish = instruction('publish_report', { ...common, authority: keeper.publicKey, wormhole_program: ADDRESSES.wormhole, emitter: target.emitter,
@@ -216,4 +233,5 @@ test('production signed swap plus open, real countertrade fees and NVDAx report'
   await sendMeasured(connection, manager, instruction('raydium_close_position', lpAccounts, Buffer.alloc(16)));
   assert.equal(await connection.getAccountInfo(publicKey(personal)), null);
   assert.equal((await connection.getAccountInfo(vault))?.lamports ?? 0, 0);
+  for (const reward of rewards) assert.ok(await connection.getAccountInfo(publicKey(reward.quarantine)), 'quarantine retained after close');
 });
