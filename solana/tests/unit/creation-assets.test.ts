@@ -43,6 +43,9 @@ test('DF-1: the builder has no hard-coded stock and the broadcast gate checks th
   assert.match(builder, /parseAssetSet\(process\.env\.PP_CREATION_ASSETS\)/);
   assert.match(builder, /\.\.\.nvdaxRemainingAccounts\(native\.assets\.map/);
   assert.match(builder, /Plan sealed assets differ from the approved creation\.assets; no transaction signed/);
+  // Element-wise, never a joined string (["usdc,wsol"] would equal "usdc,wsol").
+  assert.match(builder, /creation\.assets\.length !== sealedNames\.length \|\| sealedNames\.some\(\(name, index\) => creation\.assets\[index\] !== name\)/);
+  assert.doesNotMatch(builder, /creation\.assets\.join\(/);
   const template = JSON.parse(readFileSync(new URL('../../../script/solana-manager-approval.json', import.meta.url), 'utf8'));
   assert.equal(template.creation.assets, null);
 });

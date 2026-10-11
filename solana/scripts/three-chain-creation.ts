@@ -80,7 +80,9 @@ async function broadcastGate() {
   // DF-1: the sealed asset set is a reviewed input; the plan must seal exactly the approved set.
   const native = new Interface(JSON.parse(readFileSync(resolve(root, "out/FundFactoryV6.sol/FundFactoryV6.json"), "utf8")).abi)
     .decodeFunctionData("createFundV6Committed", plan.calldata)[2];
-  if (!Array.isArray(creation.assets) || assetNames(native.assets.map((asset: any) => asset.mint)).join(",") !== creation.assets.join(",")) {
+  const sealedNames = assetNames(native.assets.map((asset: any) => asset.mint));
+  // Element-wise: a malformed approval such as ["usdc,wsol"] must not pass a joined-string comparison.
+  if (!Array.isArray(creation.assets) || creation.assets.length !== sealedNames.length || sealedNames.some((name, index) => creation.assets[index] !== name)) {
     throw new Error("Plan sealed assets differ from the approved creation.assets; no transaction signed");
   }
   const arbitrum = checkedEndpoint("mainnet", process.env.ARBITRUM_RPC_URL);
