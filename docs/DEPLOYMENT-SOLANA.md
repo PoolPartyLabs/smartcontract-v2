@@ -164,6 +164,26 @@ Tools (all refuse to send without their approval file; all logs are sanitized):
 | **S11** Venues | Kamino supply; Raydium position (demo scope) via API `build/:action` + `manager-sign.mjs` | ☐ Report delivered after each action ☐ Manager SOL ≥ reserve | `UnexpectedDelta`: re-simulate and retry. Positions exit only by the Manager. |
 | **S12** Unwind to the Hub | Kamino redeem / LP close → `send_to_hub` (5 bps cap) → Hub credit → report | ☐ Fund stays Open; holders exit by Instant payout ☐ No `closeFund` (R9.2, G1–G3 fixed post-demo) | Pending claims persist; any closure attempt traps capital. |
 
+### Shell preamble — every step below runs in this shell (C9)
+
+```sh
+set +x; umask 077                                   # never `set -x`, `env`, or echo an RPC/KEY variable
+cd /Users/rafaelzochling/gitrepos/pool-party/smartcontract-v2
+source /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
+export SOLANA_MAINNET_RPC="$SOLANA_RPC_URL"         # rpc-env.sh exports SOLANA_RPC_URL; every repo script reads SOLANA_MAINNET_RPC
+export ARBITRUM_FORK_BLOCK=$(( $(cast block-number --rpc-url arbitrum) - 100 ))    # AFTER rpc-env.sh: it re-exports
+export ROBINHOOD_FORK_BLOCK=$(( $(cast block-number --rpc-url robinhood) - 100 ))  # the stale 2026-10-02 pins
+```
+
+Without the `SOLANA_MAINNET_RPC` line, `deploy-mainnet-budget.mjs`, `prepare-localnet.ts`
+and `production.prepare.ts` fall back to the public RPC (the budget now reports
+`endpointSource`), and `deploy-mainnet.mjs` / `three-chain-creation.ts broadcast` refuse.
+**Needed change in the handoff `tools/rpc-env.sh` (outside this repo):** add
+`export SOLANA_MAINNET_RPC="$SOLANA_RPC_URL"` right after its `SOLANA_RPC_URL` export, and
+delete the two default-pin lines `export ARBITRUM_FORK_BLOCK=…` / `export ROBINHOOD_FORK_BLOCK=…`
+(lines 11–12). Until then the two `export` lines above are mandatory. Re-take both
+pins (head − 100) immediately before every dry run and broadcast.
+
 ### Funding — repriced live 2026-10-11
 
 Budget numbers come **only** from `deploy-mainnet-budget.mjs` (mainnet rent,
