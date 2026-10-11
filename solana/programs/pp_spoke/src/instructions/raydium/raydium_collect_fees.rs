@@ -150,6 +150,7 @@ pub fn decrease<'info>(
         accounts.vault.key(),
         &accounts.raydium_program,
     )?;
+    ensure_quarantines(accounts)?;
     let pool = check::pool(&accounts.pool)?;
     crate::instructions::core::admission::venue(&accounts.fund, CLMM, accounts.pool.key(), Pubkey::default())?;
     crate::instructions::core::admission::read_ledger(&accounts.token_ledger_0.to_account_info(), accounts.fund.key(), pool.mints[0])?;
@@ -267,11 +268,15 @@ pub fn decrease<'info>(
         let triple = &reward_accounts[index * 3..index * 3 + 3];
         require_keys_eq!(*triple[0].key, *vault, RaydiumError::InvalidAccount);
         require_keys_eq!(*triple[2].key, *mint, RaydiumError::InvalidAccount);
-        let fund_key = accounts.fund.key();
-        let (quarantine, bump) = Pubkey::find_program_address(
-            &[b"raydium_reward", fund_key.as_ref(), mint.as_ref()],
+        let quarantine = Pubkey::find_program_address(
+            &[
+                b"raydium_reward",
+                accounts.fund.key().as_ref(),
+                mint.as_ref(),
+            ],
             &crate::ID,
-        );
+        )
+        .0;
         require_keys_eq!(*triple[1].key, quarantine, RaydiumError::InvalidAccount);
         require!(
             triple[0].is_writable
@@ -281,14 +286,6 @@ pub fn decrease<'info>(
                 && !triple[2].is_signer,
             RaydiumError::InvalidAccount
         );
-        if *triple[1].owner == anchor_lang::system_program::ID {
-            create_quarantine(
-                accounts,
-                &triple[1],
-                &triple[2],
-                &[b"raydium_reward", fund_key.as_ref(), mint.as_ref(), &[bump]],
-            )?;
-        }
         let data = triple[1].try_borrow_data()?;
         require!(
             data.len() >= 165 && data[108] == 1,
@@ -425,6 +422,37 @@ pub fn decrease<'info>(
 
 /// CR-03: a reward slot can be initialized on the pool after admission or open, so the quarantine
 /// is created on the first decrease that needs it; the PDA-owned address cannot be pre-created by anyone else.
+/// Out of line so decrease() keeps its SBF stack frame; the slot loop in decrease() still validates every
+/// triple against the pool's initialized rewards, so a wrong mint here only reverts the transaction.
+#[inline(never)]
+fn ensure_quarantines<'info>(accounts: &RaydiumCollectFees<'info>) -> Result<()> {
+    let fund = accounts.fund.key();
+    for (quarantine, mint) in [
+        (&accounts.reward_quarantine_0, &accounts.reward_mint_0),
+        (&accounts.reward_quarantine_1, &accounts.reward_mint_1),
+        (&accounts.reward_quarantine_2, &accounts.reward_mint_2),
+    ] {
+        let (Some(quarantine), Some(mint)) = (quarantine, mint) else { continue };
+        if *quarantine.owner != anchor_lang::system_program::ID {
+            continue;
+        }
+        let (expected, bump) = Pubkey::find_program_address(
+            &[b"raydium_reward", fund.as_ref(), mint.key.as_ref()],
+            &crate::ID,
+        );
+        require_keys_eq!(quarantine.key(), expected, RaydiumError::InvalidAccount);
+        require!(quarantine.is_writable, RaydiumError::InvalidAccount);
+        create_quarantine(
+            accounts,
+            &quarantine.to_account_info(),
+            &mint.to_account_info(),
+            &[b"raydium_reward", fund.as_ref(), mint.key.as_ref(), &[bump]],
+        )?;
+    }
+    Ok(())
+}
+
+#[inline(never)]
 fn create_quarantine<'info>(
     accounts: &RaydiumCollectFees<'info>,
     quarantine: &AccountInfo<'info>,
