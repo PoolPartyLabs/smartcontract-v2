@@ -96,7 +96,8 @@ test('close is refused while an outbound CCTP transit is pending, then completes
   close.keys.push(key(command, true), key(ledger(ADDRESSES.usdc)));
   await sendMeasured(connection, keeper, close);
   assert.ok(await connection.getAccountInfo(publicKey(command)), 'CLOSE accepted at sequence 0');
-  await assert.rejects(sendMeasured(connection, keeper, close), /InvalidOrder|already in use/);
+  // Replay: verify_order runs before the command PDA is allocated, so sequence 0 < next (1) is the exact rejection.
+  await assert.rejects(sendMeasured(connection, keeper, close), /Error Code: InvalidOrder\./);
 
   const reportAccounts = [ledger(ADDRESSES.usdc), usdc, ledger(ADDRESSES.wsol), testAta(ADDRESSES.wsol, vault)];
   const finalize = (transits: string[]) => {
