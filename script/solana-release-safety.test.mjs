@@ -80,6 +80,9 @@ test('persistent program keys remain excluded in every clone', () => {
   assert.match(readFileSync('.gitignore', 'utf8'), /^\/\.keys\/$/m);
   const result = spawnSync('git', ['check-ignore', '--no-index', '.keys/pp_spoke-program-keypair.json'], { encoding: 'utf8' });
   assert.equal(result.status, 0);
+  // CR-11: the dev-host keeper key lives beside it and is excluded the same way.
+  assert.equal(spawnSync('git', ['check-ignore', '--no-index', '.keys/keeper.json'], { encoding: 'utf8' }).status, 0);
+  assert.match(readFileSync('docs/DEPLOYMENT-SOLANA.md', 'utf8'), /## Key roles and the keeper split \(CR-11\)/);
 });
 
 test('release build generates off-chain IDL and excludes all rehearsal/debug features', () => {

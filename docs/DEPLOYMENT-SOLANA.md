@@ -84,6 +84,46 @@ brief; a lane header and a coordinator matrix must not disagree with this table.
 Blocks are reusable only after their owner finished; a new lane is added here
 before it starts, never assigned from memory in a brief.
 
+## Key roles and the keeper split (CR-11)
+
+R8 was deployer, upgrade authority, keeper and test Manager at once, with a copy
+on the dev host: a dev-host compromise could upgrade the program and drain every
+vault. Every keeper instruction is permissionless, so the keeper needs no special
+key and no code change: `receive_and_credit.rs:8` ("permissionless relaying"),
+`publish_report.rs:15-17` (any `authority: Signer`, which only pays) and
+`kamino_refresh.rs:9` ("anyone may pay").
+
+**Prepared 2026-10-11:** a new keeper keypair at the founder-machine
+`smartcontract-v2/.keys/keeper.json` (file 0600, directory 0700, excluded from Git,
+never printed). Public key **`8VLSQNmrHGyWzzoTKXZYjegPRbCm8UY7AmPyUUqzZe1x`**,
+balance 0: fund it per the table above (1.0 SOL envelope, cadence D6).
+
+| Role | Key | Lives on | Power | Rotation |
+| --- | --- | --- | --- | --- |
+| Solana deployer, initial upgrade authority | R8 `6VTvei…FgJaA` | founder machine only, **never the dev host** | deploy; upgrade until moved | move to the cold key right after `--verify` (D3) |
+| Upgrade authority after `--verify` | cold key (hardware/offline) | offline | upgrade | `--final` before client capital (DEC-189) |
+| Program id signer | `7Ppt…` keypair | `.keys/` + two encrypted offline copies | none after deploy | n/a |
+| Solana keeper | `8VLSQ…Ze1x` | dev host, `V2_SOLANA_KEEPER_PRIVATE_KEY` | pays receives, reports, refreshes | any time; no on-chain change |
+| Manager Solana Key | founder Phantom/hardware (or R8, kept off servers) | founder | Manager actions; sealed per Fund (DEC-190) | cannot rotate; new Fund |
+| EVM deployer | `.env.alpha` deployer imported into a Foundry keystore | founder machine | factory deploys | n/a |
+| API quote signer | dedicated hot EVM key | dev host, `V2_API_SIGNER_KEY` | quote signatures; sealed in factory wiring and `SwapPolicy.api_signer` | choose **before** the factory deploy; new Fund to rotate |
+| EVM keeper / delivery payer | dedicated hot EVM key | dev host, `V2_KEEPER_KEY` | pays Hub deliveries (CR-26 moves them off the quote signer) | any time |
+| Protocol recipient, adapter guardian, registry owner | cold (founder wallet or Safe) | offline | fees, guardian, registry | immutable per factory |
+
+Dev-host install (separately approved; nothing here was done on the host). Copy
+the file without printing it, write a separate 0600 env file, restart the API,
+then remove R8 from the host and from any backup or log copy:
+
+```sh
+scp .keys/keeper.json devhost:/srv/pool-party/secrets/solana-keeper.json   # 0600 on arrival
+ssh devhost 'umask 077; printf "V2_SOLANA_KEEPER_PRIVATE_KEY=%s\n" "$(cat /srv/pool-party/secrets/solana-keeper.json)" \
+  > /srv/pool-party/secrets/solana-keeper.env && rm /srv/pool-party/secrets/solana-keeper.json'
+```
+
+Verify by public key only, never by echoing the variable: run
+`solana-keygen pubkey` on the local file before copying, and check that the fee
+payer of the first keeper transaction on an explorer is `8VLSQ…Ze1x`.
+
 ## Upgrade authority, ProgramData watch and program-key custody (CR-22)
 
 **Rule — never close the program.** Never run `solana program close` on the spoke
