@@ -6,6 +6,7 @@ pragma solidity 0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {SolanaPriceSourceV6} from "../../../src/report/SolanaPriceSourceV6.sol";
 import {ChainlinkPriceSource} from "../../../src/report/ChainlinkPriceSource.sol";
+import {IPriceSource} from "../../../src/interfaces/IPriceSource.sol";
 import {SolanaMandateV6, SolanaSpokeRegistryV6} from "../../../src/mandate/SolanaMandateV6.sol";
 import {ReportCodecV6} from "../../../src/libraries/ReportCodecV6.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -150,6 +151,9 @@ contract SolanaPriceSourceV6Test is Test {
         registry.requireStockPricing(address(source));
         MockAggregator(source.TSLA_USD()).set(380e8, 0);
         vm.expectRevert(abi.encodeWithSelector(SolanaSpokeRegistryV6.UnsafeStockState.selector, SolanaFixture.STOCK));
+        registry.requireStockPricing(address(source));
+        MockAggregator(source.TSLA_USD()).set(0, SATURDAY + 1);
+        vm.expectRevert(abi.encodeWithSelector(IPriceSource.InvalidPrice.selector, stockId));
         registry.requireStockPricing(address(source));
         MockAggregator(source.TSLA_USD()).set(380e8, SATURDAY + 1);
         registry.requireStockPricing(address(source));
