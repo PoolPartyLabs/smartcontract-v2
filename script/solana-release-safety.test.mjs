@@ -110,3 +110,40 @@ test('EVM fee collector locates Foundry dry-run directory artifacts', () => {
   assert.match(source, /gasEstimateL1Component/);
   assert.doesNotMatch(source, /getL1Fee/);
 });
+
+test('CR-10: --preflight is read-only and not approval-gated; it still refuses a non-HTTPS endpoint', () => {
+  const result = spawnSync(process.execPath, ['solana/scripts/deploy-mainnet.mjs', '--preflight'], {
+    encoding: 'utf8', env: { ...process.env, SOLANA_MAINNET_RPC: 'http://127.0.0.1:1/', SOLANA_DEPLOYER_PRIVATE_KEY: 'SECRET_KEY' },
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /HTTPS mainnet endpoint required/);
+  assert.doesNotMatch(result.stderr, /Founder approval/);
+  assert.doesNotMatch(result.stdout + result.stderr, /SECRET_KEY|127\.0\.0\.1/);
+  const source = readFileSync('solana/scripts/deploy-mainnet.mjs', 'utf8');
+  assert.match(source, /if \(mode === '--preflight'\) return runPreflight\(\);\n  const manifest = loadManifest\(\);\n  const \{ binary, binaryPath, sha256 \} = requireApproval\(manifest\);/);
+  const loader = readFileSync('solana/scripts/loader-v3.mjs', 'utf8');
+  const preflightBody = loader.slice(loader.indexOf('export async function preflight'), loader.indexOf('export function deployWithMaxDataLenInstruction'));
+  assert.ok(preflightBody.length > 100);
+  assert.doesNotMatch(preflightBody, /send|sign\(/i);
+});
+
+test('CR-10: the pre-funded recovery mode is approval-gated like the initial deploy', () => {
+  const result = spawnSync(process.execPath, ['solana/scripts/deploy-mainnet.mjs', '--recover-prefunded'], {
+    encoding: 'utf8', env: { ...process.env, SOLANA_MAINNET_RPC: 'SECRET_ENDPOINT', SOLANA_DEPLOYER_PRIVATE_KEY: 'SECRET_KEY' },
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Founder approval/);
+  assert.doesNotMatch(result.stdout + result.stderr, /SECRET_ENDPOINT|SECRET_KEY/);
+});
+
+test('CR-10: preflight reports an unreachable endpoint as a NO-GO row without naming it', () => {
+  const result = spawnSync(process.execPath, ['solana/scripts/deploy-mainnet.mjs', '--preflight'], {
+    encoding: 'utf8', env: { ...process.env, SOLANA_MAINNET_RPC: 'https://secret-provider-host.invalid/SECRET_PATH_KEY' },
+  });
+  assert.equal(result.status, 2);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.ok, false);
+  assert.equal(report.checks.find(check => check.name === 'genesis').ok, false);
+  assert.match(result.stderr, /\[deploy-mainnet\] .* step=preflight status=nogo/);
+  assert.doesNotMatch(result.stdout + result.stderr, /secret-provider-host|SECRET_PATH_KEY/);
+});
