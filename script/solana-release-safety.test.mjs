@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -275,11 +275,13 @@ test('DF-4/C10: the EVM budget never marks a measured entry failed for missing p
   assert.match(readFileSync('script/solana-evm-deploy.sh', 'utf8'), /printf '%s\\n' "\$PIN" >"\$STATE\/pin"/);
 });
 
-test('C11: the mainnet budget retries a null fee quote and fails with a sanitized cause', () => {
+test('C11: the mainnet budget retries a null fee quote and fails with a sanitized cause', t => {
   const script = readFileSync('solana/scripts/deploy-mainnet-budget.mjs', 'utf8');
   assert.match(script, /for \(let attempt = 0; attempt < 4; attempt\+\+\) \{\n      const blockhash = /);
   assert.match(script, /console\.error\(`Read-only budget failed: \$\{sanitize\(error\?\.message \?\? error\)\}`\)/);
   assert.match(script, /endpointSource/);
+  // The budget sizes the S1 ELF at load time; on a checkout without S1 the runtime probe has nothing to measure.
+  if (!existsSync('solana/target/deploy/pp_spoke.so')) return t.skip('runtime probe needs the S1 ELF (solana/target/deploy/pp_spoke.so)');
   const result = spawnSync(process.execPath, ['solana/scripts/deploy-mainnet-budget.mjs'], { encoding: 'utf8',
     env: { ...process.env, SOLANA_MAINNET_RPC: 'https://secret-provider-host.invalid/SECRET_PATH_KEY' }, timeout: 120000 });
   if (result.error?.code !== 'ETIMEDOUT') {
