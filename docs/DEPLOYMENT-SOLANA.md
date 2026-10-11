@@ -175,14 +175,17 @@ overstates mainnet by ≈ 1.87 SOL and is never a funding figure.
 | --- | ---: | ---: | --- |
 | R8 deployer (Solana) | 5.101940754 SOL for the fix-sp ELF: Program 0.000833120 + ProgramData 5.095834360 + 1,047 tx fees 0.005273274 (finalized slot 455,756,330, 18:51 UTC, 10,000 µlamports/CU floor, p75 = 0; was 5.063495738 for the superseded 995,384 B ELF) | **5.30 SOL** (one full-retry and fee margin; a failed buffer is recoverable by `program close <BUFFER>`) | `deploy-mainnet-budget.mjs` |
 | Manager Solana Key | modeled peak 0.168 SOL per lifecycle (sweep) | **0.25 SOL** | solana-program lane |
-| Keeper (new key, CR-11) | ≈ 0.011 SOL permanent rent per Solana report | **1.0 SOL** at a 20-min demo heartbeat; cadence is D6/CR-15 | risk-review R07 |
-| Arbitrum deployer / Manager | v6 factory 27 tx **0.001986161 ETH** L1-inclusive at 0.020004 gwei (pin 513,890,045, 18:08 UTC); creation ≈ 29.6M gas ≈ 0.00059 ETH | **0.02 ETH** (stress 0.018) | `solana-evm-budget.mjs`, evm-hub lane |
+| Keeper `8VLSQ…Ze1x` (new key, CR-11) | ≈ 0.011–0.012 SOL permanent Wormhole rent per Solana report (3 tx each); API default `V2_SOLANA_REPORT_SECONDS=1500` → 57.6 reports/day ≈ **0.70 SOL/day**, plus CCTP receives. 1.0 SOL lasts ≈ 1.4 days | **1.5 SOL** for a 2-day demo window, or 1.0 SOL plus a daily top-up; cadence is D6/CR-15 (C4) | deploy-readiness re-sweep §4 |
+| Arbitrum deployer / Manager | v6 factory 27 tx **0.001957079 ETH** L1-inclusive at 0.020262 gwei (pin 513,926,501, 21:13 UTC); creation receipt 28,790,965 gas (USDC+WSOL) ≈ 0.00058 ETH + L1 | **0.05 ETH** together with the delivery row below while one key holds every EVM role (C6); plus **≥ 52 USDC** (50 seed + 1 USDC S10 probe) | `solana-evm-budget.mjs`, `solana-creation-gas-fitness.sh` |
 | Arbitrum keeper / delivery signer | ≈ 0.0124 ETH/day of Hub deliveries at a 10-min cadence | **0.015 ETH/day** | risk-review RR12, CR-26 |
-| Robinhood deployer / Manager | v6 factory 15 tx **0.001185643 ETH** at 0.02021 gwei (pin 86,031,040, 18:08 UTC) | **0.012 ETH** | `solana-evm-budget.mjs` |
+| Robinhood deployer / Manager | v6 factory 15 tx **0.001194121 ETH** at 0.020084 gwei (pin 86,129,306, 21:13 UTC) + `createSpoke` ≈ 12.1–12.2M gas | **0.012 ETH** | `solana-evm-budget.mjs` |
+| Demo investor (founder to name) | `approve` + Hub deposit (`minFirstDeposit` 50e6); pad the wallet gas estimate ×1.25 (M2) | **≥ 50 USDC + ≈ 0.002 ETH** on Arbitrum | re-sweep §4 |
 | Seed | — | **50 USDC** (49 principal after the 2% flow fee) | DEC-195 |
 
-Total Solana ≈ 6.55 SOL. Set `walletMinimumLamports` in the approval copy to the
-R8 figure the founder approves; `--preflight` then checks it.
+Total Solana ≈ **7.05 SOL** (R8 5.30 + Manager 0.25 + keeper 1.5; R8 needs 5.55 if it is
+also the Manager Solana Key). Set `walletMinimumLamports` in the approval copy to the
+R8 figure the founder approves (5300000000, or 5550000000 when R8 is the Manager);
+`--preflight` then checks it.
 
 ### Port registry — the single source of truth for local validators
 
