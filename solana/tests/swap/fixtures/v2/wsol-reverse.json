@@ -1,5 +1,5 @@
 {
-  "recordedAt": "2026-10-07T01:56:16.160Z",
+  "recordedAt": "2026-10-11T17:59:38.155Z",
   "apiVersion": 2,
   "probe": "6Ckm2BrnXxsSjyG5b17kQQRjoECVrts92RKXVGT8XeqS",
   "fund": "6Gg4AVKo8GAft4Wb2JSfhHCW3PQhXxYxapzBYeVjGzA9",
@@ -8,11 +8,11 @@
     "inputMint": "So11111111111111111111111111111111111111112",
     "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
     "inAmount": "10000000",
-    "outAmount": "1196578",
-    "otherAmountThreshold": "1172647",
+    "outAmount": "1120423",
+    "otherAmountThreshold": "1098015",
     "swapMode": "ExactIn",
     "slippageBps": 200,
-    "priceImpactPct": "0.0000207169507729732151912952",
+    "priceImpactPct": "0.0000517327721704273086006186",
     "routePlan": [
       {
         "percent": 100,
@@ -23,7 +23,7 @@
           "inputMint": "So11111111111111111111111111111111111111112",
           "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
           "inAmount": "10000000",
-          "outAmount": "1196578"
+          "outAmount": "1120423"
         }
       }
     ],
@@ -31,7 +31,7 @@
       {
         "programId": "ComputeBudget111111111111111111111111111111",
         "accounts": [],
-        "data": "A0IIAAAAAAAA"
+        "data": "AzkXAAAAAAAA"
       }
     ],
     "setupInstructions": [
@@ -212,7 +212,7 @@
           "isWritable": false
         },
         {
-          "pubkey": "8erbHjNK8R97rGn5Hi62bxuWaJwExVkkEuLYpHZAQJcs",
+          "pubkey": "3AYzAki7R2uJUxu2Sa3EhNNz3BAk3GoTexQGATEkxKfr",
           "isSigner": false,
           "isWritable": true
         },
@@ -222,12 +222,12 @@
           "isWritable": true
         },
         {
-          "pubkey": "CCWaYZ2UyMTYJCDkXGMkGZRE9M6rmBUfg7yHnrV6Nib1",
+          "pubkey": "4bmzP7NFD3zxcFedPRGnDxZQcy3wRbUPcUNYg6Ho1usR",
           "isSigner": false,
           "isWritable": true
         },
         {
-          "pubkey": "HsKFtu7HRqdLpCdRVCSYVQS7MTwM4HE7UvwJ96jWVVY",
+          "pubkey": "V8yKsMHjeXtF8cSKB2XaMuZhtDGYcy2zrBm8EEyL3Fq",
           "isSigner": false,
           "isWritable": true
         },
@@ -237,7 +237,7 @@
           "isWritable": false
         }
       ],
-      "data": "u2T6zDHErxSAlpgAAAAAACJCEgAAAAAAyAAAAAAAAQAAABoQJwAB"
+      "data": "u2T6zDHErxSAlpgAAAAAAKcYEQAAAAAAyAAAAAAAAQAAABoQJwAB"
     },
     "cleanupInstruction": null,
     "otherInstructions": [],
@@ -500,43 +500,43 @@
     },
     "blockhashWithMetadata": {
       "blockhash": [
-        231,
-        207,
-        91,
-        58,
-        18,
+        40,
+        234,
+        185,
+        203,
+        144,
+        119,
+        26,
+        164,
+        147,
+        12,
+        145,
+        11,
+        219,
+        196,
+        101,
+        162,
+        179,
+        81,
+        44,
+        163,
         47,
-        241,
-        225,
-        198,
-        52,
-        75,
-        223,
-        132,
-        121,
-        171,
-        3,
-        103,
-        59,
+        236,
         105,
+        138,
+        15,
         218,
         36,
-        82,
-        120,
-        102,
-        35,
-        49,
-        96,
-        143,
-        70,
-        229,
-        27,
-        184
+        25,
+        189,
+        18,
+        163,
+        130
       ],
-      "lastValidBlockHeight": 432119261,
+      "lastValidBlockHeight": 433779409,
       "fetchedAt": {
-        "secs_since_epoch": 1791338176,
-        "nanos_since_epoch": 66409865
+        "secs_since_epoch": 1791741578,
+        "nanos_since_epoch": 145761879
       }
     },
     "transactionVersion": 0,
