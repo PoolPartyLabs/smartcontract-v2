@@ -14,6 +14,7 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {IStateView} from "@uniswap/v4-periphery/src/interfaces/IStateView.sol";
 import {IChainlinkAggregatorV3} from "../../../src/interfaces/external/IChainlinkAggregatorV3.sol";
 import {V4SwapRouter} from "../../mocks/v4/V4SwapRouter.sol";
+import {ForkPins} from "../../fork/ForkPins.sol";
 
 /// @notice Review probe (integration-price), not a finding: what it costs to move the Uniswap V4 pools that
 ///         docs/INTEGRATIONS.md lists, on both chains, at a fork block near the head. For each target price (a fraction
@@ -49,7 +50,7 @@ contract DepthProbeFork is Test {
     V4SwapRouter internal router;
 
     function _oracle() internal {
-        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envUint("ARBITRUM_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), ForkPins.arbitrum());
         (, int256 answer,,,) = IChainlinkAggregatorV3(ETH_USD).latestRoundData();
         ethUsd = Math.mulDiv(uint256(answer), 1e24, 1e26);
     }
@@ -62,7 +63,7 @@ contract DepthProbeFork is Test {
 
     function test_REVIEW_I08_measure_probe_robinhood_listedPools() public {
         _oracle();
-        vm.createSelectFork(vm.envString("ROBINHOOD_RPC_URL"), vm.envUint("ROBINHOOD_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ROBINHOOD_RPC_URL"), ForkPins.robinhood());
         _probe("RH V4 WETH/USDG 0.05% (listed)", RH_PM, RH_SV, RH_WETH, RH_USDG, 500, 10);
         _probe("RH V4 WETH/USDG 0.3% (listed)", RH_PM, RH_SV, RH_WETH, RH_USDG, 3000, 60);
     }

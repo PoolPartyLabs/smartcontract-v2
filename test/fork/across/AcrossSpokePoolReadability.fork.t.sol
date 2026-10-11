@@ -14,6 +14,7 @@ import {AcrossHarnessVault} from "../../mocks/across/AcrossHarnessVault.sol";
 import {IAcrossSpokePoolLive} from "../../mocks/across/IAcrossSpokePoolLive.sol";
 import {AcrossPoolObserver} from "../../mocks/across/AcrossPoolObserver.sol";
 import {Eip1271Depositor} from "../../mocks/across/Eip1271Depositor.sol";
+import {ForkPins} from "../ForkPins.sol";
 
 /// @notice Founder chat of 2026-10-02 ("make tests to see if in standalone contract connection we can read the latest
 ///         transactions in the bridge to know an average of the values being offered"; DEC-158, DEC-162, LC-159):
@@ -97,14 +98,14 @@ contract AcrossSpokePoolReadabilityForkTest is Test {
     /// @dev Forks Arbitrum One at the suite's pin (export a recent block: the RPCs are not archive nodes); returns the
     ///      route that originates there.
     function _forkArbitrum() internal returns (Route memory) {
-        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envUint("ARBITRUM_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), ForkPins.arbitrum());
         assertEq(block.chainid, ARBITRUM_CHAIN_ID);
         return _hubToSpoke();
     }
 
     /// @dev Forks Robinhood Chain at the suite's pin; returns the route that originates there.
     function _forkRobinhood() internal returns (Route memory) {
-        vm.createSelectFork(vm.envString("ROBINHOOD_RPC_URL"), vm.envUint("ROBINHOOD_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ROBINHOOD_RPC_URL"), ForkPins.robinhood());
         assertEq(block.chainid, ROBINHOOD_CHAIN_ID);
         return _spokeToHub();
     }

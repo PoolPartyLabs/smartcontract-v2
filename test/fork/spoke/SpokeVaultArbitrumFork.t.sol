@@ -16,6 +16,7 @@ import {MockPositionAdapter} from "../../mocks/spoke/MockPositionAdapter.sol";
 import {MockCoreVault} from "../../mocks/spoke/MockCoreVault.sol";
 import {MockSwapAdapter} from "../../mocks/swap/MockSwapAdapter.sol";
 import {UniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
+import {ForkPins} from "../ForkPins.sol";
 
 /// @notice Hub role on a pinned Arbitrum One fork with native USDC: allocation from the Core Vault, positions, the
 ///         proportional automatic unwind back to Idle, income forwarding and the same-chain report reader.
@@ -27,7 +28,7 @@ contract SpokeVaultArbitrumForkTest is SpokeVaultForkBase {
     IERC20 internal constant USDC = IERC20(ARB_USDC);
 
     function setUp() public {
-        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envUint("ARBITRUM_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), ForkPins.arbitrum());
         assertEq(block.chainid, ARBITRUM);
 
         hubUni = new MockPositionAdapter(guardian, false);

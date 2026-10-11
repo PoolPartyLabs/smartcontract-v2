@@ -11,11 +11,12 @@ import {
     SOLANA_MAX_SOL_PRICE_AGE
 } from "../../../src/report/SolanaPriceSourceV6.sol";
 import {ValueReportReceiverV6} from "../../../src/report/ValueReportReceiverV6.sol";
+import {ForkPins} from "../ForkPins.sol";
 
 /// @notice DEC-188/196/198: fork-test the exact deploy path, with no contract size-limit override.
 contract SolanaV6DeploymentForkTest is Test, SolanaV6Deployment {
     function testVersionedFactoryIdentityMatchesBothPublicForks() public {
-        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envOr("ARBITRUM_FORK_BLOCK", uint256(512_553_166)));
+        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), ForkPins.arbitrum());
         V6Deployment memory hub = _deploy();
         assertGt(address(hub.factory).code.length, 0);
         assertLe(address(hub.factory).code.length, 24_576);
@@ -30,7 +31,7 @@ contract SolanaV6DeploymentForkTest is Test, SolanaV6Deployment {
         assertGt(source.SOL_USD().code.length, 0);
         bytes32 fund = hub.factory.fundIdOf(42_161, hub.factory.NUMBER_OFFSET() + 1, address(123));
         address predicted = hub.factory.addressOf(fund, "SpokeVault", 4663);
-        vm.createSelectFork(vm.envString("ROBINHOOD_RPC_URL"), vm.envUint("ROBINHOOD_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ROBINHOOD_RPC_URL"), ForkPins.robinhood());
         V6Deployment memory spoke = _deploy();
         assertEq(address(hub.factory), address(spoke.factory));
         assertEq(spoke.factory.addressOf(fund, "SpokeVault", 4663), predicted);

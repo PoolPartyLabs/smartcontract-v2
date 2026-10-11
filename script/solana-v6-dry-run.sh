@@ -6,8 +6,9 @@ STATE="$ROOT/cache/solana-deploy"
 mkdir -p "$STATE"
 export ARBITRUM_RPC_URL='https://arb1.arbitrum.io/rpc'
 export ROBINHOOD_RPC_URL='https://rpc.mainnet.chain.robinhood.com'
-export ARBITRUM_FORK_BLOCK="${ARBITRUM_FORK_BLOCK:-512553166}"
-export ROBINHOOD_FORK_BLOCK="${ROBINHOOD_FORK_BLOCK:-82445811}"
+# CR-19: no pin in source; unset pins default to head-100 (public RPCs keep only ~6-8k blocks of state).
+export ARBITRUM_FORK_BLOCK="${ARBITRUM_FORK_BLOCK:-$(($(cast block-number --rpc-url "$ARBITRUM_RPC_URL") - 100))}"
+export ROBINHOOD_FORK_BLOCK="${ROBINHOOD_FORK_BLOCK:-$(($(cast block-number --rpc-url "$ROBINHOOD_RPC_URL") - 100))}"
 [[ "$ARBITRUM_FORK_BLOCK" =~ ^[1-9][0-9]*$ && "$ROBINHOOD_FORK_BLOCK" =~ ^[1-9][0-9]*$ ]] || { printf 'Explicit positive numeric fork pins required\n' >&2; exit 1; }
 # CR-12: separate stock (TSLA/NVDA, 24 h heartbeat + 1 h) and SOL (tight) feed max ages.
 export SOLANA_STOCK_PRICE_MAX_AGE=90000 SOLANA_SOL_PRICE_MAX_AGE=7200

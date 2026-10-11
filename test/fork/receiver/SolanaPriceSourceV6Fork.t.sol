@@ -10,13 +10,14 @@ import {IChainlinkAggregatorV3} from "../../../src/interfaces/external/IChainlin
 import {SolanaFixture} from "../../unit/solana/SolanaFixture.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SolanaMandateV6} from "../../../src/mandate/SolanaMandateV6.sol";
+import {ForkPins} from "../ForkPins.sol";
 
 /// @notice Read-only Arbitrum fork; real TSLA and SOL feed proxies (DEC-194).
 contract SolanaPriceSourceV6ForkTest is Test {
     SolanaPriceSourceV6 private source;
 
     function setUp() public {
-        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), 512_239_244);
+        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), ForkPins.arbitrum());
         source = new SolanaPriceSourceV6(
             SolanaPriceSourceV6.NativeConfig(SolanaFixture.STOCK, SolanaFixture.SOL, SolanaFixture.USDC, 3600, 3600),
             new ChainlinkPriceSource.FeedConfig[](0),

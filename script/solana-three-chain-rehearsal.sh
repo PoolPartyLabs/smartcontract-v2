@@ -6,8 +6,9 @@ STATE="$ROOT/cache/solana-deploy"
 mkdir -p "$STATE"
 export ARBITRUM_RPC_URL='https://arb1.arbitrum.io/rpc'
 export ROBINHOOD_RPC_URL='https://rpc.mainnet.chain.robinhood.com'
-export ARBITRUM_FORK_BLOCK="${ARBITRUM_FORK_BLOCK:-512553166}"
-export ROBINHOOD_FORK_BLOCK="${ROBINHOOD_FORK_BLOCK:-82445811}"
+# CR-19: no pin in source; unset pins default to head-100 (public RPCs keep only ~6-8k blocks of state).
+export ARBITRUM_FORK_BLOCK="${ARBITRUM_FORK_BLOCK:-$(($(cast block-number --rpc-url "$ARBITRUM_RPC_URL") - 100))}"
+export ROBINHOOD_FORK_BLOCK="${ROBINHOOD_FORK_BLOCK:-$(($(cast block-number --rpc-url "$ROBINHOOD_RPC_URL") - 100))}"
 export PP_LOCALNET_RPC_PORT=8970 PP_LOCALNET_FAUCET_PORT=9970
 export PP_LOCALNET_GOSSIP_PORT=17000 PP_LOCALNET_DYNAMIC_PORTS=17001-17060
 export PP_LOCALNET_RPC='http://127.0.0.1:8970'

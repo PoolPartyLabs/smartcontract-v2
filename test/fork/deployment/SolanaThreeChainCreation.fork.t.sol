@@ -17,6 +17,7 @@ import {SolanaPdaV6} from "../../../src/mandate/SolanaPdaV6.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
+import {ForkPins} from "../ForkPins.sol";
 
 /// @notice DEC-188/190/195/200/202: actual wallet consent, fork-only creation, never broadcast.
 contract SolanaThreeChainCreationForkTest is Test, SolanaV6Deployment {
@@ -44,7 +45,7 @@ contract SolanaThreeChainCreationForkTest is Test, SolanaV6Deployment {
     function _prepareHub() private {
         managerKey = vm.envUint("PRIVATE_KEY");
         manager = vm.addr(managerKey);
-        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envUint("ARBITRUM_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), ForkPins.arbitrum());
         vm.startPrank(manager);
         hub = _deployV6(vm.envAddress("PROTOCOL_RECIPIENT"), vm.envAddress("ADAPTER_GUARDIAN"), vm.envAddress("API_SIGNER"), vm.envAddress("API_SIGNER"),
             SOLANA_MAX_STOCK_PRICE_AGE, SOLANA_MAX_SOL_PRICE_AGE);
@@ -108,7 +109,7 @@ contract SolanaThreeChainCreationForkTest is Test, SolanaV6Deployment {
     }
 
     function _createRobinhood() private {
-        vm.createSelectFork(vm.envString("ROBINHOOD_RPC_URL"), vm.envUint("ROBINHOOD_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ROBINHOOD_RPC_URL"), ForkPins.robinhood());
         vm.startPrank(manager);
         V6Deployment memory spoke = _deployV6(vm.envAddress("PROTOCOL_RECIPIENT"), vm.envAddress("ADAPTER_GUARDIAN"), vm.envAddress("API_SIGNER"), vm.envAddress("API_SIGNER"),
             SOLANA_MAX_STOCK_PRICE_AGE, SOLANA_MAX_SOL_PRICE_AGE);

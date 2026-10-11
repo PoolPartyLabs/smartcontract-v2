@@ -14,6 +14,7 @@ import {OrderVerifier, OrderVaaHead, IOrderVaaParser} from "../../../src/librari
 import {ICoreVaultPayouts} from "../../../src/interfaces/ICoreVaultPayouts.sol";
 import {OrderPublisherHarness} from "../../mocks/wormhole/OrderCodecHarness.sol";
 import {OrderReceiverHarness, OrderVerifierHarness} from "../../mocks/wormhole/OrderVerifierHarness.sol";
+import {ForkPins} from "../ForkPins.sol";
 
 /// @notice The Hub-to-spoke order channel on both live chains (DEC-111, DEC-120 items 1-2, DEC-139, FV-18 path).
 ///         A stand-in Core Vault publishes on the real Arbitrum One Wormhole Core with instant consistency; the
@@ -47,8 +48,8 @@ contract OrderChannelForkTest is Test {
     OrderVerifierHarness internal verifier;
 
     function setUp() public {
-        arbitrumFork = vm.createFork(vm.envString("ARBITRUM_RPC_URL"), vm.envUint("ARBITRUM_FORK_BLOCK"));
-        robinhoodFork = vm.createFork(vm.envString("ROBINHOOD_RPC_URL"), vm.envUint("ROBINHOOD_FORK_BLOCK"));
+        arbitrumFork = vm.createFork(vm.envString("ARBITRUM_RPC_URL"), ForkPins.arbitrum());
+        robinhoodFork = vm.createFork(vm.envString("ROBINHOOD_RPC_URL"), ForkPins.robinhood());
 
         vm.selectFork(arbitrumFork);
         assertEq(ICoreBridge(ARB_WORMHOLE_CORE).chainId(), WH_ARBITRUM);

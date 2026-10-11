@@ -12,6 +12,7 @@ import {ReportCodecV6} from "../../../src/libraries/ReportCodecV6.sol";
 import {SolanaSpokeRegistryV6} from "../../../src/mandate/SolanaMandateV6.sol";
 import {MockReceiverCoreVault} from "../../mocks/receiver/MockReceiverCoreVault.sol";
 import {SolanaFixture} from "../../unit/solana/SolanaFixture.sol";
+import {ForkPins} from "../ForkPins.sol";
 
 /// @notice Real Core verification on a read-only fork, with SDK test-only Guardian override (DEC-192).
 contract ValueReportReceiverV6ForkTest is Test {
@@ -20,7 +21,7 @@ contract ValueReportReceiverV6ForkTest is Test {
     ValueReportReceiverV6 private receiver;
 
     function setUp() public {
-        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), 512_239_244);
+        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), ForkPins.arbitrum());
         bridge = ICoreBridge(0xa5f208e072434bC67592E4C49C1B991BA79BCA46);
         bridge.setUpOverride();
         MockReceiverCoreVault vault = new MockReceiverCoreVault();

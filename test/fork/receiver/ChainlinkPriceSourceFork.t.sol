@@ -6,6 +6,7 @@ pragma solidity 0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {ChainlinkPriceSource} from "../../../src/report/ChainlinkPriceSource.sol";
 import {IChainlinkAggregatorV3} from "../../../src/interfaces/external/IChainlinkAggregatorV3.sol";
+import {ForkPins} from "../ForkPins.sol";
 
 /// @notice ChainlinkPriceSource against the live Chainlink ETH / USD feed on Arbitrum One.
 contract ChainlinkPriceSourceForkTest is Test {
@@ -21,7 +22,7 @@ contract ChainlinkPriceSourceForkTest is Test {
     ChainlinkPriceSource internal source;
 
     function setUp() public {
-        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envUint("ARBITRUM_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), ForkPins.arbitrum());
         ChainlinkPriceSource.FeedConfig[] memory feeds = new ChainlinkPriceSource.FeedConfig[](2);
         // Hub WETH and the Robinhood WETH carried in reports share the hub ETH / USD feed (Q57 (b) OPEN).
         feeds[0] = ChainlinkPriceSource.FeedConfig({

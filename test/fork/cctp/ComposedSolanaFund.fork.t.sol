@@ -33,6 +33,7 @@ import {CctpTestMessage} from "../../mocks/cctp/CctpHarness.sol";
 import {SolanaFixture} from "../../unit/solana/SolanaFixture.sol";
 import {ICctpLiveMessenger, ICctpLiveTransmitter} from "./CctpReceive.fork.t.sol";
 import {IChainlinkAggregatorV3} from "../../../src/interfaces/external/IChainlinkAggregatorV3.sol";
+import {ForkPins} from "../ForkPins.sol";
 
 /// @notice DEC-188/191/192/196/199: real Arbitrum protocols, local guardian/attester overrides, no broadcast.
 contract ComposedSolanaFundForkTest is Test, FactoryDeployment {
@@ -57,7 +58,7 @@ contract ComposedSolanaFundForkTest is Test, FactoryDeployment {
     mapping(address feed => bytes roundData) private _feeds;
 
     function setUp() public {
-        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envOr("CCTP_ARBITRUM_FORK_BLOCK", uint256(512_239_244)));
+        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), ForkPins.cctpArbitrum());
         manager = vm.addr(MANAGER_KEY);
         Deployment memory deployment;
         _deployLibraries(true, deployment);

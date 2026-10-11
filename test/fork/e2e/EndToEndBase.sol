@@ -28,6 +28,7 @@ import {FactoryDeployment} from "../../../script/FactoryDeployment.sol";
 import {FundMandate} from "../../../script/FundMandate.sol";
 import {FundSeed} from "../../utils/FundSeed.sol";
 import {V4SwapRouter} from "../../mocks/v4/V4SwapRouter.sol";
+import {ForkPins} from "../ForkPins.sol";
 
 /// @notice Shared state and helpers of the end-to-end fork scenario: one fund driven across the pinned Arbitrum One (Hub
 ///         Chain) and Robinhood Chain (Spoke Chain) forks in one test contract (docs/ARCHITECTURE.md §7).
@@ -130,8 +131,8 @@ abstract contract EndToEndBase is Test, FactoryDeployment, FundMandate, FundSeed
     // -----------------------------------------------------------------------------------------------------------------
 
     function _createForks() internal {
-        arbitrumFork = vm.createFork(vm.envString("ARBITRUM_RPC_URL"), vm.envUint("ARBITRUM_FORK_BLOCK"));
-        robinhoodFork = vm.createFork(vm.envString("ROBINHOOD_RPC_URL"), vm.envUint("ROBINHOOD_FORK_BLOCK"));
+        arbitrumFork = vm.createFork(vm.envString("ARBITRUM_RPC_URL"), ForkPins.arbitrum());
+        robinhoodFork = vm.createFork(vm.envString("ROBINHOOD_RPC_URL"), ForkPins.robinhood());
         vm.selectFork(arbitrumFork);
         clock = block.timestamp;
         vm.selectFork(robinhoodFork);

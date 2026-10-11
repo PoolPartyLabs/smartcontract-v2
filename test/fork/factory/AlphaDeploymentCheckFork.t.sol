@@ -14,10 +14,11 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ForkPins} from "../ForkPins.sol";
 
 contract AlphaDeploymentCheckForkTest is Test, FactoryDeployment, FundMandate {
     function test_DEC134_checkPassesOnBothRealProtocolForks() public {
-        uint256 hub = vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envUint("ARBITRUM_FORK_BLOCK"));
+        uint256 hub = vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), ForkPins.arbitrum());
         address manager = address(123);
         Deployment memory deployment = _deployProtocol(address(456), address(789), address(987), address(987));
         FundPlan memory plan;
@@ -44,7 +45,7 @@ contract AlphaDeploymentCheckForkTest is Test, FactoryDeployment, FundMandate {
         vm.stopPrank();
         _environment(deployment.factory, MandateLib.hash(mandate), manager);
         new CheckAlphaDeployment().run();
-        vm.createSelectFork(vm.envString("ROBINHOOD_RPC_URL"), vm.envUint("ROBINHOOD_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ROBINHOOD_RPC_URL"), ForkPins.robinhood());
         Deployment memory spoke = _deployProtocol(address(456), address(789), address(987), address(987));
         assertEq(address(spoke.factory), address(deployment.factory));
         vm.prank(manager);
