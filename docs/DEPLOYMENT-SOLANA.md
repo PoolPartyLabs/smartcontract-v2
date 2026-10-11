@@ -15,7 +15,7 @@ CR-12 Solana side (R9.1: no stock market-session gate; staleness only).
   features `no-idl,no-log-ix-name`, opt-level z; program source
   `26fb7a112d23a28f1ae63f4851f9f8ab0bcc75f0`. Rebuilt byte-identical after a
   `rehearsal-v1-swap` feature build. The IDL top-level `errors` list alternates
-  between error enums across builds (observed `ad649e46…` / `0034f06c…`):
+  between error enums across builds (three hashes observed on identical source):
   approve the IDL bytes of the approval build, never a historical hash.
 - `script/solana-mainnet-approval.json` stays `NOT_APPROVED` with null top-level
   hashes; the candidate is recorded under `candidate` for founder review.
