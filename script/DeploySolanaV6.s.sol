@@ -27,9 +27,10 @@ contract DeploySolanaV6 is Script, SolanaV6Deployment {
         vm.startBroadcast();
         result = _deployV6(recipient, guardian, owner, signer, uint32(rawStockMaxAge), uint32(rawSolMaxAge));
         vm.stopBroadcast();
-        // C1: the CREATE3 factory address is a function of the broadcaster only, so it is pinned in the reviewed
-        //     manifest before S1 and S4 never edits a tracked file. A dry run reports the match; a broadcast refuses a
-        //     mismatch or a missing (zero) pin before any transaction is sent.
+        // C1: the CREATE3 factory address depends only on the broadcaster and the reviewed build (Create3Deployer's
+        //     init code, whose CBOR metadata carries the remappings pinned in remappings.txt; never the nonce), so it is
+        //     pinned in the reviewed manifest before S1 and S4 never edits a tracked file. A dry run reports the match;
+        //     a broadcast refuses a mismatch or a missing (zero) pin before any transaction is sent.
         address pinned = vm.parseJsonAddress(
             vm.readFile("script/solana-v6-addresses.json"),
             block.chainid == ARBITRUM ? ".arbitrum.approvedFactory" : ".robinhood.approvedFactory"
