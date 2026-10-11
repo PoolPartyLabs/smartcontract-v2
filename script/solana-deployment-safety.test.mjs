@@ -86,3 +86,15 @@ test('C1: the deterministic factory is pinned in the reviewed manifest; creation
   assert.match(readFileSync('foundry.toml', 'utf8'), /^auto_detect_remappings = false$/m);
   assert.equal(readFileSync('remappings.txt', 'utf8').trim().split('\n').length, 23);
 });
+
+test('C2: the deploy-day plan builder reads the live pinned factory, never deploys or broadcasts, and shares the rehearsed shape', () => {
+  const builder = readFileSync('script/BuildSolanaFundV6Plan.s.sol', 'utf8');
+  assert.doesNotMatch(builder, /startBroadcast|vm\.broadcast|_deployV6\(/);
+  assert.match(builder, /parseJsonAddress\(vm\.readFile\("script\/solana-v6-addresses\.json"\), "\.arbitrum\.approvedFactory"\)/);
+  assert.match(builder, /if \(address\(factory\)\.code\.length == 0\) revert FactoryNotLive/);
+  assert.match(builder, /factory\.wiring\(\)\.coreVaultCreationCodeHash/);
+  assert.match(builder, /vm\.envUint\("DEPLOYER_PRIVATE_KEY"\)/);
+  assert.match(readFileSync('test/fork/deployment/SolanaThreeChainCreation.fork.t.sol', 'utf8'), /is Test, SolanaFundV6Plan/);
+  const gate = readFileSync('solana/scripts/three-chain-creation.ts', 'utf8');
+  assert.match(gate, /Plan factory is not the manifest-pinned approvedFactory/);
+});

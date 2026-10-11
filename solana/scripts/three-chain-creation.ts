@@ -72,6 +72,11 @@ async function broadcastGate() {
   if (plan.core?.toLowerCase() !== creation.hubCore?.toLowerCase() || plan.factory?.toLowerCase() !== creation.hubFactory?.toLowerCase()) {
     throw new Error("Plan Hub core/factory differ from the approval");
   }
+  // C1/C2: the plan targets the manifest-pinned factory (BuildSolanaFundV6Plan reads only that one).
+  const pinned = JSON.parse(readFileSync(resolve(root, "script/solana-v6-addresses.json"), "utf8")).arbitrum.approvedFactory;
+  if (!/^0x[0-9a-fA-F]{40}$/.test(pinned) || /^0x0{40}$/.test(pinned) || plan.factory.toLowerCase() !== pinned.toLowerCase()) {
+    throw new Error("Plan factory is not the manifest-pinned approvedFactory");
+  }
   // DF-1: the sealed asset set is a reviewed input; the plan must seal exactly the approved set.
   const native = new Interface(JSON.parse(readFileSync(resolve(root, "out/FundFactoryV6.sol/FundFactoryV6.json"), "utf8")).abi)
     .decodeFunctionData("createFundV6Committed", plan.calldata)[2];
