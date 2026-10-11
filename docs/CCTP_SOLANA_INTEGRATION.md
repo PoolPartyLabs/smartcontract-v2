@@ -31,7 +31,8 @@ native USDC custody, factory deployment and real Wormhole verification with
 local-only guardian/attester overrides. It does not execute Solana CPI or obtain
 a real Circle attestation. See the appended T2c section in
 `docs/SOLANA-REPORT-V6.md` for the final signed tuple, native result wire ABI,
-PDA namespaces, NVDA multiplier and mint/burn market-hours guards.
+PDA namespaces, NVDA multiplier and mint/burn stock-price staleness guards
+(24/7 pricing, no market-hours gate: R9.1).
 
 Remaining release gates: Solana acceptance/PDA derivation/encoder agreement,
 bounded native report batches, keeper/manual operational integration and a

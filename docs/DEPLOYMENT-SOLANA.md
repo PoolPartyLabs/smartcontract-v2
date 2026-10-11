@@ -1,5 +1,83 @@
 # Solana v6 deployment rehearsal — founder approval packet
 
+## Hub fixes — October 11, 2026 (POO-2256)
+
+> **Never call `closeFund` on a v6 Fund until CR-02 G1-G3 land.** `finalizeClosure`
+> cannot complete: G1 collected Solana income has no route home (multi-asset Funds),
+> G2 non-USDC residue cannot be liquidated under CLOSE, G3 the Hub ACK drops the EVM
+> spoke's CLOSE result (G3 is also on `main`, so alpha Funds carry it). Holders of a
+> Closing Fund can exit only after Closed. Closure is post-demo (R9.2) and stays
+> fail-closed; while a Fund is Open, holders exit by payout (see CR-36 below).
+
+### Native feed max ages (CR-12, R9.1)
+
+Stock pricing is 24/7 (R9.1): no session window; each feed's max age is the only
+time guard. `DeploySolanaV6` takes two explicit parameters, and
+`SolanaPriceSourceV6` refuses zero or anything above its measured ceilings:
+
+| Parameter | Feeds | Value | Ceiling in code |
+| --- | --- | ---: | --- |
+| `SOLANA_STOCK_PRICE_MAX_AGE` | TSLA/USD, NVDA/USD | 90,000 s (25 h) | `MAX_STOCK_PRICE_AGE` |
+| `SOLANA_SOL_PRICE_MAX_AGE` | SOL/USD | 7,200 s (2 h) | `MAX_SOL_PRICE_AGE` |
+
+Data, read 2026-10-11 17:31 UTC from `arb1.arbitrum.io` at Arbitrum block
+513,882,670 (head-100, block time Sun 17:31:01 UTC), one Multicall3
+`getRoundData` batch per feed; Chainlink directory metadata fetched the same minute:
+
+| Feed | Rounds | Window (UTC) | Median gap | Gaps > 1 h | Max gap | Heartbeat / deviation |
+| --- | ---: | --- | ---: | ---: | ---: | --- |
+| TSLA/USD `0x3609…C3E3` | 200 | Sep 16 15:02 → Oct 11 15:43 | 960 s | 47 | **86,429 s** (Tue Oct 6 13:40 → Wed 13:40) | 86,400 s / 0.5% |
+| NVDA/USD `0x4881…262F` | 200 | Aug 31 13:33 → Oct 11 15:58 | 3,242 s | 96 | **86,430 s** (Sat Sep 26 19:55 → Sun 19:56) | 86,400 s / 0.5% |
+| SOL/USD `0x24ce…590c` | 1,000 | Oct 8 10:52 → Oct 11 17:27 | 150 s | 1 | **3,692 s** (Sat Oct 10 23:22) | 86,400 s / 0.1% |
+
+The equity feeds do update on weekends (heartbeat only), so the previous shared
+3,600 s blocked mint/burn/exit for most of every weekend and for long in-session
+gaps (NVDA 96 of 199 gaps exceeded it). 90,000 s is the 24 h heartbeat plus one
+hour; the largest observed gap overshoots the heartbeat by 30 s. SOL stays tight at
+about twice its largest observed gap (3,600 s would have failed closed once in
+the sample). No incomplete round (`updatedAt == 0` or `answeredInRound < roundId`)
+was observed. Trade-off accepted by R9.1: a stock price up to 25 h old can price
+a mint or burn when the feed is quiet (weekends, holidays); a missed heartbeat
+fails closed (`UnsafeStockState`), never silently. Under a stale stock feed every
+v6 share mint/burn path (deposit, Instant request, claim, settle, closed exit)
+reverts until the next round; a Standard payout *request* still books.
+
+### Payout liveness (CR-36)
+
+The payout-liveness fallback covers the valuation only (price-source and hub-read
+failures use last-known values). Burning a share additionally needs every accepted
+spoke report fresh (DEC-160, both modes) and, on v6, every admitted stock feed within
+its max age. On a stale report or stock feed, an Instant payout reverts
+(`StaleSpokeReport` / `UnsafeStockState`); a **Standard request stays live**: it books
+its reserve and 72 h term without burning, and its claim pays once state is fresh.
+Proven on the composed v6 fork path (`ComposedSolanaFund.fork.t.sol`).
+
+### Fund creation gas (CR-18)
+
+Fitness test (`testFundCreationFitsThirtyMillionGasAtLargestMandate`): creation as
+one Arbitrum transaction (21,000 + calldata + cold execution) must stay <= 30M of
+Nitro's 32M per-transaction cap at the largest mandate the Hub admits. The factory no
+longer stages the native config in storage (-0.65M to -1.15M gas). Measured at 3
+native assets, every venue a Mandate pool:
+
+| Native venues | 2 | 3 | 4 | 5 | 6 | 8 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Creation gas | 28.85M | 29.31M | **29.40M** | 29.86M | 29.79M | 30.00M |
+
+`SolanaSpokeRegistryV6` admits at most 3 assets (Solana's own bound) and **4 venues**
+(Solana accepts 8). The demo uses 2. Raising the venue bound is a founder decision
+(D10) that needs more creation-gas headroom first (e.g. CoreVaultV6 creation code
+through CodeStore, about -0.69M calldata gas). Arbitrum's L1 data component (~0.30M
+gas units on 2026-10-09) is outside the 30M and grows with L1 fees.
+
+### Fork pins and test gas (CR-19)
+
+Fork tests read `ARBITRUM_FORK_BLOCK` / `ROBINHOOD_FORK_BLOCK` (CCTP suites:
+`CCTP_ARBITRUM_FORK_BLOCK`, then the Arbitrum pin); unset, they fork at head-100
+(`test/fork/ForkPins.sol`). No pin or stock session remains in test source.
+`foundry.toml` sets `gas_limit = max` for the whole-stack deployment tests. The
+Solana creation builder's fixed localnet port (8998) is owned by the `solana/` track.
+
 ## Deploy-day runbook S0–S12 (current; supersedes every older ordering below)
 
 Status 2026-10-11: **NO-GO** until every S0 box is ticked. Nothing in this file
@@ -288,8 +366,7 @@ approval. **Still NO-GO:** the supplied Alchemy Robinhood provider returns HTTP
 
 Load `.env.alpha` / `.env.solana` in a shell with tracing disabled and export
 parameters without printing. Source the handoff `tools/rpc-env.sh` for approved
-providers. Explicit `ARBITRUM_FORK_BLOCK`, `ROBINHOOD_FORK_BLOCK`,
-`SOLANA_STOCK_SESSION_OPEN/CLOSE`, and `PP_SWAP_MAX_AGE`,
+providers. Explicit `ARBITRUM_FORK_BLOCK`, `ROBINHOOD_FORK_BLOCK`, and `PP_SWAP_MAX_AGE`,
 `PP_SWAP_CONFIDENCE_BPS`, `PP_SWAP_CROSS_CHECK_BPS`, `PP_SWAP_SLIPPAGE_BPS`
 are required. Tested **proposal** limits were 300 seconds / 100 / 50 / 200 bps;
 they are not a founder ruling. Scope OFF and stock swaps unavailable are sealed
@@ -411,8 +488,9 @@ set -a; . "$EVM_ENV_FILE"; set +a
 source /Users/rafaelzochling/gitrepos/code-docs/pool-party-sc-v2-handoff/tools/rpc-env.sh
 # Set explicit ARBITRUM_FORK_BLOCK and ROBINHOOD_FORK_BLOCK; record them.
 # EVM_DEPLOYER_ADDRESS is the .env.alpha deployer's PUBLIC address.
-# Supply reviewed recipients, guardian, API signer, registry owner, stock session
-# boundaries and SOLANA_PRICE_MAX_AGE. Test placeholders are never launch config.
+# Supply reviewed recipients, guardian, API signer, registry owner,
+# SOLANA_STOCK_PRICE_MAX_AGE and SOLANA_SOL_PRICE_MAX_AGE (CR-12, see "Native feed
+# max ages"). Test placeholders are never launch config.
 bash script/solana-evm-rehearsal-all.sh
 node script/solana-evm-budget.mjs
 bash script/solana-release-rehearsal.sh core
@@ -485,7 +563,7 @@ approved factories. No complete exact EVM launch total can be claimed yet.
 1. **Freeze source and approve configuration.** Merge the reviewed integration
    and record its full commit; pin both fork blocks, CLI/compiler versions,
    EVM public signer, API signer/registry owner, protocol recipient/guardian,
-   finalized report max age, stock session/pricing rules and Solana identity.
+   finalized report max age, stock pricing max ages (24/7, R9.1) and Solana identity.
    API-only keys remain server-side (DEC-201/202). Review TSLA/NVDA/SOL feeds and
    effective multipliers (DEC-198); stock swaps remain unavailable without an
    admitted fresh Solana oracle (DEC-203/204). Preserve 500-bps management cap
@@ -671,7 +749,9 @@ Local deployment is opt-in: `node solana/scripts/deploy-local.mjs --broadcast`.
 Without that explicit flag, even a valid supplied key cannot submit transactions.
 It remains loopback-only; this flag does not authorize any mainnet deployment.
 Per-Fund creation refuses an unapproved destination: `arbitrum.approvedFactory`
-in the committed manifest is null until a reviewed deployment identity is pinned.
+in the committed manifest is the zero address until a reviewed deployment identity
+is pinned, and `DeploySolanaFundV6` reverts `FactoryNotApproved()` on it (CR-35;
+`FactoryNotPinned(supplied, approved)` for any other address).
 Never substitute an arbitrary environment address for that approval.
 
 Default cloned tests require `node tests/core/prepare-fixtures.ts` before starting
@@ -911,9 +991,9 @@ must NEVER become the deployment artifact.
 5. Complete the shared three-chain Fund acceptance and Fund/Spoke deployment
    dry runs, L1-inclusive costs, Manager/keeper payer deltas and API/manual claim
    fallback before founder funding approval. T8b/T8c own logic fixes.
-6. **TODO(decision):** retain existing fail-closed stock session handling; durable
-   holiday/DST/off-hours exit valuation remains undecided. Current script session
-   inputs are explicit, not an automatic market-calendar authority.
+6. **R9.1 (founder, 2026-10-11):** stock pricing is 24/7. The on-chain value of the
+   tokenized stock is what counts; there is no market-hours/session gate and no
+   session input. The stock feeds' max age is the only time guard (stale fails closed).
 
 ## Ordered mainnet runbook — approval required before ANY execution
 

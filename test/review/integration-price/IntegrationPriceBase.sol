@@ -1,4 +1,6 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: LicenseRef-PoolParty-Source-Available-1.0
+// @implements-rules-version: v2
+// Prior license grants and third-party rights remain valid. See LICENSE and LICENSING.md.
 pragma solidity 0.8.28;
 
 import {console2} from "forge-std/Test.sol";
@@ -29,6 +31,7 @@ import {FundFactory} from "../../../src/factory/FundFactory.sol";
 import {Mandate, MandateLib, PoolConfig} from "../../../src/mandate/Mandate.sol";
 import {EndToEndBase} from "../../fork/e2e/EndToEndBase.sol";
 import {V4SwapRouter} from "../../mocks/v4/V4SwapRouter.sol";
+import {ForkPins} from "../../fork/ForkPins.sol";
 
 /// @notice A contract actor on the real PoolManager: a shareholder of the fund (it deposits, requests and claims as
 ///         itself) and a trader that swaps to a price limit, adds and removes liquidity, and can wrap a call between a
@@ -222,7 +225,7 @@ abstract contract IntegrationPriceBase is EndToEndBase {
     /// @dev Hub-only runs select only the Arbitrum fork (the Mandate still lists the Robinhood spoke, as the scripts
     ///      build it; with no accepted report the spoke adds nothing to Share Assets).
     function _arbitrumOnly() internal {
-        arbitrumFork = vm.createFork(vm.envString("ARBITRUM_RPC_URL"), vm.envUint("ARBITRUM_FORK_BLOCK"));
+        arbitrumFork = vm.createFork(vm.envString("ARBITRUM_RPC_URL"), ForkPins.arbitrum());
         vm.selectFork(arbitrumFork);
         clock = block.timestamp;
     }

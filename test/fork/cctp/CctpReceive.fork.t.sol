@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: LicenseRef-PoolParty-Source-Available-1.0
+// @implements-rules-version: v2
+// Prior license grants and third-party rights remain valid. See LICENSE and LICENSING.md.
 pragma solidity 0.8.28;
 
 import {Test} from "forge-std/Test.sol";
@@ -9,6 +12,7 @@ import {IBridgeAdapter} from "../../../src/interfaces/IBridgeAdapter.sol";
 import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {CctpTestMessage} from "../../mocks/cctp/CctpHarness.sol";
+import {ForkPins} from "../ForkPins.sol";
 
 interface ICctpLiveTransmitter {
     function attesterManager() external view returns (address);
@@ -65,7 +69,7 @@ contract CctpReceiveForkTest is Test {
     CctpReceiveConnector internal connector;
 
     function setUp() public {
-        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envUint("CCTP_ARBITRUM_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), ForkPins.cctpArbitrum());
         assertEq(ICctpLiveTransmitter(TRANSMITTER).localDomain(), 3);
         assertEq(ICctpLiveTransmitter(TRANSMITTER).version(), 1);
         assertEq(ICctpLiveMessenger(MESSENGER).messageBodyVersion(), 1);

@@ -1,4 +1,6 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: LicenseRef-PoolParty-Source-Available-1.0
+// @implements-rules-version: v2
+// Prior license grants and third-party rights remain valid. See LICENSE and LICENSING.md.
 pragma solidity 0.8.28;
 
 import {Test, console2} from "forge-std/Test.sol";
@@ -10,6 +12,7 @@ import {IValueReportReceiver} from "../../../src/interfaces/IValueReportReceiver
 import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {SpokeConfig} from "../../../src/mandate/Mandate.sol";
 import {MockReceiverCoreVault} from "../../mocks/receiver/MockReceiverCoreVault.sol";
+import {ForkPins} from "../ForkPins.sol";
 
 /// @notice ValueReportReceiver against the real Arbitrum Wormhole Core (guardian set overridden by the SDK's
 ///         WormholeOverride, advanced variant for sequence control),
@@ -32,7 +35,7 @@ contract ValueReportReceiverForkTest is Test {
     bytes32 internal spokeVault;
 
     function setUp() public {
-        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envUint("ARBITRUM_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), ForkPins.arbitrum());
         core = ICoreBridge(ARB_WORMHOLE_CORE);
         assertEq(core.chainId(), WH_ARBITRUM);
         core.setUpOverride();
@@ -56,7 +59,8 @@ contract ValueReportReceiverForkTest is Test {
         r.fundId = FUND;
         r.sequence = sequence;
         r.spokeChainId = ROBINHOOD;
-        r.blockNumber = uint64(vm.envUint("ROBINHOOD_FORK_BLOCK"));
+        // A report field only (Robinhood is not forked here): any non-zero spoke block number.
+        r.blockNumber = uint64(vm.envOr("ROBINHOOD_FORK_BLOCK", uint256(1)));
         r.timestamp = uint64(block.timestamp - age);
         r.unallocated = new ReportCodec.TokenAmount[](1);
         r.unallocated[0] = ReportCodec.TokenAmount(RH_USDG, 4000e6);

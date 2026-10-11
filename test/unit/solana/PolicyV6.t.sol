@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: LicenseRef-PoolParty-Source-Available-1.0
+// @implements-rules-version: v2
+// Prior license grants and third-party rights remain valid. See LICENSE and LICENSING.md.
 pragma solidity 0.8.28;
 
 import {Test} from "forge-std/Test.sol";
@@ -96,6 +99,40 @@ contract PolicyV6Test is Test {
         SolanaMandateV6.Config memory stored = registry.nativeConfig();
         assertEq(stored.swapPolicyHash, native.swapPolicyHash);
         assertEq(SolanaMandateV6.hash(stored), registry.nativeMandateHash());
+    }
+
+    /// @dev CR-18, offline: the Hub seals at most 3 assets (Solana's own bound) and 4 venues (the 30M creation-gas
+    ///      bound). Exactly the bound is admitted; one more asset or venue, each otherwise valid, is refused.
+    function testRegistryAdmitsAtMostThreeAssetsAndFourVenues() public {
+        SolanaMandateV6.Config memory native = SolanaFixture.nativeConfig();
+        SolanaMandateV6.Venue[] memory venues = new SolanaMandateV6.Venue[](5);
+        venues[0] = native.venues[0];
+        venues[1] = native.venues[1];
+        venues[2] =
+            SolanaMandateV6.Venue(bytes32(uint256(300)), bytes32(uint256(401)), 0, SolanaFixture.SOL, native.usdcMint);
+        venues[3] = SolanaMandateV6.Venue(bytes32(uint256(500)), 0, bytes32(uint256(601)), SolanaFixture.SOL, 0);
+        venues[4] = SolanaMandateV6.Venue(bytes32(uint256(500)), 0, bytes32(uint256(602)), SolanaFixture.STOCK, 0);
+        native.venues = new SolanaMandateV6.Venue[](4);
+        for (uint256 index; index < 4; ++index) {
+            native.venues[index] = venues[index];
+        }
+        SolanaSpokeRegistryV6 registry = new SolanaSpokeRegistryV6(native);
+        assertEq(native.assets.length, registry.MAX_ASSETS());
+        assertEq(native.venues.length, registry.MAX_VENUES());
+        native.venues = venues;
+        vm.expectRevert(SolanaSpokeRegistryV6.InvalidNativeConfig.selector);
+        new SolanaSpokeRegistryV6(native);
+
+        native = SolanaFixture.nativeConfig();
+        SolanaMandateV6.Asset[] memory assets = new SolanaMandateV6.Asset[](4);
+        for (uint256 index; index < 3; ++index) {
+            assets[index] = native.assets[index];
+        }
+        bytes32 nvda = 0x07e8a50e140fda5791f4566a957fd3ae3f873e6a3466ffc13d79119dfa9ab50a;
+        assets[3] = SolanaMandateV6.Asset(nvda, SolanaMandateV6.accountingId(nvda), true);
+        native.assets = assets;
+        vm.expectRevert(SolanaSpokeRegistryV6.InvalidNativeConfig.selector);
+        new SolanaSpokeRegistryV6(native);
     }
 
     function testCanonicalPdaGoldenVector() public pure {

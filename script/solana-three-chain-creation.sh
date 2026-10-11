@@ -10,8 +10,6 @@ if [[ "$#" != 0 ]]; then printf 'No flags supported; fork/localnet only\n' >&2; 
 : "${ROBINHOOD_RPC_URL:?Source approved rpc-env.sh without printing}"
 : "${ARBITRUM_FORK_BLOCK:?Explicit fork pin required}"
 : "${ROBINHOOD_FORK_BLOCK:?Explicit fork pin required}"
-: "${SOLANA_STOCK_SESSION_OPEN:?Explicit session required}"
-: "${SOLANA_STOCK_SESSION_CLOSE:?Explicit session required}"
 [[ "$ARBITRUM_FORK_BLOCK" =~ ^[1-9][0-9]*$ && "$ROBINHOOD_FORK_BLOCK" =~ ^[1-9][0-9]*$ ]] || exit 2
 export PRIVATE_KEY="$DEPLOYER_PRIVATE_KEY"
 export PP_LOCALNET_RPC_PORT=8998 PP_LOCALNET_FAUCET_PORT=9998 PP_LOCALNET_GOSSIP_PORT=19900 PP_LOCALNET_DYNAMIC_PORTS=19901-19960

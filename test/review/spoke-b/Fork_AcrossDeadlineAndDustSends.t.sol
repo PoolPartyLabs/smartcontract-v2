@@ -1,4 +1,6 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: LicenseRef-PoolParty-Source-Available-1.0
+// @implements-rules-version: v2
+// Prior license grants and third-party rights remain valid. See LICENSE and LICENSING.md.
 pragma solidity 0.8.28;
 
 import {Test, console2} from "forge-std/Test.sol";
@@ -18,6 +20,7 @@ import {ReportCodec} from "../../../src/libraries/ReportCodec.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {MockPositionAdapter} from "../../mocks/spoke/MockPositionAdapter.sol";
 import {MockSwapAdapter} from "../../mocks/swap/MockSwapAdapter.sol";
+import {ForkPins} from "../../fork/ForkPins.sol";
 
 /// @notice Current Across relay data (bytes32 addresses, uint256 deposit id), as the live SpokePools take it.
 struct RelayData {
@@ -66,7 +69,7 @@ contract Fork_AcrossDeadlineAndDustSends is SpokeVaultForkBase {
 
     /// @notice Lead 2: no fill and no slow-fill request after `fillDeadline` on the destination clock.
     function test_lead2_forkArbitrum_expiredDepositCanNeitherBeFilledNorSlowFilled() public {
-        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envUint("ARBITRUM_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), ForkPins.arbitrum());
         ILiveSpokePool pool = ILiveSpokePool(ARB_SPOKE_POOL);
         uint256 nowOnArbitrum = pool.getCurrentTime();
         assertEq(nowOnArbitrum, block.timestamp);
@@ -96,7 +99,7 @@ contract Fork_AcrossDeadlineAndDustSends is SpokeVaultForkBase {
     ///         (since DEC-162 the smallest its fee rule lets through: one USDG base unit to arrive); each one lands in
     ///         the report for 6.5 h, and the real Wormhole Core publishes them.
     function test_lead1_forkRobinhood_oneUnitSendsHomeAreAcceptedAndListed() public {
-        vm.createSelectFork(vm.envString("ROBINHOOD_RPC_URL"), vm.envUint("ROBINHOOD_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ROBINHOOD_RPC_URL"), ForkPins.robinhood());
         MockPositionAdapter spokeUni = new MockPositionAdapter(guardian, false);
         spokeUni.addPool(SPOKE_POOL, RH_WETH, RH_USDG);
         address spokeSwap = address(new MockSwapAdapter());

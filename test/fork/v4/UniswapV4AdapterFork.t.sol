@@ -1,4 +1,6 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: LicenseRef-PoolParty-Source-Available-1.0
+// @implements-rules-version: v2
+// Prior license grants and third-party rights remain valid. See LICENSE and LICENSING.md.
 pragma solidity 0.8.28;
 
 import {Test} from "forge-std/Test.sol";
@@ -18,6 +20,7 @@ import {UniswapV4Adapter} from "../../../src/adapters/UniswapV4Adapter.sol";
 import {IAdapter} from "../../../src/interfaces/IAdapter.sol";
 import {V4VaultHarness} from "../../mocks/v4/V4VaultHarness.sol";
 import {V4SwapRouter} from "../../mocks/v4/V4SwapRouter.sol";
+import {ForkPins} from "../ForkPins.sol";
 
 interface IPermit2Holder {
     function permit2() external view returns (address);
@@ -356,7 +359,7 @@ abstract contract UniswapV4AdapterForkBase is Test {
 /// @notice Arbitrum One (Hub Chain): WETH/USDC 0.05%, tick spacing 10, no hooks.
 contract UniswapV4AdapterArbitrumForkTest is UniswapV4AdapterForkBase {
     function _fork() internal override {
-        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envUint("ARBITRUM_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), ForkPins.arbitrum());
     }
 
     function _config() internal pure override returns (address, address, address, address, address, bytes32) {
@@ -382,7 +385,7 @@ contract UniswapV4AdapterArbitrumForkTest is UniswapV4AdapterForkBase {
 /// @notice Robinhood Chain (Spoke Chain): WETH/USDG 0.05%, tick spacing 10, no hooks.
 contract UniswapV4AdapterRobinhoodForkTest is UniswapV4AdapterForkBase {
     function _fork() internal override {
-        vm.createSelectFork(vm.envString("ROBINHOOD_RPC_URL"), vm.envUint("ROBINHOOD_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ROBINHOOD_RPC_URL"), ForkPins.robinhood());
     }
 
     function _config() internal pure override returns (address, address, address, address, address, bytes32) {

@@ -1,10 +1,13 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: LicenseRef-PoolParty-Source-Available-1.0
+// @implements-rules-version: v2
+// Prior license grants and third-party rights remain valid. See LICENSE and LICENSING.md.
 pragma solidity 0.8.28;
 
 import {Test, console2} from "forge-std/Test.sol";
 import {IUniswapV3Factory} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Factory.sol";
 import {IUniswapV3Pool} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 import {IQuoterV2} from "@uniswap/v3-periphery/contracts/interfaces/IQuoterV2.sol";
+import {ForkPins} from "../ForkPins.sol";
 
 /// @notice SwapRouter02's V3 entry points (Uniswap swap-router-contracts v1.1.0,
 ///         `contracts/interfaces/IV3SwapRouter.sol`). Unlike the first SwapRouter, the params carry no deadline.
@@ -120,13 +123,12 @@ abstract contract SwapForkBase is Test {
         assertEq(block.chainid, c.chainId, "Robinhood chain id");
     }
 
-    /// @dev Forks `rpcEnv` at `blockEnv` when set, else at the latest block. The block is logged from the environment:
-    ///      on an Arbitrum fork `block.number` is the L1 block number, not the L2 one.
+    /// @dev Forks `rpcEnv` at `blockEnv` when set, else at the head minus `ForkPins.HEAD_LAG` (CR-19). The block is
+    ///      logged from the pin: on an Arbitrum fork `block.number` is the L1 block number, not the L2 one.
     function _fork(string memory rpcEnv, string memory blockEnv) internal {
-        uint256 blockNumber = vm.envOr(blockEnv, uint256(0));
-        if (blockNumber == 0) vm.createSelectFork(vm.envString(rpcEnv));
-        else vm.createSelectFork(vm.envString(rpcEnv), blockNumber);
-        console2.log("fork block (0 = latest)", blockNumber, "timestamp", block.timestamp);
+        uint256 blockNumber = ForkPins.pin(blockEnv, rpcEnv);
+        vm.createSelectFork(vm.envString(rpcEnv), blockNumber);
+        console2.log("fork block", blockNumber, "timestamp", block.timestamp);
     }
 
     /// @dev The token of `pool` that is not `known`.

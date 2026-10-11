@@ -1,4 +1,6 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: LicenseRef-PoolParty-Source-Available-1.0
+// @implements-rules-version: v2
+// Prior license grants and third-party rights remain valid. See LICENSE and LICENSING.md.
 pragma solidity 0.8.28;
 
 import {Test} from "forge-std/Test.sol";
@@ -20,6 +22,7 @@ import {Mandate, MandateLib} from "../../../src/mandate/Mandate.sol";
 import {FactoryDeployment} from "../../../script/FactoryDeployment.sol";
 import {FundMandate} from "../../../script/FundMandate.sol";
 import {FundSeed} from "../../utils/FundSeed.sol";
+import {ForkPins} from "../ForkPins.sol";
 
 /// @notice The operator's deployment (script/FactoryDeployment.sol) and a fund's creation against the live protocols of
 ///         Arbitrum One (Hub Chain) and Robinhood Chain (Spoke Chain), pinned to the .env fork blocks: the factory lands
@@ -42,8 +45,8 @@ contract FundFactoryForkTest is Test, FactoryDeployment, FundMandate, FundSeed {
     address internal registryOwner = makeAddr("registryOwner");
 
     function setUp() public {
-        arbitrumFork = vm.createFork(vm.envString("ARBITRUM_RPC_URL"), vm.envUint("ARBITRUM_FORK_BLOCK"));
-        robinhoodFork = vm.createFork(vm.envString("ROBINHOOD_RPC_URL"), vm.envUint("ROBINHOOD_FORK_BLOCK"));
+        arbitrumFork = vm.createFork(vm.envString("ARBITRUM_RPC_URL"), ForkPins.arbitrum());
+        robinhoodFork = vm.createFork(vm.envString("ROBINHOOD_RPC_URL"), ForkPins.robinhood());
     }
 
     function _plan() internal view returns (FundPlan memory plan) {

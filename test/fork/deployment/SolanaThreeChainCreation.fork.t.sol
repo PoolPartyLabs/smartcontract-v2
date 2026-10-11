@@ -1,9 +1,13 @@
+// SPDX-License-Identifier: LicenseRef-PoolParty-Source-Available-1.0
+// @implements-rules-version: v2
+// Prior license grants and third-party rights remain valid. See LICENSE and LICENSING.md.
 pragma solidity 0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {SolanaV6Deployment} from "../../../script/SolanaV6Deployment.sol";
 import {FundFactoryV6} from "../../../src/factory/FundFactoryV6.sol";
 import {CoreVaultV6} from "../../../src/core/CoreVaultV6.sol";
+import {SOLANA_MAX_STOCK_PRICE_AGE, SOLANA_MAX_SOL_PRICE_AGE} from "../../../src/report/SolanaPriceSourceV6.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IFundFactory} from "../../../src/interfaces/IFundFactory.sol";
 import {Mandate, TokenConfig, AdapterConfig, PoolConfig, SpokeConfig, BridgeAdapterConfig} from "../../../src/mandate/Mandate.sol";
@@ -13,6 +17,7 @@ import {SolanaPdaV6} from "../../../src/mandate/SolanaPdaV6.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
+import {ForkPins} from "../ForkPins.sol";
 
 /// @notice DEC-188/190/195/200/202: actual wallet consent, fork-only creation, never broadcast.
 contract SolanaThreeChainCreationForkTest is Test, SolanaV6Deployment {
@@ -40,10 +45,10 @@ contract SolanaThreeChainCreationForkTest is Test, SolanaV6Deployment {
     function _prepareHub() private {
         managerKey = vm.envUint("PRIVATE_KEY");
         manager = vm.addr(managerKey);
-        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envUint("ARBITRUM_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), ForkPins.arbitrum());
         vm.startPrank(manager);
         hub = _deployV6(vm.envAddress("PROTOCOL_RECIPIENT"), vm.envAddress("ADAPTER_GUARDIAN"), vm.envAddress("API_SIGNER"), vm.envAddress("API_SIGNER"),
-            uint64(vm.envUint("SOLANA_STOCK_SESSION_OPEN")), uint64(vm.envUint("SOLANA_STOCK_SESSION_CLOSE")), 3600);
+            SOLANA_MAX_STOCK_PRICE_AGE, SOLANA_MAX_SOL_PRICE_AGE);
         vm.stopPrank();
         creationNumber = hub.factory.nextCreationNumber();
         id = hub.factory.fundIdOf(42161, creationNumber, manager);
@@ -104,9 +109,10 @@ contract SolanaThreeChainCreationForkTest is Test, SolanaV6Deployment {
     }
 
     function _createRobinhood() private {
-        vm.createSelectFork(vm.envString("ROBINHOOD_RPC_URL"), vm.envUint("ROBINHOOD_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ROBINHOOD_RPC_URL"), ForkPins.robinhood());
         vm.startPrank(manager);
-        V6Deployment memory spoke = _deployV6(vm.envAddress("PROTOCOL_RECIPIENT"), vm.envAddress("ADAPTER_GUARDIAN"), vm.envAddress("API_SIGNER"), vm.envAddress("API_SIGNER"), 1791379800, 1791403200, 3600);
+        V6Deployment memory spoke = _deployV6(vm.envAddress("PROTOCOL_RECIPIENT"), vm.envAddress("ADAPTER_GUARDIAN"), vm.envAddress("API_SIGNER"), vm.envAddress("API_SIGNER"),
+            SOLANA_MAX_STOCK_PRICE_AGE, SOLANA_MAX_SOL_PRICE_AGE);
         vm.stopPrank();
         assertEq(address(spoke.factory), address(hub.factory));
         Mandate memory mandateConfig = abi.decode(mandateBytes, (Mandate));

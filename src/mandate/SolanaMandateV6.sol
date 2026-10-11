@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: LicenseRef-PoolParty-Source-Available-1.0
+// @implements-rules-version: v2
+// Prior license grants and third-party rights remain valid. See LICENSE and LICENSING.md.
 pragma solidity 0.8.28;
 
 import {ReportCodecV6} from "../libraries/ReportCodecV6.sol";
@@ -56,6 +59,13 @@ library SolanaMandateV6 {
 
 /// @notice Per-Fund closed Solana mint and venue registry (DEC-053, DEC-188, DEC-193).
 contract SolanaSpokeRegistryV6 {
+    /// @notice Solana `initialize_fund` accepts at most 3 assets: the Hub never seals more.
+    uint256 public constant MAX_ASSETS = 3;
+    /// @notice CR-18: Solana accepts up to 8 venues, but Fund creation at 3 assets measured (2026-10-11, every venue a
+    ///         Mandate pool) 29.40M gas with 4 venues and 30.00M with 8, against a 30M fitness bound under Arbitrum's
+    ///         32M per-transaction cap. The Hub admits 4 (Kamino plus one Raydium pool per non-USDC asset fits);
+    ///         TODO(decision, D10): raise only with creation-gas headroom (e.g. CoreVaultV6 creation code via CodeStore).
+    uint256 public constant MAX_VENUES = 4;
     bytes32 public immutable nativeMandateHash;
     bytes32 public immutable managerKey;
     bytes32 public immutable spoke;
@@ -71,10 +81,14 @@ contract SolanaSpokeRegistryV6 {
     error UnknownVenue();
     error UnsafeStockState(bytes32 mint);
 
+    /// @dev CR-18: at most `MAX_ASSETS` assets and `MAX_VENUES` venues, within what Solana's `initialize_fund` accepts,
+    ///      so the Hub never seals a native Mandate its spoke must refuse, and Fund creation at that largest Mandate
+    ///      is held to <= 30M gas by a fitness test (Arbitrum per-transaction cap: 32M).
     constructor(SolanaMandateV6.Config memory config) {
         if (
             config.program == 0 || config.spoke == 0 || config.managerKey == 0 || config.usdcMint == 0
                 || config.chainId == 0 || config.assets.length == 0 || config.venues.length == 0
+                || config.assets.length > MAX_ASSETS || config.venues.length > MAX_VENUES
                 || config.usdcMint != 0xc6fa7af3bedbad3a3d65f36aabc97431b1bbe4c2d2f6e0e47ca60203452f5d61
         ) revert InvalidNativeConfig();
         nativeMandateHash = SolanaMandateV6.hash(config);
@@ -125,7 +139,9 @@ contract SolanaSpokeRegistryV6 {
         return _config;
     }
 
-    /// @notice DEC-194, DEC-198: native share mints/burns cannot use cached off-hours stock prices.
+    /// @notice DEC-194, DEC-198, R9.1: native share mints/burns need a live price for every admitted stock, at any
+    ///         hour. A zero price, an incomplete round (`updatedAt == 0`) or a price older than the feed's own
+    ///         `maxPriceAge` fails closed; there is no market-hours gate (R9.1 superseded it on 2026-10-11).
     function requireStockPricing(address source) external view {
         for (uint256 index; index < _config.assets.length; ++index) {
             SolanaMandateV6.Asset memory asset = _config.assets[index];
