@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { R8_AUTHORITY, checkedEndpoint, assertGenesis, keypairFromParameter, keypairFromFile, requireOwnerOnly,
-  sanitize, scrubbedEnv, stepLogger, cliFailureDetail } from './ops-common.mjs';
+  sanitize, scrubbedEnv, stepLogger, cliFailureDetail, solanaCliConfig } from './ops-common.mjs';
 import { LOADER_V3, classifyProgramAccount, parseBuffer, preflight, recoverPrefundedProgram } from './loader-v3.mjs';
 
 const require = createRequire(import.meta.url);
@@ -175,10 +175,14 @@ async function main() {
     log(step, 'ok', `elapsedMs=${Date.now() - started}`);
     return result.stdout.trim();
   }
+  // CR-27: the endpoint (possibly keyed) never reaches argv; the CLI reads it from a 0600 config file in
+  // the 0700 temporary directory that is deleted in finally, next to the temporary payer file.
+  const configPath = resolve(directory, 'cli-config.yml');
   try {
     writeFileSync(payerPath, JSON.stringify(Array.from(payer.secretKey)), { mode: 0o600 });
+    writeFileSync(configPath, solanaCliConfig(endpoint, payerPath), { mode: 0o600 });
     if (!resumeBuffer) {
-      cli('write-buffer', ['--url', endpoint, '--keypair', payerPath, '--commitment', 'finalized', 'program', 'write-buffer', binaryPath,
+      cli('write-buffer', ['--config', configPath, '--keypair', payerPath, '--commitment', 'finalized', 'program', 'write-buffer', binaryPath,
         '--buffer', process.env.PP_DEPLOY_BUFFER_KEYPAIR, '--buffer-authority', payerPath,
         '--max-len', String(binary.length), '--with-compute-unit-price', String(priority), '--use-rpc']);
     }
@@ -186,7 +190,7 @@ async function main() {
       await recoverPrefundedProgram({ connection, payer, programKeypair, bufferAddress, binary, maxLen: binary.length,
         priorityMicroLamports: priority, commitment: 'finalized', log });
     } else {
-      cli('deploy', ['--url', endpoint, '--keypair', payerPath, '--commitment', 'finalized', 'program', 'deploy',
+      cli('deploy', ['--config', configPath, '--keypair', payerPath, '--commitment', 'finalized', 'program', 'deploy',
         '--buffer', process.env.PP_DEPLOY_BUFFER_KEYPAIR, '--program-id', process.env.PP_DEPLOY_PROGRAM_KEYPAIR,
         '--upgrade-authority', payerPath, '--max-len', String(binary.length), '--no-auto-extend',
         '--with-compute-unit-price', String(priority), '--use-rpc']);

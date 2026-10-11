@@ -94,3 +94,10 @@ export function cliFailureDetail(result) {
     .slice(-4).join(' | ');
   return sanitize(`exit=${result.status ?? result.signal ?? 'unknown'} ${lines}`.trim());
 }
+
+// CR-27: Solana CLI configuration carrying the endpoint, so a keyed URL never appears on argv (ps,
+// shell history, CI logs). Write it 0600 into a 0700 temporary directory and delete it afterwards.
+export function solanaCliConfig(endpoint, keypairPath, commitment = 'finalized') {
+  return `---\njson_rpc_url: ${JSON.stringify(endpoint)}\nwebsocket_url: ""\nkeypair_path: ${JSON.stringify(keypairPath)}\n`
+    + `address_labels:\n  "11111111111111111111111111111111": System Program\ncommitment: ${commitment}\n`;
+}

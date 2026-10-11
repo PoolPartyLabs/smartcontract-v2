@@ -12,6 +12,7 @@ import { createRequire } from 'node:module';
 import { preflight, recoverPrefundedProgram, readDeployedProgram, classifyProgramAccount, LOADER_V3 }
   from '../solana/scripts/loader-v3.mjs';
 import { sendInstructions } from '../solana/scripts/guarded-send.mjs';
+import { solanaCliConfig } from '../solana/scripts/ops-common.mjs';
 
 const require = createRequire(new URL('../solana/package.json', import.meta.url));
 const { Connection, Keypair, SystemProgram } = require('@solana/web3.js');
@@ -50,11 +51,16 @@ function solana(args) {
   return spawnSync('solana', ['--url', endpoint, ...args], { encoding: 'utf8', timeout: 300_000 });
 }
 
+// Same invocation shape as deploy-mainnet.mjs write-buffer: endpoint only inside a 0600 CLI config (CR-27).
 function writeBuffer(bufferKeypair, binaryPath = join(directory, 'elf.so')) {
   const payerPath = writeKeypair(join(directory, `payer-${Date.now()}.json`), payer);
   const bufferPath = writeKeypair(join(directory, `buffer-${bufferKeypair.publicKey.toBase58()}.json`), bufferKeypair);
-  const result = solana(['--keypair', payerPath, '--commitment', 'confirmed', 'program', 'write-buffer', binaryPath,
-    '--buffer', bufferPath, '--buffer-authority', payerPath, '--max-len', String(elf.length), '--use-rpc']);
+  const configPath = join(directory, `cli-config-${Date.now()}.yml`);
+  writeFileSync(configPath, solanaCliConfig(endpoint, payerPath, 'confirmed'), { mode: 0o600 });
+  const args = ['--config', configPath, '--keypair', payerPath, '--commitment', 'confirmed', 'program', 'write-buffer', binaryPath,
+    '--buffer', bufferPath, '--buffer-authority', payerPath, '--max-len', String(elf.length), '--use-rpc'];
+  assert.ok(!args.some(arg => arg.includes(String(RPC_PORT))), 'endpoint never on argv');
+  const result = spawnSync('solana', args, { encoding: 'utf8', timeout: 300_000 });
   assert.equal(result.status, 0, result.stderr);
 }
 

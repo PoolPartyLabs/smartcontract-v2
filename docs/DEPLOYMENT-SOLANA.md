@@ -71,6 +71,35 @@ never in Slack, a repository or the dev host. Use the same procedure for R8 and 
 any cold upgrade-authority key file. Record the date and media labels (not the
 passphrase) in the deploy log.
 
+## Secrets off argv and key-less RPC (CR-27)
+
+Nothing secret appears on a command line (`ps`, shell history, CI logs):
+
+- **EVM broadcast signer.** `script/solana-evm-deploy.sh --broadcast` no longer
+  accepts `--private-key`. It signs with a Foundry keystore (default) or a Ledger
+  and refuses when the signer address differs from `EVM_DEPLOYER_ADDRESS`:
+
+  ```sh
+  cast wallet import pp-evm-deployer --interactive   # prompts; stored encrypted in ~/.foundry/keystores
+  export EVM_KEYSTORE_ACCOUNT=pp-evm-deployer
+  export EVM_KEYSTORE_PASSWORD_FILE="$HOME/.pp/evm-keystore.pass"   # optional, mode 0600; else forge prompts
+  # or: export EVM_SIGNER=ledger
+  ```
+
+- **EVM endpoints.** argv carries only the `foundry.toml` `[rpc_endpoints]` alias
+  (`arbitrum`, `robinhood`); Foundry resolves it from `ARBITRUM_RPC_URL` /
+  `ROBINHOOD_RPC_URL` in the environment (`--fork-url arbitrum`,
+  `cast chain-id --rpc-url arbitrum`).
+- **Solana endpoint.** `deploy-mainnet.mjs` hands the Solana CLI a 0600 config file
+  (`--config`) inside its 0700 temporary directory, next to the 0600 temporary payer
+  file; both are deleted in `finally`. Node-side reads use the environment only.
+- **Key-less providers.** Prefer endpoints whose URL is not a credential: IP- or
+  origin-allowlisted, or header-authenticated. Treat any keyed URL as a secret:
+  never paste it into Slack, reports, evidence or a browser bundle.
+- **Out of this package (API repo):** add `V2_API_SIGNER_KEY`, `V2_KEEPER_KEY`,
+  `V2_SOLANA_KEEPER_PRIVATE_KEY` and `V2_JUPITER_API_KEY` to the Sentry exact-value
+  redaction list, and allow `http` for Iris/VAA only on loopback mocks.
+
 ## Post-Scope integration review — October 7, 2026
 
 PR #49 is integrated. The production ELF is now **995,384 bytes**, SHA-256

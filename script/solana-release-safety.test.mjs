@@ -193,6 +193,28 @@ test('CR-22: deploy stays R8-pinned while --verify reads the expected authority 
   assert.match(runbook, /gpg --symmetric --cipher-algo AES256/);
 });
 
+test('CR-27: no raw key or endpoint on argv in the mainnet wrappers', () => {
+  const evm = readFileSync('script/solana-evm-deploy.sh', 'utf8');
+  assert.doesNotMatch(evm, /--private-key/);
+  assert.doesNotMatch(evm, /--(fork-url|rpc-url) "\$RPC"/);
+  assert.match(evm, /--fork-url "\$RPC_ALIAS"/);
+  assert.match(evm, /--account "\$\{EVM_KEYSTORE_ACCOUNT:\?/);
+  assert.match(readFileSync('foundry.toml', 'utf8'), /\[rpc_endpoints\]\narbitrum = "\$\{ARBITRUM_RPC_URL\}"\nrobinhood = "\$\{ROBINHOOD_RPC_URL\}"/);
+  const solana = readFileSync('solana/scripts/deploy-mainnet.mjs', 'utf8');
+  assert.doesNotMatch(solana, /'--url'/);
+  assert.match(solana, /cli\('write-buffer', \['--config', configPath/);
+  assert.match(solana, /cli\('deploy', \['--config', configPath/);
+});
+
+test('CR-27: broadcast resolves the RPC through the alias and fails closed without printing it or the key', () => {
+  const result = spawnSync('bash', ['script/solana-evm-deploy.sh', 'arbitrum', 'factory-v6', '--broadcast'], { encoding: 'utf8',
+    env: { ...process.env, PP_EVM_FOUNDER_APPROVED: 'YES', ARBITRUM_RPC_URL: 'https://SECRET_ENDPOINT.invalid', ARBITRUM_FORK_BLOCK: '1',
+      PRIVATE_KEY: 'SECRET_KEY', EVM_DEPLOYER_ADDRESS: '0x0000000000000000000000000000000000000014' } });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Read-only chain verification failed/);
+  assert.doesNotMatch(result.stdout + result.stderr, /SECRET_KEY|SECRET_ENDPOINT/);
+});
+
 test('CR-10: preflight reports an unreachable endpoint as a NO-GO row without naming it', () => {
   const result = spawnSync(process.execPath, ['solana/scripts/deploy-mainnet.mjs', '--preflight'], {
     encoding: 'utf8', env: { ...process.env, SOLANA_MAINNET_RPC: 'https://secret-provider-host.invalid/SECRET_PATH_KEY' },
