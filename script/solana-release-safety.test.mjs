@@ -260,3 +260,10 @@ test('C7: creation gas is a receipt fitness on loopback, and fund-v6 requests at
   assert.notEqual(refused.status, 0);
   assert.doesNotMatch(refused.stdout + refused.stderr, /SECRET_ENDPOINT|SECRET_KEY/);
 });
+
+test('C5: the EVM wrapper purges Foundry\'s sensitive script cache on every exit', () => {
+  const evm = readFileSync('script/solana-evm-deploy.sh', 'utf8');
+  assert.match(evm, /trap 'rm -rf "\$ROOT\/cache\/\$SCRIPT\.s\.sol"' EXIT/);
+  assert.ok(evm.indexOf("trap 'rm -rf") > evm.indexOf('check-legacy) SCRIPT=CheckAlphaDeployment'));
+  assert.ok(evm.indexOf("trap 'rm -rf") < evm.indexOf('forge "${ARGS[@]}"'));
+});

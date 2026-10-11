@@ -54,6 +54,9 @@ case "$MODULE" in
   fund-legacy) SCRIPT=CreateFund ;;
   check-legacy) SCRIPT=CheckAlphaDeployment ;;
 esac
+# C5: Foundry's sensitive script cache (cache/<Script>.s.sol/<chain>/...) stores the resolved, possibly keyed, RPC
+# URL; purge it on every exit, success or failure.
+trap 'rm -rf "$ROOT/cache/$SCRIPT.s.sol"' EXIT
 STATE="$ROOT/cache/sol-t9/evm-$CHAIN-$MODULE"
 mkdir -p "$STATE"
 export FOUNDRY_BROADCAST="$STATE/broadcast"
