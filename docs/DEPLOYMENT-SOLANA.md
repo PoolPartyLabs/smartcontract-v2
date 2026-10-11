@@ -1,5 +1,37 @@
 # Solana v6 deployment rehearsal — founder approval packet
 
+## fix-sp candidate ELF — October 11, 2026 (POO-2263)
+
+Supersedes the 995,384-byte / `6b1d78f7…3ed2` ELF below; that hash is no longer
+the release candidate. Program fixes: CR-03 (Raydium reward quarantine created
+PDA-signed on first collect/close, Manager-paid), CR-16 (first Hub order at
+Wormhole sequence 0), CR-17 (Kamino supply books the measured debit within one
+cToken of rounding), CR-28 (`prune_registry` Manager-bound; localnet DEC-205
+close-with-pending test), CR-33 (`swap_exact_in` typed Fund; harness fixes),
+CR-12 Solana side (R9.1: no stock market-session gate; staleness only).
+
+- Production ELF **1,002,944 bytes**, SHA-256
+  `7653083a23a7932ac5934cce6b61c42cb67c79b89a6194a11b1c6817a907866d`,
+  features `no-idl,no-log-ix-name`, opt-level z; program source
+  `26fb7a112d23a28f1ae63f4851f9f8ab0bcc75f0`. Rebuilt byte-identical after a
+  `rehearsal-v1-swap` feature build. The IDL top-level `errors` list alternates
+  between error enums across builds (observed `ad649e46…` / `0034f06c…`):
+  approve the IDL bytes of the approval build, never a historical hash.
+- `script/solana-mainnet-approval.json` stays `NOT_APPROVED` with null top-level
+  hashes; the candidate is recorded under `candidate` for founder review.
+- GO-2 on a fresh mainnet clone (2026-10-11, slots 455,748,903–455,749,032 plus
+  per-suite oracle refreshes): core 43/43, signed production 1/1 + DEC-205
+  close 1/1, Scope 9/9, legacy composed 1/1 (15 tx, 2,176-byte report), 27/27
+  named negatives (`tests/swap/negatives.localnet.test.ts`), local loader
+  rehearsal with the real program keypair and R8 authority (1,048 tx; on-chain
+  ELF equals file; authority R8).
+- Read-only mainnet repricing at finalized slot 455,756,330: successful initial
+  deploy **5.101940754 SOL** (ProgramData rent 5.095834360 + Program 0.000833120
+  + 1,047 tx fees 0.005273274). R8 held 0 lamports and `7Ppt…` was unused at
+  2026-10-11T18:51:33Z.
+- Heaviest measured spoke transaction 498,777 CU (`raydium_close_position`,
+  55.4% of the 900k builder cap); largest packet 952 bytes (CCTP receive).
+
 ## Post-Scope integration review — October 7, 2026
 
 PR #49 is integrated. The production ELF is now **995,384 bytes**, SHA-256

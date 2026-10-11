@@ -11,6 +11,48 @@
   "authority": "6VTveiPVZVM7H9BWEsUsu4ivsrPjKw9ePrLQqHaFgJaA",
   "priorityMicroLamportsPerCU": null,
   "walletMinimumLamports": null,
-  "decisions": ["DEC-188", "DEC-189", "DEC-195"],
-  "coordinatorRequests": ["Restore Robinhood RPC quota and complete same-Fund fork repeat", "Review native role aliases and admitted asset choices", "Approve combined-wallet budget and all release gates"]
+  "decisions": [
+    "DEC-188",
+    "DEC-189",
+    "DEC-195"
+  ],
+  "coordinatorRequests": [
+    "Approve the fix-sp candidate ELF below (CR-03/12/16/17/28/33) after reviewing its GO-2 evidence; copy its hashes into the top-level fields only at approval",
+    "Fund R8 (0 lamports at 2026-10-11T18:51Z): successful initial deploy is 5.101940754 SOL read-only repriced, plus Manager/keeper reserves",
+    "Review native role aliases and admitted asset choices",
+    "Approve combined-wallet budget and all release gates"
+  ],
+  "candidate": {
+    "note": "Reviewed candidate, NOT an approval. deploy-mainnet.mjs reads only the top-level fields, which stay null until the founder approves exact bytes.",
+    "programSourceCommit": "26fb7a112d23a28f1ae63f4851f9f8ab0bcc75f0",
+    "reproducibility": "Any clean checkout of this branch at or after programSourceCommit rebuilds the same ELF with solana/scripts/deploy-build.sh (verified byte-identical after a rehearsal-v1-swap feature build).",
+    "binaryBytes": 1002944,
+    "binarySha256": "7653083a23a7932ac5934cce6b61c42cb67c79b89a6194a11b1c6817a907866d",
+    "idlSha256Observed": [
+      "ad649e46dc39abe64b932a54fdb63e0218f710cf62a88764cd503baaeac803c8",
+      "0034f06c8e828ccaaa9593e83a59861602498185f7d1bb8c8abee08992b703f6"
+    ],
+    "idlNote": "Anchor picks one of several #[error_code] enums for the IDL top-level errors list nondeterministically; approve the IDL bytes produced by the approval build.",
+    "features": [
+      "no-idl",
+      "no-log-ix-name"
+    ],
+    "optLevel": "z",
+    "mainnetRepricedAt": "2026-10-11T18:51:33Z",
+    "mainnetRepricedFinalizedSlot": 455756330,
+    "successfulDeployLamports": 5101940754,
+    "deployTransactions": 1047,
+    "supersedes": {
+      "binaryBytes": 995384,
+      "binarySha256": "6b1d78f7add9f932d065f06b15fb41de94b1b4fe1d931412d849f5c5a4be3ed2"
+    },
+    "changeRegister": [
+      "CR-03",
+      "CR-12",
+      "CR-16",
+      "CR-17",
+      "CR-28",
+      "CR-33"
+    ]
+  }
 }
