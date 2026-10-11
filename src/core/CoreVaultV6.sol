@@ -13,6 +13,11 @@ import {CctpReceiveConnector} from "./CctpReceiveConnector.sol";
 
 /// @notice New-Fund Core with an immutable native Mandate commitment (DEC-188, DEC-190).
 /// @dev DEC-191, DEC-199: native reports and pending CCTP claims share the same Core accounting.
+/// @dev OPERATIONAL RULE — never call `closeFund` on a v6 Fund until CR-02 G1-G3 land (post-demo, R9.2):
+///      `finalizeClosure` cannot complete today. G1: collected Solana income has no route home for a multi-asset
+///      Fund. G2: non-USDC residue cannot be liquidated under CLOSE. G3: the Hub ACK removes the EVM spoke's CLOSE
+///      result that finalization needs (also true of the legacy Core). A Closing Fund then strands its holders, who
+///      can exit only after Closed. While the Fund is Open, holders exit by payout. Closure stays fail-closed.
 contract CoreVaultV6 is CoreVaultCctp {
     SolanaSpokeRegistryV6 public immutable nativeRegistry;
     bytes32 public immutable nativeMandateHash;

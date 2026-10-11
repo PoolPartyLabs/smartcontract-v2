@@ -2,6 +2,13 @@
 
 ## Hub fixes — October 11, 2026 (POO-2256)
 
+> **Never call `closeFund` on a v6 Fund until CR-02 G1-G3 land.** `finalizeClosure`
+> cannot complete: G1 collected Solana income has no route home (multi-asset Funds),
+> G2 non-USDC residue cannot be liquidated under CLOSE, G3 the Hub ACK drops the EVM
+> spoke's CLOSE result (G3 is also on `main`, so alpha Funds carry it). Holders of a
+> Closing Fund can exit only after Closed. Closure is post-demo (R9.2) and stays
+> fail-closed; while a Fund is Open, holders exit by payout (see CR-36 below).
+
 ### Native feed max ages (CR-12, R9.1)
 
 Stock pricing is 24/7 (R9.1): no session window; each feed's max age is the only
@@ -34,6 +41,42 @@ a mint or burn when the feed is quiet (weekends, holidays); a missed heartbeat
 fails closed (`UnsafeStockState`), never silently. Under a stale stock feed every
 v6 share mint/burn path (deposit, Instant request, claim, settle, closed exit)
 reverts until the next round; a Standard payout *request* still books.
+
+### Payout liveness (CR-36)
+
+The payout-liveness fallback covers the valuation only (price-source and hub-read
+failures use last-known values). Burning a share additionally needs every accepted
+spoke report fresh (DEC-160, both modes) and, on v6, every admitted stock feed within
+its max age. On a stale report or stock feed, an Instant payout reverts
+(`StaleSpokeReport` / `UnsafeStockState`); a **Standard request stays live**: it books
+its reserve and 72 h term without burning, and its claim pays once state is fresh.
+Proven on the composed v6 fork path (`ComposedSolanaFund.fork.t.sol`).
+
+### Fund creation gas (CR-18)
+
+Fitness test (`testFundCreationFitsThirtyMillionGasAtLargestMandate`): creation as
+one Arbitrum transaction (21,000 + calldata + cold execution) must stay <= 30M of
+Nitro's 32M per-transaction cap at the largest mandate the Hub admits. The factory no
+longer stages the native config in storage (-0.65M to -1.15M gas). Measured at 3
+native assets, every venue a Mandate pool:
+
+| Native venues | 2 | 3 | 4 | 5 | 6 | 8 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Creation gas | 28.85M | 29.31M | **29.40M** | 29.86M | 29.79M | 30.00M |
+
+`SolanaSpokeRegistryV6` admits at most 3 assets (Solana's own bound) and **4 venues**
+(Solana accepts 8). The demo uses 2. Raising the venue bound is a founder decision
+(D10) that needs more creation-gas headroom first (e.g. CoreVaultV6 creation code
+through CodeStore, about -0.69M calldata gas). Arbitrum's L1 data component (~0.30M
+gas units on 2026-10-09) is outside the 30M and grows with L1 fees.
+
+### Fork pins and test gas (CR-19)
+
+Fork tests read `ARBITRUM_FORK_BLOCK` / `ROBINHOOD_FORK_BLOCK` (CCTP suites:
+`CCTP_ARBITRUM_FORK_BLOCK`, then the Arbitrum pin); unset, they fork at head-100
+(`test/fork/ForkPins.sol`). No pin or stock session remains in test source.
+`foundry.toml` sets `gas_limit = max` for the whole-stack deployment tests. The
+Solana creation builder's fixed localnet port (8998) is owned by the `solana/` track.
 
 ## Post-Scope integration review — October 7, 2026
 

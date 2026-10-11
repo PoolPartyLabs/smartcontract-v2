@@ -7,6 +7,7 @@
 ## Pool Party V2: live on mainnet
 
 Solana spoke development and local mainnet-state tests: [solana/README.md](solana/README.md).
+**Never call `closeFund` on a v6 (Solana) Fund until closure gaps G1-G3 are fixed**; see [docs/DEPLOYMENT-SOLANA.md](docs/DEPLOYMENT-SOLANA.md).
 
 **A source-available On-Chain Asset Management System (OAMS), built during the Arbitrum Open House Singapore Buildathon and deployed on Arbitrum One and Robinhood Chain mainnet.** Managers create funds, commit to an immutable Mandate and operate DeFi positions. Investors access the fund through USDC-denominated shares on Arbitrum.
 
