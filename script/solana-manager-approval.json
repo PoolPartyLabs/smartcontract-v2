@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "status": "NOT_APPROVED",
+  "approvedBy": null,
+  "approvedAt": null,
+  "sourceCommit": null,
+  "programId": "7PptZ653uyn5eoAFKqs4DXR1ijxH6sf49f2YAGMLTfCx",
+  "managerSolanaKey": null,
+  "allowedPrograms": [
+    "7PptZ653uyn5eoAFKqs4DXR1ijxH6sf49f2YAGMLTfCx",
+    "ComputeBudget111111111111111111111111111111"
+  ],
+  "maxPriorityFeeLamports": 100000,
+  "priorityMicroLamportsPerCU": null,
+  "creation": {
+    "planSha256": null,
+    "hubCore": null,
+    "hubFactory": null,
+    "hubCreationTx": null,
+    "fundPda": null,
+    "assets": null
+  },
+  "decisions": ["DEC-190", "DEC-195", "DEC-200"],
+  "notes": "Template only. Copy outside the repo, fill, and point PP_MANAGER_APPROVAL_FILE at the copy. managerSolanaKey is sealed per Fund (DEC-190) and cannot rotate. creation.assets is the reviewed sealed asset list in plan order, e.g. [\"usdc\", \"wsol\"] (DF-1); broadcast refuses a plan that seals anything else."
+}

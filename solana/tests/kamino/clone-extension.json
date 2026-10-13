@@ -1,0 +1,6 @@
+{
+  "track": "sol-t3-kamino",
+  "additionalMainnetCloneAddresses": [],
+  "reason": "T0 already clones all pinned Kamino accounts. Track-local synthetic Fund/position and vault token overrides do not modify venue state or mints.",
+  "prepareAfterHarness": "node tests/kamino/prepare.ts"
+}

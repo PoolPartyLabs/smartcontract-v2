@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "status": "NOT_APPROVED",
+  "approvedBy": null,
+  "approvedAt": null,
+  "sourceCommit": null,
+  "programId": "7PptZ653uyn5eoAFKqs4DXR1ijxH6sf49f2YAGMLTfCx",
+  "binarySha256": null,
+  "idlSha256": null,
+  "maxLen": null,
+  "authority": "6VTveiPVZVM7H9BWEsUsu4ivsrPjKw9ePrLQqHaFgJaA",
+  "expectedAuthority": null,
+  "priorityMicroLamportsPerCU": null,
+  "walletMinimumLamports": null,
+  "decisions": [
+    "DEC-188",
+    "DEC-189",
+    "DEC-195"
+  ],
+  "coordinatorRequests": [
+    "Approve the fix-sp candidate ELF below (CR-03/12/16/17/28/33) after reviewing its GO-2 evidence; at S1 copy binarySha256 and the idlSha256 printed by THIS build into the top-level fields, and set sourceCommit to the deploy checkout HEAD (C8)",
+    "Fund R8 (0 lamports at 2026-10-11T18:51Z): successful initial deploy is 5.101940754 SOL read-only repriced, plus Manager/keeper reserves",
+    "Review native role aliases and admitted asset choices",
+    "Approve combined-wallet budget and all release gates"
+  ],
+  "candidate": {
+    "note": "Reviewed candidate, NOT an approval. deploy-mainnet.mjs reads only the top-level fields, which stay null until the founder approves exact bytes.",
+    "programSourceCommit": null,
+    "programSourceCommitRule": "C8: at S1 set this AND the top-level sourceCommit to `git rev-parse HEAD` of the clean deploy checkout (the P0 merge commit or later). deploy-mainnet.mjs refuses unless sourceCommit == HEAD == pp_spoke.release.json sourceCommit. Never 26fb7a1: it builds the same ELF but its deploy-mainnet.mjs has no --preflight and no --recover-prefunded.",
+    "programSourceUnchangedSince": "26fb7a112d23a28f1ae63f4851f9f8ab0bcc75f0",
+    "reproducibility": "Any clean checkout of this branch at or after programSourceUnchangedSince rebuilds the same ELF with solana/scripts/deploy-build.sh (verified byte-identical after a rehearsal-v1-swap feature build; no solana/programs change since).",
+    "binaryBytes": 1002944,
+    "binarySha256": "7653083a23a7932ac5934cce6b61c42cb67c79b89a6194a11b1c6817a907866d",
+    "idlSha256Observed": [
+      "ad649e46dc39abe64b932a54fdb63e0218f710cf62a88764cd503baaeac803c8",
+      "0034f06c8e828ccaaa9593e83a59861602498185f7d1bb8c8abee08992b703f6",
+      "51d66596423e9c59a5c6ea63b781dfd0f74d1ca4ad99e455efca60b3d3ab5c0e"
+    ],
+    "idlNote": "Only the IDL top-level errors list varies: Anchor picks one of the program's several #[error_code] enums per build (three hashes observed on identical source). Instructions, accounts, events and types are identical. C8: the top-level idlSha256 is the idlSha256 that deploy-build.sh prints (solana/target/deploy/pp_spoke.release.json) on the deploy checkout at S1; deploy-mainnet.mjs refuses any other IDL bytes.",
+    "features": [
+      "no-idl",
+      "no-log-ix-name"
+    ],
+    "optLevel": "z",
+    "mainnetRepricedAt": "2026-10-11T18:51:33Z",
+    "mainnetRepricedFinalizedSlot": 455756330,
+    "successfulDeployLamports": 5101940754,
+    "deployTransactions": 1047,
+    "supersedes": {
+      "binaryBytes": 995384,
+      "binarySha256": "6b1d78f7add9f932d065f06b15fb41de94b1b4fe1d931412d849f5c5a4be3ed2"
+    },
+    "changeRegister": [
+      "CR-03",
+      "CR-12",
+      "CR-16",
+      "CR-17",
+      "CR-28",
+      "CR-33"
+    ]
+  }
+}

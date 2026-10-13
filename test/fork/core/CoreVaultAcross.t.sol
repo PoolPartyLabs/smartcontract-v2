@@ -29,6 +29,7 @@ import {MockReportReceiver} from "../../mocks/core/MockReportReceiver.sol";
 import {MockPriceSource} from "../../mocks/core/MockPriceSource.sol";
 import {MockManagerRegistry} from "../../mocks/core/MockManagerRegistry.sol";
 import {MandateFixture} from "../../utils/MandateFixture.sol";
+import {ForkPins} from "../ForkPins.sol";
 
 /// @notice Core Vault custody against the live Across SpokePool on Arbitrum One (docs/INTEGRATIONS.md): the vault
 ///         approves exactly, the SpokePool pulls exactly the input amount from the vault with the per-send escrow as
@@ -52,7 +53,7 @@ contract CoreVaultAcrossForkTest is Test, FundSeed {
     address internal spokeVaultAddress = makeAddr("robinhoodSpokeVault");
 
     function setUp() public {
-        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envUint("ARBITRUM_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), ForkPins.arbitrum());
         bridge = new MockBridgeAdapter(SPOKE_POOL);
         hubVault = new MockHubSpokeVault(USDC);
         receiver = new MockReportReceiver();

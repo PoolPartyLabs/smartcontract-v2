@@ -1,0 +1,24 @@
+[package]
+name = "pp_spoke"
+version = "0.1.0"
+description = "Pool Party v2 per-Fund Solana spoke"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "pp_spoke"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build"]
+anchor-debug = []
+custom-heap = []
+custom-panic = []
+rehearsal-v1-swap = []
+
+[dependencies]
+anchor-lang = { workspace = true }

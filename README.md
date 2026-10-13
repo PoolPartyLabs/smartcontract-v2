@@ -6,6 +6,9 @@
 
 ## Pool Party V2: live on mainnet
 
+Solana spoke development and local mainnet-state tests: [solana/README.md](solana/README.md).
+**Never call `closeFund` on a v6 (Solana) Fund until closure gaps G1-G3 are fixed**; see [docs/DEPLOYMENT-SOLANA.md](docs/DEPLOYMENT-SOLANA.md).
+
 **A source-available On-Chain Asset Management System (OAMS), built during the Arbitrum Open House Singapore Buildathon and deployed on Arbitrum One, Robinhood Chain and Solana mainnet.** Managers create funds, commit to an immutable Mandate and operate DeFi positions. Investors access the fund through USDC-denominated shares on Arbitrum.
 
 **This is a live mainnet internal alpha with real capital and confirmed transactions.** The evidence includes manager-funded creation, investor deposits, Aave supply, Uniswap swaps and liquidity positions, Across transfers and Wormhole value reports. The external security audit is planned next, followed by the public V2 launch. V2 has not yet been audited by an independent third party.
@@ -35,7 +38,7 @@ open source. The [scope/history map](LICENSING.md),
 [third-party notices](THIRD_PARTY_NOTICES.md) and [contribution policy](CONTRIBUTING.md)
 identify the precise boundaries, including upstream code that retains its license.
 
-This repository is public. The Solana program (Rust, Anchor) is in `solana/programs/pp_spoke` on the branch `feat/pp-sc-feat-solana-spoke`. See the [Solana source](https://github.com/PoolPartyLabs/smartcontract-v2/tree/feat/pp-sc-feat-solana-spoke/solana).
+This repository is public. The Solana program (Rust, Anchor) is in `solana/programs/pp_spoke` on `main`. See the [Solana source](https://github.com/PoolPartyLabs/smartcontract-v2/tree/main/solana).
 
 ## Which parts of your code have been produced during the Buildathon?
 
@@ -208,7 +211,7 @@ Third-party accounts used:
 
 Toolchain: **Solidity 0.8.28, EVM Cancun and Foundry**. Pinned dependencies are recorded in [foundry.lock](foundry.lock) and [.gitmodules](.gitmodules).
 
-Solana program: **Rust 1.88.0, Anchor 0.31.1, Solana 2.3.0**, on branch `feat/pp-sc-feat-solana-spoke`.
+Solana program: **Rust 1.88.0, Anchor 0.31.1, Solana 2.3.0**, on `main`.
 
 ```bash
 git clone --recurse-submodules https://github.com/PoolPartyLabs/smartcontract-v2.git

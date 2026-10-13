@@ -1,0 +1,22 @@
+{
+  "name": "pool-party-solana-tests",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": "24.14.0" },
+  "scripts": {
+    "test": "node --test tests/unit/*.test.ts",
+    "test:localnet": "node scripts/run-localnet-tests.ts",
+    "localnet:prepare": "node scripts/prepare-localnet.ts"
+  },
+  "dependencies": {
+    "@noble/hashes": "1.8.0",
+    "@solana/web3.js": "1.98.4"
+  },
+  "devDependencies": {
+    "ethers": "6.17.0",
+    "@noble/curves": "1.9.7",
+    "@types/node": "24.10.0",
+    "typescript": "5.9.3"
+  }
+}

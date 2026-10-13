@@ -1,0 +1,14 @@
+{
+  "program": "HFn8GnPADiny6XqUoWE8uRPPxb29ikn4yTuPa9MF2fWJ",
+  "accounts": [
+    "3t4JZcueEzTbVP6kLxXrL3VpWx45jDer4eqysweBchNH",
+    "4zh6bmb77qX2CL7t5AJYCqa6YqFafbz3QJNeFvZjLowg",
+    "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB",
+    "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh"
+  ],
+  "source": "Kamino-Finance/scope@8d01cb8cfb9cfb3f75aec8ee39bcf9f6b40b16c5",
+  "entries": { "TSLAx": 60, "NVDAx": 46 },
+  "priceType": 34,
+  "marketMode": 1,
+  "exponent": 15
+}

@@ -7,6 +7,7 @@ import {Test} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
+import {ForkPins} from "../../fork/ForkPins.sol";
 
 /// @dev Live SpokePool fill entry point, as declared in test/fork/across/AcrossFill.fork.t.sol (selector 0xdeff4b24).
 interface ILiveSpokePoolFill {
@@ -47,7 +48,7 @@ contract Fork_AcrossFillToCodelessSpokeVault is Test {
     }
 
     function test_REVIEW_H05_fork_liveFillToAnAddressWithoutCodeCreditsTokensAndSkipsTheCallback() public {
-        vm.createSelectFork(vm.envString("ROBINHOOD_RPC_URL"), vm.envUint("ROBINHOOD_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ROBINHOOD_RPC_URL"), ForkPins.robinhood());
         // The Mandate's predicted Spoke Vault before `createSpoke`: an address with no code.
         address predictedSpokeVault = makeAddr("predictedSpokeVaultNotCreatedYet");
         assertEq(predictedSpokeVault.code.length, 0);

@@ -1,0 +1,290 @@
+{
+  "pair": "wsol",
+  "probe": "6Ckm2BrnXxsSjyG5b17kQQRjoECVrts92RKXVGT8XeqS",
+  "fund": "6Gg4AVKo8GAft4Wb2JSfhHCW3PQhXxYxapzBYeVjGzA9",
+  "vault": "8a8buzeQrdLNMJNSkhaZ7ZmVoigW6UmDJv7TeMM5aNfz",
+  "quote": {
+    "inputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "inAmount": "15000000",
+    "outputMint": "So11111111111111111111111111111111111111112",
+    "outAmount": "124361521",
+    "otherAmountThreshold": "121874291",
+    "swapMode": "ExactIn",
+    "slippageBps": 200,
+    "platformFee": null,
+    "priceImpactPct": "0.0002307733958568608299567883",
+    "routePlan": [
+      {
+        "swapInfo": {
+          "ammKey": "8sLbNZoA1cfnvMJLPfp98ZLAnFSYCFApfJKMbiXNLwxj",
+          "label": "Raydium CLMM",
+          "inputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "outputMint": "So11111111111111111111111111111111111111112",
+          "inAmount": "15000000",
+          "outAmount": "124361521",
+          "updateContextSlot": "453991425"
+        },
+        "percent": 100,
+        "bps": null
+      }
+    ],
+    "contextSlot": 453991433,
+    "timeTaken": 0.000289165,
+    "swapUsdValue": "14.9957982771881305977297",
+    "mostReliableAmmsQuoteReport": {
+      "info": {
+        "BZtgQEyS6eXUXicYPHecYQ7PybqodXQMvkjUbP4R8mUU": "Not used RG: FullLiquidIntermediate, contains ALT: true",
+        "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE": "Amm is excluded from request's dexes_selection."
+      }
+    },
+    "longtailMarketQuoteReport": null,
+    "useIncurredSlippageForQuoting": null,
+    "useRewards": null,
+    "otherRoutePlans": null,
+    "loadedLongtailToken": false,
+    "instructionVersion": "V1",
+    "transactionVersion": 0
+  },
+  "instructions": {
+    "tokenLedgerInstruction": null,
+    "computeBudgetInstructions": [
+      {
+        "programId": "ComputeBudget111111111111111111111111111111",
+        "accounts": [],
+        "data": "AsBcFQA="
+      },
+      {
+        "programId": "ComputeBudget111111111111111111111111111111",
+        "accounts": [],
+        "data": "AwQXAQAAAAAA"
+      }
+    ],
+    "setupInstructions": [
+      {
+        "programId": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+        "accounts": [
+          {
+            "pubkey": "8a8buzeQrdLNMJNSkhaZ7ZmVoigW6UmDJv7TeMM5aNfz",
+            "isSigner": true,
+            "isWritable": true
+          },
+          {
+            "pubkey": "A6KtF8LTCPFCGVmL8MuEfmxy7FttykQjTyrDY9ik1AsF",
+            "isSigner": false,
+            "isWritable": true
+          },
+          {
+            "pubkey": "8a8buzeQrdLNMJNSkhaZ7ZmVoigW6UmDJv7TeMM5aNfz",
+            "isSigner": false,
+            "isWritable": false
+          },
+          {
+            "pubkey": "So11111111111111111111111111111111111111112",
+            "isSigner": false,
+            "isWritable": false
+          },
+          {
+            "pubkey": "11111111111111111111111111111111",
+            "isSigner": false,
+            "isWritable": false
+          },
+          {
+            "pubkey": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+            "isSigner": false,
+            "isWritable": false
+          }
+        ],
+        "data": "AQ=="
+      }
+    ],
+    "swapInstruction": {
+      "programId": "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+      "accounts": [
+        {
+          "pubkey": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "pubkey": "8a8buzeQrdLNMJNSkhaZ7ZmVoigW6UmDJv7TeMM5aNfz",
+          "isSigner": true,
+          "isWritable": false
+        },
+        {
+          "pubkey": "8EezGc5cfvQqRKYp13kuzYjYoCEVXCZ1A5x3H8qyZcJV",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "A6KtF8LTCPFCGVmL8MuEfmxy7FttykQjTyrDY9ik1AsF",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "A6KtF8LTCPFCGVmL8MuEfmxy7FttykQjTyrDY9ik1AsF",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "So11111111111111111111111111111111111111112",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "pubkey": "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "pubkey": "D8cy77BBepLMngZx6ZukaTff5hCt1HrWyKk3Hnd9oitf",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "pubkey": "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "pubkey": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "pubkey": "8a8buzeQrdLNMJNSkhaZ7ZmVoigW6UmDJv7TeMM5aNfz",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "pubkey": "9iFER3bpjf1PTTCQCfTRu17EJgvsxo9pVyA9QWwEuX4x",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "pubkey": "8sLbNZoA1cfnvMJLPfp98ZLAnFSYCFApfJKMbiXNLwxj",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "8EezGc5cfvQqRKYp13kuzYjYoCEVXCZ1A5x3H8qyZcJV",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "A6KtF8LTCPFCGVmL8MuEfmxy7FttykQjTyrDY9ik1AsF",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "6mK4Pxs6GhwnessH7CvPivqDYauiHZmAdbEFDpXFk9zt",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "6P4tvbzRY6Bh3MiWDHuLqyHywovsRwRpfskPvyeSoHsz",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "3MsJXVvievxAbsMsaT6TS4i6oMitD9jazucuq3X234tC",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "pubkey": "E8TpeC1Gx8gAfhHxrdS7uoSTcTgS7w1C6J5gPfYYYf9X",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "DoPuiZfJu7sypqwR4eiU7C5TMcmmiFoU4HaF5SoD8mRy",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "Ahbb5vFM4e8DNqSrhMnYDUo9kbHvL5bVsM6RYX4LXtrJ",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "DHRm3NdeN4rMJc9mjiCW5o9bcsW1X565Z1VstsgiMEGG",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+          "isSigner": false,
+          "isWritable": false
+        }
+      ],
+      "data": "5RfLl3rjrSoBAAAAGmQAAcDh5AAAAAAAMZtpBwAAAADIAAA="
+    },
+    "cleanupInstruction": null,
+    "otherInstructions": [],
+    "addressLookupTableAddresses": [
+      "EwhVfL6x9bdFnt74jGCeSwBLyodNTFDrmfPA7LH7Yn3H"
+    ],
+    "prioritizationFeeLamports": 99999,
+    "computeUnitLimit": 1400000,
+    "loadedAccountsDataSize": null,
+    "loadedAccountsDataSizeLimit": null,
+    "transactionVersion": 0,
+    "prioritizationType": {
+      "computeBudget": {
+        "microLamports": 71428,
+        "estimatedMicroLamports": 350202
+      }
+    },
+    "simulationSlot": null,
+    "dynamicSlippageReport": null,
+    "simulationError": null,
+    "addressesByLookupTableAddress": null,
+    "blockhashWithMetadata": {
+      "blockhash": [
+        186,
+        131,
+        92,
+        137,
+        97,
+        25,
+        168,
+        168,
+        100,
+        126,
+        70,
+        57,
+        55,
+        75,
+        20,
+        189,
+        33,
+        76,
+        30,
+        193,
+        50,
+        188,
+        133,
+        243,
+        60,
+        133,
+        95,
+        134,
+        34,
+        3,
+        169,
+        59
+      ],
+      "lastValidBlockHeight": 432029279,
+      "fetchedAt": {
+        "secs_since_epoch": 1791313867,
+        "nanos_since_epoch": 949435591
+      }
+    },
+    "timeTaken": 0.004367202,
+    "createAtaTimeTaken": 0.000062282
+  }
+}

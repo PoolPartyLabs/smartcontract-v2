@@ -9,6 +9,7 @@ import {AaveV3Adapter} from "../../../src/adapters/AaveV3Adapter.sol";
 import {IAdapter} from "../../../src/interfaces/IAdapter.sol";
 import {IAaveV3Pool} from "../../../src/interfaces/external/IAaveV3Pool.sol";
 import {IAToken} from "../../../src/interfaces/external/IAToken.sol";
+import {ForkPins} from "../ForkPins.sol";
 
 /// @dev Borrow entry of the Aave V3 Pool, used only by the test to drain reserve liquidity. The adapter never borrows
 ///      (DEC-018, DEC-028).
@@ -32,7 +33,7 @@ contract AaveV3AdapterAdversarialForkTest is Test {
     bytes32 internal key = bytes32(uint256(uint160(USDC)));
 
     function setUp() public {
-        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envUint("ARBITRUM_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), ForkPins.arbitrum());
         address[] memory assets = new address[](1);
         assets[0] = USDC;
         adapter = new AaveV3Adapter(vault, guardian, POOL, assets);

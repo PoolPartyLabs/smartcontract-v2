@@ -1,0 +1,270 @@
+{
+  "latestSlot": 453992063,
+  "accounts": [
+    {
+      "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "owner": "BPFLoaderUpgradeab1e11111111111111111111111",
+      "executable": true,
+      "sha256": "bae3e5d63e30c0c3e6fe788b9e027bf003ca5e5bb46d3a9627e034bb3002ea5c"
+    },
+    {
+      "address": "DoU57AYuPFu2QU514RktNPG22QhApEjnKxnBcu4BHDTY",
+      "owner": "BPFLoaderUpgradeab1e11111111111111111111111",
+      "executable": false,
+      "sha256": "4bba6bf1da06a44b467038e2df01ae41199f97d9072888ce9856694ea8b2eec1"
+    },
+    {
+      "address": "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB",
+      "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "executable": false,
+      "sha256": "48ff1a6aaa855484dbc7259265c2f9bbb63696310cd587a988e4e2565e61e446"
+    },
+    {
+      "address": "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+      "owner": "BPFLoaderUpgradeab1e11111111111111111111111",
+      "executable": true,
+      "sha256": "77969e6c064ab31f68250951941ad20690dfc23e97870e63006ccdad39c8a47e"
+    },
+    {
+      "address": "4Ec7ZxZS6Sbdg5UGSLHbAnM7GQHp2eFd4KYWRexAipQT",
+      "owner": "BPFLoaderUpgradeab1e11111111111111111111111",
+      "executable": false,
+      "sha256": "2fae6c67dbb46871dbc273ced109117a3f7c185b2af8364cfe27b3902ebab8e1"
+    },
+    {
+      "address": "D8cy77BBepLMngZx6ZukaTff5hCt1HrWyKk3Hnd9oitf",
+      "owner": "11111111111111111111111111111111",
+      "executable": false,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "address": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+      "owner": "BPFLoaderUpgradeab1e11111111111111111111111",
+      "executable": true,
+      "sha256": "c16d13765ea79ac071c8ba0fccc3a2a455d6aeb636f30bb2237ede6ebbe006a8"
+    },
+    {
+      "address": "HzD2cCXXT3UQNjMMY6kDv9w6gZ9qquSdfoGXrLL3LXx",
+      "owner": "BPFLoaderUpgradeab1e11111111111111111111111",
+      "executable": false,
+      "sha256": "30cd64bbdeea321209db0fb9cdab3e52903f42dfbdc3e4c05306a9404cbc3c00"
+    },
+    {
+      "address": "DrdecJVzkaRsf1TQu1g7iFncaokikVTHqpzPjenjRySY",
+      "owner": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+      "executable": false,
+      "sha256": "ad0f239579a154346776abe18446538d1146c143242fd2a022b9006f5508ea77"
+    },
+    {
+      "address": "8aDaBQkTrS6HVMjyc6EZebgdiaXhLYGriDWKWWp1NpFF",
+      "owner": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+      "executable": false,
+      "sha256": "ef76a8b8a829ad655937812d1f946d2dbfcb41625ad62fe98071948cd65f8f58"
+    },
+    {
+      "address": "8JyAULXLSRjxAmzE2MfrgeHhTg8J1DRMqas1gaRn85ot",
+      "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "executable": false,
+      "sha256": "863965f06108c5b848e2484c81f850707412e098b7f434338c9505e1bf076cc9"
+    },
+    {
+      "address": "CYfaMvz6ft1YahGnetsGP3E8GWkURdJcDSzfihGrH8Qo",
+      "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "executable": false,
+      "sha256": "ebe9dbb0bd8cb0ea0e3b2af1e4d7289f5fbacc8115322e6af81153925e303b03"
+    },
+    {
+      "address": "55Nk2ZmPu7uyvehWeik38qztCJVcqkn78jU2Yrkhnd6T",
+      "owner": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+      "executable": false,
+      "sha256": "270de30a0ed888e2393aebff80da576d1db723b91cfb34a8d8af177c54776253"
+    },
+    {
+      "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "owner": "BPFLoaderUpgradeab1e11111111111111111111111",
+      "executable": true,
+      "sha256": "5b31219b7bc4060b1638b933be5f50df3400109acfef12408a196d57ad119748"
+    },
+    {
+      "address": "3gvYRKWyXRR9xKWe1ZjPhLY5ZJRN7KDB4rFZFGoJfFk2",
+      "owner": "BPFLoaderUpgradeab1e11111111111111111111111",
+      "executable": false,
+      "sha256": "573971c9baedda479bf4c38537787ae396358009b4920f8a270bd2b31dde5fe3"
+    },
+    {
+      "address": "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
+      "owner": "BPFLoader2111111111111111111111111111111111",
+      "executable": true,
+      "sha256": "f520eaf096361abbb9639ea4dc3e5388a87b9330e121f476607b87c46ef67954"
+    },
+    {
+      "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "executable": false,
+      "sha256": "196364f64d7869aa794b8188133af59cd03ab02968af5c267193d6c26b8bba7b"
+    },
+    {
+      "address": "EmyAhCptv5fNzoP4A6HvHjtczDBL27G14qJicr4Bv4A7",
+      "owner": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+      "executable": false,
+      "sha256": "6810dee9d725480ca3ffb31018b42f6d2db2be67a3359631815369144b559ad2"
+    },
+    {
+      "address": "CjZgfgpuLVrwectvfsisxeXqMN3jmVegPd4wdV4Y5PRp",
+      "owner": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+      "executable": false,
+      "sha256": "28b3f9c5dfd42ad431d31d0f6970ab4cad3a97e9afcdca71b0f732b4eabb4f47"
+    },
+    {
+      "address": "2RPS2FmDDbQkBu1y9sWBjjhKrfzxqt66XvqHDTcihLr6",
+      "owner": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+      "executable": false,
+      "sha256": "6e21ca65d95b9f0eeb29b645f4e653e013fdbd43979460e000d6ce37a9b085b9"
+    },
+    {
+      "address": "2h4mmQmq8gdZCmaeKshQvKQBqPEdDaCMyFnnsJF49Ycn",
+      "owner": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+      "executable": false,
+      "sha256": "a474b7040ed77471a92c8a5bbac1fd14b66607feccc8bf0a5452991379853932"
+    },
+    {
+      "address": "A3qMSXvBr9XPxF25HaotVN6j5Jmh9uAAJTLAsbSXsABK",
+      "owner": "AddressLookupTab1e1111111111111111111111111",
+      "executable": false,
+      "sha256": "e4f1746d2204c2db9b7d56a6ad4b08981e785c96d2b25634ab6b621e8daa2942"
+    },
+    {
+      "address": "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh",
+      "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "executable": false,
+      "sha256": "9572face1933eb96c541c167eef9b986c90449a947b9a1b0cf9bf3d275776402"
+    },
+    {
+      "address": "49iMatQtoyabsYAQc8GafVq6aeBFVDxSRH44oiatyyw6",
+      "owner": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+      "executable": false,
+      "sha256": "939440a4a01abf43808b890c743fe7ee130c2aef1bf8350fcaa3e7512cf28456"
+    },
+    {
+      "address": "4JEtq7NraU9U5URcCKSv6sWRRgDSuSnUjYDqpSJSWohY",
+      "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "executable": false,
+      "sha256": "a8c33884c67f43f15180333276fde40ade0de03d3ca25ec5bea12f71cf1973e0"
+    },
+    {
+      "address": "DyKsypuzQvhi37K8UvjCMBC43h4HtW4r6jhWoqHyrSSe",
+      "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "executable": false,
+      "sha256": "abfd3dde74fd93f9e812900743418de667556fa7a1b06f4201e5a32fe6613d0f"
+    },
+    {
+      "address": "BhVGr6ZSa3kDc2d1XHXHTfoGQos8RbeDTjJfBaXMoLQH",
+      "owner": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+      "executable": false,
+      "sha256": "b3cd38ddd0bbabfc6f11260c8b87190a1dc792c3ac71043be05ec196750999ff"
+    },
+    {
+      "address": "4iGbEJNTpdZAUAF8N23w4zXBe1wsq3V3sjRXzMv5EkF6",
+      "owner": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+      "executable": false,
+      "sha256": "03d7128ce8ddcc2112487dd330b54ced986a079c57715833d295f639d52becad"
+    },
+    {
+      "address": "A72UrtBMcpv7vHUMDBpEEwBKea7n9vNb6iGehQGq1z7L",
+      "owner": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+      "executable": false,
+      "sha256": "1d02e506b6a2621d4df01e36d828c2bfeec6491970980c6606c3de61102d01c5"
+    },
+    {
+      "address": "B9B9X9vHqMMbJtNmSmory6SDWxujG1GaKPCqfZLNvT8J",
+      "owner": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+      "executable": false,
+      "sha256": "880c48aefa1d85f7ed3712c1cf5470e424d37094090e02bd4f9ad568562d803a"
+    },
+    {
+      "address": "9jveRHHhGc9W3SQFUg8312DHyGsa2MSUcw9ASpUzF921",
+      "owner": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+      "executable": false,
+      "sha256": "abb4970419c78e6df2a907a468da5517c019bb49c035fa88ea31fc5316c46ec1"
+    },
+    {
+      "address": "GQqGAHmgcyP6UE5LPJZi1C3vfPKr8izRsH5YUPMSfWi7",
+      "owner": "AddressLookupTab1e1111111111111111111111111",
+      "executable": false,
+      "sha256": "fed75efb5287f5727fff9aea6b1fbb930d519e27135a6d23855c5522049512aa"
+    },
+    {
+      "address": "So11111111111111111111111111111111111111112",
+      "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "executable": false,
+      "sha256": "b0f919425a529f4971ef8dabd535aec34947d5c8c4885df80dae91635b98c5f3"
+    },
+    {
+      "address": "9iFER3bpjf1PTTCQCfTRu17EJgvsxo9pVyA9QWwEuX4x",
+      "owner": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+      "executable": false,
+      "sha256": "f4b065595a325c1df14dc93c03ce3c1eda1e99bb967a46510e12eab6619cb1c3"
+    },
+    {
+      "address": "8sLbNZoA1cfnvMJLPfp98ZLAnFSYCFApfJKMbiXNLwxj",
+      "owner": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+      "executable": false,
+      "sha256": "4893df1f2838fa015e125dfac9beb5c45453f798d90bbe29296775797abf0296"
+    },
+    {
+      "address": "6mK4Pxs6GhwnessH7CvPivqDYauiHZmAdbEFDpXFk9zt",
+      "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "executable": false,
+      "sha256": "827a6744fee83499e2c7e2cff60e3bc9dd6a2c1ac3bbfe7159c34062348e0461"
+    },
+    {
+      "address": "6P4tvbzRY6Bh3MiWDHuLqyHywovsRwRpfskPvyeSoHsz",
+      "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "executable": false,
+      "sha256": "df7bea76be1fe642c59dc86015960cbd335629ac951e348625595b7b6b38edb4"
+    },
+    {
+      "address": "3MsJXVvievxAbsMsaT6TS4i6oMitD9jazucuq3X234tC",
+      "owner": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+      "executable": false,
+      "sha256": "9647cd225b534384ba6006bac7f1332297e4427207d07d89292868386405a53a"
+    },
+    {
+      "address": "E8TpeC1Gx8gAfhHxrdS7uoSTcTgS7w1C6J5gPfYYYf9X",
+      "owner": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+      "executable": false,
+      "sha256": "0727154b35848e55740244f5b8c1cc3381fd545669fc5b4c3f8c9bd049c5c67b"
+    },
+    {
+      "address": "DoPuiZfJu7sypqwR4eiU7C5TMcmmiFoU4HaF5SoD8mRy",
+      "owner": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+      "executable": false,
+      "sha256": "518dd099622bfb0dea2170b8426a581c33722af9668f9202ec871b209029ff7d"
+    },
+    {
+      "address": "Ahbb5vFM4e8DNqSrhMnYDUo9kbHvL5bVsM6RYX4LXtrJ",
+      "owner": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+      "executable": false,
+      "sha256": "cecd2b8d11987b1fc5ba457337d1ee0ebaed08ca19f71c676d45f0ba7bfc13db"
+    },
+    {
+      "address": "DHRm3NdeN4rMJc9mjiCW5o9bcsW1X565Z1VstsgiMEGG",
+      "owner": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+      "executable": false,
+      "sha256": "197baa5daf21441f0338976ccf03723f31ffbbac47689edda399961fb0a8f4a3"
+    },
+    {
+      "address": "EwhVfL6x9bdFnt74jGCeSwBLyodNTFDrmfPA7LH7Yn3H",
+      "owner": "AddressLookupTab1e1111111111111111111111111",
+      "executable": false,
+      "sha256": "27ee21331d125271035624b2e5763894f531972f91a1fd4db45a49a3f3acfe19"
+    }
+  ],
+  "absent": [
+    "8a8buzeQrdLNMJNSkhaZ7ZmVoigW6UmDJv7TeMM5aNfz",
+    "8EezGc5cfvQqRKYp13kuzYjYoCEVXCZ1A5x3H8qyZcJV",
+    "929EsLNSqbVjKVaFW6X8CmDr7iTketV6cSBD9zL2Tm6B",
+    "AMXb5XXXbDHkMPRrSP76Jj7YbY8mtycMHJYgfD661jYa",
+    "A6KtF8LTCPFCGVmL8MuEfmxy7FttykQjTyrDY9ik1AsF"
+  ]
+}

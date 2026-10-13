@@ -1,0 +1,10 @@
+{
+  "testOnly": true,
+  "domain": {
+    "chainId": "42161",
+    "verifyingContract": "0505050505050505050505050505050505050505",
+    "program": "6Ckm2BrnXxsSjyG5b17kQQRjoECVrts92RKXVGT8XeqS"
+  },
+  "signer": "b0e5863d0ddf7e105e409fee0ecc0123a362e14b",
+  "digest": "a7595e420cb0764a9681e2f0d2f68fa8e9afef3935e014fcb9451baa0aecdaeb"
+}

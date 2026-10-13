@@ -14,6 +14,7 @@ import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {AcrossHarnessVault} from "../../mocks/across/AcrossHarnessVault.sol";
 import {AcrossFillSimulator} from "../../mocks/across/AcrossFillSimulator.sol";
 import {MockAcrossMessageHandler} from "../../mocks/across/MockAcrossMessageHandler.sol";
+import {ForkPins} from "../ForkPins.sol";
 
 /// @dev Live SpokePool members outside the frozen IAcrossSpokePool subset, read only by these tests.
 interface IAcrossSpokePoolState {
@@ -51,13 +52,13 @@ contract AcrossBridgeAdapterForkTest is Test {
     // ------------------------------------------------------------------ setup helpers
 
     function _forkArbitrum() internal {
-        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envUint("ARBITRUM_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), ForkPins.arbitrum());
         assertEq(block.chainid, ARBITRUM_CHAIN_ID);
         _deploy(ARB_SPOKE_POOL, ARB_USDC);
     }
 
     function _forkRobinhood() internal {
-        vm.createSelectFork(vm.envString("ROBINHOOD_RPC_URL"), vm.envUint("ROBINHOOD_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ROBINHOOD_RPC_URL"), ForkPins.robinhood());
         assertEq(block.chainid, ROBINHOOD_CHAIN_ID);
         _deploy(RH_SPOKE_POOL, RH_USDG);
     }

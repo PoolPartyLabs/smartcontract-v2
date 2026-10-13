@@ -13,6 +13,7 @@ import {TransferKind} from "../../../src/interfaces/FundTypes.sol";
 import {TransitMessage} from "../../../src/libraries/TransitMessage.sol";
 import {AcrossHarnessVault} from "../../mocks/across/AcrossHarnessVault.sol";
 import {IAcrossSpokePoolLive} from "../../mocks/across/IAcrossSpokePoolLive.sol";
+import {ForkPins} from "../ForkPins.sol";
 
 /// @notice DEC-162 on the live Across SpokePools: the Across adapter's rule-built deposit is accepted on both chains
 ///         with every term fixed by the adapter, fills on the destination at the adapter's amount, and the stuck-send
@@ -55,12 +56,12 @@ contract AcrossFeeRuleLiveForkTest is Test {
     // ------------------------------------------------------------------ helpers
 
     function _forkArbitrum() internal {
-        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), vm.envUint("ARBITRUM_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ARBITRUM_RPC_URL"), ForkPins.arbitrum());
         assertEq(block.chainid, ARBITRUM_CHAIN_ID);
     }
 
     function _forkRobinhood() internal {
-        vm.createSelectFork(vm.envString("ROBINHOOD_RPC_URL"), vm.envUint("ROBINHOOD_FORK_BLOCK"));
+        vm.createSelectFork(vm.envString("ROBINHOOD_RPC_URL"), ForkPins.robinhood());
         assertEq(block.chainid, ROBINHOOD_CHAIN_ID);
     }
 

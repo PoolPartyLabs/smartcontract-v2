@@ -1,0 +1,202 @@
+// SPDX-License-Identifier: LicenseRef-PoolParty-Source-Available-1.0
+// @implements-rules-version: v2
+// Prior license grants and third-party rights remain valid. See LICENSE and LICENSING.md.
+pragma solidity 0.8.28;
+
+import {ReportCodecV6} from "../libraries/ReportCodecV6.sol";
+import {IPriceSource} from "../interfaces/IPriceSource.sol";
+
+/// @notice Immutable native identity commitment accompanying the EVM Mandate (DEC-188, DEC-190).
+library SolanaMandateV6 {
+    struct Transport {
+        address hubUsdc;
+        address tokenMessenger;
+        address messageTransmitter;
+        uint32 destinationDomain;
+        bytes32 mintRecipient;
+        bytes32 destinationCaller;
+        bytes32 remoteTokenMessenger;
+        bytes32 remoteVaultAuthority;
+        uint256 fastFeeCeiling;
+    }
+
+    struct Asset {
+        bytes32 mint;
+        address accountingId;
+        bool stock;
+    }
+
+    struct Venue {
+        bytes32 program;
+        bytes32 pool;
+        bytes32 reserve;
+        bytes32 token0;
+        bytes32 token1;
+    }
+
+    struct Config {
+        bytes32 program;
+        bytes32 spoke;
+        bytes32 usdcMint;
+        bytes32 managerKey;
+        /// @dev This v6 cohort uses chain 1 for Solana accounting, independently of transport namespaces.
+        uint256 chainId;
+        Asset[] assets;
+        Venue[] venues;
+        Transport transport;
+        bytes32 swapPolicyHash;
+    }
+
+    /// @dev Namespaced accounting aliases, not truncated public keys; collisions are refused by the registry.
+    function accountingId(bytes32 mint) internal pure returns (address) {
+        return address(uint160(uint256(keccak256(abi.encode("PoolParty/SolanaAsset/v6", uint16(1), mint)))));
+    }
+
+    function hash(Config memory config) internal pure returns (bytes32) {
+        return keccak256(abi.encode(uint256(6), config));
+    }
+}
+
+/// @notice Per-Fund closed Solana mint and venue registry (DEC-053, DEC-188, DEC-193).
+contract SolanaSpokeRegistryV6 {
+    /// @notice Solana `initialize_fund` accepts at most 3 assets: the Hub never seals more.
+    uint256 public constant MAX_ASSETS = 3;
+    /// @notice CR-18: Solana accepts up to 8 venues, but Fund creation at 3 assets measured (2026-10-11, every venue a
+    ///         Mandate pool) 29.40M gas with 4 venues and 30.00M with 8, against a 30M fitness bound under Arbitrum's
+    ///         32M per-transaction cap. The Hub admits 4 (Kamino plus one Raydium pool per non-USDC asset fits);
+    ///         TODO(decision, D10): raise only with creation-gas headroom (e.g. CoreVaultV6 creation code via CodeStore).
+    uint256 public constant MAX_VENUES = 4;
+    bytes32 public immutable nativeMandateHash;
+    bytes32 public immutable managerKey;
+    bytes32 public immutable spoke;
+    bytes32 public immutable program;
+    uint256 public immutable chainId;
+    mapping(bytes32 mint => address) public accountingId;
+    mapping(bytes32 mint => bool) public stock;
+    mapping(bytes32 venueKey => bool) private _venues;
+    SolanaMandateV6.Config private _config;
+
+    error InvalidNativeConfig();
+    error UnknownMint(bytes32 mint);
+    error UnknownVenue();
+    error UnsafeStockState(bytes32 mint);
+
+    /// @dev CR-18: at most `MAX_ASSETS` assets and `MAX_VENUES` venues, within what Solana's `initialize_fund` accepts,
+    ///      so the Hub never seals a native Mandate its spoke must refuse, and Fund creation at that largest Mandate
+    ///      is held to <= 30M gas by a fitness test (Arbitrum per-transaction cap: 32M).
+    constructor(SolanaMandateV6.Config memory config) {
+        if (
+            config.program == 0 || config.spoke == 0 || config.managerKey == 0 || config.usdcMint == 0
+                || config.chainId == 0 || config.assets.length == 0 || config.venues.length == 0
+                || config.assets.length > MAX_ASSETS || config.venues.length > MAX_VENUES
+                || config.usdcMint != 0xc6fa7af3bedbad3a3d65f36aabc97431b1bbe4c2d2f6e0e47ca60203452f5d61
+        ) revert InvalidNativeConfig();
+        nativeMandateHash = SolanaMandateV6.hash(config);
+        managerKey = config.managerKey;
+        spoke = config.spoke;
+        program = config.program;
+        chainId = config.chainId;
+        _config.program = config.program;
+        _config.spoke = config.spoke;
+        _config.usdcMint = config.usdcMint;
+        _config.managerKey = config.managerKey;
+        _config.chainId = config.chainId;
+        _config.transport = config.transport;
+        _config.swapPolicyHash = config.swapPolicyHash;
+        for (uint256 index; index < config.assets.length; ++index) {
+            SolanaMandateV6.Asset memory asset = config.assets[index];
+            if (
+                asset.mint == 0 || asset.accountingId == address(0) || accountingId[asset.mint] != address(0)
+                    || asset.accountingId != SolanaMandateV6.accountingId(asset.mint)
+            ) revert InvalidNativeConfig();
+            bool isStock = asset.mint == 0x07e83582411fea1482f0994b80aa512a97c94f25df283bec5a67a381fc862b4a
+                || asset.mint == 0x07e8a50e140fda5791f4566a957fd3ae3f873e6a3466ffc13d79119dfa9ab50a;
+            bool isUsdc = asset.mint == 0xc6fa7af3bedbad3a3d65f36aabc97431b1bbe4c2d2f6e0e47ca60203452f5d61;
+            bool isWrappedSol = asset.mint == 0x069b8857feab8184fb687f634618c035dac439dc1aeb3b5598a0f00000000001;
+            if ((!isStock && !isUsdc && !isWrappedSol) || asset.stock != isStock) revert InvalidNativeConfig();
+            for (uint256 prior; prior < index; ++prior) {
+                if (config.assets[prior].accountingId == asset.accountingId) revert InvalidNativeConfig();
+            }
+            accountingId[asset.mint] = asset.accountingId;
+            stock[asset.mint] = asset.stock;
+            _config.assets.push(asset);
+        }
+        token(config.usdcMint);
+        if (stock[config.usdcMint]) revert InvalidNativeConfig();
+        for (uint256 index; index < config.venues.length; ++index) {
+            SolanaMandateV6.Venue memory venue = config.venues[index];
+            if (venue.program == 0 || (venue.pool == 0) == (venue.reserve == 0)) revert InvalidNativeConfig();
+            token(venue.token0);
+            if (venue.token1 != 0) token(venue.token1);
+            bytes32 key = keccak256(abi.encode(venue));
+            if (_venues[key]) revert InvalidNativeConfig();
+            _venues[key] = true;
+            _config.venues.push(venue);
+        }
+    }
+
+    function nativeConfig() external view returns (SolanaMandateV6.Config memory) {
+        return _config;
+    }
+
+    /// @notice DEC-194, DEC-198, R9.1: native share mints/burns need a live price for every admitted stock, at any
+    ///         hour. A zero price, an incomplete round (`updatedAt == 0`) or a price older than the feed's own
+    ///         `maxPriceAge` fails closed; there is no market-hours gate (R9.1 superseded it on 2026-10-11).
+    function requireStockPricing(address source) external view {
+        for (uint256 index; index < _config.assets.length; ++index) {
+            SolanaMandateV6.Asset memory asset = _config.assets[index];
+            if (!asset.stock) continue;
+            (uint256 price, uint256 updatedAt) = IPriceSource(source).priceInUsdc(asset.accountingId);
+            if (price == 0 || updatedAt + IPriceSource(source).maxPriceAge(asset.accountingId) < block.timestamp) {
+                revert UnsafeStockState(asset.mint);
+            }
+        }
+    }
+
+    function token(bytes32 mint) public view returns (address identity) {
+        identity = accountingId[mint];
+        if (identity == address(0)) revert UnknownMint(mint);
+    }
+
+    function validatePosition(ReportCodecV6.Position memory position) external view {
+        SolanaMandateV6.Venue memory venue =
+            SolanaMandateV6.Venue(position.program, position.pool, position.reserve, position.token0, position.token1);
+        if (!_venues[keccak256(abi.encode(venue))] || position.position == 0) revert UnknownVenue();
+        if (position.reserve != 0) {
+            if (
+                position.token1 != 0 || position.liquidity != 0 || position.tickLower != 0 || position.tickUpper != 0
+                    || position.principal1 != 0 || position.income1 != 0
+            ) {
+                revert UnknownVenue();
+            }
+        } else if (
+            position.token1 == 0 || position.tickLower >= position.tickUpper || position.tickLower < -443_636
+                || position.tickUpper > 443_636 || position.liquidity == 0
+        ) {
+            revert UnknownVenue();
+        }
+    }
+
+    /// @dev DEC-194, DEC-198: pinned issuer witnesses; no arbitrary scalar or mixed corporate-action pricing.
+    function validateMintStates(ReportCodecV6.MintState[] memory states) external view {
+        for (uint256 index; index < _config.assets.length; ++index) {
+            bytes32 mint = _config.assets[index].mint;
+            if (!stock[mint]) continue;
+            uint256 matches;
+            for (uint256 stateIndex; stateIndex < states.length; ++stateIndex) {
+                ReportCodecV6.MintState memory state = states[stateIndex];
+                if (state.mint != mint) continue;
+                ++matches;
+                bool nvda = mint == 0x07e8a50e140fda5791f4566a957fd3ae3f873e6a3466ffc13d79119dfa9ab50a;
+                bool multiplierSafe = nvda
+                    ? state.multiplierBits == 0x3ff003c2ac1bf43f && state.newMultiplierBits == 0x3ff006f7d589fea9
+                        && state.effectiveAt == 1_789_000_200 && block.timestamp >= uint64(state.effectiveAt)
+                    : state.multiplierBits == 0x3ff0000000000000 && state.newMultiplierBits == 0x3ff0000000000000;
+                if (!multiplierSafe || state.paused || state.frozen || state.transferHook != 0) {
+                    revert UnsafeStockState(mint);
+                }
+            }
+            if (matches != 1) revert UnsafeStockState(mint);
+        }
+    }
+}

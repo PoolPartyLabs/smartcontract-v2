@@ -1,0 +1,6 @@
+target/
+.anchor/
+.localnet/
+node_modules/
+test-ledger/
+*.log

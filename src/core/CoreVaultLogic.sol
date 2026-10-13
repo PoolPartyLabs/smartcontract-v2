@@ -94,6 +94,10 @@ library CoreVaultLogic {
     ///      the fallback is the last read adjusted by those moves and never counts a returned amount in Idle and in
     ///      the hub value at once (consolidation verifier finding); market moves since the last read are not seen. Remote spokes need no value fallback: their last accepted report is kept by
     ///      the fund's own ValueReportReceiver and only their prices can fail.
+    /// @dev CR-36: this liveness covers the valuation only. Burning a share also needs every accepted spoke report fresh
+    ///      (DEC-160, `CoreVaultPayoutLogic._requireFreshReports`, both modes) and, on CoreVaultV6, every admitted
+    ///      stock feed within its max age. On a stale report or stock feed only a Standard payout request stays live: it
+    ///      books its reserve and term without burning; its claim waits for fresh state.
     /// @dev DEC-114 (D-33): the management fee accrued since the last valuation is booked here, before the Share Price
     ///      is read, so an entrant pays none of what accrued before it and a leaver bears its share through the price.
     /// @dev WP-07 D2, DEC-117: ends with the income hook `CoreVaultIncomeLogic.onValuation`, which gets the hub Spoke
